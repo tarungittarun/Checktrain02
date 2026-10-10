@@ -86,10 +86,36 @@ def res_references() -> list[str]:
     return problems
 
 
+def r_imports() -> list[str]:
+    """Every `R.<type>.<name>` needs `import in.opentrack.india.R` in that file.
+
+    `R` is generated in the application's own package, one level above `ui` / `data` / `domain`, so a file
+    that only ever reached for resources through ViewBinding — which is every screen in this project — fails
+    to compile the moment it gains its first direct `R.layout.foo`. That is a one-line import, invisible to
+    the rest of this toolchain, and it cost a build when the auto-refresh spinner acquired its own row
+    layout.
+    """
+    problems: list[str] = []
+    for kt in sorted(SRC.rglob("*.kt")):
+        # Kotlin escapes the reserved word `in` in this package path with backticks, so match on a
+        # backtick-free copy: `import `in`.opentrack.india.R` and `import in.opentrack.india.R` are the
+        # same statement, and a checker that cannot see that invents seven failures at once.
+        text = kt.read_text().replace("`", "")
+        if not re.search(r"\bR\.(?:string|drawable|layout|id|color|dimen|style|plurals|xml|anim)\b", text):
+            continue
+        m = re.search(r"^package\s+(.+)$", text, re.M)
+        pkg = (m.group(1) if m else "").replace("`", "").strip()
+        if pkg == "in.opentrack.india":
+            continue
+        if not re.search(r"^import\s+`?in\.opentrack\.india\.R`?\s*$", text, re.M):
+            problems.append(f"{kt}: uses R.* but does not import `in.opentrack.india.R`")
+    return problems
+
+
 def main() -> int:
     names = resource_names()
     problems = 0
-    for msg in res_references():
+    for msg in res_references() + r_imports():
         print(msg)
         problems += 1
     for kt in sorted(SRC.rglob("*.kt")):
