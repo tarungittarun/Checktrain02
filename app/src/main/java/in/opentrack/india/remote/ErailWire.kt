@@ -153,12 +153,23 @@ object ErailWire {
         )
     }
 
-    /** Settings-provided mapping, e.g. `0:seq,1:code,2:name,3:sa,4:sd,5:aa,6:ad,7:da,8:dd,9:pf`. */
+    /**
+     * Settings-provided mapping. Either order is accepted — `1:code` (what the Settings hint and the
+     * docs show, because reading a wire format is "column 1 holds the code") and `code:1` — since a
+     * person fixing a broken live screen at 6 a.m. should not have to remember which way round the
+     * pairs go. A segment that parses as neither is ignored rather than trusted.
+     */
     private fun stopByHint(fields: List<String>, seq: Int, hint: String?): WireStop {
         val map = HashMap<String, Int>()
         hint?.split(',')?.forEach { part ->
             val kv = part.split(':')
-            if (kv.size == 2) map[kv[0].trim().lowercase()] = kv[1].trim().toIntOrNull() ?: -1
+            if (kv.size == 2) {
+                val a = kv[0].trim().lowercase()
+                val b = kv[1].trim()
+                val (name, index) = if (a.all { it.isDigit() }) b.lowercase() to a.toIntOrNull()
+                else a to b.toIntOrNull()
+                if (name.isNotBlank() && index != null && index >= 0) map[name] = index
+            }
         }
         fun at(key: String): String? = map[key]?.let { fields.getOrNull(it)?.trim() }
         fun min(key: String): Int? = at(key)?.let { RailTime.parseHm(it) }
@@ -180,9 +191,13 @@ object ErailWire {
         val name = fields.firstOrNull { it.length > 6 && it.any { c -> c.isLetter() } &&
             !CODE_RE.matches(it) && !TIME_RE.matches(it) }
         val codes = fields.filter { CODE_RE.matches(it) }
-        val position = whole.lineSequence()
-            .firstOrNull { it.contains("current", true) || it.contains("last", true) && it.contains("station", true) }
-            ?.replace("~", " ")?.trim()?.takeIf { it.length in 12..300 }
+        // The position sentence is prose the service puts between the tables, and the payload arrives as
+        // ONE line delimited by `~`/`~^`/`~~~~~~~~` — so `lineSequence()` would hand back the entire
+        // body and match nothing. Split on the framing first, then look for the sentence.
+        val position = whole.split(FRAGMENT_RE)
+            .map { it.trim() }
+            .firstOrNull { it.length in 12..300 && it.any { c -> c.isLetter() } &&
+                POSITION_HINTS.any { h -> it.contains(h, true) } }
         if (no == null && name == null) return null
         return Header(
             trainNo = no, trainName = name?.uppercase(),
@@ -193,6 +208,13 @@ object ErailWire {
             note = null, positionLine = position,
         )
     }
+
+    /** Framing this format uses instead of newlines. */
+    private val FRAGMENT_RE = Regex("[\\n~]+")
+
+    /** Phrases that mark the "where is it now" sentence in the running-status payload. */
+    private val POSITION_HINTS = listOf("current station", "last reported", "is running", "arrived at",
+        "departed", "yet to arrive", "expected at", "located at", "position")
 
     private val TRAIN_NO_RE = Regex("^\\d{5}$")
     private val PLATFORM_RE = Regex("^(platform|pf)?\\s?\\d{1,2}$", RegexOption.IGNORE_CASE)

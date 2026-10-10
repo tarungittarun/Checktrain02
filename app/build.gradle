@@ -94,6 +94,18 @@ android {
     }
 }
 
+// A CI log that says only "FooTest > bar FAILED" is not a bug report. Full exception text costs
+// nothing on a green build and turns a red one into an actionable one — which matters most when the
+// runner is the only compiler available (see tools/ci, docs/ARCHITECTURE.md).
+tasks.withType(Test).configureEach {
+    testLogging {
+        events "failed"
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+        showCauses = true
+        showStackTraces = false
+    }
+}
+
 dependencies {
     implementation "androidx.core:core-ktx:1.13.1"
     // Everything the UI needs. No Material Components, no ConstraintLayout: the screens are linear

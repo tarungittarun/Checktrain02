@@ -76,12 +76,22 @@ object SnapshotCodec {
         return parts.joinToString(prefix = "{", postfix = "}", separator = ",")
     }
 
+    /**
+     * JSON string escaping for the values this codec writes.
+     *
+     * Control characters are *escaped*, never dropped: a note that came back from the feed with a
+     * newline in it must round-trip, because this same function writes the on-disk cache and the
+     * offline record. Silently deleting the character is the kind of "harmless" loss that makes a
+     * re-read snapshot differ from the one the UI already drew.
+     */
     private fun escape(v: String): String {
         val sb = StringBuilder(v.length + 8)
         for (c in v) when (c) {
             '"' -> sb.append("\\\"")
             '\\' -> sb.append("\\\\")
-            '\n', '\r' -> Unit
+            '\n' -> sb.append("\\n")
+            '\r' -> sb.append("\\r")
+            '\t' -> sb.append("\\t")
             else -> if (c >= ' ') sb.append(c)
         }
         return sb.toString()

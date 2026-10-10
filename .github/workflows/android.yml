@@ -118,6 +118,9 @@ jobs:
             echo "Failing tests:"
             grep -E "(FAILED|error:$)" /tmp/build.log | grep -v "^> Task" | head -40 || true
             echo
+            echo "Assertions:"
+            grep -E "AssertionError|expected:|but was:|No such|ClassNotFound|Unresolved" /tmp/build.log | head -40 || true
+            echo
             echo "First 60 Kotlin/Java errors:"
             echo
             echo '```'

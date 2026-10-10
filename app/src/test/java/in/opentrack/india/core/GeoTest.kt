@@ -33,10 +33,14 @@ class GeoTest {
         // Mumbai Central -> New Delhi, the corridor the reference DB covers densely.
         val bctToNdls = Geo.kmBetween(18.9402, 72.8355, 28.6139, 77.2090)
         assertEquals(1163.8, bctToNdls, 5.0)
-        // A degree of longitude near 20N is shorter than at the equator: the cos(lat) term must be
-        // present, or "nearest station" would be wrong by 20 % east-west.
+        // A degree of longitude shrinks with the cosine of the latitude; the cos(lat) term in the
+        // formula is what makes "nearest station" correct east-west as well as north-south. Asserted
+        // as the ratio rather than as a free-form "smaller" bound, because a missing cos() is a 6 %
+        // error at 20°N and a vague inequality would let a 50 % error through.
         val eq = Geo.kmBetween(0.0, 0.0, 0.0, 1.0)
         val at20 = Geo.kmBetween(20.0, 0.0, 20.0, 1.0)
-        assertTrue("expected latitude shrinkage, got $eq vs $at20", at20 < eq - 20)
+        assertEquals(eq * Math.cos(Math.toRadians(20.0)), at20, 1.0)
+        // A degree of latitude is the same number everywhere, which is the other half of that check.
+        assertEquals(eq, Geo.kmBetween(10.0, 78.0, 11.0, 78.0), 1.0)
     }
 }

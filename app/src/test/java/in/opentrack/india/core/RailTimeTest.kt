@@ -29,24 +29,26 @@ class RailTimeTest {
     }
 
     @Test
-    fun istEpochDayRollsAtHalfPastMidnightIst() {
-        // 2024-01-01 18:29 UTC is still 2023-12-31 23:59 IST.
+    fun istEpochDayRollsAtHalfPastMidnightUtcThePreviousDay() {
+        // IST is UTC+05:30, so the Indian calendar day begins at 18:30 UTC the day before. That
+        // half-hour is where a `floorDiv` on the wrong constant silently shifts every "does this train
+        // run today" answer by a day.
+        val boundary = java.time.Instant.parse("2023-12-31T18:30:00Z").toEpochMilli()
         val before = LocalDate.of(2023, 12, 31).toEpochDay()
         val after = LocalDate.of(2024, 1, 1).toEpochDay()
-        val millis = LocalDate.of(2024, 1, 1).atStartOfDay().toInstant(ZoneOffset.UTC).toEpochMilli()
-        assertEquals(before, RailTime.istEpochDay(millis - 60_000L))
-        assertEquals(before, RailTime.istEpochDay(millis - 1L))
-        // 18:30 UTC == 00:00 IST
-        assertEquals(after, RailTime.istEpochDay(millis))
+        assertEquals(after, RailTime.istEpochDay(boundary))
+        assertEquals(before, RailTime.istEpochDay(boundary - 1L))
+        assertEquals(after, RailTime.istEpochDay(boundary + 86_400_000L))
     }
 
     @Test
     fun istMinuteOfDayUsesThirtyMinuteOffset() {
-        val midnightIst = LocalDate.of(2024, 1, 1).atStartOfDay()
-            .toInstant(ZoneOffset.ofHours(5)).plusMillis(30 * 60_000L).toEpochMilli()
+        // 18:30 UTC == 00:00 IST: the minute counter must roll at the *half* hour, not the hour.
+        val midnightIst = java.time.Instant.parse("2023-12-31T18:30:00Z").toEpochMilli()
         assertEquals(0, RailTime.istMinuteOfDay(midnightIst))
         assertEquals(1, RailTime.istMinuteOfDay(midnightIst + 60_000L))
         assertEquals(1439, RailTime.istMinuteOfDay(midnightIst - 60_000L))
+        assertEquals(390, RailTime.istMinuteOfDay(midnightIst + 390 * 60_000L))
     }
 
     @Test
@@ -151,8 +153,9 @@ class RailTimeTest {
         // dd/mm vs mm/dd misreading, and the whole app is for readers on both conventions.
         assertEquals("14 Aug 2024", RailTime.formatDate(LocalDate.of(2024, 8, 14).toEpochDay()))
         assertEquals("1 Jan 1970", RailTime.formatDate(0L))
-        val midnightIst = LocalDate.of(2024, 1, 1).atStartOfDay()
-            .toInstant(ZoneOffset.ofTotalSeconds(5 * 3600 + 1800)).toEpochMilli()
+        // 2024-01-01T18:30Z == 2024-01-02 00:00 IST. Built from the instant, not from an offset
+        // arithmetic that is easy to get half an hour wrong (and would then test nothing).
+        val midnightIst = java.time.Instant.parse("2024-01-01T18:30:00Z").toEpochMilli()
         assertEquals("00:00", RailTime.formatClock(midnightIst))
         assertEquals("09:05", RailTime.formatClock(midnightIst + (9 * 60 + 5) * 60_000L))
         assertEquals("23:59", RailTime.formatClock(midnightIst + 86_400_000L - 60_000L))
@@ -162,8 +165,8 @@ class RailTimeTest {
     fun railMinuteToEpochMillisIsConsistent() {
         val origin = LocalDate.of(2024, 6, 15).toEpochDay()
         // 06:30 IST on the origin day
-        val expected = LocalDate.of(2024, 6, 15).atTime(6, 30)
-            .toInstant(ZoneOffset.ofTotalSeconds(5 * 3600 + 1800)).toEpochMilli()
+        // 06:30 IST on 2024-06-15 is 01:00 UTC the same day.
+        val expected = java.time.Instant.parse("2024-06-15T01:00:00Z").toEpochMilli()
         assertEquals(expected, RailTime.railMinuteToEpochMillis(origin, 390))
         // and one day later
         assertEquals(expected + 86_400_000L, RailTime.railMinuteToEpochMillis(origin, 390 + 1440))
