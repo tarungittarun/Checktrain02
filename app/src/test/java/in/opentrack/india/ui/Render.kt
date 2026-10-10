@@ -1,6 +1,7 @@
 package `in`.opentrack.india.ui
 
 import android.content.Context
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Rect
@@ -19,6 +20,9 @@ import `in`.opentrack.india.model.TrainPosition
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.robolectric.RuntimeEnvironment
 
 /**
@@ -135,14 +139,40 @@ object Render {
         }
     }
 
-    fun theme(): Context = ContextThemeWrapper(RuntimeEnvironment.getApplication(), R.style.Theme_OpenTrack)
+    /**
+     * The app's theme over the Robolectric application, optionally with a bigger system font.
+     *
+     * `fontScale` is what Settings → Display → "Font size" does, and AOSP's slider ends at 1.3 (OEM builds
+     * go higher). It is set on the Configuration *and* on `scaledDensity`, because sp is resolved through
+     * `scaledDensity` and a configuration context may hand back the shared metrics object — a render that
+     * claimed to be at a large font while silently keeping 1.0 is worse than not testing it at all, so
+     * `LargeScreenRenderTest` measures the difference before it trusts these pictures.
+     */
+    fun theme(fontScale: Float = 1f): Context {
+        val app = RuntimeEnvironment.getApplication()
+        val base = if (fontScale == 1f) app else {
+            val cfg = Configuration(app.resources.configuration)
+            cfg.fontScale = fontScale
+            app.createConfigurationContext(cfg)
+        }
+        return ContextThemeWrapper(base, R.style.Theme_OpenTrack).also {
+            val dm = it.resources.displayMetrics
+            dm.scaledDensity = dm.density * fontScale
+        }
+    }
 
     fun dp(ctx: Context, v: Float): Float =
         TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v, ctx.resources.displayMetrics)
 
-    fun render(layoutRes: Int, heightDp: Float = 0f, prepare: (View) -> Unit = {}): Shot {
-        val ctx = theme()
-        val w = dp(ctx, WIDTH_DP).toInt()
+    fun render(
+        layoutRes: Int,
+        widthDp: Float = WIDTH_DP,
+        heightDp: Float = 0f,
+        fontScale: Float = 1f,
+        prepare: (View) -> Unit = {},
+    ): Shot {
+        val ctx = theme(fontScale)
+        val w = dp(ctx, widthDp).toInt()
         val device = dp(ctx, if (heightDp > 0f) heightDp else HEIGHT_DP).toInt()
         val cap = dp(ctx, MAX_CONTENT_DP).toInt()
         val host = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
@@ -228,6 +258,33 @@ object Render {
      * There is no synchronous setter to use instead: recyclerview 1.3 exposes `getCurrentList()` only, and
      * `currentList =` is not assignable (the getter is `@NonNull`, so Kotlin sees a val).
      */
+    /**
+     * Nothing about this text was cut: neither an ellipsis, nor the silent kind.
+     *
+     * This is the check no unit test can fake, because it reads the `Layout` the real `TextView` built and so
+     * only passes if the text fitted *at this width, in this font size*. Asserting on the string instead is
+     * what let "SBC → SMET · 274 km · …" ship: the value was right, the pixels were not.
+     *
+     * `getEllipsisCount` alone is not enough. A `singleLine` `TextView` with no `ellipsize` — which is what
+     * `@style/Pill` is — does not draw an ellipsis at all, it simply stops drawing, so a badge reading
+     * "OFFLINE · schedule onl" would pass an ellipsis check while losing letters off the right edge. Every
+     * line's measured width is therefore compared with the width the view was given.
+     */
+    fun assertNothingCut(view: View?, what: String = "view") {
+        val tv = view as? TextView
+        assertNotNull("no $what view to measure", tv)
+        val layout = tv!!.layout
+        assertNotNull("$what was never laid out", layout)
+        for (line in 0 until layout.lineCount) {
+            assertEquals("$what was cut with an ellipsis on line $line of '${tv.text}'",
+                0, layout.getEllipsisCount(line))
+            val need = Math.round(layout.getLineWidth(line))
+            val have = layout.width
+            assertTrue("$what needs $need px on line $line but only has $have px: '${tv.text}'",
+                have <= 0 || need <= have + 1)
+        }
+    }
+
     fun settle(list: RecyclerView?, expected: Int) {
         val main = org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper())
         var waited = 0

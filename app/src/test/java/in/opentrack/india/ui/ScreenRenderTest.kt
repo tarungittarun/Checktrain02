@@ -329,13 +329,6 @@ class ScreenRenderTest {
         shot.root.resources.getResourceEntryName(id)
 
     /** A label truncated by its own box is a layout bug, not a small-screen problem. */
-    /** Fails with the string that was clipped, because "it was cut" is not information a log can act on. */
-    private fun assertNotClipped(tv: TextView?, what: String = "view") {
-        assertNotNull("no $what view to measure", tv)
-        val layout = tv!!.layout
-        assertNotNull("$what was never laid out")
-        for (line in 0 until layout.lineCount) {
-            assertEquals("$what clipped at line $line of '${tv.text}'", 0, layout.getEllipsisCount(line))
-        }
-    }
+    /** Lives in [Render] now, because the large-screen test has to make the same claim about other pixels. */
+    private fun assertNotClipped(tv: TextView?, what: String = "view") = Render.assertNothingCut(tv, what)
 }
