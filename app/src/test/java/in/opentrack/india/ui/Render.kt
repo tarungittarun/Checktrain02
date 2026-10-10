@@ -190,6 +190,9 @@ object Render {
         text(root, R.id.headline, m.headline)
         text(root, R.id.provenance, m.provenanceLabel)
         text(root, R.id.age, m.ageLabel)
+        // The same composition the Activity uses, so no fixture has to invent this sentence (and cannot
+        // quietly put facts on a screen that the app never shows there).
+        text(root, R.id.sourceText, TrainActivity.sourceText(m, emptyList()))
         text(root, R.id.delay, m.delayLabel)
         text(root, R.id.next, m.nextLabel)
         text(root, R.id.progressLabel, m.progressLabel)

@@ -226,7 +226,11 @@ object TrackModel {
             routeLabel = buildString {
                 append(route.srcCode).append(" → ").append(route.dstCode)
                 if (route.totalKm > 0) append(" · ").append(route.totalKm).append(" km")
-                append(" · ").append(route.stops.size).append(" stops")
+                // Deliberately ends here. The stop count was next and it is what the 360 dp header ran out of
+                // room for — "SBC → SMET · 274 km · …" — and an ellipsis on a two-clause line looks like the
+                // app has more to say and is withholding it. The count is the first thing the table below
+                // scrolls through, and the row count is asserted in `ShippedDataTest`.
+
             },
             runDateLabel = "run of ${RailTime.formatDate(runEpochDay)}",
             headline = headline(route, pos, anchor, next, live, nowRailMinute),

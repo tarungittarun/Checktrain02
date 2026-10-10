@@ -161,17 +161,7 @@ class TrainActivity : AppCompatActivity() {
      * taps, which is what makes a claim like "this came from cache" auditable instead of vibes.
      */
     private fun bindSource(m: TrackModel.View, ui: LiveViewModel.Ui) {
-        binding.sourceText.text = buildString {
-            append("Position source: ${m.provenanceLabel} · ${m.ageLabel}")
-            append("\nProviders tried this refresh: ")
-            append(
-                if (ui.tried.isEmpty()) "none — answered from the on-device timetable"
-                else ui.tried.joinToString(", ") { it.replace("_", " ").lowercase() }
-            )
-            append("\n${m.runDateLabel} · ${m.rows.size} stops loaded · ")
-            append(if (m.hasDistances) "distances from the offline reference data"
-            else "no distance data for this train")
-        }
+        binding.sourceText.text = sourceText(m, ui.tried)
     }
 
     override fun onStart() {
@@ -185,6 +175,24 @@ class TrainActivity : AppCompatActivity() {
     }
 
     companion object {
+        /**
+         * What the disclosure says. It is a companion function rather than a line of the Activity because the
+         * test-source render harness has to paint the same sentence: while it was written out twice, the two
+         * drifted, and a preview of this app claimed the provenance strip listed the size of the shipped
+         * timetable, which it never does. One composition, so a screenshot cannot lie.
+         */
+        fun sourceText(m: TrackModel.View, tried: List<String>): String = buildString {
+            append("Position source: ${m.provenanceLabel} · ${m.ageLabel}")
+            append("\nProviders tried this refresh: ")
+            append(
+                if (tried.isEmpty()) "none — answered from the on-device timetable"
+                else tried.joinToString(", ") { it.replace("_", " ").lowercase() }
+            )
+            append("\n${m.runDateLabel} · ${m.rows.size} stops loaded · ")
+            append(if (m.hasDistances) "distances from the offline reference data"
+            else "no distance data for this train")
+        }
+
         const val EXTRA_TRAIN_NO = "trainNo"
         const val EXTRA_FROM = "fromCode"
         const val EXTRA_TO = "toCode"

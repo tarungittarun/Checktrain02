@@ -47,6 +47,14 @@ import org.robolectric.annotation.GraphicsMode
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class ScreenRenderTest {
 
+    private companion object {
+        /**
+         * [in.opentrack.india.data.RailRepository.dataVersion] over the shipped reference DB. Every screen
+         * that quotes the size of the timetable uses this one string, so the previews cannot disagree.
+         */
+        const val DATA_VERSION = "6,775 trains · timetable 10 Oct 2026"
+    }
+
     private fun stop(seq: Int, code: String, name: String, arr: Int?, dep: Int?, km: Int) = StopRow(
         seq = seq, code = code, name = name, state = "KR", lat = null, lon = null,
         arrivalMin = arr, departureMin = dep, journeyDay = 1, schedKm = km, isHalt = true,
@@ -119,7 +127,10 @@ class ScreenRenderTest {
         assertTrue("the headline should follow the table's casing: '$headline'",
             headline.contains("Dobetakapur") && !headline.contains("DOBETAKAPUR"))
         assertEquals(m.trainNo, shot.text(R.id.trainNo))
-        assertNotClipped(shot.root.findViewById(R.id.headline))
+        assertNotClipped(shot.root.findViewById(R.id.headline), "headline")
+        // The header line is where the app used to lose a word to an ellipsis; the fix is in the layout, so
+        // it can only be checked on a laid-out screen.
+        assertNotClipped(shot.root.findViewById(R.id.routeLabel), "routeLabel ('${shot.text(R.id.routeLabel)}')")
 
         assertEquals("every stop must be in the list", 9, Render.rowCount(shot.root))
         val list = shot.root.findViewById<RecyclerView>(R.id.stops)!!
@@ -132,6 +143,10 @@ class ScreenRenderTest {
             // The word under the live column is what says whether that minute was reported or projected.
             assertTrue("row $i does not name what its live column holds", text(row, R.id.liveTag).isNotBlank())
             assertTrue("row $i is missing its distance/platform line", text(row, R.id.stopMeta).isNotBlank())
+            // No row may have its name or its "code · km · note" line cut with an ellipsis: this is where a
+            // traveller reads the boarding and alighting marks, and "…you g…" was on a shipping screen.
+            row.findViewById<TextView>(R.id.stopName)?.let { assertNotClipped(it, "row $i stopName") }
+            row.findViewById<TextView>(R.id.stopMeta)?.let { assertNotClipped(it, "row $i stopMeta") }
         }
         // The distance ladder is what the user asked for: the first row reads 0 km, the last one is the
         // train's total, and the middle rows must therefore be strictly increasing.
@@ -166,8 +181,10 @@ class ScreenRenderTest {
         val shot = Render.render(R.layout.activity_train, heightDp = 1480f) { root ->
             Render.track(root, m, p, 432)
             root.findViewById<View>(R.id.sourceCard)?.visibility = View.VISIBLE
-            Render.text(root, R.id.sourceText,
-                "LIVE · erail.in\nfetched 1 min ago\n6,775 trains · 141,908 stops on device")
+            // `sourceText` is written by `Render.track` through `TrainActivity.sourceText`, so this fixture
+            // no longer gets to say whatever it likes about what the strip contains. It used to print a
+            // timetable-size line that the app does not put there.
+            Unit
         }
         assertEquals(9, Render.rowCount(shot.root))
         Render.save("03-track-full", shot.bitmap)
@@ -218,8 +235,13 @@ class ScreenRenderTest {
             root.findViewById<SuggestBox>(R.id.fromBox)?.hint = "Board at — station name or code"
             root.findViewById<SuggestBox>(R.id.toBox)?.hint = "Get off at — station name or code"
             root.findViewById<SuggestBox>(R.id.trainBox)?.hint = "5-digit number or a name fragment"
-            Render.text(root, R.id.statusLine, "Timetable ready · 6,796 trains on device")
-            Render.text(root, R.id.dataChip, "Built-in timetable · 11 Oct 2026")
+            // In the Ready state MainActivity hides `statusLine` (`visibility = GONE`) and puts
+            // `repository.dataVersion()` in `dataChip`. Both strings here are that method's shape over the
+            // shipped asset — counts and build date included, 6,775 trains rather than a number invented for
+            // the picture. `ShippedDataTest` reads those counts out of the packaged DB; a fixture that made
+            // its own up was how one preview ended up contradicting its neighbours.
+            root.findViewById<View>(R.id.statusLine)?.visibility = View.GONE
+            Render.text(root, R.id.dataChip, DATA_VERSION)
             Render.text(root, R.id.resultsTitle, "5 trains between these stations")
             Render.text(root, R.id.resultsSub, "sorted by departure · 4 ms on device")
             root.findViewById<RecyclerView>(R.id.results)?.apply {
@@ -270,11 +292,13 @@ class ScreenRenderTest {
     @Test
     fun settingsScreenHasEveryControlTheActivityBinds() {
         val shot = Render.render(R.layout.activity_settings) { root ->
-            Render.text(root, R.id.state, "Built-in timetable\n6,775 trains · 141,908 stops · 8,990 " +
-                "stations\ninstalled 11 Oct 2026 · schema 7")
-            Render.text(root, R.id.about, "OpenTrack India 1.0 · timetable: built-in, 11 Oct 2026\n\n" +
+            // SettingsActivity's own two strings, word for word (its `state` line has never contained a
+            // count, and the "schema 7" this fixture used to print is not a number the app shows anywhere).
+            Render.text(root, R.id.state, "Built-in timetable installed · offline search ready")
+            Render.text(root, R.id.about, "OpenTrack India 1.0 · timetable: $DATA_VERSION\n\n" +
                 "No accounts, no API keys, no ads, no analytics. Live status is fetched directly from a " +
-                "public Indian Railways enquiry endpoint; everything else is answered here.")
+                "public Indian Railways enquiry endpoint; everything else — station search, the ±24 h " +
+                "train list and every timetable — is answered here.")
             // The spinner's rows are built by the Activity from an ArrayAdapter over `item_spinner_choice`;
             // doing the same here is what proves that layout inflates and lays out at all.
             root.findViewById<android.widget.Spinner>(R.id.refreshChoices)?.apply {
@@ -305,12 +329,13 @@ class ScreenRenderTest {
         shot.root.resources.getResourceEntryName(id)
 
     /** A label truncated by its own box is a layout bug, not a small-screen problem. */
-    private fun assertNotClipped(tv: TextView?) {
-        assertNotNull("no headline view to measure", tv)
+    /** Fails with the string that was clipped, because "it was cut" is not information a log can act on. */
+    private fun assertNotClipped(tv: TextView?, what: String = "view") {
+        assertNotNull("no $what view to measure", tv)
         val layout = tv!!.layout
-        assertNotNull("headline was never laid out")
+        assertNotNull("$what was never laid out")
         for (line in 0 until layout.lineCount) {
-            assertEquals("headline clipped at line $line of '${tv.text}'", 0, layout.getEllipsisCount(line))
+            assertEquals("$what clipped at line $line of '${tv.text}'", 0, layout.getEllipsisCount(line))
         }
     }
 }

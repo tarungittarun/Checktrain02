@@ -47,6 +47,13 @@
         android:layout_weight="1"
         android:orientation="vertical">
 
+        <!--
+            Two lines, not one, for the name and for the "code · km · note" line under it. Both were
+            `singleLine`, which is how the shipping screens ended up reading "SMET · 274 km · you g…" on the
+            last row: the boarding note is the one line a traveller needs to see to trust that the leg is
+            marked, and it was the exact thing the width could not hold. `ellipsize` stays for names long
+            enough to need a third line, so a wrap is the normal outcome and a cut is the exception.
+        -->
         <TextView
             android:id="@+id/stopName"
             style="@style/TextBody"
@@ -54,7 +61,7 @@
             android:layout_height="wrap_content"
             android:ellipsize="end"
             android:fontFamily="sans-serif-medium"
-            android:singleLine="true" />
+            android:maxLines="2" />
 
         <TextView
             android:id="@+id/stopMeta"
@@ -62,7 +69,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="3dp"
-            android:singleLine="true" />
+            android:maxLines="2" />
     </LinearLayout>
 
     <LinearLayout

@@ -92,8 +92,10 @@ class TrackModelTest {
             m.provenanceLabel.contains("LIVE"))
         assertTrue("a no-feed headline has to hedge: '${m.headline}'",
             m.headline.contains("Should") || m.headline.contains("not available", true))
-        assertTrue("the header line must not be long enough to clip: '${m.routeLabel}'",
-            m.routeLabel.length <= 40)
+        // "codes · km" and nothing else: at 360 dp a third clause was ellipsised ("SBC → SMET · 274 km · …"),
+        // and a truncated header is the first thing a traveller reads. `ScreenRenderTest` proves the pixels.
+        assertTrue("header line should be codes then distance, one separator each: '${m.routeLabel}'",
+            m.routeLabel.count("·") == 1 && m.routeLabel.endsWith("km"))
         // Casing of the names *inside* a sentence is asserted in `ScreenRenderTest`, where the fixture's
         // station names are all-caps the way the source data has them; this file's fixtures are already
         // mixed case, so a check here would pass without looking at anything.
