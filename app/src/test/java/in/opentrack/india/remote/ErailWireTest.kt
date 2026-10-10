@@ -42,6 +42,33 @@ class ErailWireTest {
     }
 
     @Test
+    fun aHaltReachedAfterMidnightIsLateByMinutesNotEarlyByADay() {
+        // Scheduled 23:50, reported by the feed as "00:20" with no day attached — an overnight train losing
+        // half an hour, the normal case rather than the edge one. A plain subtraction of these two clocks
+        // answers -1410, which becomes a "23 h 30 m early" chip, carries a 23-hour lead forward to every halt
+        // still ahead, and bends the reported curve back on itself on the chart.
+        val text = "12951~Night test~~~~~~~~~~~~~~~~~~~1~MID~Itarshi~23:50~23:55~00:20~00:25~^2~DST~Dest~00:30~00:35~00:40~00:45"
+        val parsed = ErailWire.parse(text)
+        assertEquals(2, parsed.stops.size)
+        val late = parsed.stops[0]
+        assertEquals(1430, late.schedArr)
+        assertEquals(20, late.actArr)
+        assertEquals("the delay is the short way round the clock", 30, late.delayArr)
+        assertEquals(30, late.delayDep)
+        // The next halt, whose *schedule* is already past midnight, keeps its own day: 00:40 against 00:30.
+        assertEquals(10, parsed.stops[1].delayArr)
+    }
+
+    @Test
+    fun aFeedThatSaysOnTimeIsAReportAndNotAnAbsenceOfOne() {
+        // "+0" is a statement. Dropping it so the delay could be "re-derived" from the clocks made an on-time
+        // halt past midnight inherit whatever the wrap-around subtraction happened to produce.
+        val text = "12951~Night test~~~~~~~~~~~~~~~~~~~1~MID~Itarshi~23:50~23:55~23:50~23:55~+0"
+        val stop = ErailWire.parse(text).stops[0]
+        assertEquals("an on-time report stays a report", 0, stop.delayArr)
+    }
+
+    @Test
     fun aStationCodeAndATimeMakeARow() {
         val stop = ErailWire.stopFrom(listOf("NDLS", "New Delhi", "07:50", "07:55"), 0, null)
         assertNotNull(stop)

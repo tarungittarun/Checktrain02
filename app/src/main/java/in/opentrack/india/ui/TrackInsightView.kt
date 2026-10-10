@@ -137,6 +137,7 @@ class TrackInsightView @JvmOverloads constructor(
         // stop, which is the opposite of the point.
         schedPath.rewind(); shownPath.rewind(); areaPath.rewind(); dots.clear()
         var any = false
+        var lastShownMinute = -1
         slice.forEachIndexed { i, s ->
             val km = if (hasDistance) (s.kmFromOrigin - baseKm).toFloat() else i.toFloat()
             val st = s.schedDep ?: s.schedArr
@@ -145,18 +146,27 @@ class TrackInsightView @JvmOverloads constructor(
                 if (schedPath.isEmpty) schedPath.moveTo(x, y) else schedPath.lineTo(x, y)
                 any = true
             }
+            // `lastShownMinute` exists because the x axis *is* time: one reported minute that lands before the
+            // previous stop's — a stale row from a provider, a halt whose day the feed left out — would draw
+            // the line back on itself, and a loop in a plot of "distance so far" reads as the train reversing.
+            // Only the drawn path is clamped; the table keeps printing what was reported.
             val lt = s.showDep ?: s.showArr
-            if (lt != null) {
-                val x = tx(lt.toFloat()); val y = ty(km)
-                if (shownPath.isEmpty) { shownPath.moveTo(x, y); areaPath.moveTo(x, height - padBot) }
-                else shownPath.lineTo(x, y)
-                areaPath.lineTo(x, y)
+            val shownX = if (lt == null) -1f else {
+                val minute = if (lastShownMinute < 0) lt else max(lt, lastShownMinute)
+                lastShownMinute = minute
+                tx(minute.toFloat())
+            }
+            if (lt != null && shownX >= 0f) {
+                val y = ty(km)
+                if (shownPath.isEmpty) { shownPath.moveTo(shownX, y); areaPath.moveTo(shownX, height - padBot) }
+                else shownPath.lineTo(shownX, y)
+                areaPath.lineTo(shownX, y)
             }
             if (s.isAnchor || s.isBoarding || s.isAlighting ||
                 (i % max(1, ceil(slice.size / 24f).toInt()) == 0)) {
-                val t = lt ?: st
-                if (t != null) dots.add(
-                    floatArrayOf(tx(t.toFloat()), ty(km), if (s.isAnchor || s.isBoarding || s.isAlighting) 1f else 0f)
+                val x = if (shownX >= 0f) shownX else st?.let { tx(it.toFloat()) } ?: -1f
+                if (x >= 0f) dots.add(
+                    floatArrayOf(x, ty(km), if (s.isAnchor || s.isBoarding || s.isAlighting) 1f else 0f)
                 )
             }
         }

@@ -173,6 +173,31 @@ class RailTimeTest {
         assertEquals(expected + 86_400_000L, RailTime.railMinuteToEpochMillis(origin, 390 + 1440))
     }
     @Test
+    fun clockTimesAcrossMidnightAreADelayNotADayOfAdvance() {
+        // The pair a live feed actually sends: a clock for what happened, and a schedule counted from the
+        // run's first halt. Subtracting one from the other across midnight is the single most confident way
+        // this app could have been wrong — it calls a 30-minute slip "23 h 30 m early".
+        assertEquals(30, RailTime.clockDelta(RailTime.parseHm("00:20"), RailTime.parseHm("23:50")))
+        assertEquals(-25, RailTime.clockDelta(RailTime.parseHm("23:35"), RailTime.parseHm("00:00")))
+        assertEquals(10, RailTime.clockDelta(610, 600))
+        assertEquals("half a day of drift is read as late, not as a day early", 720,
+            RailTime.clockDelta(720, 0))
+        assertEquals(0, RailTime.clockDelta(600, 600))
+        assertNull("no clock, no claim", RailTime.clockDelta(null, 600))
+        assertNull("no schedule to differ from", RailTime.clockDelta(600, null))
+
+        // And a clock is placed on the run's own day scale, so a day-2 halt reported as "00:20" is printed
+        // as 00:20 *on day 2* rather than 22 hours before the schedule cell beside it.
+        assertEquals(1460, RailTime.alignClock(RailTime.parseHm("00:20"), 1470))
+        assertEquals(20, RailTime.alignClock(RailTime.parseHm("00:20"), 30))
+        assertEquals(1442, RailTime.alignClock(2, 1440))
+        assertEquals("nothing to anchor to leaves the clock alone", 20, RailTime.alignClock(20, null))
+        assertNull(RailTime.alignClock(null, 1470))
+        // A value already on the run's scale stays put: this is a day-1 halt, not a wrapped one.
+        assertEquals(605, RailTime.alignClock(605, 600))
+    }
+
+    @Test
     fun buildStampsAreShownInTheReadersCalendarNotAsAnIsoBlob() {
         // The status chip answers "how old is my timetable", which a UTC ISO stamp does not: it makes
         // the reader add five and a half hours in their head. Half an hour, at 2 a.m., on a train.

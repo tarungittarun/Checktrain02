@@ -57,6 +57,15 @@ class TrackModelTest {
         confidence = TrainPosition.Confidence.HIGH, ageSeconds = 5,
     )
 
+    /** The overnight shape of the same train: MID and DST are reached on day 2 of the run. */
+    private fun overnightRoute() = route().copy(
+        stops = listOf(
+            stop(1, "SRC", null, 1380, 0),            // boards 23:00, day 1
+            stop(2, "MID", 1440, 1450, 100),         // 00:00 / 00:10 (+1d)
+            stop(3, "DST", 1470, null, 200),         // 00:30 (+1d)
+        ),
+    )
+
     private fun model(
         route: TrainRoute = route(), pos: TrainPosition,
         perStop: Map<String, LiveStopFields> = emptyMap(), now: Int = 620,
@@ -64,6 +73,22 @@ class TrackModelTest {
     ) = TrackModel.build(route, pos, perStop, now, board, alight, 19949L, note)
 
     // ------------------------------------------------------------- reported vs expected vs timetable
+
+    @Test
+    fun aReportedClockTimeIsPlacedOnTheDayItsScheduleBelongsTo() {
+        // The day-2 bug, end to end: a feed answers "00:02" for a halt the table puts at 00:00 (+1d). Printed
+        // as given, the two cells in one row are 24 hours apart and the delay reads "-1438".
+        val r = overnightRoute()
+        val m = model(
+            route = r, pos = pos(2, 3, StopStatus.DEPARTED),
+            perStop = mapOf("MID" to LiveStopFields(actualArrivalMin = 2)), now = 1445,
+        )
+        assertEquals("a day-blind clock must be put on the run's own day", 1442, m.rows[1].showArr)
+        assertEquals("00:02 (+1d)", RailTime.formatRailMinute(m.rows[1].showArr!!))
+        assertEquals("the row the sentence is about is still this one", true, m.rows[1].isAnchor)
+        assertTrue("a halt two minutes late is not 23 hours early: '${m.delayLabel}'",
+            m.delayLabel != "23h 38m early")
+    }
 
     @Test
     fun withNoFeedAtAllEveryRowIsTheTimetableAndNotAForecast() {

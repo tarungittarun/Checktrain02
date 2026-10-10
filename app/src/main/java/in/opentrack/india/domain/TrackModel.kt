@@ -138,8 +138,12 @@ object TrackModel {
         val stops = route.stops.mapIndexed { index, s ->
             val liveFields = perStop[s.code]
             val carried = overlay.getOrNull(index)
-            val actualArr = liveFields?.actualArrivalMin
-            val actualDep = liveFields?.actualDepartureMin
+            // Aligned to the scheduled minute before use: the feed answers with a clock, the table counts
+            // from the run's first halt, and without this a halt on day 2 put "00:20" under "00:30 (+1d)" —
+            // two cells in one row that a traveller has to subtract 24 hours between. The alignment is what
+            // `LargeScreenRenderTest`'s picture showed happening; see `RailTime.alignClock`.
+            val actualArr = RailTime.alignClock(liveFields?.actualArrivalMin, s.arrivalMin)
+            val actualDep = RailTime.alignClock(liveFields?.actualDepartureMin, s.departureMin)
             val delay = liveFields?.let { it.delayArrivalMin ?: it.delayDepartureMin } ?: carried
             // Confirmed time where the feed reported one; otherwise the schedule, nudged by the delay
             // we are allowed to carry forward (which delayProfile restricts to stops still ahead).

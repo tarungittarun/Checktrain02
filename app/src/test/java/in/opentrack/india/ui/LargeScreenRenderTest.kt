@@ -107,13 +107,22 @@ class LargeScreenRenderTest {
         )
         // Two reported cells, so the live columns hold real minutes rather than "—": a column that clips is
         // only interesting when something is in it.
+        // Reported as *clocks*, because that is what the feed sends: scheduled + 12, reduced to a
+        // minute-of-day. For an overnight halt that leaves a number far below its own schedule, which is the
+        // case `RailTime.alignClock` has to put back on the run's day scale before it is drawn or plotted —
+        // a fixture that handed both columns coherent cumulative minutes would have tested none of it.
+        fun clock(sched: Int?, shift: Int): Int? = sched?.let { (it + shift) % RailTime.MINUTES_PER_DAY }
+        val passed = route.stops[anchor - 1]
+        val ahead = route.stops[anchor]
         val per = mapOf(
-            route.stops[anchor - 1].code to LiveStopFields(
-                actualArrivalMin = 470, actualDepartureMin = 474,
-                delayArrivalMin = 12, delayDepartureMin = 12, platform = "3",
+            passed.code to LiveStopFields(
+                actualArrivalMin = clock(passed.arrivalMin ?: passed.departureMin, 12),
+                actualDepartureMin = clock(passed.departureMin ?: passed.arrivalMin, 16),
+                delayArrivalMin = 12, delayDepartureMin = 14, platform = "3",
             ),
-            route.stops[anchor].code to LiveStopFields(
-                actualArrivalMin = 505, delayArrivalMin = 14, departed = false,
+            ahead.code to LiveStopFields(
+                actualArrivalMin = clock(ahead.arrivalMin, 14),
+                delayArrivalMin = 14, departed = false,
             ),
         )
         val m = TrackModel.build(

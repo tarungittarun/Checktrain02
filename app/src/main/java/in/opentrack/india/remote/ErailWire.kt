@@ -136,8 +136,12 @@ object ErailWire {
         val sched = times.getOrNull(0) to times.getOrNull(1)
         val actual = times.getOrNull(2) to times.getOrNull(3)
         // Delay: a signed column when the feed sent one, otherwise derived from actual minus scheduled.
-        var delayArr = signed.getOrNull(0)?.takeIf { it != 0 }
-        var delayDep = signed.getOrNull(1)?.takeIf { it != 0 }
+        // The feed's own signed column is authority *including when it says 0*. The `takeIf { it != 0 }` that
+        // used to sit here turned a reported "on time" into a null, which the branch below then "re-derived"
+        // from the two clocks — and a punctual halt past midnight re-derives to ±23 h, because clocks are
+        // day-blind. A report is kept; a derivation is still allowed to conclude "nothing to carry".
+        var delayArr = signed.getOrNull(0)
+        var delayDep = signed.getOrNull(1)
         // Copied to locals first: `first`/`second` are public properties of another module's `Pair`,
         // so the null test above does not license a smart cast at the arithmetic site.
         val schedArr = sched.first
@@ -145,10 +149,10 @@ object ErailWire {
         val actArr = actual.first
         val actDep = actual.second
         if (delayArr == null && actArr != null && schedArr != null) {
-            delayArr = (actArr - schedArr).takeIf { it != 0 }
+            delayArr = RailTime.clockDelta(actArr, schedArr)?.takeIf { it != 0 }
         }
         if (delayDep == null && actDep != null && schedDep != null) {
-            delayDep = (actDep - schedDep).takeIf { it != 0 }
+            delayDep = RailTime.clockDelta(actDep, schedDep)?.takeIf { it != 0 }
         }
         return WireStop(
             seq = seq, code = code, name = name,

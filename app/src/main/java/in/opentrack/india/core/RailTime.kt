@@ -52,6 +52,43 @@ object RailTime {
         return sb.toString()
     }
 
+    /**
+     * The signed gap between two minute-of-day clocks, taking the day that makes the movement smaller.
+     *
+     * A live feed reports "00:20" and the reference table reports "23:50", and neither says which day of the
+     * run it means. Plain subtraction answers "-1410 minutes", i.e. a train that arrived half an hour late is
+     * declared 23 h 30 m *early* — and that number is not cosmetic: it is what the delay chip prints, what
+     * `PositionEngine.delayProfile` carries forward to every stop still ahead, and what bends the reported
+     * curve on the chart. Wrapping into ±12 h turns it into +30.
+     *
+     * A gap of exactly 12 h or more cannot be resolved from clocks alone — a day of drift either way would
+     * fit — so it is reported as late rather than early (the common direction) and is visibly odd enough to
+     * be questioned. `null` when either side is missing: no invented difference.
+     */
+    fun clockDelta(actual: Int?, scheduled: Int?): Int? {
+        if (actual == null || scheduled == null) return null
+        val d = actual - scheduled
+        return when {
+            d < -MINUTES_PER_DAY / 2 -> d + MINUTES_PER_DAY
+            d > MINUTES_PER_DAY / 2 -> d - MINUTES_PER_DAY
+            else -> d
+        }
+    }
+
+    /**
+     * Put a day-blind clock time on the run's cumulative minute scale, choosing the nearest day to
+     * [scheduled]. The table counts minutes from the run's first halt, so a halt on day 2 is 1470 there and
+     * "00:30" in a feed; printed side by side, those two are a 24-hour apart pair of cells in the same row.
+     */
+    fun alignClock(clock: Int?, scheduled: Int?): Int? {
+        if (clock == null) return null
+        if (scheduled == null) return clock      // nothing to anchor to, so show what the feed said
+        var v = Math.floorMod(clock, MINUTES_PER_DAY)
+        while (v - scheduled < -MINUTES_PER_DAY / 2) v += MINUTES_PER_DAY
+        while (v - scheduled > MINUTES_PER_DAY / 2) v -= MINUTES_PER_DAY
+        return v
+    }
+
     /** "14:30" regardless of which day of the run it falls on. */
     fun formatRailMinuteBare(railMinute: Int): String {
         val minute = ((railMinute % MINUTES_PER_DAY) + MINUTES_PER_DAY) % MINUTES_PER_DAY
