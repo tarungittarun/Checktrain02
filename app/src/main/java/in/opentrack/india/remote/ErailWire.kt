@@ -127,6 +127,12 @@ object ErailWire {
             }
         }
         if (code == null && times.isEmpty()) return null
+        // An identity row (train number, name, endpoints, distance) also carries a station code, so the
+        // test above alone would read it as a halt: it has no times, but a truncated tail has none
+        // either, so "no time" cannot be the disqualifier. What separates it is the leading integer — a
+        // halt row starts with a sequence number, this row starts with the five-digit train number.
+        // Classifying it as a stop would both invent a halt and hide the train's identity from Header.
+        if (times.isEmpty() && fields.getOrNull(0)?.let { TRAIN_NO_RE.matches(it) } == true) return null
         val sched = times.getOrNull(0) to times.getOrNull(1)
         val actual = times.getOrNull(2) to times.getOrNull(3)
         // Delay: a signed column when the feed sent one, otherwise derived from actual minus scheduled.

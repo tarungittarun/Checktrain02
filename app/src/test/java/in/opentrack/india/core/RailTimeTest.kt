@@ -6,7 +6,6 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
-import java.time.ZoneOffset
 
 /**
  * The calendar maths in [RailTime] is hand-written (no `java.time` on API 24 without desugaring), so
@@ -38,7 +37,9 @@ class RailTimeTest {
         val after = LocalDate.of(2024, 1, 1).toEpochDay()
         assertEquals(after, RailTime.istEpochDay(boundary))
         assertEquals(before, RailTime.istEpochDay(boundary - 1L))
-        assertEquals(after, RailTime.istEpochDay(boundary + 86_400_000L))
+        // The same clock time one day later is one day later in the Indian calendar too — asserted as
+        // after + 1 because `boundary` is already 00:00 IST of `after`.
+        assertEquals(after + 1, RailTime.istEpochDay(boundary + 86_400_000L))
     }
 
     @Test
