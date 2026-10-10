@@ -83,6 +83,23 @@ class TrackModelTest {
     }
 
     @Test
+    fun anOfflineScreenNeverCallsItsOwnDataLive() {
+        // The age chip is where "did anything arrive?" is answered, so a schedule-only run must not write
+        // "live" in it — `ageSeconds` is 0 there, and `age(0)` said exactly that before this test existed.
+        val m = model(pos = pos(0, 1, StopStatus.UNKNOWN, kind = SourceKind.OFFLINE_SCHEDULE), now = 700)
+        assertEquals("no live fetch", m.ageLabel)
+        assertFalse("the provenance badge must not read LIVE: '${m.provenanceLabel}'",
+            m.provenanceLabel.contains("LIVE"))
+        assertTrue("a no-feed headline has to hedge: '${m.headline}'",
+            m.headline.contains("Should") || m.headline.contains("not available", true))
+        assertTrue("the header line must not be long enough to clip: '${m.routeLabel}'",
+            m.routeLabel.length <= 40)
+        // Casing of the names *inside* a sentence is asserted in `ScreenRenderTest`, where the fixture's
+        // station names are all-caps the way the source data has them; this file's fixtures are already
+        // mixed case, so a check here would pass without looking at anything.
+    }
+
+    @Test
     fun aLiveDelayTurnsStopsAheadIntoProjectionsAndLeavesReportedOnesReported() {
         val m = model(
             pos = pos(1, 2, StopStatus.DEPARTED, delay = 12),

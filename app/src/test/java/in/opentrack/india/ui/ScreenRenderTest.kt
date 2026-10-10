@@ -105,14 +105,19 @@ class ScreenRenderTest {
         val shot = Render.render(R.layout.activity_train) { root -> Render.track(root, m, p, 432) }
 
         // Nothing the Activity is supposed to write may still be a format template or blank.
+        val headline = shot.text(R.id.headline)
         val strings = listOf(
-            shot.text(R.id.headline), shot.text(R.id.provenance), shot.text(R.id.age), shot.text(R.id.delay),
+            headline, shot.text(R.id.provenance), shot.text(R.id.age), shot.text(R.id.delay),
             shot.text(R.id.next), shot.text(R.id.progressLabel), shot.text(R.id.trainNo),
             shot.text(R.id.routeLabel), shot.text(R.id.runDate), shot.text(R.id.chartLegend),
         )
         strings.forEach { assertTrue("unfilled or empty label: '$it'", it.isNotBlank() && !it.contains("%")) }
-        assertTrue("headline too short to be a sentence: '${shot.text(R.id.headline)}'",
-            shot.text(R.id.headline).length > 20)
+        assertTrue("headline too short to be a sentence: '$headline'", headline.length > 20)
+        // The fixture's stop names are ALL CAPS, as the upstream dump writes them. A sentence that carries
+        // them verbatim ("Between DOBETAKAPUR and TUMAKURU") sits above a table that prints "Dobetakapur",
+        // and two casings on one screen is how an app starts to look untrustworthy.
+        assertTrue("the headline should follow the table's casing: '$headline'",
+            headline.contains("Dobetakapur") && !headline.contains("DOBETAKAPUR"))
         assertEquals(m.trainNo, shot.text(R.id.trainNo))
         assertNotClipped(shot.root.findViewById(R.id.headline))
 

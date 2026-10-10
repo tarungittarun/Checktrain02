@@ -220,13 +220,23 @@ object TrackModel {
         return View(
             trainNo = route.trainNo,
             trainName = route.trainName,
-            routeLabel = "${route.srcCode} → ${route.dstCode} · ${route.srcName} to ${route.dstName}",
+            // Codes, distance, size of the working timetable — not the endpoints' full names, which are
+            // longer than this line and were being ellipsised into "SBC → SMET · KSR BEN…". A header that
+            // truncates mid-word is the kind of detail that makes a whole screen look untrustworthy.
+            routeLabel = buildString {
+                append(route.srcCode).append(" → ").append(route.dstCode)
+                if (route.totalKm > 0) append(" · ").append(route.totalKm).append(" km")
+                append(" · ").append(route.stops.size).append(" stops")
+            },
             runDateLabel = "run of ${RailTime.formatDate(runEpochDay)}",
             headline = headline(route, pos, anchor, next, live, nowRailMinute),
             tone = tone(pos, live),
             provenanceLabel = pos.provenance.label,
             isLive = live,
-            ageLabel = age(pos.ageSeconds),
+            // "1 min ago" on a screen with nothing to fetch is a small untruth with a big reach: the age
+            // chip is the one place that says whether data arrived. `ageSeconds` is 0 for a schedule-only
+            // answer, which `age()` renders as "live" — exactly the claim this app must never make.
+            ageLabel = if (live) age(pos.ageSeconds) else "no live fetch",
             delayLabel = delayLabel(pos, live),
             nextLabel = nextLabel(next, route, alightSeq),
             progressLabel = progressLabel,
@@ -284,7 +294,11 @@ object TrackModel {
         if (anchor == null) {
             return if (pos.status == StopStatus.UPCOMING) "Not departed yet" else "Position not available yet"
         }
-        val name = anchor.name
+        // The station names inside a *sentence* are title-cased, because the table below renders them that
+        // way and a screen that writes "KSR Bengaluru" in one place and "YESVANTPUR JN" in another reads
+        // like two apps stitched together. The rule is the one the rows already use (`TitleCase`), so the
+        // two can never disagree about how a name looks.
+        val name = TitleCase.of(anchor.name)
         val late = pos.delayMinutes?.let { if (abs(it) >= 2) " · ${RailTime.formatDelay(it)}" else "" } ?: ""
         if (anchor.state == State.CANCELLED) return "Cancelled at $name"
         if (!live) {
@@ -293,7 +307,7 @@ object TrackModel {
             val ahead = next?.let { it.kmFromBoard - anchor.kmFromBoard }
             return when {
                 anchor.state == State.HERE -> "Should be at $name now"
-                gap > 90 * 60 -> "Should have finished the run at ${route.dstName}"
+                gap > 90 * 60 -> "Should have finished the run at ${TitleCase.of(route.dstName)}"
                 ahead != null && gap > 0 -> "Should be past $name, ${RailTime.formatDuration(gap)} into the " +
                     "$ahead km leg"
                 else -> "Should have left $name by now"
@@ -302,8 +316,8 @@ object TrackModel {
         val platform = anchor.platform?.takeIf { it.isNotBlank() }?.let { " · platform $it" } ?: ""
         return when {
             anchor.state == State.HERE -> "At $name$platform"
-            pos.fraction >= 0.95f && next != null -> "Approaching ${next.name}"
-            pos.fraction > 0f && next != null -> "Between $name and ${next.name}"
+            pos.fraction >= 0.95f && next != null -> "Approaching ${TitleCase.of(next.name)}"
+            pos.fraction > 0f && next != null -> "Between $name and ${TitleCase.of(next.name)}"
             pos.status == StopStatus.DEPARTED -> "Departed $name$late"
             else -> "Last report at $name"
         }
@@ -334,12 +348,13 @@ object TrackModel {
     }
 
     private fun nextLabel(next: Stop?, route: TrainRoute, alightSeq: Int): String {
-        if (next == null) return "Last halt reached · destination ${route.dstName}"
-        val t = next.showDep ?: next.showArr ?: return "Next: ${next.name}"
+        if (next == null) return "Last halt reached · destination ${TitleCase.of(route.dstName)}"
+        val t = next.showDep ?: next.showArr ?: return "Next: ${TitleCase.of(next.name)}"
         val clock = RailTime.formatRailMinute(t)
         val when0 = next.minutesFromNow?.let { " · ${formatGap(it)}" } ?: ""
         val kind = if (next.estimated) "expected" else "due"
-        val at = if (next.seq == alightSeq) "${next.name} (your stop)" else next.name
+        val nm = TitleCase.of(next.name)
+        val at = if (next.seq == alightSeq) "$nm (your stop)" else nm
         return "Next: $at · $clock $kind$when0"
     }
 
