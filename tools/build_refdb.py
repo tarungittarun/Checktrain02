@@ -2,7 +2,7 @@
 """
 OpenTrack India — reference database ETL.
 
-Builds the SQLite file that ships inside the APK (`app/src/main/assets/ref/refdb.db.gz`).
+Builds the SQLite file that ships inside the APK (`app/src/main/assets/ref/refdb.dbgz`).
 Everything the app must answer *with no network at all* comes from here:
 
   * station resolution from free text (code / name / initials)
@@ -40,7 +40,7 @@ Design decisions that shape the output
    schedule refresh fails the build instead of shipping.
 
 Usage:
-    python3 tools/build_refdb.py                       # -> app/src/main/assets/ref/refdb.db.gz
+    python3 tools/build_refdb.py                       # -> app/src/main/assets/ref/refdb.dbgz
     python3 tools/build_refdb.py --profile full --skip-assets
     python3 tools/build_refdb.py --no-clone            # reuse .cache/raildata (offline)
 """
@@ -765,9 +765,11 @@ def main(argv=None) -> int:
     ap.add_argument("--cache-dir", default=".cache/raildata")
     ap.add_argument("--no-clone", action="store_true", help="reuse the cache dir; fail instead of cloning")
     ap.add_argument("--skip-verify", action="store_true")
+    # `.dbgz`, not `.gz`: aapt renames `.gz` assets while packaging, so an asset called refdb.db.gz
+    # would not be findable under that name at runtime. See RefDb.ASSET_NAME.
     ap.add_argument("--out", default=None,
-                    help="explicit destination for refdb.db.gz (Gradle's syncRefDb uses this); "
-                         "default: app/src/main/assets/ref/refdb.db.gz")
+                    help="explicit destination for refdb.dbgz (Gradle's syncRefDb uses this); "
+                         "default: app/src/main/assets/ref/refdb.dbgz")
     ap.add_argument("--skip-assets", action="store_true",
                     help="do not copy the .db.gz into app assets (data-only build)")
     ap.add_argument("--emit-geojson", action="store_true",
@@ -808,7 +810,7 @@ def main(argv=None) -> int:
     with open(os.path.join(args.build_dir, f"refdb-{args.profile}-manifest.json"), "w") as fh:
         json.dump(manifest, fh, indent=1)
 
-    target = args.out or os.path.join("app", "src", "main", "assets", "ref", "refdb.db.gz")
+    target = args.out or os.path.join("app", "src", "main", "assets", "ref", "refdb.dbgz")
     if not args.skip_assets:
         out_dir = os.path.dirname(target) or "."
         os.makedirs(out_dir, exist_ok=True)
@@ -817,7 +819,7 @@ def main(argv=None) -> int:
         with open(os.path.join(out_dir, "refdb-manifest.json"), "w") as fh:
             json.dump(manifest, fh, indent=1)
         mb = os.path.getsize(target) / 1e6
-        log(f"asset: refdb.db.gz = {mb:.2f} MB"
+        log(f"asset: refdb.dbgz = {mb:.2f} MB"
             + ("  <-- OVER APK BUDGET" if mb > ASSET_SOFT_LIMIT_MB else f" (budget {ASSET_SOFT_LIMIT_MB} MB)"))
 
     if args.emit_geojson:

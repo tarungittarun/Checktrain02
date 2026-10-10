@@ -93,7 +93,7 @@ the repository.
 
 ```bash
 python3 tools/build_refdb.py --profile halts \
-    --out app/src/main/assets/ref/refdb.db.gz   # deterministic, verified, ~4 min
+    --out app/src/main/assets/ref/refdb.dbgz   # deterministic, verified, ~4 min
 ./gradlew :app:assembleDebug                    # or :app:assembleRelease
 ./gradlew :app:testDebugUnitTest
 ```

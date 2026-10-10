@@ -15,6 +15,7 @@ data/ref/*.json
 data/ref/routes.*
 !data/ref/.gitkeep
 app/src/main/assets/ref/*.gz
+app/src/main/assets/ref/*.dbgz
 app/src/main/assets/ref/*.json
 
 # downloaded reference dumps

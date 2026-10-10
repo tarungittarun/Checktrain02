@@ -21,7 +21,7 @@ this file carries the global *why*.
 upstream public dump (schedules.json, stations.json, trains.json)
         │  tools/build_refdb.py   (deterministic ETL; verifies as it builds)
         ▼
-data/ref/refdb.db  ──gzip──►  app/src/main/assets/ref/refdb.db.gz   (5.52 MB)
+data/ref/refdb.db  ──gzip──►  app/src/main/assets/ref/refdb.dbgz   (5.52 MB)
         │  RefDb.prepare(): extract once into filesDir/ref/refdb.db,
         │  schema-version gated, validated by a PRAGMA quick_check + meta probe
         ▼
@@ -192,7 +192,7 @@ the screen is drawn while the DB is still being installed, and `Phase` drives th
 
 | | |
 | --- | --- |
-| `refdb.db.gz` asset | 5 520 974 B — the dominant term, and the thing that makes C1 possible |
+| `refdb.dbgz` asset | 5 520 974 B — the dominant term, and the thing that makes C1 possible |
 | Kotlin + 6 AndroidX artifacts | R8-shrunk release classes; debug is larger and is not what users install |
 | Resources | ~15 XML files, one vector icon, `resConfigs "en"` (drops ~700 kB of AndroidX translations) |
 | Deliberately absent | Compose runtime (~2.5 MB), Maps SDK + Play services (~9 MB with tiles), OkHttp+Retrofit+Gson (~1.4 MB), Room (~1 MB + KSP), Coil/Glide, RxJava, Firebase |

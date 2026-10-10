@@ -50,7 +50,16 @@ class RefDb private constructor(private val db: SQLiteDatabase) {
 
     companion object {
         private const val TAG = "RefDb"
-        const val ASSET_NAME = "ref/refdb.db.gz"
+        /**
+         * Not `.gz`, on purpose. aapt recognises `.gz` assets and renames them at packaging time — the
+         * entry in the APK becomes `ref/refdb.db` — so `open("ref/refdb.db.gz")` throws
+         * FileNotFoundException in a build that passed every task and every unit test. The reports on
+         * that behaviour even disagree about whether the bytes stay gzip-framed, which is a worse kind
+         * of unknown than an unusual extension. `.dbgz` means nothing to the toolchain: the name we ask
+         * for is the name that ships, and GZIPInputStream below is the only decompression in the path.
+         * tools/ci and the CI job assert that this string and the file the ETL wrote agree.
+         */
+        const val ASSET_NAME = "ref/refdb.dbgz"
         private const val DB_FILE = "refdb.db"
         private const val EXTRACT_BUFFER = 64 * 1024
 
