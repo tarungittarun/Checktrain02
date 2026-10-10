@@ -1,0 +1,158 @@
+package in.opentrack.india.core
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import java.time.LocalDate
+import java.time.ZoneOffset
+
+/**
+ * The calendar maths in [RailTime] is hand-written (no `java.time` on API 24 without desugaring), so
+ * it is tested against `java.time` on the JVM over a wide range rather than with a handful of examples.
+ * A one-day error here shifts every ±24 h search and every "runs on Tuesday" answer.
+ */
+class RailTimeTest {
+
+    @Test
+    fun epochDayMatchesJavaTimeAcrossCentury() {
+        for (offsetDays in -30_000L..30_000L step 7) {
+            val date = LocalDate.of(2000, 1, 1).plusDays(offsetDays)
+            val epochDay = date.toEpochDay()
+            val (y, m, d) = RailTime.civilFromDays(epochDay)
+            assertEquals("civilFromDays($epochDay)", date.year, y)
+            assertEquals("civilFromDays($epochDay)", date.monthValue, m)
+            assertEquals("civilFromDays($epochDay)", date.dayOfMonth, d)
+            assertEquals(epochDay, RailTime.daysFromCivil(y, m, d))
+        }
+    }
+
+    @Test
+    fun istEpochDayRollsAtHalfPastMidnightIst() {
+        // 2024-01-01 18:29 UTC is still 2023-12-31 23:59 IST.
+        val before = LocalDate.of(2023, 12, 31).toEpochDay()
+        val after = LocalDate.of(2024, 1, 1).toEpochDay()
+        val millis = LocalDate.of(2024, 1, 1).atStartOfDay().toInstant(ZoneOffset.UTC).toEpochMilli()
+        assertEquals(before, RailTime.istEpochDay(millis - 60_000L))
+        assertEquals(before, RailTime.istEpochDay(millis - 1L))
+        // 18:30 UTC == 00:00 IST
+        assertEquals(after, RailTime.istEpochDay(millis))
+    }
+
+    @Test
+    fun istMinuteOfDayUsesThirtyMinuteOffset() {
+        val midnightIst = LocalDate.of(2024, 1, 1).atStartOfDay()
+            .toInstant(ZoneOffset.ofHours(5)).plusMillis(30 * 60_000L).toEpochMilli()
+        assertEquals(0, RailTime.istMinuteOfDay(midnightIst))
+        assertEquals(1, RailTime.istMinuteOfDay(midnightIst + 60_000L))
+        assertEquals(1439, RailTime.istMinuteOfDay(midnightIst - 60_000L))
+    }
+
+    @Test
+    fun weekdayBitmapMatchesJavaTime() {
+        // run_days is a weekday bitmap with bit 0 = Sunday (the shape the upstream dump uses).
+        for (offset in 0L..36L) {
+            val date = LocalDate.of(2024, 3, 1).plusDays(offset)
+            val epochDay = date.toEpochDay()
+            val mondayZero = RailTime.istWeekdayOfEpochDay(epochDay)
+            assertEquals("weekday of $date", date.dayOfWeek.value - 1, mondayZero)
+            val sundayBit = ((mondayZero + 1) % 7)
+            val bitmap = 1 shl sundayBit
+            assertTrue("$date should run on $bitmap", RailTime.runsOn(bitmap, mondayZero))
+            val complement = 127.inv() or bitmap   // every day except this one
+            assertTrue("$date still runs on $complement", RailTime.runsOn(complement, mondayZero))
+            val without = bitmap.inv() and 127
+            assertFalse("$date must not run on $without", RailTime.runsOn(without, mondayZero))
+        }
+    }
+
+    @Test
+    fun nullRunDaysMeansAssumeRunning() {
+        assertTrue(RailTime.runsOn(null, 3))
+        // An empty bitmap is not "unknown", it is "no day" — usually a cancelled train. Hiding it is the
+        // honest answer; the ±24 h window already surfaced it under "does not run on this date".
+        assertFalse(RailTime.runsOn(0, 3))
+    }
+
+    @Test
+    fun railMinuteFormatsWithDayMarkers() {
+        assertEquals("00:00", RailTime.formatRailMinute(0))
+        assertEquals("23:59", RailTime.formatRailMinute(1439))
+        // A run that arrives at 04:00 on day 2 must not print as "04:00" next to a 23:50 departure —
+        // the marker is the only thing that keeps the row honest, so it is unconditional.
+        assertEquals("00:00 (+1d)", RailTime.formatRailMinute(1440))
+        assertEquals("06:30 (+1d)", RailTime.formatRailMinute(1830))
+        assertEquals("08:00 (+1d)", RailTime.formatRailMinute(1920))
+        assertEquals("23:59 (-1d)", RailTime.formatRailMinute(-1))
+        assertEquals("08:00", RailTime.formatRailMinuteBare(1920))
+    }
+
+    @Test
+    fun dayOffsetFloorsForNegatives() {
+        assertEquals(0, RailTime.dayOffsetOf(0))
+        assertEquals(1, RailTime.dayOffsetOf(1440))
+        assertEquals(-1, RailTime.dayOffsetOf(-1))
+        assertEquals(-1, RailTime.dayOffsetOf(-1440))
+        assertEquals(-2, RailTime.dayOffsetOf(-1441))
+    }
+
+    @Test
+    fun parseHmAcceptsTheShapesTheFeedUses() {
+        assertEquals(0, RailTime.parseHm("00:00"))
+        assertEquals(1439, RailTime.parseHm("23:59:00"))
+        assertEquals(390, RailTime.parseHm(" 6:30 "))
+        assertNull(RailTime.parseHm(null))
+        assertNull(RailTime.parseHm(""))
+        assertEquals(0, RailTime.parseHm("24:00"))
+        assertEquals(5, RailTime.parseHm("24:05"))
+        assertNull(RailTime.parseHm("12:75"))
+        assertNull(RailTime.parseHm("None"))
+        assertNull(RailTime.parseHm("--:--"))
+    }
+
+    @Test
+    fun durationsAndDelays() {
+        assertEquals("0m", RailTime.formatDuration(0))
+        assertEquals("1h 30m", RailTime.formatDuration(90))
+        assertEquals("2h 5m", RailTime.formatDuration(125))
+        assertEquals("1d 1h", RailTime.formatDuration(1500))
+        assertEquals("on time", RailTime.formatDelay(0))
+        assertTrue(RailTime.formatDelay(14).contains("14"))
+        assertTrue(RailTime.formatDelay(-6).contains("6"))
+    }
+
+    @Test
+    fun weekdayOfKnownDates() {
+        // 2024-01-01 was a Monday; 2024-06-15 was a Saturday.
+        assertEquals(0, RailTime.istWeekdayOfEpochDay(LocalDate.of(2024, 1, 1).toEpochDay()))
+        assertEquals(5, RailTime.istWeekdayOfEpochDay(LocalDate.of(2024, 6, 15).toEpochDay()))
+        // 1969-12-31 was a Wednesday, and it is a *negative* epoch day — the modulo must not go
+        // negative, or every pre-1970 date reports the wrong running day.
+        assertEquals(2, RailTime.istWeekdayOfEpochDay(-1L))
+    }
+
+    @Test
+    fun isoDateRoundTrip() {
+        for (offset in 0L..400L step 13) {
+            val date = LocalDate.of(2024, 1, 1).plusDays(offset)
+            val iso = "%04d-%02d-%02d".format(date.year, date.monthValue, date.dayOfMonth)
+            assertEquals(iso, RailTime.formatIsoDate(date.toEpochDay()))
+            assertEquals(date.toEpochDay(), RailTime.epochDayOf(iso))
+        }
+        assertEquals("20240101", RailTime.formatCompactDate(LocalDate.of(2024, 1, 1).toEpochDay()))
+        assertNull(RailTime.epochDayOf("2024/01/01"))
+        assertNull(RailTime.epochDayOf("junk"))
+    }
+
+    @Test
+    fun railMinuteToEpochMillisIsConsistent() {
+        val origin = LocalDate.of(2024, 6, 15).toEpochDay()
+        // 06:30 IST on the origin day
+        val expected = LocalDate.of(2024, 6, 15).atTime(6, 30)
+            .toInstant(ZoneOffset.ofTotalSeconds(5 * 3600 + 1800)).toEpochMilli()
+        assertEquals(expected, RailTime.railMinuteToEpochMillis(origin, 390))
+        // and one day later
+        assertEquals(expected + 86_400_000L, RailTime.railMinuteToEpochMillis(origin, 390 + 1440))
+    }
+}
