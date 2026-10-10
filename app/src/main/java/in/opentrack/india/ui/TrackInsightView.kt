@@ -115,7 +115,7 @@ class TrackInsightView @JvmOverloads constructor(
         val desired = (w * 0.72f).toInt().coerceIn(MIN_HEIGHT, MAX_HEIGHT)
         val h = when (mode) {
             MeasureSpec.EXACTLY -> MeasureSpec.getSize(heightMeasureSpec)
-            MeasureSpec.AT_MOST -> min(desired, MeasureSpec.getSize(heightMeasureSpec))
+            MeasureSpec.AT_MOST -> desired.coerceAtMost(MeasureSpec.getSize(heightMeasureSpec))
             else -> desired
         }
         setMeasuredDimension(w, h)
@@ -140,7 +140,9 @@ class TrackInsightView @JvmOverloads constructor(
         val t0 = windowStartMin ?: (first.arrivalMin ?: first.departureMin ?: 0)
         val t1Auto = last.departureMin ?: last.arrivalMin ?: (t0 + 60)
         val liveMinute = position?.etaNextMinute
-        val t1 = windowEndMin ?: max(t1Auto, liveMinute ?: 0, t0 + 30)
+        // `maxOf`, not `max`: `kotlin.math.max` is the binary function, and three candidates — the
+        // window end, the live marker, and a floor so a one-stop train still has a plot width.
+        val t1 = windowEndMin ?: maxOf(t1Auto, liveMinute ?: 0, t0 + 30)
         val kMin = first.schedKm.toFloat()
         val kMax = max(kMin + 1f, last.schedKm.toFloat())
 

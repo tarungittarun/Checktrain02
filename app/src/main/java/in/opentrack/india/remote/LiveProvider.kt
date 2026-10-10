@@ -183,7 +183,12 @@ class SnapshotStore(context: Context) {
             val tmp = File(f.parentFile, f.name + ".tmp")
             tmp.writeText(SnapshotCodec.encode(snapshot))
             if (f.exists()) f.delete()
-            tmp.renameTo(f) || tmp.copyTo(f, overwrite = true)
+            if (!tmp.renameTo(f)) {
+                // Some private-storage mounts refuse a rename; a copy is the fallback, and the temp
+                // file is then removed, or it accumulates one per refresh for every train watched.
+                tmp.copyTo(f, overwrite = true)
+                tmp.delete()
+            }
         }
     }
 

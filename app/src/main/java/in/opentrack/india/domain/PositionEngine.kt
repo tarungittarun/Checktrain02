@@ -174,8 +174,9 @@ object PositionEngine {
 
         // Rule 3 — monotonic across refreshes. `req.previous` is only supplied by the caller when it
         // belongs to the same run, so no identity check is needed here.
+        val anchorNow = anchorSeq
         req.previous?.let { prev ->
-            if (prev.anchorSeq > anchorSeq) {
+            if (prev.anchorSeq > anchorNow) {
                 val kept = prev.copy(ageSeconds = age / 1000, provenance = provenance)
                 return Answer(
                     position = kept,

@@ -132,16 +132,22 @@ object ErailWire {
         // Delay: a signed column when the feed sent one, otherwise derived from actual minus scheduled.
         var delayArr = signed.getOrNull(0)?.takeIf { it != 0 }
         var delayDep = signed.getOrNull(1)?.takeIf { it != 0 }
-        if (delayArr == null && actual.first != null && sched.first != null) {
-            delayArr = (actual.first - sched.first).takeIf { it != 0 }
+        // Copied to locals first: `first`/`second` are public properties of another module's `Pair`,
+        // so the null test above does not license a smart cast at the arithmetic site.
+        val schedArr = sched.first
+        val schedDep = sched.second
+        val actArr = actual.first
+        val actDep = actual.second
+        if (delayArr == null && actArr != null && schedArr != null) {
+            delayArr = (actArr - schedArr).takeIf { it != 0 }
         }
-        if (delayDep == null && actual.second != null && sched.second != null) {
-            delayDep = (actual.second - sched.second).takeIf { it != 0 }
+        if (delayDep == null && actDep != null && schedDep != null) {
+            delayDep = (actDep - schedDep).takeIf { it != 0 }
         }
         return WireStop(
             seq = seq, code = code, name = name,
-            schedArr = sched.first, schedDep = sched.second,
-            actArr = actual.first, actDep = actual.second,
+            schedArr = schedArr, schedDep = schedDep,
+            actArr = actArr, actDep = actDep,
             delayArr = delayArr, delayDep = delayDep,
             platform = platform, statusWord = status, unknownFields = unknown,
         )

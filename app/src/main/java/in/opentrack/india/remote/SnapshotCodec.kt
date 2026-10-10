@@ -62,6 +62,20 @@ object SnapshotCodec {
         return parts.joinToString(prefix = "{", postfix = "}", separator = ",")
     }
 
+    /**
+     * One object of the `stops` array. Null values are omitted rather than written as `null`, because
+     * `decode` reads an absent key and an explicit null identically, and a sparse object is what the
+     * feeds themselves send — the file stays readable when a provider confirmed only two of fifteen
+     * stops.
+     */
+    private fun fields(vararg pairs: Pair<String, String?>): String {
+        val parts = ArrayList<String>(pairs.size)
+        for ((k, v) in pairs) {
+            if (v != null) parts += "\"" + escape(k) + "\":\"" + escape(v) + "\""
+        }
+        return parts.joinToString(prefix = "{", postfix = "}", separator = ",")
+    }
+
     private fun escape(v: String): String {
         val sb = StringBuilder(v.length + 8)
         for (c in v) when (c) {

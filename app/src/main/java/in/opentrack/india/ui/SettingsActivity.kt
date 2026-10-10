@@ -53,19 +53,19 @@ class SettingsActivity : AppCompatActivity() {
             }
         }
         binding.back.setOnClickListener { finish() }
-        binding.about.text = buildString {
-            append("OpenTrack India ${BuildConfig.VERSION_NAME}\n")
-            append("Timetable: ")
-            append(
-                (runCatching {
-                    (application as App).repository()?.dataVersion()
-                }.getOrNull()) ?: "not installed"
-            )
-            append("\n\nNo accounts, no API keys, no ads, no analytics. Live status is fetched ")
-            append("directly from a public Indian Railways enquiry endpoint; everything else — ")
-            append("station search, the ±24 h train list and every timetable — is answered on-device.")
-        }
+        // Both labels need the repository, which is a suspend lookup (it may still be extracting on a
+        // first run), so they are set together from one coroutine rather than reached for inline.
         lifecycleScope.launch {
+            val version = runCatching {
+                (application as App).repository()?.dataVersion()
+            }.getOrNull() ?: "not installed"
+            binding.about.text = buildString {
+                append("OpenTrack India ").append(BuildConfig.VERSION_NAME)
+                append(" · timetable: ").append(version).append("\n\n")
+                append("No accounts, no API keys, no ads, no analytics. Live status is fetched ")
+                append("directly from a public Indian Railways enquiry endpoint; everything else — ")
+                append("station search, the ±24 h train list and every timetable — is answered here.")
+            }
             binding.state.text = when {
                 RefDb.isUsable(this@SettingsActivity) ->
                     "Built-in timetable installed · offline search ready"

@@ -29,6 +29,11 @@ import `in`.opentrack.india.core.RailTime
  */
 class RefDb private constructor(private val db: SQLiteDatabase) {
 
+    // Declared on the class, not inside the companion: a type nested in a companion object is not
+    // reachable as `RefDb.State`, which is how every caller writes it.
+    enum class State { READY, NEEDS_EXTRACT, EXTRACTING, BROKEN }
+
+
     /** Run [block] against the read-only handle. All app queries go through here. */
     fun <T> use(block: (SQLiteDatabase) -> T): T = synchronized(this) { block(db) }
 
@@ -52,15 +57,15 @@ class RefDb private constructor(private val db: SQLiteDatabase) {
         @Volatile
         private var opened: RefDb? = null
 
-        enum class State { READY, NEEDS_EXTRACT, EXTRACTING, BROKEN }
-
         fun dbFile(context: Context): File = File(context.filesDir, DB_FILE)
 
         fun state(context: Context): State {
             val f = dbFile(context)
             if (!f.exists() || f.length() < 4096) return State.NEEDS_EXTRACT
+            // `REFDB_SCHEMA_VERSION` is a `long` buildConfigField (the DB column is INTEGER), so the
+            // comparison happens on the wider type rather than by shrinking the constant.
             val version = peekVersion(f) ?: return State.BROKEN
-            return if (version == BuildConfig.REFDB_SCHEMA_VERSION) State.READY else State.NEEDS_EXTRACT
+            return if (version.toLong() == BuildConfig.REFDB_SCHEMA_VERSION) State.READY else State.NEEDS_EXTRACT
         }
 
         /**
@@ -158,7 +163,7 @@ class RefDb private constructor(private val db: SQLiteDatabase) {
         }
 
         private fun SQLiteDatabase.versionOkForSchema(): Boolean =
-            (metaInt("schema_version") ?: -1) == BuildConfig.REFDB_SCHEMA_VERSION
+            (metaInt("schema_version") ?: -1).toLong() == BuildConfig.REFDB_SCHEMA_VERSION
 
         fun openOrCreate(context: Context): RefDb {
             opened?.let { return it }
