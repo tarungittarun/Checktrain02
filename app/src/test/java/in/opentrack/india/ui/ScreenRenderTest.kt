@@ -234,6 +234,17 @@ class ScreenRenderTest {
         val shot = Render.render(R.layout.activity_settings) { root ->
             Render.text(root, R.id.state, "Built-in timetable\n6,775 trains · 141,908 stops · 8,990 " +
                 "stations\ninstalled 11 Oct 2026 · schema 7")
+            Render.text(root, R.id.about, "OpenTrack India 1.0 · timetable: built-in, 11 Oct 2026\n\n" +
+                "No accounts, no API keys, no ads, no analytics. Live status is fetched directly from a " +
+                "public Indian Railways enquiry endpoint; everything else is answered here.")
+            // The spinner's rows are built by the Activity from an ArrayAdapter over `item_spinner_choice`;
+            // doing the same here is what proves that layout inflates and lays out at all.
+            root.findViewById<android.widget.Spinner>(R.id.refreshChoices)?.apply {
+                adapter = android.widget.ArrayAdapter(
+                    context, R.layout.item_spinner_choice, listOf("30 s", "1 min", "5 min", "10 min")
+                )
+                setSelection(1)
+            }
         }
         listOf(R.id.state, R.id.overrideUrl, R.id.columnHint, R.id.refreshChoices, R.id.save, R.id.clear,
             R.id.back, R.id.about).forEach { id ->
@@ -241,6 +252,10 @@ class ScreenRenderTest {
                 shot.root.findViewById<View>(id))
         }
         assertTrue("settings painted ${shot.distinct()} colours", shot.distinct() > 8)
+        val spinner = shot.root.findViewById<android.widget.Spinner>(R.id.refreshChoices)!!
+        assertTrue("the auto-refresh chooser drew no row", spinner.childCount > 0)
+        assertEquals("the chooser should show the selected label", "1 min",
+            (spinner.getChildAt(0) as? TextView)?.text?.toString())
         Render.save("04-settings", shot.bitmap)
     }
 

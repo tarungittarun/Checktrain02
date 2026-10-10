@@ -73,6 +73,17 @@
         <item name="android:includeFontPadding">false</item>
     </style>
 
+    <!-- A label above a form field. Not the column-header treatment: `TextLabel` is 10sp tertiary, which
+         is right for a header that repeats above 90 rows and wrong for the one line that tells you what a
+         box is for. Sentences go in `TextMeta`, so the two steps read as a pair. -->
+    <style name="FieldLabel">
+        <item name="android:textColor">@color/text2</item>
+        <item name="android:textSize">12sp</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:letterSpacing">0.01</item>
+        <item name="android:includeFontPadding">false</item>
+    </style>
+
     <!-- Column header of a table. -->
     <style name="TextLabel">
         <item name="android:textColor">@color/text3</item>

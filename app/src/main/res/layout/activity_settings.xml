@@ -72,13 +72,13 @@
             android:orientation="vertical">
 
             <TextView
-                style="@style/TextLabel"
+                style="@style/FieldLabel"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="@string/settings_override_title" />
 
             <TextView
-                style="@style/TextMicro"
+                style="@style/TextMeta"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
@@ -95,14 +95,14 @@
                 android:textSize="14sp" />
 
             <TextView
-                style="@style/TextLabel"
+                style="@style/FieldLabel"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="18dp"
                 android:text="@string/settings_columns_title" />
 
             <TextView
-                style="@style/TextMicro"
+                style="@style/TextMeta"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
@@ -119,7 +119,7 @@
                 android:textSize="14sp" />
 
             <TextView
-                style="@style/TextLabel"
+                style="@style/FieldLabel"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="18dp"
@@ -127,6 +127,8 @@
 
             <Spinner
                 android:id="@+id/refreshChoices"
+                android:popupBackground="@color/surface2"
+                android:dropDownWidth="match_parent"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="6dp"

@@ -38,6 +38,9 @@ object Render {
     const val WIDTH_DP = 360f
     const val HEIGHT_DP = 760f
 
+    /** Ceiling for a captured screen, so a 140-row route table cannot ask for a 30 000 px bitmap. */
+    const val MAX_CONTENT_DP = 2400f
+
     class Shot(val root: View, val bitmap: Bitmap, val context: Context) {
 
         fun text(id: Int): String = (root.findViewById<TextView>(id))?.text?.toString().orEmpty()
@@ -88,18 +91,32 @@ object Render {
     fun render(layoutRes: Int, heightDp: Float = 0f, prepare: (View) -> Unit = {}): Shot {
         val ctx = theme()
         val w = dp(ctx, WIDTH_DP).toInt()
-        val h = dp(ctx, if (heightDp > 0f) heightDp else HEIGHT_DP).toInt()
+        val device = dp(ctx, if (heightDp > 0f) heightDp else HEIGHT_DP).toInt()
+        val cap = dp(ctx, MAX_CONTENT_DP).toInt()
         val host = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
-        host.layoutParams = ViewGroup.LayoutParams(w, h)
+        host.layoutParams = ViewGroup.LayoutParams(w, device)
         host.addView(LayoutInflater.from(ctx).inflate(layoutRes, host, false))
 
-        val spec = View.MeasureSpec.makeMeasureSpec(h, View.MeasureSpec.EXACTLY)
-        val wSpec = View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY)
-        host.measure(wSpec, spec)
-        host.layout(0, 0, w, h)
+        fun measure(heightPx: Int, mode: Int) = host.measure(
+            View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(heightPx, mode),
+        )
+
+        // Pass 1, at the device height: this is what gives the custom views a real width to compute their
+        // geometry from, which is why `prepare` cannot run before it.
+        measure(device, View.MeasureSpec.EXACTLY)
+        host.layout(0, 0, w, device)
         prepare(host)
-        host.requestLayout()
-        host.measure(wSpec, spec)
+
+        // Pass 2, unbounded, to learn what the content actually wants. Skipping this is how the first
+        // version of this harness "found" a route table with one row in it: a RecyclerView lays out only as
+        // many rows as it is *given*, so measuring at 760dp clipped the list to what fit on the fold and
+        // the assertions would have been written against a half-painted screen. Screens are therefore
+        // captured whole — which is also the only way to review spacing in a table.
+        measure(0, View.MeasureSpec.UNSPECIFIED)
+        val h = host.measuredHeight.coerceIn(device, cap)
+
+        measure(h, View.MeasureSpec.EXACTLY)
         host.layout(0, 0, w, h)
 
         val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)

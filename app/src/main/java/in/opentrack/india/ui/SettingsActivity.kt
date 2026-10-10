@@ -34,8 +34,10 @@ class SettingsActivity : AppCompatActivity() {
 
         binding.overrideUrl.setText(prefs.overrideUrl)
         binding.columnHint.setText(prefs.columnHint)
+        // Own layout rather than `simple_list_item_1`: the framework row brings a system text size and
+        // padding, which would be the only type on this screen not drawn from the project's ladder.
         binding.refreshChoices.adapter = ArrayAdapter(
-            this, android.R.layout.simple_list_item_1, REFRESH_LABELS
+            this, R.layout.item_spinner_choice, REFRESH_LABELS
         )
         binding.refreshChoices.setSelection(refreshIndex(prefs.autoRefreshSeconds))
 
