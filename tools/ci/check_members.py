@@ -56,7 +56,7 @@ setText setAdapter setLayoutManager layoutManager layoutManager itemDecoration a
 adapter notifyDataSetChanged alpha setColorFilter setPadding width height paddingLeft paddingTop
 paddingRight paddingBottom measuredWidth measuredHeight isNestedScrollingEnabled setHasFixedSize
 setOnItemClickListener addTextChangedListener afterTextChanged beforeTextChanged text toString textIsSelectable
-getLocationInWindow getPixel drawColor mkdirs compress recycle zipWithNext getChildAt lineCount getEllipsisCount assets
+getLocationInWindow getPixel drawColor mkdirs compress recycle zipWithNext getChildAt lineCount getEllipsisCount assets idle
 """.split())
 
 

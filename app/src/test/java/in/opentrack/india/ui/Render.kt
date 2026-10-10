@@ -141,9 +141,30 @@ object Render {
         root.findViewById<TrackInsightView>(R.id.chart)?.setJourney(m, pos, now, 0 until m.rows.size)
         root.findViewById<RecyclerView>(R.id.stops)?.apply {
             layoutManager = LinearLayoutManager(context)
-            adapter = StopAdapter().apply { setCurrentList(m.rows) }
+            adapter = StopAdapter().apply { submitList(m.rows) }
             isNestedScrollingEnabled = false
+            Render.settle(this, m.rows.size)
         }
+    }
+
+    /**
+     * Let a `ListAdapter`'s DiffUtil finish. `submitList` computes the update on its own handler thread,
+     * which Robolectric does not own, so the list is empty until that thread hands the result back to the
+     * main looper. This idles the main looper until `expected` rows are in the adapter — and if they never
+     * arrive it returns anyway, leaving the caller's assertion to fail with the count that is visible.
+     *
+     * There is no synchronous setter to use instead: recyclerview 1.3 exposes `getCurrentList()` only, and
+     * `currentList =` is not assignable (the getter is `@NonNull`, so Kotlin sees a val).
+     */
+    fun settle(list: RecyclerView?, expected: Int) {
+        val main = org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper())
+        var waited = 0
+        while (list?.adapter != null && (list.adapter?.itemCount ?: -1) != expected && waited < 2_000) {
+            main.idle()
+            Thread.sleep(20)
+            waited += 20
+        }
+        main.idle()
     }
 
     fun text(root: View, id: Int, value: String?) {
