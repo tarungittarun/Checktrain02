@@ -125,12 +125,16 @@ class LargeScreenRenderTest {
                 delayArrivalMin = 14, departed = false,
             ),
         )
+        // `now` has to sit inside this run: 16228 boards at 22:10, so a clock of 08:00 put the "now" marker
+        // twelve hours before the first halt and made the next-stop tag read "in 16h 35m" over a train that
+        // leaves in two. The app was right and the picture was nonsense, which is the one thing these previews
+        // must not be.
         val m = TrackModel.build(
-            route, pos, per, nowRailMinute = 480, boardSeq = 1, alightSeq = route.stops.size,
+            route, pos, per, nowRailMinute = NOW, boardSeq = 1, alightSeq = route.stops.size,
             runEpochDay = RailTime.todayEpochDay(), note = null,
         )
         val shot = Render.render(R.layout.activity_train, widthDp = WIDTH, heightDp = 900f, textScale = FONT) {
-            Render.track(root = it, m = m, pos = pos, now = 480)
+            Render.track(root = it, m = m, pos = pos, now = NOW)
             it.findViewById<View>(R.id.sourceCard)?.visibility = View.VISIBLE
         }
         assertHeaderIntact(shot)
@@ -153,11 +157,11 @@ class LargeScreenRenderTest {
             provenance = SourceKind.OFFLINE_SCHEDULE, confidence = TrainPosition.Confidence.LOW, ageSeconds = 0,
         )
         val m = TrackModel.build(
-            route, pos, emptyMap(), nowRailMinute = 432, boardSeq = 1, alightSeq = route.stops.size,
+            route, pos, emptyMap(), nowRailMinute = NOW, boardSeq = 1, alightSeq = route.stops.size,
             runEpochDay = RailTime.todayEpochDay(), note = null,
         )
         val shot = Render.render(R.layout.activity_train, widthDp = WIDTH, heightDp = 900f, textScale = FONT) {
-            Render.track(root = it, m = m, pos = pos, now = 432)
+            Render.track(root = it, m = m, pos = pos, now = NOW)
         }
         assertHeaderIntact(shot)
         assertTableIntact(shot)
@@ -286,6 +290,9 @@ class LargeScreenRenderTest {
 
         /** One real train, so the names, kilometres and stop count are the ones a device would show. */
         const val SHIPPED_TRAIN = "16228"
+
+        /** 24:05 — just after 16228's mid-last-halt, so the "now" rule lands inside the plotted window. */
+        const val NOW = 1445
 
         /** `RailRepository.dataVersion()` over the shipped DB — shared with the 360 dp renders. */
         const val DATA_VERSION = "6,775 trains · timetable 10 Oct 2026"
