@@ -151,12 +151,66 @@ def backing_field(files) -> list[str]:
     return problems
 
 
+
+def _clean(src: str) -> str:
+    """Same line breaks, strings and comments blanked, so brace counting cannot be fooled by a `{"`."""
+    return "\n".join(strip_noise(line) for line in src.splitlines())
+
+
+def _block_end(src: str, open_at: int) -> int:
+    depth, i = 0, open_at
+    while i < len(src):
+        if src[i] == "{":
+            depth += 1
+        elif src[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return i
+        i += 1
+    return len(src) - 1
+
+
+def companion_nested(files) -> list[str]:
+    """A class or object declared inside a `companion object` is *not* reachable as `Outer.Nested` — only
+    the companion's functions and properties are, which is the asymmetry that makes this easy to write and
+    impossible to spot without a compiler. `Suggestion.TitleCase` cost a CI run for exactly that reason.
+    """
+    # outer class name -> classifiers nested in its companion
+    owners: dict[str, set[str]] = {}
+    cleaned: dict[Path, str] = {}
+    for f in files:
+        src = _clean(f.read_text())
+        cleaned[f] = src
+        for m in re.finditer(r"\bclass\s+(\w+)[^{}]*?\{", src):
+            name = m.group(1)
+            end = _block_end(src, src.index("{", m.start()))
+            body = src[m.end():end]
+            cm = re.search(r"\bcompanion\s+object(?:\s+\w+)?\s*\{", body)
+            if not cm:
+                continue
+            cend = _block_end(body, cm.end() - 1)
+            inner = re.findall(r"\b(?:object|interface|class)\s+(\w+)", body[cm.end():cend])
+            if inner:
+                owners.setdefault(name, set()).update(inner)
+    problems: list[str] = []
+    for f, src in cleaned.items():
+        for no, line in enumerate(src.splitlines(), 1):
+            for m in re.finditer(r"\b([A-Z]\w*)\.([A-Z]\w*)\b", line):
+                outer, nested = m.group(1), m.group(2)
+                if nested in owners.get(outer, ()):
+                    problems.append(
+                        f"{f.relative_to(ROOT)}:{no}: {outer}.{nested} — `{nested}` is declared inside "
+                        f"{outer}'s companion object, which does not expose nested classifiers; refer to "
+                        f"it by its own name")
+    return problems
+
+
 def main() -> int:
     files = sorted(MAIN.rglob("*.kt")) + sorted(TEST.rglob("*.kt"))
     known: set[str] = resource_names()
     for f in files:
         known |= declared(f.read_text())
-    problems = [p for f in files for p in usages(f, known)] + backing_field(files)
+    problems = [p for f in files for p in usages(f, known)] + backing_field(files) + companion_nested(files)
     for p in problems:
         print(p)
     print(f"checked {len(files)} files against {len(known)} declared names, {len(problems)} problems")

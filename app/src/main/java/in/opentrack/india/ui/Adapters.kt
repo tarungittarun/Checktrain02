@@ -10,6 +10,7 @@ import androidx.recyclerview.widget.RecyclerView
 import `in`.opentrack.india.R
 import `in`.opentrack.india.core.RailTime
 import `in`.opentrack.india.domain.Suggestion
+import `in`.opentrack.india.domain.TitleCase
 import `in`.opentrack.india.domain.TrackModel
 import `in`.opentrack.india.model.StationHit
 import `in`.opentrack.india.model.TrainHit
@@ -214,12 +215,12 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
 /**
  * Name casing and the small vocabularies the rows print.
  *
- * Called `RowText` rather than `TitleCase` because `Suggestion` already nests a `TitleCase`: two types
- * with one name in one package compiles (the same-file declaration wins) and reads like a bug, and the
- * project's own reference checker flagged it the moment they coexisted.
+ * Named for what it does to a row rather than for the casing rule it delegates to: `TitleCase` is a
+ * top-level object in `domain`, and a second type of that name in the same package as `Suggestion` once
+ * made the pair unreadable (the checker flagged it the moment they coexisted).
  */
 object RowText {
-    fun of(raw: String): String = Suggestion.TitleCase.of(raw)
+    fun of(raw: String): String = TitleCase.of(raw)
 
     fun rows(hits: List<StationHit>): List<Suggestion> = hits.map { Suggestion.ofStation(it) }
     fun trainRows(hits: List<TrainSummary>): List<Suggestion> = hits.map { Suggestion.ofTrain(it) }
