@@ -57,15 +57,25 @@ data class Suggestion(
  * what they saw on the platform - and one function decides how it looks.
  */
 object TitleCase {
-    private val SMALL = setOf("of", "and", "the", "to", "at", "via", "for", "jn", "exp", "spl")
+    // Words that should stay lowercase mid-name. Note what is *not* here: "exp", "spl" and "jn" were, and
+    // left a train called "…SHIVAMOGGA TOWN EXP" rendering as "…Town exp" — a lowercase abbreviation at the
+    // end of a name reads as a truncation, not a type. Two letters are handled by the uppercase rule above,
+    // and three-letter types come out as "Exp"/"Spl" the way a timetable prints them.
+    private val SMALL = setOf("of", "and", "the", "to", "at", "via", "for")
 
-    fun of(raw: String): String {
+    fun of(raw: String, keep: Set<String> = emptySet()): String {
         val cleaned = raw.trim().replace('_', ' ').replace('-', '–').replace("  ", " ")
         if (cleaned.isEmpty()) return cleaned
         if (!cleaned.any { it.isUpperCase() }) return cleaned   // already mixed case: leave it
         return cleaned.lowercase().split(' ').mapIndexed { i, w ->
             val cased = when {
                 w.length <= 2 -> w.uppercase()                       // "NR", "JN", "E"
+                // Station codes inside a name must stay codes. "SBC SMET Passenger" is the source's own
+                // wording and "Sbc Smet Passenger" reads like a typo — in the one list where a traveller is
+                // choosing between trains. Two rules keep the rest of the name a sentence: the caller says
+                // which tokens are its codes, and a short token with no vowel is an abbreviation, not a word.
+                w.uppercase() in keep -> w.uppercase()
+                w.length in 2..4 && w.none { it in "aeiou" } -> w.uppercase()
                 i > 0 && SMALL.contains(w) -> w
                 else -> w.replaceFirstChar(Char::uppercase)
             }

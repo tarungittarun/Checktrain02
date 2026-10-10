@@ -101,7 +101,7 @@ jobs:
         shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python3 tools/ci/preview_comment.py --dir app/build/reports/previews
+        run: python3 tools/ci/preview_comment.py --dir app/build/reports/previews --max-kb 58
       - name: Report the failure on the commit
         if: failure()
         shell: bash

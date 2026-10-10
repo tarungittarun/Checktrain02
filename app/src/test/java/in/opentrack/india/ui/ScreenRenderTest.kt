@@ -208,14 +208,22 @@ class ScreenRenderTest {
             hit("06268", "SBC SMET Passenger SPECIAL", 486, 810, 274, 0x2A),
         )
         val shot = Render.render(R.layout.activity_main) { root ->
-            Render.text(root, R.id.statusLine, "Timetable ready · 6,775 trains on device")
+            // What MainActivity does: hints on the type-ahead boxes. Without them the render is two blank
+            // rectangles, which is exactly what a reviewer would call a broken screen.
+            root.findViewById<SuggestBox>(R.id.fromBox)?.hint = "Board at — station name or code"
+            root.findViewById<SuggestBox>(R.id.toBox)?.hint = "Get off at — station name or code"
+            root.findViewById<SuggestBox>(R.id.trainBox)?.hint = "5-digit number or a name fragment"
+            Render.text(root, R.id.statusLine, "Timetable ready · 6,796 trains on device")
             Render.text(root, R.id.dataChip, "Built-in timetable · 11 Oct 2026")
             Render.text(root, R.id.resultsTitle, "5 trains between these stations")
             Render.text(root, R.id.resultsSub, "sorted by departure · 4 ms on device")
             root.findViewById<RecyclerView>(R.id.results)?.apply {
                 layoutManager = LinearLayoutManager(context)
                 adapter = TrainHitAdapter { }.apply {
-                    nowMinute = 300L
+                    // The tag beside a result counts down from the *searched* instant — which is what
+                    // MainViewModel.targetEpochMinute is. A bare 300 here rendered "in 19949d 0h", the
+                    // fixture being 19 949 days away from the epoch rather than 30 minutes from it.
+                    nowMinute = 19949L * 1440L + 300L
                     submitList(hits)
                 }
                 Render.settle(this, hits.size)

@@ -53,7 +53,7 @@ class TrainHitAdapter(private val onClick: (TrainHit) -> Unit) :
             append(hit.trainNo)
             hit.trainType?.let { append(" · ").append(RowText.type(it)) }
         }
-        holder.name.text = RowText.of(hit.trainName)
+        holder.name.text = RowText.of(hit.trainName, keep = setOf(hit.fromCode, hit.toCode))
         holder.meta.text = buildString {
             append(hit.fromCode).append(" → ").append(hit.toCode)
             if (hit.distanceKm > 0) append(" · ").append(hit.distanceKm).append(" km")
@@ -225,7 +225,7 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
  * made the pair unreadable (the checker flagged it the moment they coexisted).
  */
 object RowText {
-    fun of(raw: String): String = TitleCase.of(raw)
+    fun of(raw: String, keep: Set<String> = emptySet()): String = TitleCase.of(raw, keep)
 
     fun rows(hits: List<StationHit>): List<Suggestion> = hits.map { Suggestion.ofStation(it) }
     fun trainRows(hits: List<TrainSummary>): List<Suggestion> = hits.map { Suggestion.ofTrain(it) }

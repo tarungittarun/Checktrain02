@@ -253,10 +253,25 @@ object Render {
         // commit comment as base64 (65 536 characters), which is the only way these pixels get reviewed.
         val scale = (System.getProperty("preview.scale") ?: "55").toInt()
         val quality = (System.getProperty("preview.quality") ?: "62").toInt()
-        val small = Bitmap.createScaledBitmap(bmp, bmp.width * scale / 100, bmp.height * scale / 100, true)
-        val out = ByteArrayOutputStream(1 shl 15)
-        small.compress(Bitmap.CompressFormat.JPEG, quality, out)
-        File(dir, "$name.jpg").writeBytes(out.toByteArray())
-        small.recycle()
+        val tileH = (System.getProperty("preview.tile") ?: "1500").toInt()
+        // Tiles rather than one tall image: a whole tracking screen is ~2 500 px, and a single JPEG of it
+        // is over the comment budget — so the tall screens were silently skipped while short ones got
+        // posted. A harness that reviews only what happens to fit is worse than no harness.
+        var from = 0
+        var page = 0
+        while (from < bmp.height) {
+            val h = minOf(tileH, bmp.height - from)
+            val slice = Bitmap.createBitmap(bmp, 0, from, bmp.width, h)
+            val small = Bitmap.createScaledBitmap(
+                slice, slice.width * scale / 100, slice.height * scale / 100, true
+            )
+            val out = ByteArrayOutputStream(1 shl 15)
+            small.compress(Bitmap.CompressFormat.JPEG, quality, out)
+            val suffix = if (bmp.height <= tileH) "" else "-${++page}"
+            File(dir, "$name$suffix.jpg").writeBytes(out.toByteArray())
+            small.recycle()
+            slice.recycle()
+            from += h
+        }
     }
 }
