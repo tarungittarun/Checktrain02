@@ -74,13 +74,19 @@ object SnapshotCodec {
     }
 
     /** Null on any structural problem, which makes the caller fall through to the next provider. */
-    fun decode(text: String): LiveSnapshot? {
+    /**
+     * [fallbackTrainNo] is for a hand-configured endpoint that reports the position but does not echo the
+     * train number back: the caller already knows which train it asked for, and the alternative — refusing
+     * the snapshot because a field we do not need is missing — would make Settings' escape hatch useless.
+     * Identity is still checked by the caller against the value it ends up with.
+     */
+    fun decode(text: String, fallbackTrainNo: String? = null): LiveSnapshot? {
         val root = MiniJson.obj(text) ?: return null
         with(MiniJson) {
             val data = root.map("data") ?: root
             val cur = data.map("currentLocation") ?: data.map("current") ?: data
             val trainNo = data.str("trainNumber") ?: cur.str("trainNumber")
-                ?: data.str("number") ?: return null
+                ?: data.str("number") ?: fallbackTrainNo ?: return null
             val perStop = LinkedHashMap<String, LiveStopFields>()
             for (raw in data.list("stops") ?: data.list("route") ?: emptyList()) {
                 @Suppress("UNCHECKED_CAST")

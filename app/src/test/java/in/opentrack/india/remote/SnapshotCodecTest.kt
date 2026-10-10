@@ -119,6 +119,18 @@ class SnapshotCodecTest {
     }
 
     @Test
+    fun aCustomEndpointThatOmitsTheTrainNumberStillWorks() {
+        // Settings' escape hatch must not demand a field the caller already knows. Without the fallback,
+        // a minimal self-hosted endpoint would decode to null and the screen would look broken.
+        val json = """{"currentLocation":{"stationCode":"BRC","sequence":12,"actualDeparture":742}}"""
+        assertNull(SnapshotCodec.decode(json))
+        val withFallback = SnapshotCodec.decode(json, fallbackTrainNo = "12951")!!
+        assertEquals("12951", withFallback.trainNo)
+        assertEquals("BRC", withFallback.atCode)
+        assertEquals(742, withFallback.eventMinute)
+    }
+
+    @Test
     fun stringsAreEscapedSoANoteCannotBreakTheRecord() {
         val nasty = sample.copy(rawNote = "he said \"hi\"\nthen left", atName = "a\\b", perStop = emptyMap())
         val text = SnapshotCodec.encode(nasty)

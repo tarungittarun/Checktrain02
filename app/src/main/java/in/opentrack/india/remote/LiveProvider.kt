@@ -128,7 +128,11 @@ object ErailAdapter {
  * server for us to operate. Accepts [SnapshotCodec]'s format (which most IR-derived REST APIs can be
  * mapped onto) as well as a nested `data.currentLocation` shape.
  */
-class OverrideProvider(private val http: Http, private val template: String?) : LiveProvider {
+class OverrideProvider(
+    private val http: Http,
+    private val template: String?,
+    private val store: SnapshotStore? = null,
+) : LiveProvider {
 
     override val kind = SourceKind.PROVIDER_OVERRIDE
 
@@ -141,9 +145,17 @@ class OverrideProvider(private val http: Http, private val template: String?) : 
             .replace("{srcCode}", route.srcCode)
             .replace("{dstCode}", route.dstCode)
         val r = http.get(url) as? Http.Result.Ok ?: return null
-        return runCatching { SnapshotCodec.decode(r.body) }.getOrNull()
+        val snap = runCatching { SnapshotCodec.decode(r.body, fallbackTrainNo = trainNo) }.getOrNull()
             ?.copy(fetchedAtMillis = System.currentTimeMillis() - r.ageMillis,
                 sourceKind = if (r.fromCache) SourceKind.CACHED else SourceKind.PROVIDER_OVERRIDE)
+            ?: return null
+        // A hand-built endpoint can answer with the wrong train (a cached proxy, a copy-pasted URL, a
+        // template that ignored {trainNo}). Showing another train's position is the single worst
+        // failure this screen can have, so an identity mismatch is treated as "no answer" and left at
+        // that — the header then reads OFFLINE/CACHED, which is true of the *requested* train.
+        if (snap.trainNo.isNotEmpty() && trainNo.isNotEmpty() && snap.trainNo != trainNo) return null
+        if (snap.sourceKind == SourceKind.PROVIDER_OVERRIDE) store?.save(trainNo, snap)
+        return snap
     }
 }
 
@@ -212,7 +224,7 @@ class ProviderChain(private val providers: List<LiveProvider>) {
         fun build(http: Http, store: SnapshotStore, overrideUrl: String?, columnHint: String?) =
             ProviderChain(
                 listOf(
-                    OverrideProvider(http, overrideUrl),
+                    OverrideProvider(http, overrideUrl, store),
                     ErailProvider(http, ErailProvider.DEFAULT_BASE, columnHint, store),
                     CacheProvider(store),
                 )
