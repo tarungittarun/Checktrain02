@@ -36,8 +36,14 @@ import org.robolectric.annotation.GraphicsMode
  *
  * 411 × 891 dp is a Pixel 6 / Galaxy S21 class viewport in portrait — the width most of the installed base
  * actually has — and [FONT] is 1.3, the top of AOSP's "Font size" slider (Settings → Display), with the
- * honesty note in [theBigFontRenderIsActuallyRenderingABigFont]: an assertion about big text is worthless
- * if the harness quietly renders small text, so that is measured first.
+ *
+ * How the big font is produced, and why it is not the way I first wrote it: Robolectric resolves `sp` as `dp`
+ * whatever the Configuration says (measured — a 21sp headline came out 42 px at fontScale 1.0 *and* at 1.3),
+ * so a Configuration-based font scale is inert here and every "big text" picture in this file would have been
+ * a normal render wearing a label. [Render.applyTextScale] multiplies the resolved sizes instead, which is the
+ * same arithmetic the framework performs; it does not stretch sp line-spacing or sp padding, so a screen that
+ * fails these checks has a real problem, and one that passes has not been tested against the framework's
+ * plumbing. [theBigFontRenderIsActuallyRenderingABigFont] fails this file if the factor stops landing.
  *
  * What is asserted is only what a *layout* can be wrong about: no label was cut to an ellipsis at this size,
  * the columns still hold their times, the boarding and alighting notes still read in full, and the screens
@@ -54,16 +60,39 @@ class LargeScreenRenderTest {
     fun theBigFontRenderIsActuallyRenderingABigFont() {
         val text = "Should be past Yesvantpur Jn, 6m into the 32 km leg"
         fun headlineSize(scale: Float): Float {
-            val shot = Render.render(R.layout.activity_train) { root -> Render.text(root, R.id.headline, text) }
+            val shot = Render.render(R.layout.activity_train, textScale = scale) { root ->
+                Render.text(root, R.id.headline, text)
+            }
             return (shot.root.findViewById<TextView>(R.id.headline))?.textSize ?: -1f
         }
         val base = headlineSize(1f)
         val big = headlineSize(FONT)
         assertTrue(
-            "fontScale $FONT changed nothing (base $base px, scaled $big px) — every picture in this file " +
-                "would be a render of the default font wearing a label",
-            base > 0f && big > base * 1.2f,
+            "textScale $FONT produced base $base px vs scaled $big px — the harness stopped scaling, so every " +
+                "picture in this file is a default-font render wearing a label",
+            base > 0f && Math.abs(big - base * FONT) < 1f,
         )
+        // And the scale has to reach a list row, which is a different code path: rows are created while the
+        // RecyclerView is measured, long after a fixture's `prepare` block has run. If a view is missed there,
+        // the row in the picture is normal-sized while the header is not, and the whole file is a lie about
+        // one screen. Compared against the same row at scale 1.0 rather than against a guessed pixel size.
+        fun rowTitleSize(scale: Float): Float {
+            val shot = Render.render(R.layout.activity_main, textScale = scale) { root ->
+                root.findViewById<RecyclerView>(R.id.results)?.apply {
+                    layoutManager = LinearLayoutManager(context)
+                    adapter = TrainHitAdapter { }.apply {
+                        submitList(listOf(hit("16999", "SBC SMET EXP", 330, 604, 274, 0x7F)))
+                    }
+                    Render.settle(this, 1)
+                }
+            }
+            return shot.root.findViewById<RecyclerView>(R.id.results)?.getChildAt(0)
+                ?.findViewById<TextView>(R.id.hitName)?.textSize ?: -1f
+        }
+        val rowBase = rowTitleSize(1f)
+        val rowBig = rowTitleSize(FONT)
+        assertTrue("a row's title scaled from $rowBase px to $rowBig px, expected $rowBase × $FONT",
+            rowBase > 0f && Math.abs(rowBig - rowBase * FONT) < 1f)
     }
 
     @Test
@@ -91,7 +120,7 @@ class LargeScreenRenderTest {
             route, pos, per, nowRailMinute = 480, boardSeq = 1, alightSeq = route.stops.size,
             runEpochDay = RailTime.todayEpochDay(), note = null,
         )
-        val shot = Render.render(R.layout.activity_train, widthDp = WIDTH, heightDp = 900f, fontScale = FONT) {
+        val shot = Render.render(R.layout.activity_train, widthDp = WIDTH, heightDp = 900f, textScale = FONT) {
             Render.track(root = it, m = m, pos = pos, now = 480)
             it.findViewById<View>(R.id.sourceCard)?.visibility = View.VISIBLE
         }
@@ -118,7 +147,7 @@ class LargeScreenRenderTest {
             route, pos, emptyMap(), nowRailMinute = 432, boardSeq = 1, alightSeq = route.stops.size,
             runEpochDay = RailTime.todayEpochDay(), note = null,
         )
-        val shot = Render.render(R.layout.activity_train, widthDp = WIDTH, heightDp = 900f, fontScale = FONT) {
+        val shot = Render.render(R.layout.activity_train, widthDp = WIDTH, heightDp = 900f, textScale = FONT) {
             Render.track(root = it, m = m, pos = pos, now = 432)
         }
         assertHeaderIntact(shot)
@@ -139,7 +168,7 @@ class LargeScreenRenderTest {
             hit("12627", "KARNATAKA EXPRESS", 1140, 1980, 842, 0xFF),
             hit("06268", "SBC SMET Passenger SPECIAL", 486, 810, 274, 0x2A),
         )
-        val shot = Render.render(R.layout.activity_main, widthDp = WIDTH, fontScale = FONT) { root ->
+        val shot = Render.render(R.layout.activity_main, widthDp = WIDTH, textScale = FONT) { root ->
             root.findViewById<SuggestBox>(R.id.fromBox)?.hint = "Board at — station name or code"
             root.findViewById<SuggestBox>(R.id.toBox)?.hint = "Get off at — station name or code"
             root.findViewById<SuggestBox>(R.id.trainBox)?.hint = "5-digit number or a name fragment"
@@ -178,7 +207,7 @@ class LargeScreenRenderTest {
 
     @Test
     fun settingsScreenPaintsWithoutCuttingALabelAtTheLargestFont() {
-        val shot = Render.render(R.layout.activity_settings, widthDp = WIDTH, fontScale = FONT) { root ->
+        val shot = Render.render(R.layout.activity_settings, widthDp = WIDTH, textScale = FONT) { root ->
             Render.text(root, R.id.state, "Built-in timetable installed · offline search ready")
             Render.text(root, R.id.about, "OpenTrack India 1.0 · timetable: $DATA_VERSION\n\n" +
                 "No accounts, no API keys, no ads, no analytics. Live status is fetched directly from a " +

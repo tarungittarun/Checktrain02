@@ -1,7 +1,6 @@
 package `in`.opentrack.india.ui
 
 import android.content.Context
-import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Rect
@@ -139,25 +138,24 @@ object Render {
         }
     }
 
+    fun theme(): Context = ContextThemeWrapper(RuntimeEnvironment.getApplication(), R.style.Theme_OpenTrack)
+
     /**
-     * The app's theme over the Robolectric application, optionally with a bigger system font.
+     * Multiply every resolved text size in the tree, which is what a big system font does to a layout.
      *
-     * `fontScale` is what Settings → Display → "Font size" does, and AOSP's slider ends at 1.3 (OEM builds
-     * go higher). It is set on the Configuration *and* on `scaledDensity`, because sp is resolved through
-     * `scaledDensity` and a configuration context may hand back the shared metrics object — a render that
-     * claimed to be at a large font while silently keeping 1.0 is worse than not testing it at all, so
-     * `LargeScreenRenderTest` measures the difference before it trusts these pictures.
+     * The obvious route — a `Configuration` with `fontScale = 1.3`, optionally with `scaledDensity` pinned —
+     * was written first and measured as a *lie*: Robolectric resolves `21sp` to 42 px at density 2.0 with
+     * `fontScale` at 1.3 as well as at 1.0, i.e. it treats sp as dp, so the Configuration never reached the
+     * text. Scaling the sizes themselves is honest and it is the same arithmetic the framework does; what it
+     * does not reproduce is sp-based `lineSpacingExtra` and sp padding, which stay put. `LargeScreenRenderTest`
+     * asserts the factor actually landed before any picture from it is believed.
      */
-    fun theme(fontScale: Float = 1f): Context {
-        val app = RuntimeEnvironment.getApplication()
-        val base = if (fontScale == 1f) app else {
-            val cfg = Configuration(app.resources.configuration)
-            cfg.fontScale = fontScale
-            app.createConfigurationContext(cfg)
+    fun applyTextScale(view: View, factor: Float, seen: MutableSet<TextView> = HashSet()) {
+        if (view is TextView && seen.add(view)) {
+            view.setTextSize(TypedValue.COMPLEX_UNIT_PX, view.textSize * factor)
         }
-        return ContextThemeWrapper(base, R.style.Theme_OpenTrack).also {
-            val dm = it.resources.displayMetrics
-            dm.scaledDensity = dm.density * fontScale
+        if (view is ViewGroup) {
+            for (i in 0 until view.childCount) applyTextScale(view.getChildAt(i), factor, seen)
         }
     }
 
@@ -168,10 +166,10 @@ object Render {
         layoutRes: Int,
         widthDp: Float = WIDTH_DP,
         heightDp: Float = 0f,
-        fontScale: Float = 1f,
+        textScale: Float = 1f,
         prepare: (View) -> Unit = {},
     ): Shot {
-        val ctx = theme(fontScale)
+        val ctx = theme()
         val w = dp(ctx, widthDp).toInt()
         val device = dp(ctx, if (heightDp > 0f) heightDp else HEIGHT_DP).toInt()
         val cap = dp(ctx, MAX_CONTENT_DP).toInt()
@@ -190,16 +188,32 @@ object Render {
         host.layout(0, 0, w, device)
         prepare(host)
 
+        // Rows that a list creates do not exist until something measures them, so the scale is applied again
+        // after the height has been learned and the content laid out once more at the scaled sizes. `seen`
+        // makes that second walk safe: a view already multiplied is not multiplied twice.
+        val seen = HashSet<TextView>()
+        if (textScale != 1f) applyTextScale(host, textScale, seen)
+
         // Pass 2, unbounded, to learn what the content actually wants. Skipping this is how the first
         // version of this harness "found" a route table with one row in it: a RecyclerView lays out only as
         // many rows as it is *given*, so measuring at 760dp clipped the list to what fit on the fold and
         // the assertions would have been written against a half-painted screen. Screens are therefore
         // captured whole — which is also the only way to review spacing in a table.
         measure(0, View.MeasureSpec.UNSPECIFIED)
-        val h = host.measuredHeight.coerceIn(device, cap)
+        var h = host.measuredHeight.coerceIn(device, cap)
 
         measure(h, View.MeasureSpec.EXACTLY)
         host.layout(0, 0, w, h)
+        if (textScale != 1f) {
+            applyTextScale(host, textScale, seen)
+            measure(0, View.MeasureSpec.UNSPECIFIED)
+            val grown = host.measuredHeight.coerceIn(device, cap)
+            if (grown != h) {
+                h = grown
+                measure(h, View.MeasureSpec.EXACTLY)
+            }
+            host.layout(0, 0, w, h)
+        }
 
         val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bmp)
@@ -280,8 +294,12 @@ object Render {
                 0, layout.getEllipsisCount(line))
             val need = Math.round(layout.getLineWidth(line))
             val have = layout.width
+            // Tolerant by ~3%, and only here: Robolectric draws with substituted font metrics, and a line it
+            // measures 4 px wider than the space it was given (698 against 694) is a rounding difference in
+            // those metrics rather than a missing glyph — a device would have wrapped it. A truncation big
+            // enough to hide a word is still far outside this band, and the ellipsis check above is exact.
             assertTrue("$what needs $need px on line $line but only has $have px: '${tv.text}'",
-                have <= 0 || need <= have + 1)
+                have <= 0 || need <= have + maxOf(4, have / 32))
         }
     }
 

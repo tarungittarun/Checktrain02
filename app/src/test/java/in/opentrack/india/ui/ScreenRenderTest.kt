@@ -277,6 +277,13 @@ class ScreenRenderTest {
             listOf(R.id.hitName, R.id.hitMeta, R.id.hitDep, R.id.hitArr, R.id.hitTag).forEach { id ->
                 assertTrue("result $i missing ${name(shot, id)}", text(row, id).isNotBlank())
             }
+            // Present-and-correct is not enough for the name: it also has to have *fit*. A result row is where
+            // a traveller chooses the train, and "KSR Bengaluru – Shivamogga Town…" is a name with the part
+            // that distinguishes it cut off. Checked at the narrowest supported width; `LargeScreenRenderTest`
+            // makes the same claim at 411 dp, where the row has different neighbours.
+            listOf(R.id.hitNo, R.id.hitName, R.id.hitMeta).forEach { id ->
+                Render.assertNothingCut(row.findViewById(id), "result $i · ${name(shot, id)} = '${text(row, id)}'")
+            }
         }
         Render.save("00-search", shot.bitmap)
     }
