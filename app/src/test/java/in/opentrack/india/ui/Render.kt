@@ -45,12 +45,27 @@ object Render {
 
         fun text(id: Int): String = (root.findViewById<TextView>(id))?.text?.toString().orEmpty()
 
-        fun bounds(id: Int): Rect = Rect().also { r ->
-            root.findViewById<View>(id)?.let { v ->
-                val off = IntArray(2)
-                v.getLocationInWindow(off)
-                r.set(off[0], off[1], off[0] + v.width, off[1] + v.height)
+        /**
+         * A view's box in the *bitmap's* coordinate space, which is the host's top-left.
+         *
+         * `getLocationInWindow` looks right and is wrong here: nothing in a Robolectric render is attached
+         * to a window, so it returns each view's offset within its immediate parent — which silently turned
+         * "sample the chart" into "sample the card that contains it", and made an assertion about the live
+         * polyline pass by reading the accent-coloured "next stop" label three rows above it. The chain is
+         * walked by hand instead, minus every parent's scroll, so the rect is the pixels being painted.
+         */
+        fun bounds(id: Int): Rect {
+            val target = root.findViewById<View>(id) ?: return Rect()
+            var x = 0
+            var y = 0
+            var v: View = target
+            while (v !== root) {
+                val parent = v.parent as? View ?: break
+                x += v.left - parent.scrollX
+                y += v.top - parent.scrollY
+                v = parent
             }
+            return Rect(x, y, x + target.width, y + target.height)
         }
 
         /** Distinct colours painted inside `area`; a screen or chart that drew nothing scores 1. */

@@ -139,6 +139,9 @@ class ScreenRenderTest {
         // when a position exists, so this fails on an empty frame or a zero-height view.
         val chart = shot.bounds(R.id.chart)
         assertTrue("chart has no height: $chart", chart.height() > Render.dp(shot.context, 90f).toInt())
+        // The rect must be *below* the card's header row, or this whole file samples the wrong pixels.
+        assertTrue("the chart's rect starts at the top of the screen ($chart): the offset walk is broken",
+            chart.top > Render.dp(shot.context, 120f).toInt())
         assertTrue("chart painted ${shot.distinct(chart)} colours", shot.distinct(chart) > 40)
         // The count goes into the message: "$accentPx accent pixels" distinguishes "the chart never
         // plotted" from "the whole screen happens to use this colour", and a CI log that cannot tell them
@@ -231,7 +234,11 @@ class ScreenRenderTest {
         val list = shot.root.findViewById<RecyclerView>(R.id.results)!!
         for (i in 0 until list.childCount) {
             val row = list.getChildAt(i)
-            assertTrue("result $i has no train number", text(row, R.id.hitNo).matches(Regex("""\d{5,6}""")))
+            // `containsMatchIn`, not `matches`: the row prints the number *and* its category ("16999 · SF
+            // Exp"), which is what the adapter is meant to show, so a whole-string match would fail on
+            // correct output.
+            assertTrue("result $i has no train number: '${text(row, R.id.hitNo)}'",
+                Regex("""\d{5,6}""").containsMatchIn(text(row, R.id.hitNo)))
             listOf(R.id.hitName, R.id.hitMeta, R.id.hitDep, R.id.hitArr, R.id.hitTag).forEach { id ->
                 assertTrue("result $i missing ${name(shot, id)}", text(row, id).isNotBlank())
             }
