@@ -84,6 +84,27 @@ object Render {
             return n
         }
 
+        /** Where the pixels of `color` are, so a failure message can name the element that painted them. */
+        fun regionOf(color: Int, area: Rect = Rect(0, 0, bitmap.width, bitmap.height)): Rect? {
+            val target = color and 0x00FFFFFF
+            var left = Int.MAX_VALUE; var top = Int.MAX_VALUE; var right = -1; var bottom = -1
+            var y = maxOf(0, area.top)
+            while (y < minOf(bitmap.height, area.bottom)) {
+                var x = maxOf(0, area.left)
+                while (x < minOf(bitmap.width, area.right)) {
+                    if (bitmap.getPixel(x, y) and 0x00FFFFFF == target) {
+                        if (x < left) left = x
+                        if (x > right) right = x
+                        if (y < top) top = y
+                        if (y > bottom) bottom = y
+                    }
+                    x += 2
+                }
+                y += 2
+            }
+            return if (right < 0) null else Rect(left, top, right + 2, bottom + 2)
+        }
+
         fun paintedWith(color: Int, area: Rect = Rect(0, 0, bitmap.width, bitmap.height)): Boolean {
             val target = color and 0x00FFFFFF
             var y = maxOf(0, area.top)

@@ -186,6 +186,12 @@
 
     <style name="Segment">
         <item name="android:background">@drawable/ripple_segment</item>
+        <!-- Layout dimensions in a style: the three day-picker buttons shipped without them and threw
+             "You must supply a layout_width attribute" from LayoutInflater at inflation time — a crash that
+             no Gradle task can see, since AAPT compiles the XML happily and only the inflater cares. Every
+             `Segment` in the app now arrives with both, so the class of bug is closed rather than fixed. -->
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
         <item name="android:textColor">@color/text2</item>
         <item name="android:textSize">12sp</item>
         <item name="android:fontFamily">sans-serif-medium</item>

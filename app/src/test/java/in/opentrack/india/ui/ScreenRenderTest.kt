@@ -132,7 +132,7 @@ class ScreenRenderTest {
         // train's total, and the middle rows must therefore be strictly increasing.
         val km = (0 until list.childCount).map { text(list.getChildAt(it), R.id.stopMeta) }
             .mapNotNull { Regex("""· (\d+) km""").find(it)?.groupValues?.get(1)?.toIntOrNull() }
-        assertEquals("rows should each carry a km value", list.childCount, km.size)
+        assertEquals("every row prints its distance, the 0 km origin included", list.childCount, km.size)
         assertTrue("distances must increase along the route: $km", km.zipWithNext().all { (a, b) -> b > a })
 
         // The chart has to contain the live polyline: `TrackInsightView` paints the accent colour only
@@ -183,7 +183,12 @@ class ScreenRenderTest {
         // zero would make this a harness artefact rather than a finding.
         val chart = shot.bounds(R.id.chart)
         val accentPx = shot.countWith(shot.context.getColor(R.color.accent), chart)
-        assertTrue("a schedule-only view painted $accentPx accent pixels in the chart", accentPx < 40)
+        // The bounding box travels with the count: "105 accent pixels" is a mystery, "105 accent pixels in
+        // Rect(36,1104,318,1160)" is a named element at a named place, and this run had one round trip to
+        // spend on the difference.
+        assertTrue("a schedule-only view painted $accentPx accent pixels at " +
+            "${shot.regionOf(shot.context.getColor(R.color.accent), chart)} inside chart $chart",
+            accentPx < 40)
         val warnPx = shot.countWith(shot.context.getColor(R.color.warn), chart)
         assertTrue("the offline chart drew no timetable line at all ($warnPx warn pixels in $chart)",
             warnPx > 10)

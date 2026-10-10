@@ -128,7 +128,7 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         holder.name.setTextColor(ctx.getColor(colorFor(s)))
         holder.meta.text = buildString {
             append(s.code)
-            if (s.kmFromOrigin > 0) append(" · ").append(s.kmFromOrigin).append(" km")
+            if (s.showKm) append(" · ").append(s.kmFromOrigin).append(" km")
             if (s.isBoarding) append(" · ").append(ctx.getString(R.string.tag_board))
             else if (s.isAlighting) append(" · ").append(ctx.getString(R.string.tag_alight))
             s.platform?.takeIf { it.isNotBlank() }?.let { append(" · plat ").append(it) }

@@ -158,18 +158,24 @@
                 <Button
                     android:id="@+id/dayBack"
                     style="@style/Segment"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
                     android:background="@null"
                     android:text="@string/day_back" />
 
                 <Button
                     android:id="@+id/dayNow"
                     style="@style/Segment"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
                     android:background="@null"
                     android:text="@string/day_now" />
 
                 <Button
                     android:id="@+id/dayFwd"
                     style="@style/Segment"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
                     android:background="@null"
                     android:text="@string/day_fwd" />
             </LinearLayout>

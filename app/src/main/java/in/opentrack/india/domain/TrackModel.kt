@@ -66,6 +66,8 @@ object TrackModel {
         val kmFromOrigin: Int,
         val kmFromBoard: Int,
         val kmRemaining: Int,
+        /** Print the distance column at all, and print it for the 0 km origin too. */
+        val showKm: Boolean = false,
         val isBoarding: Boolean,
         val isAlighting: Boolean,
         /** minutes from `now` to this stop's shown departure (negative = it has gone) */
@@ -175,6 +177,10 @@ object TrackModel {
             ?: stops.firstOrNull { (it.minutesFromNow ?: -1) > 0 }
         val totalKm = alightKm(route, alightSeq) - boardKm
         val hasDistances = totalKm > 0 && stops.any { it.kmFromOrigin > 0 }
+        // Once the dataset is known to carry distances, *every* row prints one — including the first, whose
+        // "0 km" is the bottom rung of the ladder the reader is measuring the rest against. Gating the
+        // column on `kmFromOrigin > 0` instead made the origin look like a stop with no distance.
+        val rows = if (hasDistances) stops.map { it.copy(showKm = true) } else stops
         // Distance travelled within the passenger's own segment. The engine's `kmAlong` is measured
         // from the train's first station and is only trustworthy when a live (or schedule-interpolated)
         // position put it there; otherwise interpolate the anchor->next leg by the same fraction the
@@ -226,7 +232,7 @@ object TrackModel {
             progressLabel = progressLabel,
             progressPct = progressPct,
             schedulePct = schedulePct,
-            rows = stops,
+            rows = rows,
             hasDistances = hasDistances,
             note = note,
             anchorSeq = pos.anchorSeq,

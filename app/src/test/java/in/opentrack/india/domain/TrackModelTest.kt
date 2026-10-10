@@ -158,17 +158,24 @@ class TrackModelTest {
     @Test
     fun anchorDelayIsCarriedForwardToLaterStopsAndNeverBackwards() {
         val m = model(pos = pos(2, 3, StopStatus.DEPARTED, delay = 14))
-        // MID itself: the anchor minute is the report's own, so nothing is invented for it.
-        assertEquals(null, m.rows[1].delay)
+        // MID itself: the anchor minute is the report's own, so nothing is invented for it — and since
+        // nothing moved it, it is the timetable, not a projection. (It used to be labelled "estimated",
+        // which is the claim this file exists to prevent: a screen may not call a number a forecast when
+        // the only thing that produced it is the schedule.)
+        assertEquals("no delay is asserted at the anchor minute", null, m.rows[1].delay)
         assertEquals(600, m.rows[1].showArr)
-        assertTrue(m.rows[1].estimated)
+        assertEquals(TrackModel.MinuteSource.SCHEDULE, m.rows[1].source)
+        assertFalse("the anchor's own minute must not be dressed up as a forecast", m.rows[1].estimated)
         // DST: schedule plus the delay already established at MID, marked as a projection.
         assertEquals(14, m.rows[2].delay)
         assertEquals(714, m.rows[2].showArr)
         assertTrue("a forecast must look like a forecast", m.rows[2].estimated)
+        assertEquals(TrackModel.MinuteSource.PROJECTED, m.rows[2].source)
         // SRC is behind the anchor and unreported: no number at all, not 0 and not +14.
         assertEquals(null, m.rows[0].delay)
         assertEquals(360, m.rows[0].showDep)
+        assertEquals("behind the anchor and unreported is still the timetable",
+            TrackModel.MinuteSource.SCHEDULE, m.rows[0].source)
     }
 
     @Test

@@ -112,10 +112,32 @@ def r_imports() -> list[str]:
     return problems
 
 
+def layout_dims() -> list[str]:
+    """Every element in a layout that carries any `android:` attribute needs both layout dimensions.
+
+    AAPT will happily compile a `<Button>` that has no `android:layout_width`; `LayoutInflater` throws
+    "You must supply a layout_width attribute" the first time a human opens that screen. Hand-written
+    layouts with no Android Studio preview in the loop are exactly where that hides: three segmented
+    buttons in `activity_main.xml` did it, which would have made the search screen crash on launch.
+    """
+    problems: list[str] = []
+    for xml in sorted((RES / "layout").glob("*.xml")):
+        text = xml.read_text()
+        for m in re.finditer(r"<(\w[\w.]*)((?:[^<>\"']|\"[^\"]*\"|'[^']*')*?)/?>", text):
+            tag, attrs = m.group(1), m.group(2)
+            if tag in ("merge", "requestFocus", "include") or "android:" not in attrs:
+                continue
+            missing = [a for a in ("android:layout_width", "android:layout_height") if a not in attrs]
+            if missing:
+                line = text[:m.start()].count("\n") + 1
+                problems.append(f"{xml}:{line}: <{tag}> missing {' '.join(missing)} — LayoutInflater throws")
+    return problems
+
+
 def main() -> int:
     names = resource_names()
     problems = 0
-    for msg in res_references() + r_imports():
+    for msg in res_references() + r_imports() + layout_dims():
         print(msg)
         problems += 1
     for kt in sorted(SRC.rglob("*.kt")):

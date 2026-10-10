@@ -134,6 +134,10 @@ class ShippedDataTest {
         assertTrue("only ${km.size} of ${route.stops.size} rows printed a distance",
             km.size >= route.stops.size - 1)
         assertTrue("distances out of order on the real route: $km", km.zipWithNext().all { (a, b) -> b >= a })
+        assertEquals("every row of a real route prints its distance", route.stops.size, km.size)
+        // The user's wording for this requirement was "first station = 0 km, last = destination".
+        assertEquals("the origin row must read 0 km", 0, km.first())
+        assertEquals("the last row must read the train's total", route.totalKm, km.last())
         Render.save("05-track-shipped-asset", shot.bitmap)
     }
 
