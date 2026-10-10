@@ -29,6 +29,7 @@
     <string name="tag_expected">expected</string>
     <string name="tag_no_report">no report</string>
     <string name="tag_due">due</string>
+    <string name="tag_timetable">timetable</string>
     <string name="tag_terminal">end of run</string>
     <string name="sched_cap">SCH</string>
     <string name="live_cap">LIVE</string>

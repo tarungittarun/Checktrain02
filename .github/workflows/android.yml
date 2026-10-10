@@ -115,13 +115,15 @@ jobs:
             echo "Tasks that failed:"
             grep -E "^> Task .* FAILED" /tmp/test.log | sed 's/^> /  - /' || echo "  (none — an earlier step failed)"
             echo
-            echo "Failing tests and assertions:"
-            grep -E "FAILED|AssertionError|expected:|but was:|Unresolved|^e: " /tmp/test.log | head -60 || true
+            # Each failing test with its assertion message and the file:line that threw. The XML, not the
+            # console: Gradle truncates the very line that explains the failure.
+            python3 tools/ci/test_report.py --dir app/build/test-results || true
             echo
-            echo "What went wrong:"
+            echo "Compiler errors, if any:"
             echo
             echo '```'
-            awk '/\* What went wrong:/,/\* Try:/' /tmp/test.log | head -50 || true
+            grep "^e: " /tmp/test.log | sed 's|file://[^ ]*/Checktrain02/||' | head -25 || true
+            awk '/\* What went wrong:/,/\* Try:/' /tmp/test.log | head -20 || true
             echo '```'
           } > /tmp/report.md
           gh api -X POST "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/comments" -F body=@/tmp/report.md \

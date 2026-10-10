@@ -140,7 +140,11 @@ class ScreenRenderTest {
         val chart = shot.bounds(R.id.chart)
         assertTrue("chart has no height: $chart", chart.height() > Render.dp(shot.context, 90f).toInt())
         assertTrue("chart painted ${shot.distinct(chart)} colours", shot.distinct(chart) > 40)
-        assertTrue("no live polyline in the chart", shot.paintedWith(shot.context.getColor(R.color.accent), chart))
+        // The count goes into the message: "$accentPx accent pixels" distinguishes "the chart never
+        // plotted" from "the whole screen happens to use this colour", and a CI log that cannot tell them
+        // apart costs a round trip.
+        val accentPx = shot.countWith(shot.context.getColor(R.color.accent), chart)
+        assertTrue("live polyline missing: $accentPx accent pixels in $chart", accentPx > 20)
         assertTrue("progress bar unpainted", shot.distinct(shot.bounds(R.id.progressBar)) > 3)
         Render.save("02-track-live", shot.bitmap)
     }
@@ -174,8 +178,15 @@ class ScreenRenderTest {
         assertEquals(m.provenanceLabel, shot.text(R.id.provenance))
         assertEquals(9, Render.rowCount(shot.root))
         // Without a position the accent polyline is absent; the timetable line is drawn in text2/warn.
-        assertFalse("a schedule-only view painted a live polyline",
-            shot.paintedWith(shot.context.getColor(R.color.accent), shot.bounds(R.id.chart)))
+        // The offline chart is `warn` and dashed, so the rule is about the accent *line*: a few accent
+        // pixels can legitimately come from the boarding tick or the "now" marker, and demanding an exact
+        // zero would make this a harness artefact rather than a finding.
+        val chart = shot.bounds(R.id.chart)
+        val accentPx = shot.countWith(shot.context.getColor(R.color.accent), chart)
+        assertTrue("a schedule-only view painted $accentPx accent pixels in the chart", accentPx < 40)
+        val warnPx = shot.countWith(shot.context.getColor(R.color.warn), chart)
+        assertTrue("the offline chart drew no timetable line at all ($warnPx warn pixels in $chart)",
+            warnPx > 10)
         Render.save("01-track-schedule", shot.bitmap)
     }
 
@@ -202,14 +213,16 @@ class ScreenRenderTest {
                 Render.settle(this, hits.size)
             }
         }
-        assertTrue("screen painted ${shot.distinct()} colours", shot.distinct() > 12)
+        val painted = shot.distinct()
+        assertTrue("screen painted only $painted colours", painted > 12)
         listOf(R.id.fromBox, R.id.toBox, R.id.trainBox, R.id.find, R.id.swap, R.id.dayNow, R.id.dayBack,
             R.id.dayFwd, R.id.modeStations, R.id.modeTrain).forEach { id ->
             assertNotNull("control ${name(shot, id)} missing from the layout", shot.root.findViewById<View>(id))
         }
         assertNotNull("the type-ahead input is not inside the box", shot.root.findViewById<View>(R.id.suggestInput))
         assertTrue("search button has no label", shot.text(R.id.find).isNotBlank())
-        assertEquals(3, shot.root.findViewById<RecyclerView>(R.id.results)?.childCount)
+        val shown = shot.root.findViewById<RecyclerView>(R.id.results)?.childCount ?: -1
+        assertEquals("all three runs should be on screen", 3, shown)
         val list = shot.root.findViewById<RecyclerView>(R.id.results)!!
         for (i in 0 until list.childCount) {
             val row = list.getChildAt(i)

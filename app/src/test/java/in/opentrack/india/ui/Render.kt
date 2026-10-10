@@ -68,6 +68,22 @@ object Render {
             return seen.size
         }
 
+        /** How many sampled pixels are exactly `color`; the count, so a failure message can carry it. */
+        fun countWith(color: Int, area: Rect = Rect(0, 0, bitmap.width, bitmap.height)): Int {
+            val target = color and 0x00FFFFFF
+            var n = 0
+            var y = maxOf(0, area.top)
+            while (y < minOf(bitmap.height, area.bottom)) {
+                var x = maxOf(0, area.left)
+                while (x < minOf(bitmap.width, area.right)) {
+                    if (bitmap.getPixel(x, y) and 0x00FFFFFF == target) n++
+                    x += 2
+                }
+                y += 2
+            }
+            return n
+        }
+
         fun paintedWith(color: Int, area: Rect = Rect(0, 0, bitmap.width, bitmap.height)): Boolean {
             val target = color and 0x00FFFFFF
             var y = maxOf(0, area.top)

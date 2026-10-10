@@ -63,6 +63,36 @@ class TrackModelTest {
         board: Int = 1, alight: Int = 3, note: String? = null,
     ) = TrackModel.build(route, pos, perStop, now, board, alight, 19949L, note)
 
+    // ------------------------------------------------------------- reported vs expected vs timetable
+
+    @Test
+    fun withNoFeedAtAllEveryRowIsTheTimetableAndNotAForecast() {
+        // The presentation bug this guards: one `estimated` boolean made "no live data" and "we expect a
+        // slip" the same state, so an offline screen printed every upcoming stop in projection amber and
+        // called it "expected" — a forecast manufactured out of an empty field.
+        val m = model(
+            pos = pos(0, 1, StopStatus.UNKNOWN, kind = SourceKind.OFFLINE_SCHEDULE),
+            perStop = emptyMap(), now = 700,
+        )
+        assertTrue("a no-feed screen must label every row as the timetable: " +
+            m.rows.joinToString { "${it.code}=${it.source}" },
+            m.rows.all { it.source == TrackModel.MinuteSource.SCHEDULE })
+        assertTrue(m.rows.none { it.estimated })
+        assertTrue(m.rows.all { it.showArr == it.schedArr && it.showDep == it.schedDep })
+        assertTrue("the Delay cell is about 90dp wide: '${m.delayLabel}'", m.delayLabel.length <= 16)
+    }
+
+    @Test
+    fun aLiveDelayTurnsStopsAheadIntoProjectionsAndLeavesReportedOnesReported() {
+        val m = model(
+            pos = pos(1, 2, StopStatus.DEPARTED, delay = 12),
+            perStop = mapOf("MID" to LiveStopFields(actualArrivalMin = 606, delayArrivalMin = 6)),
+            now = 620,
+        )
+        assertEquals(TrackModel.MinuteSource.REPORTED, m.rows[1].source)
+        assertEquals(TrackModel.MinuteSource.PROJECTED, m.rows[2].source)
+    }
+
     // ------------------------------------------------------------------ headline ↔ rows
 
     @Test

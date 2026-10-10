@@ -138,7 +138,9 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         // Amber for a projection, delay colour for a report: the same number means different things and
         // must not look the same.
         val color = when {
-            s.estimated -> R.color.warn
+            // Only a projection is amber. The timetable is not a prediction, so it must not borrow the
+            // colour that means "we think this will slip".
+            s.source == TrackModel.MinuteSource.PROJECTED -> R.color.warn
             s.delay == null -> R.color.text2
             s.delay!! >= 2 -> R.color.late
             s.delay!! <= -2 -> R.color.early
@@ -164,10 +166,11 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
      * One short word under the live column, naming what that column holds.
      *
      * The rule the user asked for is exactly this: a stop the train has covered is scheduled *and*
-     * actual, a stop still ahead is scheduled *and* expected. Colour separates the two in the columns
+     * actual, a stop still ahead is scheduled *and* expected. Colour separates them in the columns
      * themselves, which is the fast read; the word is the slow read, and it is what makes a screenshot
-     * or a colour-blind passenger unambiguous. "no report" is spelled out rather than left blank because
-     * a passed stop with no actual minute is information, not missing information.
+     * or a colour-blind passenger unambiguous. "no report" and "timetable" are spelled out rather than
+     * left blank because a passed stop with no actual minute, and a screen with no feed at all, are
+     * statements about the data — and a dash reads like the app gave up.
      */
     private fun tagFor(s: TrackModel.Stop, ctx: android.content.Context): String = when {
         s.state == TrackModel.State.CANCELLED -> ctx.getString(R.string.tag_cancelled)
@@ -177,7 +180,8 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         s.state == TrackModel.State.NEXT ->
             s.minutesFromNow?.let { TrackModel.formatGap(it) } ?: ctx.getString(R.string.tag_due)
         s.showArr == null && s.showDep == null -> ctx.getString(R.string.tag_no_report)
-        s.estimated -> ctx.getString(R.string.tag_expected)
+        s.source == TrackModel.MinuteSource.PROJECTED -> ctx.getString(R.string.tag_expected)
+        s.source == TrackModel.MinuteSource.SCHEDULE -> ctx.getString(R.string.tag_timetable)
         else -> ctx.getString(R.string.tag_actual)
     }
 
@@ -185,7 +189,8 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         s.state == TrackModel.State.HERE -> R.color.accent
         s.state == TrackModel.State.CANCELLED || s.state == TrackModel.State.SKIPPED -> R.color.late
         s.state == TrackModel.State.NEXT -> R.color.text1
-        s.estimated -> R.color.warn
+        s.source == TrackModel.MinuteSource.PROJECTED -> R.color.warn
+        s.source == TrackModel.MinuteSource.SCHEDULE -> R.color.text3
         s.showArr != null || s.showDep != null -> R.color.text2
         else -> R.color.text3
     }

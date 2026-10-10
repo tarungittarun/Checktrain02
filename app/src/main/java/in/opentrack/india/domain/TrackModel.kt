@@ -28,6 +28,17 @@ object TrackModel {
     enum class Tone { LIVE_OK, LIVE_LATE, LIVE_EARLY, SCHEDULE, PROBLEM, NONE }
 
     /**
+     * Where the minute in a row's bright column came from. Three states, because there are three true
+     * answers and the UI must not present them as two: a reported minute, a minute we moved off the
+     * timetable because the train is running late, and the timetable itself.
+     *
+     * Collapsing the third into the second — which a single `estimated` boolean did — is how a screen with
+     * no live feed at all managed to print every upcoming stop in projection amber and label it "expected",
+     * i.e. to claim a forecast it had no data for.
+     */
+    enum class MinuteSource { REPORTED, PROJECTED, SCHEDULE }
+
+    /**
      * One stop as the screen shows it.
      *
      * Times are rail minutes (see [RailTime]); the formatter adds the `( +1d )` the traveller needs to
@@ -48,7 +59,7 @@ object TrackModel {
         val showArr: Int?,
         val showDep: Int?,
         val delay: Int?,
-        val estimated: Boolean,
+        val source: MinuteSource,
         val platform: String?,
         val state: State,
         val isAnchor: Boolean,
@@ -62,6 +73,9 @@ object TrackModel {
     ) {
         /** The minute the comparison for this row is made on: departure, or arrival at the end. */
         val pivotMinute: Int? get() = showDep ?: showArr
+
+        /** The shown minute is schedule-plus-carried-delay, not a report about the train. */
+        val estimated: Boolean get() = source == MinuteSource.PROJECTED
     }
 
     /** Screen-ready strings, so the Activity contains no arithmetic and cannot invent a claim. */
@@ -135,7 +149,15 @@ object TrackModel {
                 seq = s.seq, code = s.code, name = s.name,
                 schedArr = s.arrivalMin, schedDep = s.departureMin,
                 showArr = actualArr ?: estArr, showDep = actualDep ?: estDep,
-                delay = delay, estimated = !shown,
+                delay = delay,
+                source = when {
+                    shown -> MinuteSource.REPORTED
+                    // Nothing moved this row off the timetable: no report, no delay to carry. Printing it
+                    // as an estimate would be a forecast invented out of an empty field.
+                    delay == null -> MinuteSource.SCHEDULE
+                    live -> MinuteSource.PROJECTED
+                    else -> MinuteSource.SCHEDULE
+                },
                 platform = liveFields?.platform,
                 state = state,
                 isAnchor = hasAnchor && s.seq == pos.anchorSeq,
@@ -293,8 +315,12 @@ object TrackModel {
     private fun delayLabel(pos: TrainPosition, live: Boolean): String {
         val d = pos.delayMinutes
         return when {
-            !live && d == null -> "no live feed · times are the schedule"
-            !live -> "assumed on time (no live feed)"
+            // Short on purpose: this sits in a cell labelled "Delay" that is about 90dp wide, and the
+            // sentence it used to carry is already printed full-width in the note strip below.
+            !live && d == null -> "no live feed"
+            // A cached or GPS-derived answer is stale but it does carry a delay, and hiding the number
+            // would be less honest than showing it next to the age of the fetch.
+            !live -> RailTime.formatDelay(d!!)
             d == null -> "delay not reported"
             abs(d) < 2 -> "on time"
             else -> RailTime.formatDelay(d)
