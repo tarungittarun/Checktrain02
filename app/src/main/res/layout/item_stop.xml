@@ -1,51 +1,118 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  One stop. Scheduled pair and live-or-expected pair are stacked in two fixed-width columns so the eye
+  reads down a column and sees the drift; the rail on the left is the same timeline the chart draws, so
+  "passed / here / still to come" is legible without reading a word. Column widths come from dimens.xml
+  and are repeated verbatim in the table header - a header that does not line up with its own table is
+  how a screen starts to look untrustworthy.
+-->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/stopRow"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:baselineAligned="false"
+    android:minHeight="@dimen/row_min_h"
     android:orientation="horizontal"
-    android:paddingStart="10dp"
-    android:paddingEnd="10dp"
-    android:paddingTop="7dp"
-    android:paddingBottom="7dp">
+    android:paddingLeft="12dp"
+    android:paddingTop="9dp"
+    android:paddingRight="12dp"
+    android:paddingBottom="9dp">
 
-    <TextView
-        android:id="@+id/stopCode"
-        android:layout_width="56dp"
-        android:layout_height="wrap_content"
-        android:textColor="@color/accent"
-        android:textSize="13sp"
-        android:textStyle="bold" />
+    <FrameLayout
+        android:layout_width="@dimen/rail_w"
+        android:layout_height="match_parent"
+        android:layout_marginEnd="6dp">
 
-    <TextView
-        android:id="@+id/stopName"
-        style="@style/Value"
+        <View
+            android:layout_width="2dp"
+            android:layout_height="match_parent"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginTop="10dp"
+            android:layout_marginBottom="10dp"
+            android:background="@color/stroke" />
+
+        <View
+            android:id="@+id/stopDot"
+            android:layout_width="11dp"
+            android:layout_height="11dp"
+            android:layout_gravity="center_horizontal|top"
+            android:layout_marginTop="7dp"
+            android:background="@drawable/dot_later" />
+    </FrameLayout>
+
+    <LinearLayout
         android:layout_width="0dp"
         android:layout_height="wrap_content"
+        android:layout_gravity="center_vertical"
         android:layout_weight="1"
-        android:maxLines="1"
-        android:ellipsize="end"
-        android:textSize="14sp" />
+        android:orientation="vertical">
 
-    <TextView
-        android:id="@+id/stopSched"
-        style="@style/Label"
-        android:layout_width="96dp"
-        android:layout_height="wrap_content"
-        android:gravity="end" />
+        <TextView
+            android:id="@+id/stopName"
+            style="@style/TextBody"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:fontFamily="sans-serif-medium"
+            android:singleLine="true" />
 
-    <TextView
-        android:id="@+id/stopActual"
-        android:layout_width="72dp"
-        android:layout_height="wrap_content"
-        android:gravity="end"
-        android:textColor="@color/warn"
-        android:textSize="12sp" />
+        <TextView
+            android:id="@+id/stopMeta"
+            style="@style/TextMicro"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="3dp"
+            android:singleLine="true" />
+    </LinearLayout>
 
-    <TextView
-        android:id="@+id/stopKm"
-        style="@style/Label"
-        android:layout_width="40dp"
+    <LinearLayout
+        android:layout_width="@dimen/col_sched"
         android:layout_height="wrap_content"
-        android:gravity="end" />
+        android:layout_gravity="center_vertical"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/schedArr"
+            style="@style/TextClockDim"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_horizontal" />
+
+        <TextView
+            android:id="@+id/schedDep"
+            style="@style/TextClockDim"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_horizontal" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="@dimen/col_live"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_vertical"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/liveArr"
+            style="@style/TextClock"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_horizontal" />
+
+        <TextView
+            android:id="@+id/liveDep"
+            style="@style/TextClock"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_horizontal" />
+
+        <TextView
+            android:id="@+id/liveTag"
+            style="@style/TextMicro"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="3dp"
+            android:gravity="center_horizontal"
+            android:singleLine="true" />
+    </LinearLayout>
 </LinearLayout>

@@ -331,7 +331,9 @@ object PositionEngine {
                     anchorSeq = 0, nextSeq = min(route.lastSeq, 1), fraction = 0f, kmAlong = 0f,
                     status = StopStatus.UPCOMING,
                     etaNextMinute = route.stops.first().departureMin?.takeIf { it >= now },
-                    delayMinutes = 0, remainingMin = null,
+                    // null, not 0: 0 renders as "on time", which is a report about the train. With no
+                    // feed there is nothing to report, and an assumption must not look like a fact.
+                    delayMinutes = null, remainingMin = null,
                     provenance = SourceKind.OFFLINE_SCHEDULE,
                     confidence = TrainPosition.Confidence.LOW, ageSeconds = 0,
                 ),
@@ -354,7 +356,7 @@ object PositionEngine {
                     kmAlong = at.schedKm.toFloat(),
                     status = if (elapsed <= 2) StopStatus.DEPARTED else StopStatus.UNKNOWN,
                     etaNextMinute = arrNext?.takeIf { it >= now },
-                    delayMinutes = 0, remainingMin = null,
+                    delayMinutes = null, remainingMin = null,
                     provenance = SourceKind.OFFLINE_SCHEDULE,
                     confidence = TrainPosition.Confidence.LOW, ageSeconds = 0,
                 ),
@@ -371,7 +373,7 @@ object PositionEngine {
                 anchorSeq = at.seq, nextSeq = next!!.seq, fraction = fraction,
                 kmAlong = at.schedKm + (route.segmentAfter(at.seq)?.legKm ?: 0) * fraction,
                 status = StopStatus.DEPARTED, etaNextMinute = arrNext?.takeIf { it >= now },
-                delayMinutes = 0,
+                delayMinutes = null,
                 remainingMin = endArrival?.let { (it - now).takeIf { m -> m in 0..(20 * 1440) } },
                 provenance = SourceKind.OFFLINE_SCHEDULE,
                 confidence = TrainPosition.Confidence.LOW, ageSeconds = 0,
@@ -403,22 +405,5 @@ object PositionEngine {
         return out
     }
 
-    /** One-line phrasing of a position; used by both the live header and the notifications-free list. */
-    fun describe(pos: TrainPosition, route: TrainRoute): String {
-        val a = route.stopAtSeq(pos.anchorSeq)
-        val b = route.stopAtSeq(pos.nextSeq)
-        val base = when {
-            a == null -> "position unavailable"
-            pos.status == StopStatus.CANCELLED_HERE -> "cancelled at ${a.name}"
-            pos.status == StopStatus.ARRIVED -> "at ${a.name}"
-            pos.status == StopStatus.UPCOMING -> "yet to depart ${a.name}"
-            b == null -> "at ${a.name} (end of run)"
-            pos.fraction <= 0f -> "departed ${a.name}"
-            pos.fraction >= 0.95f -> "approaching ${b.name}"
-            else -> "between ${a.name} and ${b.name}" +
-                (if (pos.kmAlong > 0f) " · %.0f km covered".format(pos.kmAlong) else "")
-        }
-        val d = pos.delayMinutes
-        return if (d != null && abs(d) >= 2) "$base · ${RailTime.formatDelay(d)}" else base
-    }
+
 }

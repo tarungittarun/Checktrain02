@@ -1,4 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  The tracking screen, in the order the questions arrive: where is it, how far has it come, is it late,
+  then the stop-by-stop table that proves it. The scroll container is the screen, and the table inside it
+  is bounded by LiveViewModel's window (see `rowsFor`) so a 950-halt passenger train costs the same to
+  lay out as a 12-halt Rajdhani.
+-->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -8,95 +14,104 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="@color/surface"
+        android:baselineAligned="false"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:padding="10dp">
+        android:paddingLeft="@dimen/gap"
+        android:paddingTop="12dp"
+        android:paddingRight="@dimen/gap"
+        android:paddingBottom="12dp">
 
         <Button
             android:id="@+id/back"
+            style="@style/BtnGhost"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:minWidth="0dp"
-            android:paddingStart="10dp"
-            android:paddingEnd="10dp"
-            android:text="@string/back"
-            android:textSize="12sp" />
+            android:minHeight="40dp"
+            android:text="@string/back" />
 
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginStart="10dp"
+            android:layout_marginStart="12dp"
             android:layout_weight="1"
             android:orientation="vertical">
 
             <TextView
-                android:id="@+id/title"
-                android:layout_width="wrap_content"
+                android:id="@+id/trainNo"
+                style="@style/TextCode"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:textColor="@color/text"
-                android:textSize="17sp"
-                android:textStyle="bold" />
+                android:textSize="15sp" />
 
             <TextView
-                android:id="@+id/subtitle"
-                style="@style/Label"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content" />
+                android:id="@+id/routeLabel"
+                style="@style/TextMicro"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:ellipsize="end"
+                android:maxLines="1" />
         </LinearLayout>
 
         <TextView
-            android:id="@+id/date"
-            style="@style/Label"
+            android:id="@+id/runDate"
+            style="@style/TextMicro"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:layout_marginStart="10dp"
             android:gravity="end" />
     </LinearLayout>
 
     <ScrollView
+        android:id="@+id/scroller"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:fillViewport="true">
+        android:clipToPadding="false"
+        android:paddingBottom="@dimen/gap"
+        android:scrollbars="none">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="10dp">
+            android:paddingLeft="@dimen/gap"
+            android:paddingRight="@dimen/gap">
 
-            <!-- Where the train is, in one line, next to how much of that sentence is live.
-                 These two are always rendered together on purpose: the claim and its evidence. -->
+            <!-- where it is -->
             <LinearLayout
+                style="@style/Card"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:background="@color/surface"
-                android:orientation="vertical"
-                android:padding="12dp">
+                android:background="@drawable/bg_card"
+                android:orientation="vertical">
 
                 <TextView
                     android:id="@+id/headline"
+                    style="@style/TextHeadline"
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:textColor="@color/text"
-                    android:textSize="18sp" />
+                    android:layout_height="wrap_content" />
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
+                    android:layout_marginTop="10dp"
+                    android:baselineAligned="false"
                     android:gravity="center_vertical"
                     android:orientation="horizontal">
 
                     <TextView
                         android:id="@+id/provenance"
-                        style="@style/Chip"
+                        style="@style/Pill"
                         android:layout_width="wrap_content"
-                        android:layout_height="wrap_content" />
+                        android:layout_height="wrap_content"
+                        android:background="@drawable/bg_badge_schedule"
+                        android:textColor="@color/warn" />
 
                     <TextView
                         android:id="@+id/age"
-                        style="@style/Label"
+                        style="@style/TextMicro"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_marginStart="8dp"
@@ -106,53 +121,144 @@
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
+                    android:layout_marginTop="14dp"
+                    android:baselineAligned="false"
+                    android:orientation="horizontal">
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            style="@style/TextLabel"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/col_delay" />
+
+                        <TextView
+                            android:id="@+id/delay"
+                            android:fontFamily="sans-serif-medium"
+                            android:includeFontPadding="false"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="3dp"
+                            android:textColor="@color/text1"
+                            android:textSize="15sp" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1.7"
+                        android:orientation="vertical">
+
+                        <TextView
+                            style="@style/TextLabel"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/col_next" />
+
+                        <TextView
+                            android:id="@+id/next"
+                            style="@style/TextBody"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="3dp"
+                            android:ellipsize="end"
+                            android:maxLines="2" />
+                    </LinearLayout>
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/note"
+                    style="@style/TextMicro"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:background="@drawable/bg_badge_schedule"
+                    android:padding="8dp"
+                    android:textColor="@color/warn"
+                    android:visibility="gone" />
+            </LinearLayout>
+
+            <!-- progress -->
+            <LinearLayout
+                style="@style/Card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/gap"
+                android:background="@drawable/bg_card"
+                android:orientation="vertical">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:baselineAligned="false"
+                    android:gravity="center_vertical"
                     android:orientation="horizontal">
 
                     <TextView
-                        android:id="@+id/delay"
-                        style="@style/Value"
-                        android:layout_width="0dp"
+                        style="@style/TextLabel"
+                        android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_weight="1" />
+                        android:text="@string/sec_progress" />
 
                     <TextView
-                        android:id="@+id/eta"
-                        style="@style/Value"
+                        android:id="@+id/progressLabel"
+                        style="@style/TextMeta"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:gravity="end" />
                 </LinearLayout>
 
-                <TextView
-                    android:id="@+id/remaining"
-                    style="@style/Label"
+                <in.opentrack.india.ui.JourneyProgressView
+                    android:id="@+id/progressBar"
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="3dp" />
-
-                <TextView
-                    android:id="@+id/progressValue"
-                    style="@style/Label"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content" />
+                    android:layout_height="@dimen/progress_h"
+                    android:layout_marginTop="12dp" />
             </LinearLayout>
 
-            <in.opentrack.india.ui.TrackInsightView
-                android:id="@+id/track"
+            <!-- the plot -->
+            <LinearLayout
+                style="@style/Card"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="10dp" />
+                android:layout_marginTop="@dimen/gap"
+                android:background="@drawable/bg_card"
+                android:orientation="vertical">
+
+                <TextView
+                    style="@style/TextLabel"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/col_plot" />
+
+                <in.opentrack.india.ui.TrackInsightView
+                    android:id="@+id/chart"
+                    android:layout_width="match_parent"
+                    android:layout_height="@dimen/chart_h"
+                    android:layout_marginTop="6dp" />
+
+                <TextView
+                    android:id="@+id/chartLegend"
+                    style="@style/TextMicro"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp" />
+            </LinearLayout>
 
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
+                android:layout_marginTop="@dimen/gap"
                 android:orientation="horizontal">
 
                 <Button
                     android:id="@+id/refresh"
+                    style="@style/BtnGhost"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
@@ -160,70 +266,110 @@
 
                 <Button
                     android:id="@+id/toggle"
+                    style="@style/BtnGhost"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
+                    android:layout_marginStart="8dp"
+                    android:layout_weight="1.2"
                     android:text="@string/show_full_route" />
+
+                <Button
+                    android:id="@+id/autoBtn"
+                    style="@style/BtnGhost"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:layout_weight="0.7"
+                    android:text="@string/auto_refresh" />
             </LinearLayout>
 
-            <TextView
-                android:id="@+id/status"
-                style="@style/Label"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="6dp" />
-
+            <!-- route table -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:background="@color/surface"
+                android:layout_marginTop="@dimen/gap"
+                android:background="@drawable/bg_inset"
+                android:baselineAligned="false"
+                android:gravity="center_vertical"
                 android:orientation="horizontal"
-                android:paddingStart="10dp"
-                android:paddingEnd="10dp"
-                android:paddingTop="8dp"
-                android:paddingBottom="4dp">
+                android:paddingLeft="12dp"
+                android:paddingTop="9dp"
+                android:paddingRight="12dp"
+                android:paddingBottom="9dp">
 
                 <TextView
-                    style="@style/Label"
-                    android:layout_width="56dp"
-                    android:layout_height="wrap_content"
-                    android:text="CODE" />
-
-                <TextView
-                    style="@style/Label"
+                    style="@style/TextLabel"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
+                    android:layout_marginStart="@dimen/rail_w"
                     android:layout_weight="1"
-                    android:text="STATION" />
+                    android:text="@string/col_station" />
 
                 <TextView
-                    style="@style/Label"
-                    android:layout_width="96dp"
+                    style="@style/TextLabel"
+                    android:layout_width="@dimen/col_sched"
                     android:layout_height="wrap_content"
-                    android:gravity="end"
-                    android:text="SCHED A/D" />
+                    android:gravity="center_horizontal"
+                    android:text="@string/col_scheduled" />
 
                 <TextView
-                    style="@style/Label"
-                    android:layout_width="72dp"
+                    style="@style/TextLabel"
+                    android:layout_width="@dimen/col_live"
                     android:layout_height="wrap_content"
-                    android:gravity="end"
-                    android:text="LIVE" />
-
-                <TextView
-                    style="@style/Label"
-                    android:layout_width="40dp"
-                    android:layout_height="wrap_content"
-                    android:gravity="end"
-                    android:text="KM" />
+                    android:gravity="center_horizontal"
+                    android:text="@string/col_live" />
             </LinearLayout>
 
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/stops"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:background="@drawable/bg_inset"
                 android:nestedScrollingEnabled="false" />
+
+            <TextView
+                android:id="@+id/rowsNote"
+                style="@style/TextMicro"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:gravity="center_horizontal"
+                android:visibility="gone" />
+
+            <LinearLayout
+                android:id="@+id/sourceCard"
+                style="@style/Card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/gap"
+                android:background="@drawable/bg_inset"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <TextView
+                    style="@style/TextLabel"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/sec_source" />
+
+                <TextView
+                    android:id="@+id/sourceText"
+                    style="@style/TextMicro"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:lineSpacingExtra="3sp" />
+            </LinearLayout>
+
+            <Button
+                android:id="@+id/sourceToggle"
+                style="@style/BtnGhost"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:minHeight="40dp"
+                android:text="@string/show_source"
+                android:textSize="12sp" />
         </LinearLayout>
     </ScrollView>
 </LinearLayout>

@@ -9,16 +9,19 @@ import `in`.opentrack.india.App
 import `in`.opentrack.india.R
 import `in`.opentrack.india.core.RailTime
 import `in`.opentrack.india.databinding.ActivityTrainBinding
-import `in`.opentrack.india.domain.PositionEngine
-import `in`.opentrack.india.model.SourceKind
+import `in`.opentrack.india.domain.TrackModel
 
 /**
- * Screen 2 of 3 — the live view: where the train is against where the timetable says it should be,
- * plus the stop-by-stop comparison underneath.
+ * Screen 2 of 3 — the live view: where the train is against where the timetable says it should be, and
+ * the stop-by-stop comparison underneath.
  *
- * The header states the provenance in the same visual weight as the position itself. That is not
- * decoration: a tracker that shows a stale marker without saying so is the specific failure this
- * project exists to avoid.
+ * This Activity binds strings and picks colours. It computes nothing about the train: the sentence at the
+ * top and the highlighted row in the table below are both read out of the same [TrackModel.View], so
+ * they cannot tell two stories. That separation is the point of the model, and it is asserted in
+ * `TrackModelTest`.
+ *
+ * Provenance is shown at the same visual weight as the position, not in a footer: a tracker that displays
+ * a stale marker without saying so is the specific failure this project exists to avoid.
  */
 class TrainActivity : AppCompatActivity() {
 
@@ -26,6 +29,9 @@ class TrainActivity : AppCompatActivity() {
     private lateinit var vm: LiveViewModel
     private lateinit var stopAdapter: StopAdapter
     private var fullRoute = false
+    private var autoOn = true
+    private var sourceShown = false
+    private var lastUi: LiveViewModel.Ui? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -47,14 +53,7 @@ class TrainActivity : AppCompatActivity() {
             }
         )[LiveViewModel::class.java]
 
-        binding.title.text = trainNo
-        binding.subtitle.text = if (from.isNotEmpty() && to.isNotEmpty()) "$from → $to" else "full route"
-        binding.date.text = "run of ${RailTime.formatDate(originDay)}"
-
-        stopAdapter = StopAdapter(
-            currentSeq = { binding.track.currentSeq },
-            highlight = { fullRoute || (it.seq >= vm.fromSeq() && it.seq <= vm.toSeq()) },
-        )
+        stopAdapter = StopAdapter()
         binding.stops.layoutManager = LinearLayoutManager(this)
         binding.stops.adapter = stopAdapter
         binding.stops.isNestedScrollingEnabled = false
@@ -62,75 +61,116 @@ class TrainActivity : AppCompatActivity() {
         binding.refresh.setOnClickListener { vm.refresh() }
         binding.toggle.setOnClickListener {
             fullRoute = !fullRoute
-            binding.toggle.setText(if (fullRoute) R.string.show_my_segment else R.string.show_full_route)
-            vm.ui.value?.let { bind(it) }
+            binding.toggle.setText(
+                if (fullRoute) R.string.show_my_segment else R.string.show_full_route
+            )
+            lastUi?.let { bind(it) }
         }
-        binding.toggle.setText(R.string.show_full_route)
+        binding.autoBtn.setOnClickListener {
+            autoOn = !autoOn
+            vm.setAutoRefresh(autoOn)
+            binding.autoBtn.text = getString(
+                if (autoOn) R.string.auto_on else R.string.auto_off
+            )
+        }
+        binding.sourceToggle.setOnClickListener {
+            sourceShown = !sourceShown
+            binding.sourceCard.visibility = if (sourceShown) View.VISIBLE else View.GONE
+            binding.sourceToggle.setText(
+                if (sourceShown) R.string.hide_source else R.string.show_source
+            )
+        }
         binding.back.setOnClickListener { finish() }
 
-        vm.ui.observe(this) { it?.let { u -> bind(u) } }
+        vm.ui.observe(this) { it?.let { u -> lastUi = u; bind(u) } }
         vm.error.observe(this) { msg ->
-            if (msg != null) {
-                binding.status.text = msg
-                binding.status.visibility = View.VISIBLE
-            }
+            binding.note.visibility = if (msg == null) View.GONE else View.VISIBLE
+            if (msg != null) binding.note.text = msg
         }
+        binding.toggle.setText(R.string.show_full_route)
+        binding.autoBtn.setText(R.string.auto_on)
     }
 
     private fun bind(ui: LiveViewModel.Ui) {
-        val pos = ui.answer.position
-        val route = ui.route
-        binding.headline.text = PositionEngine.describe(pos, route)
-        binding.provenance.text = ui.answer.note ?: pos.provenance.label
-        binding.provenance.setBackgroundColor(
-            when {
-                pos.provenance.live -> 0x1F4CAF50
-                pos.provenance == SourceKind.NONE -> 0x1FFF5252
-                else -> 0x1FFFC107
+        val m = ui.model
+        binding.trainNo.text = m.trainNo
+        binding.routeLabel.text = m.routeLabel
+        binding.runDate.text = m.runDateLabel
+        binding.headline.text = m.headline
+
+        val (badgeBg, badgeText) = when (m.tone) {
+            TrackModel.Tone.LIVE_OK, TrackModel.Tone.LIVE_EARLY ->
+                R.drawable.bg_badge_live to R.color.live
+            TrackModel.Tone.LIVE_LATE -> R.drawable.bg_badge_problem to R.color.late
+            TrackModel.Tone.PROBLEM -> R.drawable.bg_badge_problem to R.color.late
+            TrackModel.Tone.SCHEDULE -> R.drawable.bg_badge_schedule to R.color.warn
+            TrackModel.Tone.NONE -> R.drawable.bg_pill to R.color.text2
+        }
+        binding.provenance.setBackgroundResource(badgeBg)
+        binding.provenance.setTextColor(getColor(badgeText))
+        binding.provenance.text = m.provenanceLabel
+        binding.age.text = m.ageLabel
+        binding.delay.text = m.delayLabel
+        binding.delay.setTextColor(getColor(
+            when (m.tone) {
+                TrackModel.Tone.LIVE_LATE, TrackModel.Tone.PROBLEM -> R.color.late
+                TrackModel.Tone.LIVE_EARLY -> R.color.early
+                TrackModel.Tone.SCHEDULE -> R.color.warn
+                else -> R.color.accent
             }
-        )
-        binding.age.text = when {
-            pos.ageSeconds <= 0 -> "live"
-            pos.ageSeconds < 60 -> "updated ${pos.ageSeconds}s ago"
-            pos.ageSeconds < 3600 -> "updated ${pos.ageSeconds / 60}m ago"
-            else -> "updated ${pos.ageSeconds / 3600}h ago"
-        }
-        val delay = pos.delayMinutes
-        binding.delay.text = when {
-            delay == null -> "delay unknown"
-            else -> RailTime.formatDelay(delay)
-        }
-        binding.eta.text = pos.etaNextMinute?.let {
-            "next stop at ${RailTime.formatRailMinute(it)}"
-        } ?: "next-stop time not published"
-        binding.remaining.text = pos.remainingMin?.let {
-            " ${RailTime.formatDuration(it)} to ${route.dstName}"
-        } ?: ""
-        binding.progressValue.text = if (pos.kmAlong > 0f && route.totalKm > 0) {
-            "%.0f / %d km".format(pos.kmAlong, route.totalKm)
-        } else {
-            "—"
+        ))
+        binding.next.text = m.nextLabel
+        binding.note.visibility = if (m.note == null) View.GONE else View.VISIBLE
+        m.note?.let { binding.note.text = it }
+
+        binding.progressLabel.text = m.progressLabel
+        binding.progressBar.pct = m.progressPct
+        binding.progressBar.schedulePct = m.schedulePct
+        binding.progressBar.live = m.isLive
+
+        val win = vm.windowFor(m.rows, m.anchorSeq, fullRoute)
+        val from = win.first.coerceIn(0, (m.rows.size - 1).coerceAtLeast(0))
+        val to = win.last.coerceIn(from, (m.rows.size - 1).coerceAtLeast(0))
+        stopAdapter.submitList(m.rows.subList(from, to + 1))
+        val hidden = m.rows.size - (to - from + 1)
+        binding.rowsNote.visibility = if (hidden > 0) View.VISIBLE else View.GONE
+        if (hidden > 0) {
+            binding.rowsNote.text = getString(R.string.rows_window, from + 1, to + 1, m.rows.size)
         }
 
-        val visible = if (fullRoute) ui.stops else ui.stops.filter {
-            it.seq >= (ui.boarding?.seq ?: 0) && it.seq <= (ui.alighting?.seq ?: Int.MAX_VALUE)
-        }
-        stopAdapter.submitList(visible)
-        binding.track.setJourney(
-            stops = ui.stops, position = pos, totalKm = route.totalKm,
-            boardingSeq = ui.boarding?.seq ?: route.stops.firstOrNull()?.seq ?: 0,
-            alightingSeq = ui.alighting?.seq ?: route.stops.lastOrNull()?.seq ?: Int.MAX_VALUE,
-            nowRailMinute = ui.nowRailMinute,
+        // The plot always shows the passenger's own segment: it answers "is it late on my stretch", and
+        // re-centring it on a route the traveller never rides would make the gap unreadable.
+        val segStart = m.rows.indexOfFirst { it.isBoarding }.coerceAtLeast(0)
+        val segEnd = m.rows.indexOfLast { it.isAlighting }.let { if (it < segStart) m.rows.size - 1 else it }
+        binding.chart.setJourney(
+            m, ui.answer.position, ui.nowRailMinute,
+            segStart..segEnd.coerceAtLeast(segStart + 1),
         )
-        binding.track.currentSeq = pos.anchorSeq
-        // Which provider answered, in plain words. Debuggable provenance (rule C5) without a log.
-        if (ui.tried.isEmpty()) {
-            binding.status.visibility = View.GONE
+        binding.chartLegend.text = if (m.isLive) {
+            "dashed = timetable · solid = reported position · amber tick on the bar = where the timetable puts it now"
         } else {
-            binding.status.visibility = View.VISIBLE
-            binding.status.text = ui.tried.joinToString("  ") {
-                it.replace("_", " ").lowercase().replace("=hit", " ok").replace("=miss", " –")
-            }
+            "amber dotted = what the timetable implies at this minute, not a report about the train"
+        }
+
+        bindSource(m, ui)
+    }
+
+    /**
+     * The provenance strip that used to sit under the buttons as `provider override – provider – cached –`
+     * is now a disclosure, because it is diagnostic rather than decisional — but it stays reachable in two
+     * taps, which is what makes a claim like "this came from cache" auditable instead of vibes.
+     */
+    private fun bindSource(m: TrackModel.View, ui: LiveViewModel.Ui) {
+        binding.sourceText.text = buildString {
+            append("Position source: ${m.provenanceLabel} · ${m.ageLabel}")
+            append("\nProviders tried this refresh: ")
+            append(
+                if (ui.tried.isEmpty()) "none — answered from the on-device timetable"
+                else ui.tried.joinToString(", ") { it.replace("_", " ").lowercase() }
+            )
+            append("\n${m.runDateLabel} · ${m.rows.size} stops loaded · ")
+            append(if (m.hasDistances) "distances from the offline reference data"
+            else "no distance data for this train")
         }
     }
 

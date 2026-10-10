@@ -65,4 +65,26 @@ object Text {
         }
         return prev[b.length]
     }
+    /**
+     * `141908` -> `1 41 908`? No - plain western grouping, `141,908`, which is what Indian Railways
+     * itself prints on its own boards and forms. Kept here rather than using `%,d` so the separator does
+     * not depend on the device locale.
+     */
+    fun group(v: Int): String {
+        val s = v.toString()
+        if (s.length <= 3) return s
+        val out = StringBuilder(s.length + 2)
+        var i = 0
+        while (i < s.length) {
+            if (i > 0) out.append(',')
+            val take = minOf(3, s.length - i)
+            if (i == 0 && s.length % 3 != 0) {
+                val first = s.length % 3
+                out.append(s, 0, first); i = first; continue
+            }
+            out.append(s, i, i + take); i += take
+        }
+        return out.toString()
+    }
+
 }

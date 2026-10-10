@@ -2,325 +2,265 @@ package `in`.opentrack.india.ui
 
 import android.content.Context
 import android.graphics.Canvas
-import android.graphics.Color
 import android.graphics.DashPathEffect
 import android.graphics.Paint
 import android.graphics.Path
-import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.View
+import `in`.opentrack.india.R
 import `in`.opentrack.india.core.RailTime
-import `in`.opentrack.india.model.StopRow
+import `in`.opentrack.india.domain.TrackModel
 import `in`.opentrack.india.model.TrainPosition
+import kotlin.math.ceil
+import kotlin.math.floor
+import kotlin.math.log10
 import kotlin.math.max
-import `in`.opentrack.india.model.SourceKind
+import kotlin.math.min
+import kotlin.math.pow
 
 /**
- * The screen's main object: a time–distance plot of one run, with the schedule and the live position
- * drawn against each other.
+ * Distance against time for one journey — the picture that answers "is it late, and how much of the
+ * trip is left" without reading a number.
  *
- * Why a hand-drawn view instead of a map: the traveller's actual question is "is it late, where is it
- * relative to where it should be, and how long until my station" — that is a time/distance relation,
- * not a geography question. A map costs a 3 MB SDK, a tile provider account, network use in a tunnel,
- * and still cannot show "14 min late at RTM". A `Canvas` costs nothing, works offline, and shows the
- * comparison literally: the gap between the two lines *is* the delay.
+ * Two paths, because the comparison is the product. The pale dashed path is the timetable; the solid one
+ * is where the train actually is, or where the timetable puts it right now when nothing reported — in
+ * which case it is drawn amber and dotted, never in the green that means "a feed said so". The gap
+ * between the two *is* the delay, and it widens where the train lost time and closes where it made the
+ * time back, which a single "14 min late" cannot express.
  *
- * Everything it draws comes from [stops] + [position]; it holds no state of its own, so the view is
- * trivially re-renderable on each refresh and the "held/backwards" rules in PositionEngine are the
- * single source of truth for movement.
- *
- * Coordinates: x = minutes (of the visible window), y = km along the route, origin top-left with the
- * boarding station at the top, so reading the chart top-to-bottom matches reading the journey forward.
+ * The vertical axis is relative to the boarding stop, so a 950-halt train that starts at halt 600 does
+ * not squash into the left edge, and it falls back to halt index when the reference data has no
+ * distances. Both cases are labelled inside the view: an axis must never be able to imply a unit it
+ * does not have. (It used to: with the distance column silently all zeros, the axis printed 0 1 1 1.)
  */
 class TrackInsightView @JvmOverloads constructor(
     context: Context, attrs: AttributeSet? = null, defStyle: Int = 0,
 ) : View(context, attrs, defStyle) {
 
-    /** Visible window in rail-minutes; auto-fitted when unset. */
-    private var windowStartMin: Int? = null
-    private var windowEndMin: Int? = null
-    private var stops: List<StopRow> = emptyList()
-    private var position: TrainPosition? = null
-    private var totalKm: Int = 1
-    private var boardingSeq: Int = 0
-    private var alightingSeq: Int = Int.MAX_VALUE
-    private var showDelayShade = true
-    /** "now" on the same rail-minute axis as the stops; supplied by the caller, never read here. */
-    private var nowRailMinute: Int? = null
+    private val padL = dp(40f)
+    private val padR = dp(10f)
+    private val padTop = dp(28f)
+    private val padBot = dp(20f)
 
-    private val gridPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE; strokeWidth = 1f; color = COLOR_GRID
+    private val grid = Paint().apply { color = getColor(R.color.stroke); strokeWidth = dp(1f) }
+    private val dayLine = Paint().apply { color = 0x55FFFFFF; strokeWidth = dp(1f) }
+    private val yLabel = Paint().apply {
+        color = getColor(R.color.text3); textSize = sp(10f); textAlign = Paint.Align.RIGHT
     }
+    private val xLabel = Paint().apply {
+        color = getColor(R.color.text3); textSize = sp(10f); textAlign = Paint.Align.CENTER
+    }
+    private val caption = Paint().apply { color = getColor(R.color.text2); textSize = sp(10f) }
     private val schedPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE; strokeWidth = 3f; color = COLOR_SCHEDULE
+        color = getColor(R.color.text3); style = Paint.Style.STROKE; strokeWidth = dp(1.4f)
+        pathEffect = DashPathEffect(floatArrayOf(dp(5f), dp(4f)), 0f)
     }
-    private val livePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE; strokeWidth = 5f; color = COLOR_LIVE; strokeCap = Paint.Cap.ROUND
+    private val shownPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE; strokeWidth = dp(2.4f); strokeCap = Paint.Cap.ROUND
     }
-    private val futurePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE; strokeWidth = 4f; color = COLOR_LIVE; alpha = 140
-        pathEffect = DashPathEffect(floatArrayOf(9f, 7f), 0f)
+    private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+    private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+    private val hollowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE; strokeWidth = dp(1.6f)
     }
-    private val markerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = COLOR_LIVE }
-    private val markerHaloPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE; strokeWidth = 3f; color = COLOR_LIVE; alpha = 110
+    private val nowLine = Paint().apply { color = 0x66FFFFFF; strokeWidth = dp(1f) }
+    private val nowRing = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE; strokeWidth = dp(2.4f)
     }
-    private val stopPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = COLOR_STOP; strokeWidth = 2f }
-    private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = COLOR_TEXT; textSize = 22f
+    private val nowText = Paint().apply { textSize = sp(10f); textAlign = Paint.Align.CENTER }
+    private val emptyText = Paint().apply {
+        color = getColor(R.color.text2); textSize = sp(12f); textAlign = Paint.Align.CENTER
     }
-    private val smallTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = COLOR_TEXT_DIM; textSize = 18f
-    }
-    private val shadePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = COLOR_SHADE }
-    private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.FILL; color = COLOR_LIVE; alpha = 26
-    }
-    private val path = Path()
-    private val rect = RectF()
 
-    fun setJourney(
-        stops: List<StopRow>, position: TrainPosition?, totalKm: Int,
-        boardingSeq: Int, alightingSeq: Int, nowRailMinute: Int? = null,
-    ) {
-        this.nowRailMinute = nowRailMinute
-        this.stops = stops.filter { it.seq in boardingSeq..alightingSeq }
-        this.position = position
-        this.totalKm = max(1, totalKm)
-        this.boardingSeq = boardingSeq
-        this.alightingSeq = alightingSeq
-        this.showDelayShade = position?.delayMinutes?.let { kotlin.math.abs(it) >= 3 } ?: false
+    private val schedPath = Path()
+    private val shownPath = Path()
+    private val areaPath = Path()
+    private val dots = ArrayList<FloatArray>()
+
+    private var x0 = 0f
+    private var x1 = 1f
+    private var yMax = 1f
+    private var yStep = 1f
+    private var xStepMin = 60
+    private var hasDistance = false
+    private var isLive = false
+    private var ready = false
+    private var plotted = false
+    private var nowX = -1f
+    private var nowY = -1f
+    private var captionText = ""
+
+    /**
+     * @param window indices into [TrackModel.View.rows] delimiting the passenger's own segment.
+     * @param pos the engine's position, for the marker; null draws the schedule alone.
+     */
+    fun setJourney(view: TrackModel.View, pos: TrainPosition?, nowRailMinute: Int, window: IntRange) {
+        ready = view.rows.isNotEmpty()
+        if (!ready) { invalidate(); return }
+        hasDistance = view.hasDistances
+        isLive = view.isLive
+        val rows = view.rows
+        val lo = window.first.coerceIn(0, rows.size - 1)
+        val hi = window.last.coerceIn(lo + 1, rows.size - 1)
+        val slice = rows.subList(lo, hi + 1)
+        val baseKm = slice.firstOrNull()?.kmFromOrigin ?: 0
+
+        val times = ArrayList<Int>(slice.size * 2 + 1)
+        var top = 0
+        for (s in slice) {
+            s.schedDep?.let { times += it }
+            s.schedArr?.let { times += it }
+            s.showDep?.let { times += it }
+            s.showArr?.let { times += it }
+            top = max(top, if (hasDistance) s.kmFromBoard else s.seq - (slice.first().seq))
+        }
+        times += nowRailMinute
+        if (times.size < 2) { plotted = false; invalidate(); return }
+
+        x0 = (times.minOrNull()!! - 25).toFloat()
+        x1 = max(times.maxOrNull()!!.toFloat() + 25f, x0 + 45f)
+        yMax = max(top, 1).toFloat()
+        yStep = niceStep(yMax)
+        yMax = ceil(yMax / yStep) * yStep
+        if (!hasDistance) yMax = max(yMax, slice.size - 1f)
+
+        xStepMin = when {
+            x1 - x0 <= 180f -> 30
+            x1 - x0 <= 420f -> 60
+            x1 - x0 <= 900f -> 120
+            x1 - x0 <= 1500f -> 180
+            else -> 360
+        }
+
+        // Build the two polylines from their own columns. Feeding both into one list — which an earlier
+        // revision did — drew a line that zigzagged between the schedule and the report at every other
+        // stop, which is the opposite of the point.
+        schedPath.rewind(); shownPath.rewind(); areaPath.rewind(); dots.clear()
+        var any = false
+        slice.forEachIndexed { i, s ->
+            val km = if (hasDistance) (s.kmFromOrigin - baseKm).toFloat() else i.toFloat()
+            val st = s.schedDep ?: s.schedArr
+            if (st != null) {
+                val x = tx(st.toFloat()); val y = ty(km)
+                if (schedPath.isEmpty) schedPath.moveTo(x, y) else schedPath.lineTo(x, y)
+                any = true
+            }
+            val lt = s.showDep ?: s.showArr
+            if (lt != null) {
+                val x = tx(lt.toFloat()); val y = ty(km)
+                if (shownPath.isEmpty) { shownPath.moveTo(x, y); areaPath.moveTo(x, height - padBot) }
+                else shownPath.lineTo(x, y)
+                areaPath.lineTo(x, y)
+            }
+            if (s.isAnchor || s.isBoarding || s.isAlighting ||
+                (i % max(1, ceil(slice.size / 24f).toInt()) == 0)) {
+                val t = lt ?: st
+                if (t != null) dots.add(
+                    floatArrayOf(tx(t.toFloat()), ty(km), if (s.isAnchor || s.isBoarding || s.isAlighting) 1f else 0f)
+                )
+            }
+        }
+        val lastShownX = lastXOf(areaPath)
+        if (lastShownX > 0f) { areaPath.lineTo(lastShownX, height - padBot); areaPath.close() }
+        plotted = any
+        nowX = if (pos != null && nowRailMinute >= x0 && nowRailMinute <= x1) tx(nowRailMinute.toFloat()) else -1f
+        nowY = if (pos != null && hasDistance) {
+            ty(min((pos.kmAlong - baseKm).coerceAtLeast(0f), yMax))
+        } else if (pos != null) {
+            ty(slice.indexOfFirst { it.isAnchor }.coerceAtLeast(0).toFloat())
+        } else -1f
+        captionText = if (hasDistance) {
+            val total = slice.lastOrNull()?.let { it.kmFromOrigin - baseKm } ?: 0
+            "${slice.firstOrNull()?.code ?: "?"} → ${slice.lastOrNull()?.code ?: "?"} · $total km"
+        } else "halt index · this train has no distance data offline"
         invalidate()
     }
 
-    /** Exposed so the stop list can highlight the row that matches the drawn marker. */
-    var currentSeq: Int = -1
-
-    /** Manual zoom: a 40-hour cross-country run is unreadable unless the window can be narrowed. */
-    fun zoomTo(startMin: Int?, endMin: Int?) {
-        windowStartMin = startMin
-        windowEndMin = endMin
-        invalidate()
-    }
-
-    fun fitToJourney() {
-        windowStartMin = null
-        windowEndMin = null
-        invalidate()
+    private fun lastXOf(p: Path): Float {
+        val m = android.graphics.RectF()
+        p.computeBounds(m, true)
+        return if (m.width() > 0f || m.height() > 0f) m.right else -1f
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val w = MeasureSpec.getSize(widthMeasureSpec)
-        val mode = MeasureSpec.getMode(heightMeasureSpec)
-        val desired = (w * 0.72f).toInt().coerceIn(MIN_HEIGHT, MAX_HEIGHT)
-        val h = when (mode) {
-            MeasureSpec.EXACTLY -> MeasureSpec.getSize(heightMeasureSpec)
-            MeasureSpec.AT_MOST -> desired.coerceAtMost(MeasureSpec.getSize(heightMeasureSpec))
-            else -> desired
-        }
+        val h = max(dp(120f).toInt(), MeasureSpec.getSize(heightMeasureSpec))
         setMeasuredDimension(w, h)
     }
 
     override fun onDraw(canvas: Canvas) {
-        val visible = stops
-        if (visible.size < 2) {
-            textPaint.textAlign = Paint.Align.CENTER
-            canvas.drawText("no stops to plot", width / 2f, height / 2f, textPaint)
+        if (!ready) return
+        val l = padL; val r = width - padR; val t = padTop; val b = height - padBot
+        if (r - l < dp(48f) || b - t < dp(48f)) return
+        if (!plotted) {
+            canvas.drawText("not enough of this run to plot yet", (l + r) / 2f, (t + b) / 2f, emptyText)
             return
         }
-        val padL = dp(46f); val padR = dp(12f); val padT = dp(16f); val padB = dp(26f)
-        val plot = RectF(padL, padT, width - padR, height - padB)
-        rect.set(plot)
-        // Fixed dark card: the chart's colour semantics (grey = schedule, green = live) must not
-        // depend on the system theme, or "late" can become invisible in light mode.
-        canvas.drawColor(COLOR_BG)
+        val tone = if (isLive) getColor(R.color.accent) else getColor(R.color.warn)
+        shownPaint.color = tone
+        shownPaint.pathEffect = if (isLive) null else DashPathEffect(floatArrayOf(dp(2.5f), dp(3f)), 0f)
+        fillPaint.color = (tone and 0x00FFFFFF) or 0x22000000
+        dotPaint.color = tone
+        hollowPaint.color = (tone and 0x00FFFFFF) or 0x99000000.toInt()
+        nowRing.color = tone
+        nowText.color = tone
 
-        val first = visible.first()
-        val last = visible.last()
-        val t0 = windowStartMin ?: (first.arrivalMin ?: first.departureMin ?: 0)
-        val t1Auto = last.departureMin ?: last.arrivalMin ?: (t0 + 60)
-        val liveMinute = position?.etaNextMinute
-        // `maxOf`, not `max`: `kotlin.math.max` is the binary function, and three candidates — the
-        // window end, the live marker, and a floor so a one-stop train still has a plot width.
-        val t1 = windowEndMin ?: maxOf(t1Auto, liveMinute ?: 0, t0 + 30)
-        val kMin = first.schedKm.toFloat()
-        val kMax = max(kMin + 1f, last.schedKm.toFloat())
-
-        fun xOf(minute: Int): Float =
-            plot.left + (minute - t0).toFloat() / max(1, t1 - t0) * plot.width()
-
-        fun yOf(km: Float): Float =
-            plot.top + (km - kMin) / (kMax - kMin) * plot.height()
-
-        // --- grid: hourly ticks (or coarser for long runs), 25% distance lines
-        val minuteStep = when {
-            t1 - t0 > 30 * 60 -> 6 * 60
-            t1 - t0 > 12 * 60 -> 3 * 60
-            t1 - t0 > 5 * 60 -> 60
-            else -> 30
+        // A while loop, not `0f..yMax step yStep`: FloatRange.step is deprecated in Kotlin 1.9 and a
+        // floating progression can also skip the last gridline on a rounding edge.
+        var km = 0f
+        while (km <= yMax + 0.0001f) {
+            val y = ty(km)
+            canvas.drawLine(l, y, r, y, grid)
+            canvas.drawText(km.toInt().toString(), l - dp(5f), y + sp(3.5f), yLabel)
+            km += yStep
         }
-        var tick = (t0 / minuteStep) * minuteStep
-        textPaint.textAlign = Paint.Align.CENTER
-        smallTextPaint.textAlign = Paint.Align.CENTER
-        while (tick <= t1 + minuteStep) {
-            val x = xOf(tick)
-            if (x in plot.left..plot.right) {
-                canvas.drawLine(x, plot.top, x, plot.bottom, gridPaint)
-                canvas.drawText(
-                    RailTime.formatRailMinuteBare(tick).substringBefore(':') + "h",
-                    x, plot.bottom + dp(17f), smallTextPaint
-                )
-            }
-            tick += minuteStep
+        var m = (ceil((x0 / xStepMin).toDouble()) * xStepMin).toInt()
+        while (m.toFloat() <= x1) {
+            val x = tx(m.toFloat())
+            val dayRoll = m % RailTime.MINUTES_PER_DAY == 0
+            canvas.drawLine(x, t, x, b, if (dayRoll) dayLine else grid)
+            canvas.drawText(xLabelText(m), x, b + sp(13f), xLabel)
+            m += xStepMin
         }
-        for (q in 0..4) {
-            val km = kMin + (kMax - kMin) * q / 4f
-            val y = yOf(km)
-            canvas.drawLine(plot.left, y, plot.right, y, gridPaint)
-            textPaint.textAlign = Paint.Align.RIGHT
-            canvas.drawText("%.0f".format(km), plot.left - dp(5f), y + dp(5f), textPaint)
-            textPaint.textAlign = Paint.Align.CENTER
+        canvas.drawText(if (hasDistance) "km" else "halt #", l - dp(5f), t - dp(12f), yLabel)
+        canvas.drawText(captionText, l, sp(11f), caption)
+
+        canvas.clipRect(l - dp(1f), t - dp(8f), r + dp(1f), b + dp(2f))
+        canvas.drawPath(schedPath, schedPaint)
+        canvas.drawPath(areaPath, fillPaint)
+        canvas.drawPath(shownPath, shownPaint)
+        for (d in dots) {
+            if (d[2] > 0.5f) canvas.drawCircle(d[0], d[1], dp(4.6f), dotPaint)
+            else canvas.drawCircle(d[0], d[1], dp(2.6f), hollowPaint)
         }
-
-        // --- schedule line
-        path.reset()
-        var started = false
-        for (s in visible) {
-            val t = s.departureMin ?: s.arrivalMin ?: continue
-            val x = xOf(t); val y = yOf(s.schedKm.toFloat())
-            if (!started) { path.moveTo(x, y); started = true } else path.lineTo(x, y)
+        if (nowX > 0f) {
+            canvas.drawLine(nowX, t - dp(8f), nowX, b, nowLine)
+            if (nowY > 0f) canvas.drawCircle(nowX, nowY.coerceIn(t, b), dp(6f), nowRing)
+            canvas.drawText("now", nowX.coerceIn(l + dp(14f), r - dp(12f)), t - dp(11f), nowText)
         }
-        canvas.drawPath(path, schedPaint)
-
-        // --- delay band: the visual gap between "planned" and "actual"
-        if (showDelayShade) {
-            val delay = (position?.delayMinutes ?: 0).toFloat()
-            path.reset()
-            started = false
-            val forward = ArrayList<Pair<Float, Float>>(visible.size)
-            val back = ArrayList<Pair<Float, Float>>(visible.size)
-            for (s in visible) {
-                val t = (s.departureMin ?: s.arrivalMin ?: continue)
-                val actual = (s.actualDepartureMin ?: (t + delay.toInt())).toFloat()
-                forward.add(xOf(actual.toInt()) to yOf(s.schedKm.toFloat()))
-                back.add(xOf(t) to yOf(s.schedKm.toFloat()))
-            }
-            if (forward.isNotEmpty()) {
-                forward.forEachIndexed { i, (x, y) ->
-                    if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
-                }
-                for (i in back.indices.reversed()) {
-                    val (x, y) = back[i]
-                    path.lineTo(x, y)
-                }
-                path.close()
-                canvas.drawPath(path, shadePaint)
-            }
-        }
-
-        // --- live line: confirmed actuals up to the current position
-        val pos = position
-        path.reset()
-        started = false
-        if (pos != null) {
-            for (s in visible) {
-                if (s.seq > pos.anchorSeq) break
-                val t = s.actualDepartureMin ?: s.actualArrivalMin ?: (s.departureMin ?: s.arrivalMin)
-                    ?: continue
-                val x = xOf(t); val y = yOf(s.schedKm.toFloat())
-                if (!started) { path.moveTo(x, y); started = true } else path.lineTo(x, y)
-            }
-            val liveX = xOf(pos.etaNextMinute ?: (t0 + ((pos.fraction) * (t1 - t0)).toInt()))
-            val liveY = yOf(pos.kmAlong.coerceIn(kMin, kMax))
-            if (started) path.lineTo(liveX, liveY) else { path.moveTo(liveX, liveY); started = true }
-            canvas.drawPath(path, livePaint)
-
-            // projection to the next stop, dashed: the honest "expected", not a claim
-            val next = visible.firstOrNull { it.seq > pos.anchorSeq }
-            if (next != null) {
-                val eta = pos.etaNextMinute
-                if (eta != null) {
-                    path.reset()
-                    path.moveTo(liveX, liveY)
-                    path.lineTo(xOf(eta), yOf(next.schedKm.toFloat()))
-                    canvas.drawPath(path, futurePaint)
-                    canvas.drawCircle(xOf(eta), yOf(next.schedKm.toFloat()), dp(4f), markerHaloPaint)
-                }
-            }
-
-            // fill under the live line, so the chart reads as a progress area at a glance
-            if (started) {
-                val area = Path(path)
-                area.lineTo(liveX, plot.bottom)
-                area.lineTo(plot.left, plot.bottom)
-                area.close()
-                canvas.drawPath(area, fillPaint)
-            }
-
-            // --- the train itself. Hollow + dim when the data is stale (rule C5).
-            val stale = pos.provenance == SourceKind.OFFLINE_SCHEDULE ||
-                pos.provenance == SourceKind.NONE ||
-                pos.ageSeconds > 600
-            if (stale) {
-                canvas.drawCircle(liveX, liveY, dp(9f), markerHaloPaint)
-            } else {
-                markerPaint.alpha = 235
-                canvas.drawCircle(liveX, liveY, dp(7.5f), markerPaint)
-                canvas.drawCircle(liveX, liveY, dp(12f), markerHaloPaint)
-            }
-            // "now" line: the horizontal gap from this to the schedule line *is* the delay, which is
-            // the one thing the chart must make legible at a glance.
-            nowRailMinute?.let { nm ->
-                val nowX = xOf(nm)
-                if (nowX in plot.left..plot.right) {
-                    val p2 = Paint(gridPaint)
-                    p2.color = COLOR_NOW
-                    p2.strokeWidth = 2f
-                    canvas.drawLine(nowX, plot.top, nowX, plot.bottom, p2)
-                    smallTextPaint.textAlign = Paint.Align.CENTER
-                    canvas.drawText("now", nowX, plot.top + dp(11f), smallTextPaint)
-                }
-            }
-        }
-
-        // --- stop ticks + labels with a simple collision guard
-        smallTextPaint.textAlign = Paint.Align.LEFT
-        var lastLabelBottom = -Float.MAX_VALUE
-        for (s in visible) {
-            val t = s.departureMin ?: s.arrivalMin ?: continue
-            val x = xOf(t); val y = yOf(s.schedKm.toFloat())
-            canvas.drawLine(plot.left, y, plot.right, y, gridPaint)
-            if (s.isHalt) canvas.drawCircle(x, y, dp(3.4f), stopPaint)
-            val isEdge = s.seq == boardingSeq || s.seq == alightingSeq
-            val isCurrent = pos != null && (s.seq == pos.anchorSeq || s.seq == pos.nextSeq)
-            if (!isEdge && !isCurrent && !s.isHalt) continue
-            val labelY = y - dp(6f)
-            if (labelY < lastLabelBottom + dp(15f)) continue
-            val label = s.code + " " + RailTime.formatRailMinute(
-                (s.actualDepartureMin ?: s.departureMin ?: t)
-            )
-            canvas.drawText(label, x + dp(4f), labelY, if (isCurrent || isEdge) textPaint else smallTextPaint)
-            lastLabelBottom = labelY
-        }
-
-        // axis captions
-        smallTextPaint.textAlign = Paint.Align.LEFT
-        canvas.drawText("km", dp(4f), plot.top - dp(2f), smallTextPaint)
     }
+
+    private fun xLabelText(minute: Int): String {
+        val hour = RailTime.formatRailMinuteBare(minute).substringBefore(':')
+        return hour + "h" + if (minute >= RailTime.MINUTES_PER_DAY) "·+1" else ""
+    }
+
+    /** A step of 1/2/2.5/5 × 10^n, at least 1, so gridline labels are whole numbers. */
+    private fun niceStep(span: Float): Float {
+        val raw = span / 4f
+        if (raw <= 1f) return 1f
+        val pow = 10.0.pow(floor(log10(raw.toDouble()))).toFloat()
+        for (m in floatArrayOf(1f, 2f, 2.5f, 5f, 10f)) if (pow * m >= raw) return max(pow * m, 1f)
+        return max(pow * 10f, 1f)
+    }
+
+    private fun tx(minute: Float): Float =
+        padL + (minute - x0) / max(x1 - x0, 1f) * (width - padL - padR)
+
+    private fun ty(km: Float): Float =
+        height - padBot - (km / max(yMax, 1f)) * (height - padBot - padTop)
 
     private fun dp(v: Float): Float = v * resources.displayMetrics.density
-
-    companion object {
-        private const val MIN_HEIGHT = 240
-        private const val MAX_HEIGHT = 720
-        private val COLOR_GRID = Color.parseColor("#22FFFFFF")
-        private val COLOR_SCHEDULE = Color.parseColor("#90A4AE")
-        private val COLOR_LIVE = Color.parseColor("#4CAF50")
-        private val COLOR_STOP = Color.parseColor("#B0BEC5")
-        private val COLOR_TEXT = Color.parseColor("#ECEFF1")
-        private val COLOR_TEXT_DIM = Color.parseColor("#90A4AE")
-        private val COLOR_SHADE = Color.parseColor("#2E7D32")
-        private val COLOR_NOW = Color.parseColor("#FFB74D")
-        private val COLOR_BG = Color.parseColor("#16202A")
-    }
+    private fun sp(v: Float): Float = v * resources.displayMetrics.scaledDensity
+    private fun getColor(id: Int): Int = context.getColor(id)
 }

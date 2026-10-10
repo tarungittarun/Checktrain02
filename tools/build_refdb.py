@@ -218,7 +218,11 @@ class StopPlan:
     arr: int | None
     dep: int | None
     day: int
-    km: int = 0
+    # `None` means "the dump did not say". It must not be 0: 0 was indistinguishable from a real
+    # reading, and the cumulative-distance step below trusted it, which put 0 km on all 141 908 stop
+    # rows and silently deleted every distance in the app - the KM column, the progress bar and the
+    # chart's vertical axis. Found by a phone screenshot, not by CI, because no query was asserting it.
+    km: int | None = None
     halt: bool = False
 
 
@@ -316,7 +320,8 @@ def plan_stops(parsed: list[RawStop], halts_only: bool,
             stats["dropped_non_halt"] += 1
             prev = dep
             continue
-        out.append(StopPlan(code=it.code, arr=arr, dep=dep, day=1 + dep // 1440, halt=halt))
+        out.append(StopPlan(code=it.code, arr=arr, dep=dep, day=1 + dep // 1440, halt=halt,
+                             km=it.km))
         prev = dep
     if len(out) < 2:
         stats["dropped_unusable_train"] = len(out)
@@ -583,13 +588,17 @@ def write_db(db_path: str, stations: dict[str, dict[str, Any]], models: dict[str
         stats["stops"] += len(plan)
 
         # ---- cumulative distance: trust the source's km when present, else geodesic rescaled
-        known = [p.km for p in plan if p.km is not None]
-        use_source_km = len(known) >= max(2, int(0.8 * len(plan))) and known[0] == 0
+        known = [p.km for p in plan if p.km]
+        # Authoritative per-stop distance must be positive, cover most of the *gaps* (a train with two
+        # numbers for 90 stops is not coverage), and land on a plausible total. Anything else is treated
+        # as "not stated", which is the honest reading of a 0.
+        use_source_km = (len(known) >= max(2, int(0.6 * (len(plan) - 1)))
+                         and (plan[-1].km or 0) > 25)
         if use_source_km:
             run = 0
             cum_km = []
             for p in plan:
-                if p.km is not None:
+                if p.km:
                     run = max(run, p.km)
                 cum_km.append(run)
         else:
@@ -653,6 +662,23 @@ def write_db(db_path: str, stations: dict[str, dict[str, Any]], models: dict[str
                 coords.append([round(stn["lon"], 4), round(stn["lat"], 4)])
         if len(coords) >= 2:
             geo[num] = coords
+
+    # ---- distance integrity. These are assertions about *non-degeneracy*, which the existing
+    # "decreasing cumulative distance" check could never make: an all-zero column is perfectly
+    # monotonic. A metric that ships as 0 is worse than one that is missing, because the UI has no
+    # reason to doubt it.
+    km_bad = db.execute("SELECT COUNT(*) FROM stops WHERE sched_km = 0 AND seq > 1").fetchone()[0]
+    km_total_bad = db.execute(
+        "SELECT COUNT(*) FROM trains t JOIN stops s ON s.train_no = t.train_no AND s.seq = t.num_stops"
+        " WHERE IFNULL(t.total_km,0) > 0 AND ABS(s.sched_km - t.total_km) > 2").fetchone()[0]
+    log(f"sanity: stops at 0 km beyond the origin = {km_bad}; trains whose last stop != total_km = {km_total_bad}")
+    if km_total_bad:
+        raise SystemExit(f"[etl] FAIL: {km_total_bad} trains whose stop distances do not sum to the "
+                         "published total_km - the cumulative-distance step is broken")
+    stop_rows = db.execute("SELECT COUNT(*) FROM stops").fetchone()[0]
+    if stop_rows and km_bad * 20 > stop_rows:
+        raise SystemExit(f"[etl] FAIL: {km_bad}/{stop_rows} stops have no distance - the fallback to "
+                         "geodesic rescaling is not firing")
 
     db.execute("UPDATE stations SET rank=(SELECT COUNT(*) FROM station_trains t "
                "WHERE t.station_code = stations.code)")

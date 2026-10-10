@@ -13,6 +13,25 @@
     <string name="day_fwd">+1d</string>
     <string name="day_now">now</string>
     <string name="settings">Data source</string>
+    <string name="track">Track</string>
+    <string name="col_delay">Delay</string>
+    <string name="col_next">Next stop</string>
+    <string name="col_plot">Timetable against position</string>
+    <string name="tag_here">here now</string>
+    <string name="tag_cancelled">cancelled here</string>
+    <string name="tag_skipped">does not stop</string>
+    <string name="tag_board">you board</string>
+    <string name="tag_alight">you get off</string>
+    <string name="tag_origin">starts here</string>
+    <string name="tag_terminal">end of run</string>
+    <string name="sched_cap">SCH</string>
+    <string name="live_cap">LIVE</string>
+    <string name="exp_cap">EXP</string>
+    <string name="assumed_cap">AS SCHEDULED</string>
+    <string name="rows_window">showing stops %1$d–%2$d of %3$d</string>
+    <string name="jump_to_segment">Jump to my segment</string>
+    <string name="auto_on">Auto · 60 s</string>
+    <string name="auto_off">Auto off</string>
 
     <string name="searching">Searching on-device timetable…</string>
     <string name="installing_data">Installing offline timetable… %1$d%%</string>
@@ -35,6 +54,32 @@
     <string name="settings_refresh_title">Auto refresh</string>
     <string name="save">Save</string>
     <string name="clear_cache">Clear live cache</string>
+
+    <!-- Search screen, static labels only: every sentence that contains a number or a station name is
+         built in code next to the formatter that guarantees its units. -->
+    <string name="lbl_from">Board at</string>
+    <string name="lbl_to">Get off at</string>
+    <string name="lbl_when">Travelling</string>
+    <string name="swap">Swap</string>
+    <string name="sorted_by">sorted by departure</string>
+    <string name="selected_station">Selected</string>
+    <string name="suggestions_title">Matches</string>
+    <string name="col_station">Station</string>
+    <string name="col_scheduled">Scheduled</string>
+    <string name="col_live">Live / expected</string>
+    <string name="col_distance">km</string>
+    <string name="sec_position">Where it is now</string>
+    <string name="sec_progress">Journey progress</string>
+    <string name="sec_route">Timetable</string>
+    <string name="sec_source">Data source</string>
+    <string name="show_source">Data source</string>
+    <string name="hide_source">Hide detail</string>
+    <string name="auto_refresh">Auto</string>
+    <string name="live_chip">live</string>
+    <string name="no_live_data">Shown from the timetable — no live report reached this device</string>
+    <string name="empty_results">Nothing matches yet. Type at least three letters of a station or train.</string>
+    <string name="trains_between">%1$d train(s) · %2$s → %3$s</string>
+    <string name="data_as_of">Offline timetable · %1$s · %2$s trains</string>
 
     <plurals name="trains_found">
         <item quantity="one">%d train</item>

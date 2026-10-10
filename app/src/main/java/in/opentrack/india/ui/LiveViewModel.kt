@@ -4,17 +4,17 @@ import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import `in`.opentrack.india.App
 import `in`.opentrack.india.core.RailTime
 import `in`.opentrack.india.data.RailRepository
 import `in`.opentrack.india.domain.PositionEngine
-import `in`.opentrack.india.model.StopRow
+import `in`.opentrack.india.domain.Suggestion
+import `in`.opentrack.india.domain.TrackModel
 import `in`.opentrack.india.model.TrainRoute
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import `in`.opentrack.india.App
-import `in`.opentrack.india.model.StopStatus
 
 /**
  * State for the live-tracking screen.
@@ -33,15 +33,19 @@ class LiveViewModel(
     private val originEpochDay: Long,
 ) : ViewModel() {
 
+    /**
+     * @param model the whole screen, already stringified. The Activity binds and styles; it computes
+     *   nothing, because a header derived separately from its own table is how this screen once said
+     *   "departed TIPTUR" while listing Tiptur as not yet reached.
+     */
     data class Ui(
         val route: TrainRoute,
         val answer: PositionEngine.Answer,
-        val stops: List<StopRow>,
-        val boarding: StopRow?,
-        val alighting: StopRow?,
+        val model: TrackModel.View,
+        val boarding: TrackModel.Stop?,
+        val alighting: TrackModel.Stop?,
         val nowRailMinute: Int,
         val tried: List<String>,
-        /** true while the first fetch is in flight, so the view can show a schedule-only render */
         val loading: Boolean,
     )
 
@@ -57,6 +61,10 @@ class LiveViewModel(
 
     val originDate: Long get() = originEpochDay
     val trainNumber: String get() = trainNo
+
+    /** Seq bounds for "my segment" vs "whole route" in the stop list and the chart. */
+    fun fromSeq(): Int = _ui.value?.boarding?.seq ?: 0
+    fun toSeq(): Int = _ui.value?.alighting?.seq ?: Int.MAX_VALUE
 
     /** Resolved lazily: the first screen visit may be the moment the DB finishes extracting. */
     private suspend fun repo(): RailRepository? = app.repository()
@@ -108,7 +116,7 @@ class LiveViewModel(
                 return@launch
             }
             lastAnswer = live.answer
-            _ui.value = buildUi(live)
+            _ui.value = buildUi(live.route, live.answer, live.tried)
             _error.value = null
         }
     }
@@ -117,11 +125,9 @@ class LiveViewModel(
         val repo = repo() ?: return
         val cached = runCatching { repo.queries.route(trainNo) }.getOrNull() ?: return
         val now = System.currentTimeMillis()
-        val nowRail = ((RailTime.istEpochDay(now) - originEpochDay) * RailTime.MINUTES_PER_DAY +
-            RailTime.istMinuteOfDay(now)).toInt()
         val answer = PositionEngine.locate(
             PositionEngine.Request(
-                route = cached, snapshot = null, nowRailMinute = nowRail,
+                route = cached, snapshot = null, nowRailMinute = nowMinute(now),
                 nowMillis = now, previous = lastAnswer?.position,
             )
         )
@@ -129,38 +135,61 @@ class LiveViewModel(
         _ui.value = buildUi(cached, answer, emptyList())
     }
 
-    private fun buildUi(live: RailRepository.Live): Ui = buildUi(live.route, live.answer, live.tried)
+    private fun nowMinute(now: Long): Int =
+        ((RailTime.istEpochDay(now) - originEpochDay) * RailTime.MINUTES_PER_DAY +
+            RailTime.istMinuteOfDay(now)).toInt()
 
     private fun buildUi(
         route: TrainRoute, answer: PositionEngine.Answer, tried: List<String>,
     ): Ui {
+        val now = System.currentTimeMillis()
+        val nowRail = nowMinute(now)
         val pos = answer.position
-        val overlay = PositionEngine.delayProfile(
-            route, answer.perStop, pos.anchorSeq, pos.delayMinutes
+        val model = TrackModel.build(
+            route = route, pos = pos, perStop = answer.perStop, nowRailMinute = nowRail,
+            boardSeq = route.stops.firstOrNull { it.code.equals(fromCode, true) }?.seq
+                ?: route.stops.firstOrNull()?.seq ?: 1,
+            alightSeq = route.stops.lastOrNull { it.code.equals(toCode, true) }?.seq
+                ?: route.stops.lastOrNull()?.seq ?: route.lastSeq,
+            runEpochDay = originEpochDay,
+            note = answer.note ?: if (pos.provenance.live) null
+            else "No live report reached this device — every minute below is the timetable, not the train.",
         )
-        val stops = route.stops.mapIndexed { i, s ->
-            val delayArr = overlay.getOrNull(i)
-            s.copy(
-                delayArrivalMin = delayArr,
-                status = when {
-                    s.seq < pos.anchorSeq -> StopStatus.DEPARTED
-                    s.seq == pos.anchorSeq -> pos.status
-                    else -> StopStatus.UPCOMING
-                },
-            )
-        }
-        val boarding = stops.firstOrNull { it.code == fromCode }
-        val alighting = stops.firstOrNull { it.code == toCode }
         return Ui(
-            route = route, answer = answer, stops = stops,
-            boarding = boarding, alighting = alighting,
-            nowRailMinute = ((RailTime.istEpochDay(System.currentTimeMillis()) - originEpochDay) *
-                RailTime.MINUTES_PER_DAY + RailTime.istMinuteOfDay(System.currentTimeMillis())).toInt(),
-            tried = tried, loading = false,
+            route = route, answer = answer, model = model,
+            boarding = model.rows.firstOrNull { it.isBoarding },
+            alighting = model.rows.firstOrNull { it.isAlighting },
+            nowRailMinute = nowRail, tried = tried, loading = false,
         )
     }
 
-    /** Seq bounds for "my segment" vs "whole route" in the stop list. */
-    fun fromSeq(): Int = _ui.value?.boarding?.seq ?: 0
-    fun toSeq(): Int = _ui.value?.alighting?.seq ?: Int.MAX_VALUE
+    /**
+     * Which rows the list should carry, given the screen's "my segment / full route" toggle.
+     *
+     * A 950-halt passenger train costs a layout pass per bound row, and nobody scrolls 950 rows to find
+     * themselves in one, so the window is bounded at [MAX_ROWS] and centred on the anchor when a position
+     * exists (otherwise on the boarding stop). The caller prints what was hidden, which is the difference
+     * between a bounded list and a truncated one.
+     */
+    fun windowFor(rows: List<TrackModel.Stop>, anchorSeq: Int, fullRoute: Boolean): IntRange {
+        val base = if (fullRoute) 0 until rows.size else segmentRange(rows)
+        if (base.last - base.first + 1 <= MAX_ROWS) return base
+        val centre = rows.indexOfFirst { it.seq == anchorSeq }.takeIf { it >= 0 }
+            ?: rows.indexOfFirst { it.isBoarding }.takeIf { it >= 0 }
+            ?: (base.first + base.last) / 2
+        val half = MAX_ROWS / 2
+        val lo = (centre - half).coerceIn(0, (rows.size - MAX_ROWS).coerceAtLeast(0))
+        return lo until (lo + MAX_ROWS)
+    }
+
+    private fun segmentRange(rows: List<TrackModel.Stop>): IntRange {
+        val b = rows.indexOfFirst { it.isBoarding }
+        val a = rows.indexOfLast { it.isAlighting }
+        return if (b in 0..a) b..a else 0 until (rows.size - 1).coerceAtLeast(0)
+    }
+
+    companion object {
+        /** Enough rows to read a real route without a stutter on a five-year-old phone. */
+        const val MAX_ROWS = 140
+    }
 }

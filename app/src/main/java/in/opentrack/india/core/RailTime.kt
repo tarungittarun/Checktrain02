@@ -145,6 +145,29 @@ object RailTime {
 
     fun todayEpochDay(): Long = istEpochDay(System.currentTimeMillis())
 
+    /**
+     * Seconds since the epoch for an UTC stamp like `2026-10-10T20:27:26Z`, or null if it is not in
+     * that shape. Parsed by hand because `java.time` would mean enabling core-library desugaring for
+     * one string (see the header of this file).
+     */
+    fun utcStampToMillis(iso: String?): Long? {
+        if (iso == null || iso.length < 16 || iso[10] != 'T') return null
+        val day = epochDayOf(iso.substring(0, 10)) ?: return null
+        val minute = parseHm(iso.substring(11, 16)) ?: return null
+        return (day * MINUTES_PER_DAY + minute) * 60_000L
+    }
+
+    /**
+     * The same stamp as `11 Oct 2026, 01:57 IST`. A machine-readable build date in a status chip reads
+     * as a bug even when it is exact, and the question the chip answers is "how stale is my timetable",
+     * which is only meaningful in the reader's own calendar. Null on a shape we do not recognise, so
+     * the caller can show the raw value rather than invent a date.
+     */
+    fun formatStamp(iso: String?): String? {
+        val millis = utcStampToMillis(iso) ?: return null
+        return "${formatDate(istEpochDay(millis))}, ${formatClock(millis)} IST"
+    }
+
     // --- Howard Hinnant's civil-from-days / days-from-civil (proleptic Gregorian).
     // Inlined rather than using java.time.LocalDate.toEpochDay for the same desugaring reason as above.
     fun civilFromDays(z0: Long): Triple<Int, Int, Int> {

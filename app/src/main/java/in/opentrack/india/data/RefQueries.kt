@@ -1,6 +1,7 @@
 package `in`.opentrack.india.data
 
 import android.database.Cursor
+import `in`.opentrack.india.core.RailTime
 import `in`.opentrack.india.core.Text
 import `in`.opentrack.india.model.PairStop
 import `in`.opentrack.india.model.SegmentRow
@@ -272,12 +273,19 @@ class RefQueries(private val ref: RefDb) {
         """.trimIndent(), arrayOf(trainNo, fromSeq.toString(), toSeq.toString())
     ) { c -> buildList { while (c.moveToNext()) add(c.mapStop()) } }
 
+    /**
+     * The status-chip line. `built_at` is the ETL's UTC stamp and is shown converted to IST, because
+     * printing `2026-10-10T20:27:26Z` in a UI asks the traveller to do a timezone sum to find out how
+     * old their timetable is.
+     */
     fun dataVersion(): String = ref.use { db ->
-        val built = db.metaString("built_at") ?: "unknown"
+        val built = db.metaString("built_at")
         val trains = db.rawQuery("SELECT COUNT(*) FROM trains", null).use { c ->
             if (c.moveToNext()) c.getInt(0) else 0
         }
-        "$trains trains · timetable as of $built"
+        val stamp = RailTime.formatStamp(built)
+        "${Text.group(trains)} trains · " +
+            (if (stamp != null) "timetable $stamp" else "timetable as of ${built ?: "unknown"}")
     }
 
     // ---------------------------------------------------------------- mapping

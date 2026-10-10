@@ -1,205 +1,246 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  The search screen. One card holds the whole question (board / get off / travelling when) because that
+  is one decision, and the results list sits under it without competing chrome. No ScrollView around the
+  results: the list weights to the remaining height, which keeps RecyclerView recycling real.
+-->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:background="@color/bg"
     android:orientation="vertical"
-    android:background="@color/bg">
+    android:paddingLeft="@dimen/gap"
+    android:paddingTop="@dimen/gap"
+    android:paddingRight="@dimen/gap"
+    android:paddingBottom="0dp">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
+        android:baselineAligned="false"
         android:gravity="center_vertical"
-        android:paddingStart="14dp"
-        android:paddingEnd="8dp"
-        android:paddingTop="12dp"
-        android:background="@color/surface">
+        android:orientation="horizontal">
 
         <TextView
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="@string/app_name"
-            android:textColor="@color/text"
-            android:textSize="18sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/dataChip"
-            style="@style/Chip"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:background="@color/surface_alt"
-            android:visibility="gone" />
+            android:fontFamily="sans-serif-medium"
+            android:letterSpacing="-0.02"
+            android:textColor="@color/text1"
+            android:textSize="22sp"
+            tools:ignore="HardcodedText"
+            android:text="OpenTrack India" />
 
         <Button
             android:id="@+id/settings"
+            style="@style/BtnGhost"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:minWidth="0dp"
-            android:paddingStart="10dp"
-            android:paddingEnd="10dp"
-            android:text="@string/settings"
-            android:textSize="12sp" />
+            android:text="@string/settings" />
     </LinearLayout>
 
-    <ScrollView
+    <TextView
+        android:id="@+id/dataChip"
+        style="@style/Pill"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp" />
+
+    <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:fillViewport="true">
+        android:layout_height="wrap_content"
+        android:layout_marginTop="14dp"
+        android:background="@drawable/bg_card"
+        android:elevation="2dp"
+        android:orientation="vertical"
+        android:padding="16dp">
+    <LinearLayout
+        android:id="@+id/modeRow"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="14dp"
+        android:background="@drawable/bg_segment"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/modeStations"
+            style="@style/Segment"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:background="@null"
+            android:text="@string/mode_stations" />
+
+        <Button
+            android:id="@+id/modeTrain"
+            style="@style/Segment"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:background="@null"
+            android:text="@string/mode_train" />
+    </LinearLayout>
+        <TextView
+            style="@style/TextLabel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:text="@string/lbl_from" />
+
+        <in.opentrack.india.ui.SuggestBox
+            android:id="@+id/fromBox"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp" />
+
+        <Button
+            android:id="@+id/swap"
+            style="@style/BtnGhost"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="end"
+            android:layout_marginTop="8dp"
+            android:minHeight="36dp"
+            android:text="@string/swap"
+            android:textSize="12sp" />
+
+        <TextView
+            style="@style/TextLabel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="@string/lbl_to" />
+
+        <in.opentrack.india.ui.SuggestBox
+            android:id="@+id/toBox"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp" />
+
+        <TextView
+            android:id="@+id/trainLabel"
+            style="@style/TextLabel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="@string/hint_train"
+            android:visibility="gone" />
+
+        <in.opentrack.india.ui.SuggestBox
+            android:id="@+id/trainBox"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:visibility="gone" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="16dp"
+            android:background="@color/stroke" />
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:padding="12dp">
+            android:layout_marginTop="14dp"
+            android:baselineAligned="false"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
 
             <LinearLayout
-                android:layout_width="match_parent"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:background="@drawable/bg_segment"
                 android:orientation="horizontal">
-
-                <Button
-                    android:id="@+id/tabStations"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="@string/mode_stations" />
-
-                <Button
-                    android:id="@+id/tabTrain"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:alpha="0.55"
-                    android:text="@string/mode_train" />
-            </LinearLayout>
-
-            <LinearLayout
-                android:id="@+id/pairBlock"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical">
-
-                <AutoCompleteTextView
-                    android:id="@+id/from"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:hint="@string/hint_from"
-                    android:imeOptions="actionNext"
-                    android:inputType="textCapCharacters"
-                    android:maxLines="1"
-                    android:textColor="@color/text"
-                    android:textColorHint="@color/text_dim" />
-
-                <AutoCompleteTextView
-                    android:id="@+id/to"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:hint="@string/hint_to"
-                    android:imeOptions="actionSearch"
-                    android:inputType="textCapCharacters"
-                    android:maxLines="1"
-                    android:textColor="@color/text"
-                    android:textColorHint="@color/text_dim" />
-            </LinearLayout>
-
-            <LinearLayout
-                android:id="@+id/trainBlock"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:visibility="gone">
-
-                <AutoCompleteTextView
-                    android:id="@+id/trainInput"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:hint="@string/hint_train"
-                    android:imeOptions="actionSearch"
-                    android:inputType="text"
-                    android:maxLines="1"
-                    android:textColor="@color/text"
-                    android:textColorHint="@color/text_dim" />
-            </LinearLayout>
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
-
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical">
-
-                    <TextView
-                        android:id="@+id/dateLabel"
-                        style="@style/Value.Large"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content" />
-
-                    <TextView
-                        android:id="@+id/dateSub"
-                        style="@style/Label"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content" />
-                </LinearLayout>
 
                 <Button
                     android:id="@+id/dayBack"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:minWidth="0dp"
+                    style="@style/Segment"
+                    android:background="@null"
                     android:text="@string/day_back" />
 
                 <Button
                     android:id="@+id/dayNow"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:minWidth="0dp"
+                    style="@style/Segment"
+                    android:background="@null"
                     android:text="@string/day_now" />
 
                 <Button
                     android:id="@+id/dayFwd"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:minWidth="0dp"
+                    style="@style/Segment"
+                    android:background="@null"
                     android:text="@string/day_fwd" />
             </LinearLayout>
 
-            <Button
-                android:id="@+id/search"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
-                android:text="@string/search" />
-
             <TextView
-                android:id="@+id/progress"
-                style="@style/Label"
-                android:layout_width="match_parent"
+                android:id="@+id/whenValue"
+                style="@style/TextTitle"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:visibility="gone" />
-
-            <TextView
-                android:id="@+id/status"
-                style="@style/Label"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="10dp" />
-
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/results"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:nestedScrollingEnabled="false" />
+                android:layout_marginStart="12dp"
+                android:layout_weight="1"
+                android:gravity="end" />
         </LinearLayout>
-    </ScrollView>
+
+        <TextView
+            android:id="@+id/whenHint"
+            style="@style/TextMicro"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="@string/window_hint" />
+
+        <Button
+            android:id="@+id/find"
+            style="@style/BtnPrimary"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:text="@string/search" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/statusLine"
+        style="@style/TextMeta"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:visibility="gone" />
+
+    <LinearLayout
+        android:id="@+id/resultsHead"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:baselineAligned="false"
+        android:gravity="bottom"
+        android:orientation="horizontal"
+        android:paddingTop="14dp"
+        android:paddingBottom="6dp">
+
+        <TextView
+            android:id="@+id/resultsTitle"
+            style="@style/TextTitle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1" />
+
+        <TextView
+            android:id="@+id/resultsSub"
+            style="@style/TextMicro"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:text="@string/sorted_by" />
+    </LinearLayout>
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/results"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:clipToPadding="false"
+        android:paddingBottom="@dimen/gap"
+        android:scrollbars="vertical" />
 </LinearLayout>
