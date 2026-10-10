@@ -17,6 +17,24 @@ DECL = re.compile(
     re.M,
 )
 MEMBER = re.compile(r"(?:fun|val|var|const val)\s+(?:<[^>]+>\s+)?(\w+)", re.M)
+
+# Members the Kotlin/Java runtime supplies itself. Enum and data-class synthesis in particular is not
+# written in our source, so it must not be reported as an unresolved reference.
+SYNTHESIZED = {
+    "valueOf", "values", "name", "ordinal", "entries", "copy", "component1", "component2",
+    "component3", "component4", "component5", "component6", "toString", "equals", "hashCode",
+    "let", "also", "apply", "run", "with", "takeIf", "takeUnless", "ifEmpty", "getOrDefault",
+    "companion", "class", "java", "size", "isEmpty", "isNotEmpty", "first", "last", "firstOrNull",
+    "lastOrNull", "add", "addAll", "clear", "put", "putIfAbsent", "get", "remove", "contains",
+    "forEach", "map", "mapIndexed", "filter", "filterNotNull", "sortedWith", "sortedBy",
+    "distinct", "take", "drop", "dropLast", "reversed", "withIndex", "associate", "joinToString",
+    "substring", "substringBefore", "substringAfter", "uppercase", "lowercase", "trim", "split",
+    "replace", "replaceFirstChar", "startsWith", "endsWith", "contains", "matches", "format",
+    "toLong", "toInt", "toFloat", "toDouble", "toString", "padStart", "removePrefix",
+    "removeSuffix", "isNotEmpty", "any", "all", "minByOrNull", "maxOf", "minOf", "coerceIn",
+    "coerceAtLeast", "coerceAtMost", "indexOf", "indexOfLast", "getOrElse", "indices", "flatten",
+    "groupBy", "sumOf", "count", "none", "onEach", "also", "apply", "unit", "equals", "compareTo",
+}
 USE = re.compile(r"\b([A-Z]\w*)\.([a-z]\w*)\s*[(\[]?")
 
 
@@ -34,7 +52,7 @@ def main() -> int:
         text = f.read_text()
         for use in USE.finditer(text):
             owner, member = use.group(1), use.group(2)
-            if owner not in decls or member in ("companion", "class", "copy", "let", "also"):
+            if owner not in decls or member in SYNTHESIZED:
                 continue
             otext, opath = decls[owner]
             names = set(MEMBER.findall(otext))
@@ -43,6 +61,9 @@ def main() -> int:
                 continue
             # a member defined only as `operator fun invoke`/`get()` or an enum entry: check textually
             if re.search(rf"\b{re.escape(member)}\b", otext):
+                continue
+            # extension functions declared at file scope in our own sources count too
+            if re.search(rf"\b\w*\.?{re.escape(member)}\s*\(", otext):
                 continue
             problems += 1
             print(f"{f}: `{owner}.{member}` not found in {opath.name}")
