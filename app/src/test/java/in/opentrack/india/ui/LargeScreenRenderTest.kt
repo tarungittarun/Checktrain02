@@ -291,7 +291,10 @@ class LargeScreenRenderTest {
         /** One real train, so the names, kilometres and stop count are the ones a device would show. */
         const val SHIPPED_TRAIN = "16228"
 
-        /** 24:05 — just after 16228's mid-last-halt, so the "now" rule lands inside the plotted window. */
+        /**
+         * 00:05 on day 2 of the run — after Birur (23:40) and before Arsikere (00:30 +1d), so the "now" rule
+         * falls inside the plotted window and the next-stop tag counts down to a halt that is actually next.
+         */
         const val NOW = 1445
 
         /** `RailRepository.dataVersion()` over the shipped DB — shared with the 360 dp renders. */
