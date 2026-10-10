@@ -60,12 +60,26 @@ data class Suggestion(
                 if (cleaned.isEmpty()) return cleaned
                 if (!cleaned.any { it.isUpperCase() }) return cleaned   // already mixed case: leave it
                 return cleaned.lowercase().split(' ').mapIndexed { i, w ->
-                    when {
+                    val cased = when {
                         w.length <= 2 -> w.uppercase()                       // "NR", "JN", "E"
                         i > 0 && SMALL.contains(w) -> w
                         else -> w.replaceFirstChar(Char::uppercase)
                     }
+                    capAfterDash(cased)
                 }.joinToString(" ")
+            }
+
+            /**
+             * Indian train names are frequently two places tied with a dash ("Mumbai Central–New Delhi
+             * Rajdhani"), and a lowercase half reads as a typo in a headline.
+             */
+            private fun capAfterDash(w: String): String = buildString(w.length) {
+                var up = false
+                for (c in w) {
+                    if (c == '–' || c == '-') { append(c); up = true; continue }
+                    append(if (up) c.uppercaseChar() else c)
+                    up = false
+                }
             }
         }
     }

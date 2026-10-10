@@ -6,5 +6,5 @@
             <solid android:color="#FFFFFFFF"/>
         </shape>
     </item>
-    <item android:drawable="@drawable/bg_inset.xml"/>
+    <item android:drawable="@drawable/bg_inset"/>
 </ripple>

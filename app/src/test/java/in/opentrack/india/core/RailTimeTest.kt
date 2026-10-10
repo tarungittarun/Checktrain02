@@ -172,4 +172,21 @@ class RailTimeTest {
         // and one day later
         assertEquals(expected + 86_400_000L, RailTime.railMinuteToEpochMillis(origin, 390 + 1440))
     }
+    @Test
+    fun buildStampsAreShownInTheReadersCalendarNotAsAnIsoBlob() {
+        // The status chip answers "how old is my timetable", which a UTC ISO stamp does not: it makes
+        // the reader add five and a half hours in their head. Half an hour, at 2 a.m., on a train.
+        assertEquals("11 Oct 2026, 01:57 IST", RailTime.formatStamp("2026-10-10T20:27:26Z"))
+        assertEquals(
+            RailTime.istEpochDay(RailTime.utcStampToMillis("2026-10-10T20:27:26Z")!!),
+            RailTime.epochDayOf("2026-10-11"),
+        )
+        // Anything we do not recognise stays null, so the caller can print the raw value rather than a
+        // confident wrong date.
+        assertNull(RailTime.formatStamp("unknown"))
+        assertNull(RailTime.formatStamp("2026-10-10"))
+        assertNull(RailTime.formatStamp(null))
+        assertNull(RailTime.utcStampToMillis("2026/10/10 20:27"))
+    }
+
 }

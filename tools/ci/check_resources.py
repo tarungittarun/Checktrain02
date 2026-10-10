@@ -15,6 +15,7 @@ SRC = pathlib.Path("app/src/main/java")
 KIND_TO_DIR = {
     "layout": "layout", "string": "values", "plurals": "values", "color": "values",
     "style": "values", "drawable": "drawable", "xml": "xml", "id": "layout",
+    "dimen": "values",
 }
 
 
@@ -26,7 +27,7 @@ def resource_names() -> dict[str, set[str]]:
             out["layout"].add(xml.stem)
             for m in re.finditer(r'android:id="@\+id/(\w+)"', text):
                 out["id"].add(m.group(1))
-        for m in re.finditer(r'<(string|plurals|color|string-array)\s+name="(\w+)"', text):
+        for m in re.finditer(r'<(string|plurals|color|dimen|string-array)\s+name="(\w+)"', text):
             key = "plurals" if m.group(1) == "plurals" else m.group(1)
             if key in out:
                 out[key].add(m.group(2))
@@ -44,9 +45,53 @@ def camel(snake: str) -> str:
     return head + "".join(w[:1].upper() + w[1:] for w in rest)
 
 
+# Resource names this project declares all start with one of these, which is what makes it possible to
+# check `@drawable/…` references inside res/ without false-accusing the appcompat and framework
+# resources they also name. AAPT rejects `@drawable/foo.xml` — the extension alone fails the build — and
+# there is no Android SDK in the sandbox to discover that, so it is checked here instead.
+OURS = {
+    "drawable": ("bg_", "ripple_", "dot_", "progress_", "rail_", "ic_", "item_", "view_"),
+    "layout": ("activity_", "item_", "view_"),
+    "color": ("text", "accent", "surface", "bg", "field", "pill", "stroke", "live", "warn",
+              "late", "early", "ripple", "ink"),
+    "string": ("",),
+    "dimen": ("gap", "col_", "radius", "rail_w", "row_", "chart_", "progress_"),
+    "xml": ("backup_", "data_"),
+}
+EXT = re.compile(r"\.(xml|png|webp|jpg|jpeg|gif)$")
+
+
+def res_references() -> list[str]:
+    problems: list[str] = []
+    names = resource_names()
+    for xml in sorted(RES.rglob("*.xml")):
+        text = xml.read_text()
+        for m in re.finditer(r'"@(drawable|color|layout|dimen|xml|string)/([^"]+)"', text):
+            kind, ref = m.group(1), m.group(2)
+            ours = OURS[kind]
+            if EXT.search(ref):
+                problems.append(f"{xml}: @{kind}/{ref} — a resource reference must not carry a file "
+                                "extension (AAPT: resource not found)")
+                continue
+            if ref.startswith(ours) and ref not in names[kind]:
+                problems.append(f"{xml}: @{kind}/{ref} — no such resource declared under res/")
+        # Styles: ours are the single-word ones; `Theme.AppCompat.NoActionBar` and friends are not.
+        for m in re.finditer(r'style="@style/([^"]+)"', text):
+            name = m.group(1)
+            if "." in name or name.startswith(("Theme", "Widget", "TextAppearance", "Platform",
+                                                "Base", "Animation", "ShapeAppearance")):
+                continue
+            if name not in names["style"]:
+                problems.append(f"{xml}: @style/{name} — not declared in res/values/themes.xml")
+    return problems
+
+
 def main() -> int:
     names = resource_names()
     problems = 0
+    for msg in res_references():
+        print(msg)
+        problems += 1
     for kt in sorted(SRC.rglob("*.kt")):
         text = kt.read_text()
         # `android.R.layout.…` is a framework resource and is not ours to check.

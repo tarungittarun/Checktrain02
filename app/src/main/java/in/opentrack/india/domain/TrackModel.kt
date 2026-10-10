@@ -318,11 +318,17 @@ object TrackModel {
         else -> "updated ${seconds / 3600} h ago"
     }
 
-    /** "in 40 min" / "1 h 12 m ago" — the same words for both sides of now, so the eye can compare rows. */
-    fun formatGap(minutes: Int): String = when {
-        minutes > 0 -> "in ${RailTime.formatDuration(minutes)}"
-        -minutes < 1 -> "right now"
-        else -> "${RailTime.formatDuration(-minutes)} ago"
+    /**
+     * "in 40 min" / "42 min ago" / "in 1h 30m" — the same words on both sides of now, so a column of
+     * them can be scanned. Minutes below the hour are spelled out rather than abbreviated to `40m`,
+     * because this string is read at arm's length across a platform; `formatDuration` keeps the compact
+     * form for the dense meta lines it was written for.
+     */
+    fun formatGap(minutes: Int): String {
+        if (minutes == 0) return "right now"
+        val abs = if (minutes > 0) minutes else -minutes
+        val body = if (abs < 60) "$abs min" else RailTime.formatDuration(abs)
+        return if (minutes > 0) "in $body" else "$body ago"
     }
 
     private fun alightKm(route: TrainRoute, alightSeq: Int): Int =

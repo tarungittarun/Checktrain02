@@ -62,4 +62,17 @@ class TextTest {
         // reported as "too far" without finishing the matrix.
         assertEquals(3, Text.editDistance("MAS", "XYZQQW", cap = 2))
     }
+    @Test
+    fun countsGroupWithoutDependingOnTheDeviceLocale() {
+        // `%,d` would use the device locale and can print a non-breaking or a thin space; the counts in
+        // this app (trains, stations, stops) are printed beside Indian Railways' own figures, so they use
+        // the same plain comma grouping.
+        assertEquals("0", Text.group(0))
+        assertEquals("999", Text.group(999))
+        assertEquals("1,000", Text.group(1000))
+        assertEquals("8,990", Text.group(8990))
+        assertEquals("141,908", Text.group(141908))
+        assertEquals("14,680,064", Text.group(14680064))
+    }
+
 }

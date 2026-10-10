@@ -6,5 +6,5 @@
             <solid android:color="#FFFFFFFF"/>
         </shape>
     </item>
-    <item android:drawable="@drawable/bg_card.xml"/>
+    <item android:drawable="@drawable/bg_card"/>
 </ripple>
