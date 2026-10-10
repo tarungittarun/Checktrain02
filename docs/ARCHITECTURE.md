@@ -66,8 +66,14 @@ A first-run download needs a host, a resume path, integrity checking, storage-pe
 failure UI — a small product of its own, and it would break the one claim that matters (works on a
 train with no signal). Generating it at build time instead gives: deterministic bytes for a given
 commit, the file inside the signed APK, and zero runtime infrastructure. `syncRefDb` in
-`app/build.gradle` implements the ladder *committed asset → local ETL → pinned release asset*, and
-fails the build rather than producing an APK that cannot search offline.
+`app/build.gradle` implements the ladder *asset already in the working tree → local ETL → pinned
+release asset*, and fails the build rather than producing an APK that cannot search offline. The ETL
+writes to `app/src/main/assets/ref/` itself — the same path the merger packages and the same path this
+file documents — because `src/main/assets` is the *only* declared asset root. An earlier revision added
+`build/generated/refdb` as a second root for the fallback to write into, and any build where both
+copies existed died in `mergeDebugAssets` with `Error: Duplicate resources` on `ref/refdb.db`. Two
+roots that can each supply one asset name is a shape that check has no way to catch statically, so the
+design avoids it instead.
 
 ## Search
 
