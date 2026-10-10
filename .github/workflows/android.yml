@@ -105,47 +105,44 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # `|| true` on every filter: a step runs under `set -e`, and a grep that matches nothing
+          # would otherwise abort the step that exists to explain the abort. That is exactly how the
+          # first version of this step lost the log it was reporting.
+          set +e
           {
             echo "### build failed"
             echo
-            echo "Errors are listed *first* rather than as a log tail: a Kotlin compile reports one"
-            echo "cascade of follow-on errors per file after the first real one, so the earliest messages"
-            echo "are the only actionable ones and a tail shows nothing but the cascade."
+            echo "Tasks that failed:"
+            grep -E "^> Task .* FAILED" /tmp/build.log | sed 's/^> /  - /' || echo "  (none — a test or an early step failed)"
             echo
-            if [ -s /tmp/build.log ]; then
-              echo "- failing tasks:"
-              grep -E "^> Task .* FAILED" /tmp/build.log | sed 's/^> /  - /'
-              echo
-              echo "- errors per file:"
-              grep "^e: " /tmp/build.log | sed 's|.*/app/src/|app/src/|; s|:[0-9]*:[0-9]* .*||' | sort | uniq -c | sort -rn
-              echo
-              echo "- first 60 errors:"
-              echo
-              echo '```'
-              grep "^e: " /tmp/build.log | sed 's|file:///home/runner/work/Checktrain02/Checktrain02/||' | head -60
-              echo '```'
-              echo
-              echo "- what went wrong:"
-              echo
-              echo '```'
-              sed -n '/\* What went wrong:/,/\* Try:/p' /tmp/build.log | head -30
-              echo '```'
-            fi
+            echo "Failing tests:"
+            grep -E "(FAILED|error:$)" /tmp/build.log | grep -v "^> Task" | head -40 || true
+            echo
+            echo "First 60 Kotlin/Java errors:"
+            echo
+            echo '```'
+            grep "^e: " /tmp/build.log | sed 's|file://[^ ]*/Checktrain02/||' | head -60 || true
+            echo '```'
+            echo
+            echo "What went wrong:"
+            echo
+            echo '```'
+            awk '/\* What went wrong:/,/\* Try:/' /tmp/build.log | head -40 || true
+            echo '```'
             if [ -s /tmp/etl.log ]; then
               echo
               echo "<details><summary>etl.log tail</summary>"
               echo
               echo '```'
-              tail -c 6000 /tmp/etl.log
+              tail -c 4000 /tmp/etl.log
               echo
               echo '```'
               echo "</details>"
             fi
           } > /tmp/report.md
-          if [ -s /tmp/report.md ]; then
-            gh api -X POST "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/comments" \
-              -F body=@/tmp/report.md || echo "::warning::could not post the log comment"
-          fi
+          gh api -X POST "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/comments" -F body=@/tmp/report.md \
+            || echo "::warning::could not post the log comment"
+
 
   release:
     # Only for tagged pushes: a release build is the one place R8 and resource shrinking run, so it is
