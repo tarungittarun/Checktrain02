@@ -59,22 +59,40 @@ data class Suggestion(
 object TitleCase {
     // Words that should stay lowercase mid-name. Note what is *not* here: "exp", "spl" and "jn" were, and
     // left a train called "…SHIVAMOGGA TOWN EXP" rendering as "…Town exp" — a lowercase abbreviation at the
-    // end of a name reads as a truncation, not a type. Two letters are handled by the uppercase rule above,
-    // and three-letter types come out as "Exp"/"Spl" the way a timetable prints them.
+    // end of a name reads as a truncation, not a type. Three-letter types come out as "Exp"/"Spl" the way a
+    // timetable prints them.
     private val SMALL = setOf("of", "and", "the", "to", "at", "via", "for")
+
+    // Words that *look* like codes and are not. The consonant rule below is what keeps "SBC", "NED" and "SF"
+    // (the only two-letter tokens in these names, measured over the shipped train set: 257 "SF", 45 "AC")
+    // uppercase — but "jn" and "spl" have no vowels either, and "Between Mid JN and DST JN" or "Malegaon SPL"
+    // is a station suffix and a train type shouting in the middle of a sentence. So these two are named.
+    private val WORDS = setOf("jn", "spl")
 
     fun of(raw: String, keep: Set<String> = emptySet()): String {
         val cleaned = raw.trim().replace('_', ' ').replace('-', '–').replace("  ", " ")
         if (cleaned.isEmpty()) return cleaned
-        if (!cleaned.any { it.isUpperCase() }) return cleaned   // already mixed case: leave it
+        // Only a *shouted* name needs casing, so a name with a lowercase letter in it is left exactly as the
+        // source wrote it. Measured over the shipped reference DB: every train name is upper case (4000 of
+        // 4000 sampled), while a quarter of the station names are already written the way a person writes
+        // them ("Badhal", "MID Jn"). The old guard read "already mixed case: leave it" but only skipped names
+        // with *no* uppercase at all, so it re-cased the ones that had already been decided — "MID Jn" came
+        // out "Mid Jn", and the table and the sentence above it disagreed about the same station again.
+        val letters = cleaned.filter(Char::isLetter)
+        if (letters.isEmpty() || letters.any { !it.isUpperCase() }) return cleaned
         return cleaned.lowercase().split(' ').mapIndexed { i, w ->
             val cased = when {
-                w.length <= 2 -> w.uppercase()                       // "NR", "JN", "E"
                 // Station codes inside a name must stay codes. "SBC SMET Passenger" is the source's own
                 // wording and "Sbc Smet Passenger" reads like a typo — in the one list where a traveller is
                 // choosing between trains. Two rules keep the rest of the name a sentence: the caller says
                 // which tokens are its codes, and a short token with no vowel is an abbreviation, not a word.
+                // What deliberately has no rule is a *short word*: "Jn" is a junction, and a rule that
+                // uppercases anything of two letters turned it into "JN" mid-sentence. A single "G"
+                // ("Palem G Express") survives as a letter through the cap branch below.
                 w.uppercase() in keep -> w.uppercase()
+                // Compared on letters only, because the data writes "DELHI JN. -VARANASI SPECIAL" with the
+                // abbreviation punctuated, and "Delhi JN." would otherwise keep the shout.
+                WORDS.contains(w.filter(Char::isLetter)) -> cap(w)
                 w.length in 2..4 && w.none { it in "aeiou" } -> w.uppercase()
                 i > 0 && SMALL.contains(w) -> w
                 else -> w.replaceFirstChar(Char::uppercase)

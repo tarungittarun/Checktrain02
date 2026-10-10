@@ -214,13 +214,22 @@ class TrackModelTest {
     @Test
     fun nextStopLineNamesTheKindOfMinuteItShows() {
         val projected = model(pos = pos(2, 3, StopStatus.DEPARTED, delay = 14))
-        assertTrue(projected.nextLabel.contains("expected"))
-        assertTrue(projected.nextLabel.contains("DST Jn"))
+        assertTrue(
+            "a projected minute has to say so, in: ${projected.nextLabel}",
+            projected.nextLabel.contains("expected"),
+        )
+        assertTrue(
+            "the next stop's name has to survive the casing, in: ${projected.nextLabel}",
+            projected.nextLabel.contains("DST Jn"),
+        )
         val confirmed = model(
             pos = pos(2, 3, StopStatus.DEPARTED),
             perStop = mapOf("DST" to LiveStopFields(actualArrivalMin = 702, delayArrivalMin = 2)),
         )
-        assertTrue(confirmed.nextLabel.contains("due"))
+        assertTrue(
+            "a confirmed minute must not claim to be a forecast, in: ${confirmed.nextLabel}",
+            confirmed.nextLabel.contains("due"),
+        )
     }
 
     // ------------------------------------------------------------------ distance arithmetic
