@@ -213,7 +213,7 @@ class LargeScreenRenderTest {
                 R.id.liveTag).forEach {
                 Render.assertNothingCut(row.findViewById(it), "row $i · ${name(shot, it)}")
             }
-            assertTrue("row $i has no station name", Render.text(row, R.id.stopName).isNotBlank())
+            assertTrue("row $i has no station name", Render.read(row, R.id.stopName).isNotBlank())
         }
         return list.childCount
     }
