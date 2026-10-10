@@ -1,0 +1,138 @@
+#!/usr/bin/env python3
+"""String/comment-aware brace-balance check for Kotlin sources.
+
+This exists because there is no JVM in this sandbox: the only cheap way to catch a truncated file
+(a write that stopped mid-expression) before pushing to GitHub Actions is a scanner that understands
+enough of Kotlin lexing to ignore braces inside strings, char literals and comments. A naive
+`text.count("{")` is useless here — `'{'}'` appears in real code.
+
+Deliberately not a parser: it checks that the token stream leaves exactly one open scope, which is
+the signature of a cut-off file, plus a couple of other lexical defects. Exit 0 = nothing found.
+"""
+from __future__ import annotations
+import pathlib
+import sys
+
+OPEN = {"{": "}", "(": ")", "[": "]"}
+CLOSE = {v: k for k, v in OPEN.items()}
+
+
+def scan(text: str):
+    """Yield (kind, detail) problems, and a final depth for eyeballing."""
+    i, n = 0, len(text)
+    stack: list[tuple[str, int]] = []
+    line = 1
+    problems: list[str] = []
+    while i < n:
+        c = text[i]
+        nxt = text[i + 1] if i + 1 < n else ""
+        if c == "\n":
+            line += 1
+            i += 1
+            continue
+        # line comment
+        if c == "/" and nxt == "/":
+            j = text.find("\n", i)
+            i = n if j < 0 else j
+            continue
+        # block comment (Kotlin nests them, so we count)
+        if c == "/" and nxt == "*":
+            depth, j = 1, i + 2
+            while j < n and depth:
+                if text.startswith("/*", j):
+                    depth += 1
+                    j += 2
+                elif text.startswith("*/", j):
+                    depth -= 1
+                    j += 2
+                else:
+                    if text[j] == "\n":
+                        line += 1
+                    j += 1
+            i = j
+            continue
+        # raw string """ ... """ (may contain braces and single quotes freely)
+        if text.startswith('"""', i):
+            j = text.find('"""', i + 3)
+            if j < 0:
+                problems.append(f"line {line}: unterminated raw string")
+                break
+            line += text.count("\n", i, j)
+            i = j + 3
+            continue
+        # char or string literal
+        if c == '"':
+            j = i + 1
+            while j < n:
+                if text[j] == "\\":
+                    j += 2
+                    continue
+                if text[j] == '"':
+                    break
+                if text[j] == "\n":
+                    problems.append(f"line {line}: newline inside a string literal")
+                    break
+                j += 1
+            if j >= n:
+                problems.append(f"line {line}: unterminated string")
+                break
+            i = j + 1
+            continue
+        if c == "'":
+            j = i + 1
+            while j < n and text[j] != "'":
+                if text[j] == "\\":
+                    j += 1
+                elif text[j] == "\n":
+                    break
+                j += 1
+            if j >= n or text[j] != "'":
+                problems.append(f"line {line}: unterminated char literal")
+                break
+            i = j + 1
+            continue
+        if c in OPEN:
+            stack.append((c, line))
+        elif c in CLOSE:
+            if not stack:
+                problems.append(f"line {line}: stray '{c}' with nothing open")
+            elif OPEN[stack[-1][0]] != c:
+                opener, oline = stack[-1]
+                problems.append(
+                    f"line {line}: '{c}' closes '{opener}' opened on line {oline}"
+                )
+                stack.pop()
+            else:
+                stack.pop()
+        i += 1
+    for opener, oline in stack:
+        problems.append(f"line {oline}: '{opener}' never closed")
+    return problems
+
+
+def main() -> int:
+    roots = sys.argv[1:] or ["app/src"]
+    bad = 0
+    checked = 0
+    for root in roots:
+        p = pathlib.Path(root)
+        files = sorted([x for x in p.rglob("*") if x.suffix in (".kt", ".java")])
+        for f in files:
+            checked += 1
+            text = f.read_text(encoding="utf-8")
+            problems = scan(text)
+            for msg in problems:
+                bad += 1
+                print(f"{f}: {msg}")
+            if text.endswith("\n\n"):
+                print(f"{f}: warning: file ends with a blank line")
+            if not text.endswith("\n"):
+                print(f"{f}: warning: no trailing newline")
+            if "\t" in text:
+                print(f"{f}: warning: tab characters in indentation")
+    print(f"checked {checked} files, {bad} problems")
+    return 1 if bad else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
