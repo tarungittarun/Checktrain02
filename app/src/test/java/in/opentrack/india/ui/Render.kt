@@ -1,11 +1,11 @@
 package `in`.opentrack.india.ui
 
 import android.content.Context
-import android.content.ContextThemeWrapper
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Rect
 import android.util.TypedValue
+import android.view.ContextThemeWrapper
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -141,7 +141,7 @@ object Render {
         root.findViewById<TrackInsightView>(R.id.chart)?.setJourney(m, pos, now, 0 until m.rows.size)
         root.findViewById<RecyclerView>(R.id.stops)?.apply {
             layoutManager = LinearLayoutManager(context)
-            adapter = StopAdapter().apply { currentList = m.rows }
+            adapter = StopAdapter().apply { setCurrentList(m.rows) }
             isNestedScrollingEnabled = false
         }
     }

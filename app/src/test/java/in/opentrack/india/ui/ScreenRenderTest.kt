@@ -5,6 +5,7 @@ import android.widget.TextView
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import `in`.opentrack.india.R
+import `in`.opentrack.india.domain.TrackModel
 import `in`.opentrack.india.model.LiveStopFields
 import `in`.opentrack.india.model.SegmentRow
 import `in`.opentrack.india.model.SourceKind
@@ -196,7 +197,9 @@ class ScreenRenderTest {
                 layoutManager = LinearLayoutManager(context)
                 adapter = TrainHitAdapter { }.apply {
                     nowMinute = 300L
-                    currentList = hits
+                    // setCurrentList, not submitList: the setter is synchronous, and a background diff
+                    // would never land in a test that does not idle the looper.
+                    setCurrentList(hits)
                 }
             }
         }
