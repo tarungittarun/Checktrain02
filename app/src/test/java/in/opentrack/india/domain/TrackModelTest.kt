@@ -1,5 +1,6 @@
 package `in`.opentrack.india.domain
 
+import `in`.opentrack.india.core.RailTime
 import `in`.opentrack.india.model.LiveStopFields
 import `in`.opentrack.india.model.SegmentRow
 import `in`.opentrack.india.model.SourceKind
