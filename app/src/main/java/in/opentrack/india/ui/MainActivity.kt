@@ -1,4 +1,4 @@
-package in.opentrack.india.ui
+package `in`.opentrack.india.ui
 
 import android.content.Intent
 import android.os.Bundle
@@ -8,13 +8,13 @@ import android.widget.ArrayAdapter
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.LinearLayoutManager
-import in.opentrack.india.App
-import in.opentrack.india.R
-import in.opentrack.india.core.RailTime
-import in.opentrack.india.databinding.ActivityMainBinding
-import in.opentrack.india.domain.TrainFinder
-import in.opentrack.india.model.StationHit
-import in.opentrack.india.model.TrainHit
+import `in`.opentrack.india.App
+import `in`.opentrack.india.R
+import `in`.opentrack.india.core.RailTime
+import `in`.opentrack.india.databinding.ActivityMainBinding
+import `in`.opentrack.india.domain.TrainFinder
+import `in`.opentrack.india.model.StationHit
+import `in`.opentrack.india.model.TrainHit
 
 /**
  * Screen 1 of 3 — find a train: a station pair (or a train number/name), a date, and every run inside

@@ -1,4 +1,4 @@
-package in.opentrack.india.core
+package `in`.opentrack.india.core
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue

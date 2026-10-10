@@ -1,15 +1,16 @@
-package in.opentrack.india.ui
+package `in`.opentrack.india.ui
 
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import in.opentrack.india.App
-import in.opentrack.india.core.RailTime
-import in.opentrack.india.data.RailRepository
-import in.opentrack.india.domain.TrainFinder
-import in.opentrack.india.model.TrainHit
+import `in`.opentrack.india.App
+import `in`.opentrack.india.core.RailTime
+import `in`.opentrack.india.data.RailRepository
+import `in`.opentrack.india.domain.TrainFinder
+import `in`.opentrack.india.model.TrainHit
 import kotlinx.coroutines.launch
+import `in`.opentrack.india.model.StationHit
 
 /**
  * Home-screen state: pick a mode, pick a date, get the runs.
@@ -151,7 +152,7 @@ class MainViewModel(private val app: App) : ViewModel() {
     }
 
     /** Suggestion dropdown source; suspend because it reads the SQLite station master. */
-    fun suggestStations(text: String, onResult: (List<in.opentrack.india.model.StationHit>) -> Unit) {
+    fun suggestStations(text: String, onResult: (List<StationHit>) -> Unit) {
         viewModelScope.launch {
             val repo = app.repository() ?: return@launch
             onResult(repo.resolveStations(text))

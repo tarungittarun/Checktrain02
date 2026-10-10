@@ -11,10 +11,39 @@ the signature of a cut-off file, plus a couple of other lexical defects. Exit 0 
 """
 from __future__ import annotations
 import pathlib
+import re
 import sys
 
 OPEN = {"{": "}", "(": ")", "[": "]"}
 CLOSE = {v: k for k, v in OPEN.items()}
+
+
+HARD_KEYWORD_SEGMENT = re.compile(r"^(?:package|import)\s+(as|in|is|object|fun|val|var|when|while|for|do|if|else|throw|return|true|false|null|typeof|package|interface|class|try|catch)\.")
+BARE_FQN = re.compile(r"(?<![`\w.])(in|is|as)\.opentrack\.india")
+
+
+def lexical_rules(text: str) -> list[str]:
+    """Keyword-as-package-segment detection.
+
+    `in` is a *hard* keyword in Kotlin, so an applicationId/package like `in.opentrack.india` is only
+    legal in Kotlin sources as `` `in`.opentrack.india ``. It is legal unescaped in Java (the generated
+    R/BuildConfig) and in the manifest, which is exactly why the mistake survives a careful read: the
+    build file, the manifest and the directory layout all look right. This check exists because the
+    first real compile of this project failed on nothing else, in 32 files.
+    """
+    out: list[str] = []
+    for no, line in enumerate(text.split("\n"), 1):
+        stripped = line.strip()
+        if stripped.startswith(("*", "//", "/*")):
+            continue  # KDoc links to [in.opentrack…] are prose, not code
+        if HARD_KEYWORD_SEGMENT.match(line.rstrip()):
+            out.append(
+                f"line {no}: package/import segment is an unescaped Kotlin keyword "
+                f"— write it as `{line.split()[0]} `in`.…`"
+            )
+        elif BARE_FQN.search(line):
+            out.append(f"line {no}: fully-qualified name starts with the keyword `in` — import the type instead")
+    return out
 
 
 def scan(text: str):
@@ -22,7 +51,7 @@ def scan(text: str):
     i, n = 0, len(text)
     stack: list[tuple[str, int]] = []
     line = 1
-    problems: list[str] = []
+    problems: list[str] = lexical_rules(text)
     while i < n:
         c = text[i]
         nxt = text[i + 1] if i + 1 < n else ""

@@ -1,6 +1,6 @@
-package in.opentrack.india.remote
+package `in`.opentrack.india.remote
 
-import in.opentrack.india.core.RailTime
+import `in`.opentrack.india.core.RailTime
 
 /**
  * Parser for the public Indian Railways enquiry wire format (erail-style `getTrains.aspx`).

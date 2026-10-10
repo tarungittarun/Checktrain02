@@ -1,18 +1,20 @@
-package in.opentrack.india.ui
+package `in`.opentrack.india.ui
 
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import in.opentrack.india.core.RailTime
-import in.opentrack.india.data.RailRepository
-import in.opentrack.india.domain.PositionEngine
-import in.opentrack.india.model.StopRow
-import in.opentrack.india.model.TrainRoute
+import `in`.opentrack.india.core.RailTime
+import `in`.opentrack.india.data.RailRepository
+import `in`.opentrack.india.domain.PositionEngine
+import `in`.opentrack.india.model.StopRow
+import `in`.opentrack.india.model.TrainRoute
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import `in`.opentrack.india.App
+import `in`.opentrack.india.model.StopStatus
 
 /**
  * State for the live-tracking screen.
@@ -24,7 +26,7 @@ import kotlinx.coroutines.launch
  * and an honest age label instead of a spinner.
  */
 class LiveViewModel(
-    private val app: in.opentrack.india.App,
+    private val app: App,
     private val trainNo: String,
     private val fromCode: String,
     private val toCode: String,
@@ -141,9 +143,9 @@ class LiveViewModel(
             s.copy(
                 delayArrivalMin = delayArr,
                 status = when {
-                    s.seq < pos.anchorSeq -> in.opentrack.india.model.StopStatus.DEPARTED
+                    s.seq < pos.anchorSeq -> StopStatus.DEPARTED
                     s.seq == pos.anchorSeq -> pos.status
-                    else -> in.opentrack.india.model.StopStatus.UPCOMING
+                    else -> StopStatus.UPCOMING
                 },
             )
         }

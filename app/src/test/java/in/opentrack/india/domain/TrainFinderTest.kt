@@ -1,7 +1,7 @@
-package in.opentrack.india.domain
+package `in`.opentrack.india.domain
 
-import in.opentrack.india.core.RailTime
-import in.opentrack.india.model.PairStop
+import `in`.opentrack.india.core.RailTime
+import `in`.opentrack.india.model.PairStop
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertFalse

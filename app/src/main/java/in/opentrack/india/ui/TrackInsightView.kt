@@ -1,4 +1,4 @@
-package in.opentrack.india.ui
+package `in`.opentrack.india.ui
 
 import android.content.Context
 import android.graphics.Canvas
@@ -9,10 +9,11 @@ import android.graphics.Path
 import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.View
-import in.opentrack.india.core.RailTime
-import in.opentrack.india.model.StopRow
-import in.opentrack.india.model.TrainPosition
+import `in`.opentrack.india.core.RailTime
+import `in`.opentrack.india.model.StopRow
+import `in`.opentrack.india.model.TrainPosition
 import kotlin.math.max
+import `in`.opentrack.india.model.SourceKind
 
 /**
  * The screen's main object: a time–distance plot of one run, with the schedule and the live position
@@ -255,8 +256,8 @@ class TrackInsightView @JvmOverloads constructor(
             }
 
             // --- the train itself. Hollow + dim when the data is stale (rule C5).
-            val stale = pos.provenance == in.opentrack.india.model.SourceKind.OFFLINE_SCHEDULE ||
-                pos.provenance == in.opentrack.india.model.SourceKind.NONE ||
+            val stale = pos.provenance == SourceKind.OFFLINE_SCHEDULE ||
+                pos.provenance == SourceKind.NONE ||
                 pos.ageSeconds > 600
             if (stale) {
                 canvas.drawCircle(liveX, liveY, dp(9f), markerHaloPaint)

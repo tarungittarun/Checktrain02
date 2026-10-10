@@ -1,13 +1,13 @@
-package in.opentrack.india.data
+package `in`.opentrack.india.data
 
 import android.database.Cursor
-import in.opentrack.india.core.Text
-import in.opentrack.india.model.PairStop
-import in.opentrack.india.model.SegmentRow
-import in.opentrack.india.model.StationHit
-import in.opentrack.india.model.StopRow
-import in.opentrack.india.model.TrainRoute
-import in.opentrack.india.model.TrainSummary
+import `in`.opentrack.india.core.Text
+import `in`.opentrack.india.model.PairStop
+import `in`.opentrack.india.model.SegmentRow
+import `in`.opentrack.india.model.StationHit
+import `in`.opentrack.india.model.StopRow
+import `in`.opentrack.india.model.TrainRoute
+import `in`.opentrack.india.model.TrainSummary
 
 /**
  * Every read against the bundled timetable, in one file, so the index claims in

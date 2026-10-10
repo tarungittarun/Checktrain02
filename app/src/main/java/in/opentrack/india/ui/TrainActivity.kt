@@ -1,16 +1,16 @@
-package in.opentrack.india.ui
+package `in`.opentrack.india.ui
 
 import android.os.Bundle
 import android.view.View
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.LinearLayoutManager
-import in.opentrack.india.App
-import in.opentrack.india.R
-import in.opentrack.india.core.RailTime
-import in.opentrack.india.databinding.ActivityTrainBinding
-import in.opentrack.india.domain.PositionEngine
-import in.opentrack.india.model.SourceKind
+import `in`.opentrack.india.App
+import `in`.opentrack.india.R
+import `in`.opentrack.india.core.RailTime
+import `in`.opentrack.india.databinding.ActivityTrainBinding
+import `in`.opentrack.india.domain.PositionEngine
+import `in`.opentrack.india.model.SourceKind
 
 /**
  * Screen 2 of 3 — the live view: where the train is against where the timetable says it should be,

@@ -1,14 +1,16 @@
-package in.opentrack.india.ui
+package `in`.opentrack.india.ui
 
 import android.os.Bundle
 import android.widget.ArrayAdapter
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
-import in.opentrack.india.App
-import in.opentrack.india.data.Prefs
-import in.opentrack.india.databinding.ActivitySettingsBinding
+import `in`.opentrack.india.App
+import `in`.opentrack.india.data.Prefs
+import `in`.opentrack.india.databinding.ActivitySettingsBinding
 import kotlinx.coroutines.launch
+import `in`.opentrack.india.BuildConfig
+import `in`.opentrack.india.data.RefDb
 
 /**
  * Screen 3 of 3 — the controls that keep this app alive when something upstream changes.
@@ -52,7 +54,7 @@ class SettingsActivity : AppCompatActivity() {
         }
         binding.back.setOnClickListener { finish() }
         binding.about.text = buildString {
-            append("OpenTrack India ${in.opentrack.india.BuildConfig.VERSION_NAME}\n")
+            append("OpenTrack India ${BuildConfig.VERSION_NAME}\n")
             append("Timetable: ")
             append(
                 (runCatching {
@@ -65,7 +67,7 @@ class SettingsActivity : AppCompatActivity() {
         }
         lifecycleScope.launch {
             binding.state.text = when {
-                in.opentrack.india.data.RefDb.isUsable(this@SettingsActivity) ->
+                RefDb.isUsable(this@SettingsActivity) ->
                     "Built-in timetable installed · offline search ready"
                 else -> "Built-in timetable not installed yet — it is extracted on first search"
             }

@@ -1,17 +1,18 @@
-package in.opentrack.india.data
+package `in`.opentrack.india.data
 
 import android.content.Context
-import in.opentrack.india.core.Http
-import in.opentrack.india.core.RailTime
-import in.opentrack.india.domain.PositionEngine
-import in.opentrack.india.domain.TrainFinder
-import in.opentrack.india.model.SourceKind
-import in.opentrack.india.model.TrainRoute
-import in.opentrack.india.remote.ProviderChain
-import in.opentrack.india.remote.SnapshotStore
-import in.opentrack.india.sensor.SensorPositioner
+import `in`.opentrack.india.core.Http
+import `in`.opentrack.india.core.RailTime
+import `in`.opentrack.india.domain.PositionEngine
+import `in`.opentrack.india.domain.TrainFinder
+import `in`.opentrack.india.model.SourceKind
+import `in`.opentrack.india.model.TrainRoute
+import `in`.opentrack.india.remote.ProviderChain
+import `in`.opentrack.india.remote.SnapshotStore
+import `in`.opentrack.india.sensor.SensorPositioner
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import `in`.opentrack.india.model.StationHit
 
 /**
  * The only object the UI talks to. It exists to enforce three invariants that are easy to break when
@@ -99,7 +100,7 @@ class RailRepository private constructor(
             context, android.Manifest.permission.ACCESS_COARSE_LOCATION
         ) == android.content.pm.PackageManager.PERMISSION_GRANTED
 
-    fun nearestStationsToUser(limit: Int = 3): List<in.opentrack.india.model.StationHit> {
+    fun nearestStationsToUser(limit: Int = 3): List<StationHit> {
         val fix = sensors.latest() ?: return emptyList()
         return queries.nearestStations(fix.lat, fix.lon, limit)
     }

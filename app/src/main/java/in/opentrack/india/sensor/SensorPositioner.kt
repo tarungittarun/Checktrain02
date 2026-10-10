@@ -1,4 +1,4 @@
-package in.opentrack.india.sensor
+package `in`.opentrack.india.sensor
 
 import android.Manifest
 import android.content.Context
@@ -7,9 +7,9 @@ import android.location.LocationManager
 import android.os.Handler
 import android.os.Looper
 import androidx.annotation.RequiresPermission
-import in.opentrack.india.core.Geo
-import in.opentrack.india.domain.PositionEngine
-import in.opentrack.india.model.TrainRoute
+import `in`.opentrack.india.core.Geo
+import `in`.opentrack.india.domain.PositionEngine
+import `in`.opentrack.india.model.TrainRoute
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlin.math.abs

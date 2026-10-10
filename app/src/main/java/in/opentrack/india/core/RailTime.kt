@@ -1,4 +1,4 @@
-package in.opentrack.india.core
+package `in`.opentrack.india.core
 
 /**
  * Time handling for the whole app.
@@ -46,7 +46,7 @@ object RailTime {
         val minute = ((railMinute % MINUTES_PER_DAY) + MINUTES_PER_DAY) % MINUTES_PER_DAY
         val dayOffset = dayOffsetOf(railMinute)
         val sb = StringBuilder(14)
-        sb.append(minute / 60).pad2().append(':').append(minute % 60).pad2()
+        sb.append(pad2(minute / 60)).append(':').append(pad2(minute % 60))
         if (dayOffset > 0) sb.append(" (+").append(dayOffset).append("d)")
         else if (dayOffset < 0) sb.append(" (").append(dayOffset).append("d)")
         return sb.toString()
@@ -55,7 +55,7 @@ object RailTime {
     /** "14:30" regardless of which day of the run it falls on. */
     fun formatRailMinuteBare(railMinute: Int): String {
         val minute = ((railMinute % MINUTES_PER_DAY) + MINUTES_PER_DAY) % MINUTES_PER_DAY
-        return StringBuilder(5).append(minute / 60).pad2().append(':').append(minute % 60).pad2().toString()
+        return pad2(minute / 60) + ":" + pad2(minute % 60)
     }
 
     /** 0 for day 1 of the run, 1 for day 2 … */
@@ -114,12 +114,17 @@ object RailTime {
 
     fun formatClock(millis: Long): String {
         val minuteOfDay = istMinuteOfDay(millis)
-        return "${(minuteOfDay / 60) % 24}".pad2() + ":" + (minuteOfDay % 60).pad2()
+        return pad2((minuteOfDay / 60) % 24) + ":" + pad2(minuteOfDay % 60)
     }
 
+    /**
+     * "14 Aug 2024". Spelled month because the app shows this next to a train number, where a numeric
+     * "14-08-24" invites the dd/mm vs mm/dd reading that Indian and American readers disagree about.
+     */
     fun formatDate(epochDay: Long): String {
         val (y, m, d) = civilFromDays(epochDay)
-        return "$d".pad2() + "-" + "$m".pad2() + "-" + y
+        val month = MONTHS.getOrNull(m - 1) ?: m.toString()
+        return "$d $month $y"
     }
 
     /** yyyy-MM-dd for an epoch-day (ISO, used by every outbound request). */
@@ -167,7 +172,16 @@ object RailTime {
 
     fun addDays(epochDay: Long, days: Int): Long = epochDay + days
 
-    private fun Int.pad2() = if (this < 10) "0$this" else "$this"
+    /**
+     * Two-digit minutes/hours. A function, not an `Int` extension: the call sites append into a
+     * `StringBuilder`, and `StringBuilder.append` returns the builder — an extension on the *value*
+     * cannot be chained after it, which is exactly the mistake this helper replaced.
+     */
+    private fun pad2(v: Int): String = if (v in 0..9) "0$v" else v.toString()
+
+    private val MONTHS = arrayOf(
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+    )
 
     private val HM_RE = Regex("""(\d{1,2}):(\d{2})""")
     private val ISO_DATE_RE = Regex("""(\d{4})-(\d{2})-(\d{2})""")

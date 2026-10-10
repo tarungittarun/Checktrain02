@@ -1,4 +1,4 @@
-package in.opentrack.india.core
+package `in`.opentrack.india.core
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -143,6 +143,19 @@ class RailTimeTest {
         assertEquals("20240101", RailTime.formatCompactDate(LocalDate.of(2024, 1, 1).toEpochDay()))
         assertNull(RailTime.epochDayOf("2024/01/01"))
         assertNull(RailTime.epochDayOf("junk"))
+    }
+
+    @Test
+    fun clockAndDateLabelsAreHumanReadable() {
+        // formatDate spells the month: the label sits next to a train number where "14-08-24" invites a
+        // dd/mm vs mm/dd misreading, and the whole app is for readers on both conventions.
+        assertEquals("14 Aug 2024", RailTime.formatDate(LocalDate.of(2024, 8, 14).toEpochDay()))
+        assertEquals("1 Jan 1970", RailTime.formatDate(0L))
+        val midnightIst = LocalDate.of(2024, 1, 1).atStartOfDay()
+            .toInstant(ZoneOffset.ofTotalSeconds(5 * 3600 + 1800)).toEpochMilli()
+        assertEquals("00:00", RailTime.formatClock(midnightIst))
+        assertEquals("09:05", RailTime.formatClock(midnightIst + (9 * 60 + 5) * 60_000L))
+        assertEquals("23:59", RailTime.formatClock(midnightIst + 86_400_000L - 60_000L))
     }
 
     @Test

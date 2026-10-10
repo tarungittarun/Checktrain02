@@ -1,4 +1,4 @@
-package in.opentrack.india.data
+package `in`.opentrack.india.data
 
 import android.content.Context
 import android.database.Cursor
@@ -8,8 +8,8 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
 import java.util.zip.GZIPInputStream
-import in.opentrack.india.BuildConfig
-import in.opentrack.india.core.RailTime
+import `in`.opentrack.india.BuildConfig
+import `in`.opentrack.india.core.RailTime
 
 /**
  * The on-device railway timetable: a read-only SQLite file that ships inside the APK.

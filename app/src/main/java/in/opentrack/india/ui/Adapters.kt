@@ -1,4 +1,4 @@
-package in.opentrack.india.ui
+package `in`.opentrack.india.ui
 
 import android.view.LayoutInflater
 import android.view.ViewGroup
@@ -6,11 +6,11 @@ import android.widget.TextView
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
-import in.opentrack.india.R
-import in.opentrack.india.core.RailTime
-import in.opentrack.india.model.StopRow
-import in.opentrack.india.model.StopStatus
-import in.opentrack.india.model.TrainHit
+import `in`.opentrack.india.R
+import `in`.opentrack.india.core.RailTime
+import `in`.opentrack.india.model.StopRow
+import `in`.opentrack.india.model.StopStatus
+import `in`.opentrack.india.model.TrainHit
 
 /**
  * Search results. Two rows of information per hit and nothing else — the decision a traveller makes

@@ -1,4 +1,4 @@
-package in.opentrack.india.core
+package `in`.opentrack.india.core
 
 import kotlin.math.asin
 import kotlin.math.cos

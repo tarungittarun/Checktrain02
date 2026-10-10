@@ -1,6 +1,6 @@
-package in.opentrack.india.remote
+package `in`.opentrack.india.remote
 
-import in.opentrack.india.core.RailTime
+import `in`.opentrack.india.core.RailTime
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull

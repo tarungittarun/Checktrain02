@@ -1,6 +1,6 @@
-package in.opentrack.india.model
+package `in`.opentrack.india.model
 
-import in.opentrack.india.core.RailTime
+import `in`.opentrack.india.core.RailTime
 
 /**
  * Domain models. Deliberately plain data classes (no Retrofit, no Room, no kotlinx-serialization):

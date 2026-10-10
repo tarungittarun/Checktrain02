@@ -1,12 +1,13 @@
-package in.opentrack.india
+package `in`.opentrack.india
 
 import android.app.Application
-import in.opentrack.india.data.RailRepository
-import in.opentrack.india.data.RefDb
+import `in`.opentrack.india.data.RailRepository
+import `in`.opentrack.india.data.RefDb
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import `in`.opentrack.india.data.Prefs
 
 /**
  * Process-wide holder for the one heavyweight resource: the read-only timetable handle.
@@ -35,7 +36,7 @@ class App : Application() {
 
     /** Recent searches, for reopening "same train, tomorrow" without typing. */
     fun prefsRecent(): List<String> =
-        in.opentrack.india.data.Prefs(this).recentTrains()
+        Prefs(this).recentTrains()
 
     /** Progress-bearing variant used by the first-launch screen. */
     suspend fun prepare(onProgress: (Long, Long) -> Unit): RailRepository? =

@@ -1,4 +1,4 @@
-package in.opentrack.india.core
+package `in`.opentrack.india.core
 
 /** Text normalisation shared by the search box and the live feed's name matching. */
 object Text {
