@@ -1,0 +1,33 @@
+# build outputs
+*.iml
+.gradle/
+build/
+app/build/
+local.properties
+captures/
+.cxx/
+
+# generated data (rebuilt by `python3 tools/build_refdb.py` / CI)
+data/ref/*.db
+data/ref/*.db.gz
+data/ref/*.sql
+data/ref/*.json
+data/ref/routes.*
+!data/ref/.gitkeep
+app/src/main/assets/ref/*.gz
+app/src/main/assets/ref/*.json
+
+# downloaded reference dumps
+.cache/
+
+# signing material must never be committed
+*.keystore
+*.jks
+keystore.properties
+secrets.*
+
+# editor / OS noise
+.idea/
+.DS_Store
+__pycache__/
+*.pyc
