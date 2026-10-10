@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Single dark palette on purpose: the time/distance chart hard-codes its ink colours so
+         "grey = schedule, green = live" cannot silently become unreadable in a light theme. -->
+    <color name="bg">#0F171E</color>
+    <color name="surface">#16202A</color>
+    <color name="surface_alt">#1E2A36</color>
+    <color name="text">#ECEFF1</color>
+    <color name="text_dim">#90A4AE</color>
+    <color name="accent">#4CAF50</color>
+    <color name="warn">#FFB74D</color>
+    <color name="error">#FF5252</color>
+    <color name="divider">#24313D</color>
+    <color name="selected">#334CAF50</color>
+</resources>

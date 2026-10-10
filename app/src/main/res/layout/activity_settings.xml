@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/bg">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="14dp">
+
+        <TextView
+            android:id="@+id/state"
+            style="@style/Label"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="12dp" />
+
+        <TextView
+            style="@style/Value"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/settings_override_title" />
+
+        <EditText
+            android:id="@+id/overrideUrl"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="https://…/live?train={trainNo}&amp;date={date}"
+            android:inputType="textUri"
+            android:maxLines="3"
+            android:textColor="@color/text"
+            android:textColorHint="@color/text_dim"
+            android:textSize="13sp" />
+
+        <TextView
+            style="@style/Label"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/settings_override_hint" />
+
+        <TextView
+            style="@style/Value"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:text="@string/settings_columns_title" />
+
+        <EditText
+            android:id="@+id/columnHint"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="1:code,2:name,3:sa,4:sd,5:aa,6:ad,7:da,8:dd,9:pf"
+            android:inputType="text"
+            android:maxLines="2"
+            android:textColor="@color/text"
+            android:textColorHint="@color/text_dim"
+            android:textSize="13sp" />
+
+        <TextView
+            style="@style/Label"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/settings_columns_hint" />
+
+        <TextView
+            style="@style/Value"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:text="@string/settings_refresh_title" />
+
+        <Spinner
+            android:id="@+id/refreshChoices"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/save"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/save" />
+
+            <Button
+                android:id="@+id/clear"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/clear_cache" />
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/back"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/back" />
+
+        <TextView
+            android:id="@+id/about"
+            style="@style/Label"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:lineSpacingExtra="2dp" />
+    </LinearLayout>
+</ScrollView>

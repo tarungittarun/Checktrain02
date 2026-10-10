@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:baselineAligned="false"
+    android:orientation="horizontal"
+    android:paddingStart="10dp"
+    android:paddingEnd="10dp"
+    android:paddingTop="7dp"
+    android:paddingBottom="7dp">
+
+    <TextView
+        android:id="@+id/stopCode"
+        android:layout_width="56dp"
+        android:layout_height="wrap_content"
+        android:textColor="@color/accent"
+        android:textSize="13sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/stopName"
+        style="@style/Value"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:textSize="14sp" />
+
+    <TextView
+        android:id="@+id/stopSched"
+        style="@style/Label"
+        android:layout_width="96dp"
+        android:layout_height="wrap_content"
+        android:gravity="end" />
+
+    <TextView
+        android:id="@+id/stopActual"
+        android:layout_width="72dp"
+        android:layout_height="wrap_content"
+        android:gravity="end"
+        android:textColor="@color/warn"
+        android:textSize="12sp" />
+
+    <TextView
+        android:id="@+id/stopKm"
+        style="@style/Label"
+        android:layout_width="40dp"
+        android:layout_height="wrap_content"
+        android:gravity="end" />
+</LinearLayout>

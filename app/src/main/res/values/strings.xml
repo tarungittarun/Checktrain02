@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">OpenTrack India</string>
+
+    <string name="mode_stations">Stations</string>
+    <string name="mode_train">Train no. / name</string>
+    <string name="hint_from">From station — name or code</string>
+    <string name="hint_to">To station — name or code</string>
+    <string name="hint_train">Train number or name</string>
+    <string name="search">Find trains</string>
+    <string name="window_hint">window −24 h … +24 h</string>
+    <string name="day_back">−1d</string>
+    <string name="day_fwd">+1d</string>
+    <string name="day_now">now</string>
+    <string name="settings">Data source</string>
+
+    <string name="searching">Searching on-device timetable…</string>
+    <string name="installing_data">Installing offline timetable… %1$d%%</string>
+    <string name="err_need_two_stations">Enter both stations (name or 3–4 letter code).</string>
+    <string name="err_need_train_query">Enter at least 3 characters of the train number or name.</string>
+    <string name="err_station_unknown">No station matches that. Try the 3–4 letter code (MAS, NDLS, SBC).</string>
+    <string name="err_no_direct">No direct train between those two in the offline timetable. Try a nearby junction, or search the train number.</string>
+    <string name="err_wrong_date">Nothing in the ±24 h window for that date. Try ±1 day.</string>
+    <string name="err_same_station">Boarding and alighting station are the same.</string>
+
+    <string name="show_full_route">Show full route</string>
+    <string name="show_my_segment">Show my segment</string>
+    <string name="refresh">Refresh</string>
+    <string name="back">Back</string>
+
+    <string name="settings_override_title">Live data endpoint</string>
+    <string name="settings_override_hint">Blank = built-in public endpoint. You may point this at any URL that returns the OpenTrack snapshot JSON.</string>
+    <string name="settings_columns_title">Live feed column map</string>
+    <string name="settings_columns_hint">Only needed if the public feed changes its field order, e.g. 1:code,2:name,3:sa,4:sd,5:aa,6:ad</string>
+    <string name="settings_refresh_title">Auto refresh</string>
+    <string name="save">Save</string>
+    <string name="clear_cache">Clear live cache</string>
+
+    <plurals name="trains_found">
+        <item quantity="one">%d train</item>
+        <item quantity="other">%d trains</item>
+    </plurals>
+</resources>
