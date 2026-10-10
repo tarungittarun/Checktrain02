@@ -130,7 +130,10 @@ jobs:
             || echo "::warning::could not post the log comment"
 
   build:
-    needs: checks
+    # No `needs: checks`, on purpose: the static checkers are the agent's safety net, and a false positive
+    # in one of them (one did block this whole run once) must never be the reason a device gets no build.
+    # Gradle assembling the APK is the gate here; `ui` keeps the checker gate because its assertions are
+    # about the same files those checkers read.
     runs-on: ubuntu-latest
     timeout-minutes: 40
     # `contents: write` is here for the failure-report step only (a commit comment), so a red build is
