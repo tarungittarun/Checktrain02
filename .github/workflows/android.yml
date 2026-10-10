@@ -1,10 +1,16 @@
 # The APK is built here, not on a laptop: this repository is set up so that `git push` is the whole
 # build process (no Android SDK, no Gradle, no keystore needed locally).
 #
-# Three jobs, cheapest first, so a broken push fails in ~30 s instead of 12 minutes:
+# Four jobs, cheapest first, so a broken push fails in ~30 s instead of 12 minutes:
 #   checks  - static consistency checks that need no toolchain (see tools/ci/)
-#   build   - JVM unit tests + debug APK, then uploads the APK as an artifact
+#   ui      - every unit test, including the Robolectric render tests that paint the screens; the PNGs are
+#             uploaded and the small JPEGs are posted onto the commit as base64 so they can be reviewed
+#   build   - debug APK, uploaded as an artifact (no tests: `ui` runs them, in parallel with this)
 #   release - only on a tag: R8 release build, optional signing, GitHub Release
+#
+# `ui` and `build` both need the generated timetable asset, so both call tools/ci/prepare_asset.sh; they
+# run at the same time on purpose. Splitting them is what turned a ~6 minute serial pipeline into a
+# ~3.5 minute wall clock, and it keeps the APK flowing to a real device even while a screen render is red.
 name: android
 on:
   push:
@@ -28,10 +34,15 @@ jobs:
           python-version: '3.11'
       - name: Kotlin lexical integrity (catches truncated files)
         run: python3 tools/ci/check_kotlin_balance.py app/src
-      - name: Cross-file member references
+      - name: Types and imports referenced across files
         run: python3 tools/ci/check_refs.py app/src/main/java
-      - name: R.* and ViewBinding references
+      - name: R.* and ViewBinding references, and references inside res/
         run: python3 tools/ci/check_resources.py
+      # The compiler is the only thing that can see a typo'd member (`Suggestion.RowText` when the object
+      # is `TitleCase`), and there is no kotlinc in the sandbox this code is written from. This is the
+      # coarse stand-in that has already caught three of those before a push.
+      - name: Receiver-member references
+        run: python3 tools/ci/check_members.py
       - name: ETL importability + schema constant agreement
         run: |
           python3 -c "import sys; sys.path.insert(0, 'tools'); import build_refdb; print('SCHEMA_VERSION', build_refdb.SCHEMA_VERSION)"
@@ -39,12 +50,90 @@ jobs:
             = "$(grep -o 'REFDB_SCHEMA_VERSION", "[0-9]*' app/build.gradle | grep -o '[0-9]*')" \
             || { echo "REFDB_SCHEMA_VERSION in app/build.gradle does not match tools/build_refdb.py"; exit 1; }
 
+  ui:
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    name: tests + screens (Robolectric)
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      # The render tests read the *packaged* asset (an asset that survives the ETL but not aapt is a
+      # device-only failure), so this job needs the same generated file the build job ships.
+      - name: Generate the offline timetable asset
+        shell: bash
+        run: bash tools/ci/prepare_asset.sh
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+      - name: Unit tests (calendar maths, search window, wire parsers, position rules, screen renders)
+        shell: bash
+        run: |
+          set -o pipefail
+          ./gradlew --no-daemon :app:testDebugUnitTest --stacktrace 2>&1 | tee /tmp/test.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ui-previews
+          path: app/build/reports/previews/
+          if-no-files-found: warn
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: test-reports
+          path: app/build/reports/tests/
+          if-no-files-found: warn
+          retention-days: 7
+      # Pixels, not a green tick: `gh api .../commits/$SHA/comments` is readable from anywhere, so the
+      # render is reviewable by whoever wrote it. GitHub strips data: URIs from markdown, hence a code
+      # block of base64 to decode rather than an <img>.
+      - name: Publish the rendered screens onto the commit
+        if: always()
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 tools/ci/preview_comment.py --dir app/build/reports/previews
+      - name: Report the failure on the commit
+        if: failure()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          {
+            echo "### tests / screens failed"
+            echo
+            echo "Tasks that failed:"
+            grep -E "^> Task .* FAILED" /tmp/test.log | sed 's/^> /  - /' || echo "  (none — an earlier step failed)"
+            echo
+            echo "Failing tests and assertions:"
+            grep -E "FAILED|AssertionError|expected:|but was:|Unresolved|^e: " /tmp/test.log | head -60 || true
+            echo
+            echo "What went wrong:"
+            echo
+            echo '```'
+            awk '/\* What went wrong:/,/\* Try:/' /tmp/test.log | head -50 || true
+            echo '```'
+          } > /tmp/report.md
+          gh api -X POST "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/comments" -F body=@/tmp/report.md \
+            || echo "::warning::could not post the log comment"
+
   build:
     needs: checks
     runs-on: ubuntu-latest
     timeout-minutes: 40
     # `contents: write` is here for the failure-report step only (a commit comment), so a red build is
     # legible from anywhere; nothing in this job pushes.
+    name: debug APK
     permissions:
       contents: write
       pull-requests: write
@@ -60,21 +149,7 @@ jobs:
       # compares), so there is no second "verify" step to keep in sync.
       - name: Generate the offline timetable asset
         shell: bash
-        run: |
-          set -o pipefail
-          /usr/bin/time -f "ETL wall clock: %e s" python3 tools/build_refdb.py \
-            --profile halts --out app/src/main/assets/ref/refdb.dbgz 2>&1 | tee /tmp/etl.log
-          ls -l app/src/main/assets/ref/ || true
-          # The app opens this asset by a hardcoded string in RefDb. If the two disagree the APK ships
-          # unable to answer a single offline query while every Gradle task is green — which is what
-          # aapt's ".gz" renaming did before the asset was renamed. Pin the pair here, where the file
-          # exists and its real name is known.
-          asset=app/src/main/assets/ref/refdb.dbgz
-          test -f "$asset" || { echo "::error::the ETL produced no $asset"; exit 1; }
-          grep -qF "ASSET_NAME = \"ref/$(basename "$asset")\"" \
-            app/src/main/java/in/opentrack/india/data/RefDb.kt || {
-              echo "::error::RefDb.ASSET_NAME does not match the generated asset name"; exit 1; }
-          echo "asset name pinned: ref/$(basename "$asset")" >> "$GITHUB_STEP_SUMMARY"
+        run: bash tools/ci/prepare_asset.sh
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -82,12 +157,11 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
-      - name: Unit tests (RailTime calendar maths, search window, wire parsers, position rules)
-        shell: bash
-        run: set -o pipefail && ./gradlew --no-daemon :app:testDebugUnitTest --stacktrace 2>&1 | tee /tmp/build.log
+      # Deliberately `assembleDebug` only. The unit tests — including the ones that paint the screens —
+      # run in `ui`, in parallel, and a red render test must not stop an APK from reaching a device.
       - name: Assemble debug APK
         shell: bash
-        run: set -o pipefail && ./gradlew --no-daemon :app:assembleDebug --stacktrace 2>&1 | tee -a /tmp/build.log
+        run: set -o pipefail && ./gradlew --no-daemon :app:assembleDebug --stacktrace 2>&1 | tee /tmp/build.log
       - name: Size report (the ultra-lightweight requirement, measured on every build)
         run: |
           apk=app/build/outputs/apk/debug/app-debug.apk
@@ -173,21 +247,7 @@ jobs:
           python-version: '3.11'
       - name: Generate the offline timetable asset
         shell: bash
-        run: |
-          set -o pipefail
-          /usr/bin/time -f "ETL wall clock: %e s" python3 tools/build_refdb.py \
-            --profile halts --out app/src/main/assets/ref/refdb.dbgz 2>&1 | tee /tmp/etl.log
-          ls -l app/src/main/assets/ref/ || true
-          # The app opens this asset by a hardcoded string in RefDb. If the two disagree the APK ships
-          # unable to answer a single offline query while every Gradle task is green — which is what
-          # aapt's ".gz" renaming did before the asset was renamed. Pin the pair here, where the file
-          # exists and its real name is known.
-          asset=app/src/main/assets/ref/refdb.dbgz
-          test -f "$asset" || { echo "::error::the ETL produced no $asset"; exit 1; }
-          grep -qF "ASSET_NAME = \"ref/$(basename "$asset")\"" \
-            app/src/main/java/in/opentrack/india/data/RefDb.kt || {
-              echo "::error::RefDb.ASSET_NAME does not match the generated asset name"; exit 1; }
-          echo "asset name pinned: ref/$(basename "$asset")" >> "$GITHUB_STEP_SUMMARY"
+        run: bash tools/ci/prepare_asset.sh
       - uses: actions/setup-java@v4
         with:
           distribution: temurin

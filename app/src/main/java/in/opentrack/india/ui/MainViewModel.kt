@@ -9,6 +9,7 @@ import `in`.opentrack.india.core.RailTime
 import `in`.opentrack.india.data.RailRepository
 import `in`.opentrack.india.domain.TrainFinder
 import `in`.opentrack.india.model.TrainHit
+import `in`.opentrack.india.model.TrainSummary
 import kotlinx.coroutines.launch
 import `in`.opentrack.india.model.StationHit
 
@@ -44,6 +45,13 @@ class MainViewModel(private val app: App) : ViewModel() {
         private set
     var targetMinuteOfDay: Int = RailTime.istMinuteOfDay(System.currentTimeMillis())
         private set
+
+    /**
+     * The instant the search was run against, in minutes since the IST epoch. The result rows print
+     * "in 40 min" beside the departure, and that has to be relative to the day the user picked — a
+     * search for tomorrow must not label tomorrow's 06:00 as "gone 20 hours ago".
+     */
+    val targetEpochMinute: Long get() = targetEpochDay * RailTime.MINUTES_PER_DAY + targetMinuteOfDay
 
     sealed class Phase {
         data class Preparing(val done: Long, val total: Long) : Phase()
@@ -151,11 +159,18 @@ class MainViewModel(private val app: App) : ViewModel() {
         }
     }
 
-    /** Suggestion dropdown source; suspend because it reads the SQLite station master. */
+    /** Suggestion dropdown sources; suspend because both read the SQLite master on IO. */
     fun suggestStations(text: String, onResult: (List<StationHit>) -> Unit) {
         viewModelScope.launch {
             val repo = app.repository() ?: return@launch
             onResult(repo.resolveStations(text))
+        }
+    }
+
+    fun suggestTrains(text: String, onResult: (List<TrainSummary>) -> Unit) {
+        viewModelScope.launch {
+            val repo = app.repository() ?: return@launch
+            onResult(repo.findTrains(text))
         }
     }
 }

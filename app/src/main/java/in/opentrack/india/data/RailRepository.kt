@@ -13,6 +13,7 @@ import `in`.opentrack.india.sensor.SensorPositioner
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import `in`.opentrack.india.model.StationHit
+import `in`.opentrack.india.model.TrainSummary
 
 /**
  * The only object the UI talks to. It exists to enforce three invariants that are easy to break when
@@ -53,6 +54,14 @@ class RailRepository private constructor(
 
     suspend fun route(trainNo: String): TrainRoute? = withContext(Dispatchers.IO) {
         queries.route(trainNo)
+    }
+
+    /**
+     * Trains whose number or name matches a fragment, for the type-ahead in "train number" mode. Same
+     * shape as [resolveStations]: an IO-dispatched read of the on-device master, never on the UI thread.
+     */
+    suspend fun findTrains(raw: String): List<TrainSummary> = withContext(Dispatchers.IO) {
+        runCatching { queries.findTrains(raw) }.getOrDefault(emptyList())
     }
 
     suspend fun resolveStations(text: String) = withContext(Dispatchers.IO) {

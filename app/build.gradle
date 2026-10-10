@@ -91,6 +91,9 @@ android {
 
     testOptions {
         unitTests.returnDefaultValues = true
+        // Required for Robolectric to see res/ and src/main/assets — the latter is what lets a JVM test
+        // open the shipped reference DB by its real asset name.
+        unitTests.includeAndroidResources = true
     }
 }
 
@@ -98,6 +101,9 @@ android {
 // nothing on a green build and turns a red one into an actionable one — which matters most when the
 // runner is the only compiler available (see tools/ci, docs/ARCHITECTURE.md).
 tasks.withType(Test).configureEach {
+    // The render tests write screenshots here; the CI `ui-preview` job publishes them.
+    systemProperty "preview.dir", file("$buildDir/reports/previews").absolutePath
+    systemProperty "robolectric.offline", "false"
     testLogging {
         events "failed"
         exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
@@ -120,6 +126,12 @@ dependencies {
 
     testImplementation "junit:junit:4.13.2"
     testImplementation "org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1"
+    // Robolectric runs the real Android framework on the JVM: layouts inflate, measures and lays out,
+    // and with GraphicsMode.NATIVE actually paints into a Bitmap. That is what makes it possible to
+    // review this app's screens, and to assert the chart drew lines instead of an empty box, from CI —
+    // there is no emulator here (no KVM, no system images) and no Android SDK in the sandbox.
+    // Test-only: nothing here reaches the APK.
+    testImplementation "org.robolectric:robolectric:4.13"
 }
 
 // --------------------------------------------------------------------------- reference DB task

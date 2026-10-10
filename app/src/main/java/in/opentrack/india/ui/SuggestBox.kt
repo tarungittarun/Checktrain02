@@ -17,10 +17,10 @@ import `in`.opentrack.india.R
 import `in`.opentrack.india.domain.Suggestion
 
 /**
- * A text field with inline matches, used for both station and train input.
+ * A text input with inline matches, used for both station and train input.
  *
  * The list is pushed into the layout instead of floating over it. That is a decision, not a shortcut:
- * an anchored popup over a keyboard is the single most reliable way to make a search field unusable with
+ * an anchored popup over a keyboard is the single most reliable way to make a search input unusable with
  * one hand on a moving train, and a panel that grows inside the card is readable at any keyboard state.
  *
  * Behaviour the traveller asked for, with the reasons:
@@ -28,7 +28,7 @@ import `in`.opentrack.india.domain.Suggestion
  *    is the point where an Indian station name or code is specific enough to be worth showing.
  *  - typing pauses for [DEBOUNCE_MS] before a query runs, so five keystrokes cost one scan of 8 990
  *    rows rather than five.
- *  - tapping a row replaces the field with the *name* and keeps the 3-letter code as the resolved value,
+ *  - tapping a row replaces the input with the *name* and keeps the 3-letter code as the resolved value,
  *    so a search never re-parses what the user picked and cannot pick a different station by accident.
  */
 class SuggestBox @JvmOverloads constructor(
@@ -40,7 +40,7 @@ class SuggestBox @JvmOverloads constructor(
         fun suggest(query: String, then: (List<Suggestion>) -> Unit)
     }
 
-    private val field: EditText
+    private val input: EditText
     private val panel: LinearLayout
     private val chip: TextView
     private val handler = Handler(Looper.getMainLooper())
@@ -52,7 +52,7 @@ class SuggestBox @JvmOverloads constructor(
     var onSearch: (() -> Unit)? = null
 
     /**
-     * The resolved code (station) or number (train) once a suggestion was chosen; null while the field
+     * The resolved code (station) or number (train) once a suggestion was chosen; null while the input
      * holds free text. `suppress` exists because choosing a row writes into the EditText, and the text
      * watcher would otherwise treat our own write as an edit and clear the value we just stored.
      */
@@ -68,12 +68,12 @@ class SuggestBox @JvmOverloads constructor(
     init {
         orientation = VERTICAL
         LayoutInflater.from(context).inflate(R.layout.view_suggest_box, this, true)
-        field = findViewById(R.id.suggestInput)
+        input = findViewById(R.id.suggestInput)
         panel = findViewById(R.id.suggestPanel)
         chip = findViewById(R.id.suggestChip)
         chip.visibility = GONE
 
-        field.addTextChangedListener(object : TextWatcher {
+        input.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) = Unit
             override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) = Unit
             override fun afterTextChanged(s: Editable?) {
@@ -81,10 +81,10 @@ class SuggestBox @JvmOverloads constructor(
                 schedule()
             }
         })
-        field.setOnFocusChangeListener { _, focused ->
+        input.setOnFocusChangeListener { _, focused ->
             if (focused) schedule() else hideSoon()
         }
-        field.setOnEditorActionListener { _, actionId, _ ->
+        input.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_SEARCH || actionId == EditorInfo.IME_ACTION_DONE) {
                 hideNow(); onSearch?.invoke(); true
             } else false
@@ -92,18 +92,18 @@ class SuggestBox @JvmOverloads constructor(
     }
 
     var hint: CharSequence?
-        get() = field.hint
-        set(value) { field.hint = value }
+        get() = input.hint
+        set(value) { input.hint = value }
 
     var text: String
-        get() = field.text?.toString().orEmpty()
+        get() = input.text?.toString().orEmpty()
         set(value) = setTextShown(value)
 
     /** Write the visible text without invalidating a resolved code (used by tests and by "swap"). */
     fun setTextShown(value: String) {
         suppress = true
-        field.setText(value)
-        field.setSelection(value.length)
+        input.setText(value)
+        input.setSelection(value.length)
         suppress = false
     }
 
@@ -111,8 +111,8 @@ class SuggestBox @JvmOverloads constructor(
     fun valueOrText(): String = resolvedCode ?: text.trim().uppercase()
 
     fun focusField() {
-        field.requestFocus()
-        imm()?.showSoftInput(field, InputMethodManager.SHOW_IMPLICIT)
+        input.requestFocus()
+        imm()?.showSoftInput(input, InputMethodManager.SHOW_IMPLICIT)
     }
 
     fun clear() {
@@ -139,7 +139,7 @@ class SuggestBox @JvmOverloads constructor(
             return
         }
         s.suggest(q) { rows ->
-            // A late answer for an older keystroke must not overwrite a newer list. The field text is
+            // A late answer for an older keystroke must not overwrite a newer list. The input text is
             // the token; comparing it here is enough and avoids a request-sequence counter.
             if (text.trim().length < MIN_QUERY) return@suggest
             render(rows)
@@ -170,7 +170,7 @@ class SuggestBox @JvmOverloads constructor(
         panel.removeAllViews()
         panel.visibility = GONE
         onPick?.invoke(sug)
-        imm()?.hideSoftInputFromWindow(field.windowToken, 0)
+        imm()?.hideSoftInputFromWindow(input.windowToken, 0)
     }
 
     private fun hideSoon() {
@@ -185,7 +185,7 @@ class SuggestBox @JvmOverloads constructor(
 
     /** Exposed for the render tests: how many rows are showing. */
     val rowCount: Int get() = panel.childCount
-    val inputView: View get() = field
+    val inputView: View get() = input
 
     companion object {
         const val MIN_QUERY = 3

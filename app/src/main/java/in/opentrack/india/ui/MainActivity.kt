@@ -87,11 +87,11 @@ class MainActivity : AppCompatActivity() {
     private fun wireBoxes() {
         val stationSuggester = object : SuggestBox.Suggester {
             override fun suggest(query: String, then: (List<Suggestion>) -> Unit) =
-                vm.suggestStations(query, then)
+                vm.suggestStations(query) { then(RowText.rows(it)) }
         }
         val trainSuggester = object : SuggestBox.Suggester {
             override fun suggest(query: String, then: (List<Suggestion>) -> Unit) =
-                vm.suggestTrains(query, then)
+                vm.suggestTrains(query) { then(RowText.trainRows(it)) }
         }
         listOf(binding.fromBox, binding.toBox).forEach { box ->
             box.suggester = stationSuggester
@@ -219,7 +219,7 @@ class MainActivity : AppCompatActivity() {
         binding.resultsSub.text = if (report.queryMillis > 0) {
             "${getString(R.string.sorted_by)} · ${report.queryMillis} ms on device"
         } else getString(R.string.sorted_by)
-        adapter.nowMinute = vm.nowEpochMinute()
+        adapter.nowMinute = vm.targetEpochMinute
         adapter.submitList(report.hits)
         val head = when (report.reason) {
             TrainFinder.Reason.OK -> {

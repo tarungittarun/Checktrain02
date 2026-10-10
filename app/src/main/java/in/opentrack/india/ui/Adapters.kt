@@ -201,7 +201,7 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
  * project's own reference checker flagged it the moment they coexisted.
  */
 object RowText {
-    fun of(raw: String): String = Suggestion.RowText.of(raw)
+    fun of(raw: String): String = Suggestion.TitleCase.of(raw)
 
     fun rows(hits: List<StationHit>): List<Suggestion> = hits.map { Suggestion.ofStation(it) }
     fun trainRows(hits: List<TrainSummary>): List<Suggestion> = hits.map { Suggestion.ofTrain(it) }
