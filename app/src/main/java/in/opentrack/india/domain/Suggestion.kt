@@ -95,11 +95,14 @@ object TitleCase {
                 WORDS.contains(w.filter(Char::isLetter)) -> cap(w)
                 w.length in 2..4 && w.none { it in "aeiou" } -> w.uppercase()
                 i > 0 && SMALL.contains(w) -> w
-                else -> w.replaceFirstChar(Char::uppercase)
+                else -> cap(w)
             }
             capAfterDash(cased)
         }.joinToString(" ")
     }
+
+    /** First letter up, the rest as written: the sentence-case branch of [of]. */
+    private fun cap(w: String): String = w.replaceFirstChar(Char::uppercase)
 
     /**
      * Indian train names are frequently two places tied with a dash ("Mumbai Central–New Delhi
