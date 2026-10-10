@@ -23,6 +23,12 @@
     <string name="tag_board">you board</string>
     <string name="tag_alight">you get off</string>
     <string name="tag_origin">starts here</string>
+    <!-- What the bright column *is*. A minute in that column can be a report or a projection, and the
+         colour alone is not an answer for everyone, so the column says which in a word. -->
+    <string name="tag_actual">actual</string>
+    <string name="tag_expected">expected</string>
+    <string name="tag_no_report">no report</string>
+    <string name="tag_due">due</string>
     <string name="tag_terminal">end of run</string>
     <string name="sched_cap">SCH</string>
     <string name="live_cap">LIVE</string>

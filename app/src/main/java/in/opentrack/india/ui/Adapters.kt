@@ -147,20 +147,8 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         holder.liveDep.setTextColor(ctx.getColor(color))
         holder.liveArr.text = s.showArr?.let { RailTime.formatRailMinute(it) } ?: "—"
         holder.liveDep.text = s.showDep?.let { RailTime.formatRailMinute(it) } ?: "—"
-        holder.tag.text = when {
-            s.state == TrackModel.State.CANCELLED -> ctx.getString(R.string.tag_cancelled)
-            s.state == TrackModel.State.SKIPPED -> ctx.getString(R.string.tag_skipped)
-            s.state == TrackModel.State.HERE -> ctx.getString(R.string.tag_here)
-            else -> s.minutesFromNow?.let { TrackModel.formatGap(it) } ?: "—"
-        }
-        holder.tag.setTextColor(ctx.getColor(
-            when (s.state) {
-                TrackModel.State.HERE -> R.color.accent
-                TrackModel.State.CANCELLED, TrackModel.State.SKIPPED -> R.color.late
-                TrackModel.State.NEXT -> R.color.text1
-                else -> R.color.text3
-            }
-        ))
+        holder.tag.text = tagFor(s, ctx)
+        holder.tag.setTextColor(ctx.getColor(tagColorFor(s)))
         holder.dot.setBackgroundResource(dotFor(s))
         holder.row.setBackgroundColor(
             when {
@@ -169,6 +157,36 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
                 else -> 0x00000000
             }
         )
+    }
+
+    /**
+     * One short word under the live column, naming what that column holds.
+     *
+     * The rule the user asked for is exactly this: a stop the train has covered is scheduled *and*
+     * actual, a stop still ahead is scheduled *and* expected. Colour separates the two in the columns
+     * themselves, which is the fast read; the word is the slow read, and it is what makes a screenshot
+     * or a colour-blind passenger unambiguous. "no report" is spelled out rather than left blank because
+     * a passed stop with no actual minute is information, not missing information.
+     */
+    private fun tagFor(s: TrackModel.Stop, ctx: android.content.Context): String = when {
+        s.state == TrackModel.State.CANCELLED -> ctx.getString(R.string.tag_cancelled)
+        s.state == TrackModel.State.SKIPPED -> ctx.getString(R.string.tag_skipped)
+        s.state == TrackModel.State.HERE -> ctx.getString(R.string.tag_here)
+        // The one row where counting down beats labelling, and the header repeats it anyway.
+        s.state == TrackModel.State.NEXT ->
+            s.minutesFromNow?.let { TrackModel.formatGap(it) } ?: ctx.getString(R.string.tag_due)
+        s.showArr == null && s.showDep == null -> ctx.getString(R.string.tag_no_report)
+        s.estimated -> ctx.getString(R.string.tag_expected)
+        else -> ctx.getString(R.string.tag_actual)
+    }
+
+    private fun tagColorFor(s: TrackModel.Stop): Int = when {
+        s.state == TrackModel.State.HERE -> R.color.accent
+        s.state == TrackModel.State.CANCELLED || s.state == TrackModel.State.SKIPPED -> R.color.late
+        s.state == TrackModel.State.NEXT -> R.color.text1
+        s.estimated -> R.color.warn
+        s.showArr != null || s.showDep != null -> R.color.text2
+        else -> R.color.text3
     }
 
     private fun dotFor(s: TrackModel.Stop): Int = when (s.state) {

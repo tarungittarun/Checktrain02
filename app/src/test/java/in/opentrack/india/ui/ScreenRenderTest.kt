@@ -123,6 +123,8 @@ class ScreenRenderTest {
             listOf(R.id.schedArr, R.id.schedDep, R.id.liveArr, R.id.liveDep).forEach { id ->
                 assertTrue("row $i is missing a time column", text(row, id).isNotBlank())
             }
+            // The word under the live column is what says whether that minute was reported or projected.
+            assertTrue("row $i does not name what its live column holds", text(row, R.id.liveTag).isNotBlank())
             assertTrue("row $i is missing its distance/platform line", text(row, R.id.stopMeta).isNotBlank())
         }
         // The distance ladder is what the user asked for: the first row reads 0 km, the last one is the
