@@ -164,10 +164,17 @@ class Http(context: Context) {
             Diary.get()?.log("HTTP", tag + " no A record to pin - the host has no IPv4 answer")
             return
         }
-        runCatching { conn.setFixedRouteToAddress(addr) }
-            .onFailure {
-                Diary.get()?.log("HTTP", tag + " pin refused: " + it.javaClass.simpleName + " " + it.message)
-            }
+        // Reflective on purpose. The method is Android's own extension to java.net.HttpURLConnection
+        // (API 20, hence CHANGE_NETWORK_STATE) rather than a member the JDK copy has, and a compile against
+        // the bootclasspath's java.net resolves to the one without it - so an unresolved reference at build
+        // time said nothing about runtime. Looking it up keeps the pin available where it exists and quietly
+        // absent where it does not, which is the correct behaviour for a fallback either way.
+        runCatching {
+            conn.javaClass.getMethod("setFixedRouteToAddress", java.net.InetAddress::class.java)
+                .invoke(conn, addr)
+        }.onFailure {
+            Diary.get()?.log("HTTP", tag + " pin unavailable: " + it.javaClass.simpleName + " " + it.message)
+        }
     }
 
     private fun tryPost(

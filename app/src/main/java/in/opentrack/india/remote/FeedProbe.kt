@@ -204,7 +204,7 @@ object FeedProbe {
             ),
             Variant(
                 "post-ipv4-pinned", NtesWire.BASE_URL,
-                NtesWire.envelope(NtesWire.plainFor(NtesWire.SUB_LIVE, trainNo, journeyEpochDay)),
+                envelope,
                 mapOf(
                     "Content-Type" to "application/json",
                     "charset" to "utf-8",

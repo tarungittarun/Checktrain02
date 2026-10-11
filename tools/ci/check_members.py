@@ -64,6 +64,7 @@ getLocationInWindow getPixel drawColor mkdirs compress recycle zipWithNext getCh
 # Android + JDK + Kotlin stdlib members these files actually call, gathered by running this checker and
 # keeping what was framework. Listed rather than guessed so a typo cannot hide behind a wildcard.
 ALLOW |= set("""
+javaClass getMethod invoke
 firstInstallTime versionCode substringBeforeLast
 setFixedRouteToAddress getAllByName hostAddress filterIsInstance
 isSuccess launch
