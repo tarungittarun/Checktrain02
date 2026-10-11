@@ -75,8 +75,14 @@ class Http(context: Context) {
         var attempt = 0
         val deadline = if (budgetMillis > 0) System.currentTimeMillis() + budgetMillis else 0L
         while (attempt <= retries) {
-            val left = clampTimeout(deadline, timeoutMillis)
-            if (left == 0) { logCut("GET", url, budgetMillis, last); break }
+            var left = clampTimeout(deadline, timeoutMillis)
+            if (left == 0) {
+                // Never skip the *first* attempt. A caller that budgeted two seconds wants a request that may
+                // fail in two seconds, not a refusal to ask the question at all - the budget exists to cut the
+                // ladder's later rungs, which are what multiply into half a minute.
+                if (attempt > 0) { logCut("GET", url, budgetMillis, last); break }
+                left = if (timeoutMillis < MIN_ATTEMPT_MS) timeoutMillis else MIN_ATTEMPT_MS
+            }
             attempt++
             last = tryOnce(url, left, headers, pinIpv4)
             Diary.get()?.log("HTTP") {
@@ -144,8 +150,14 @@ class Http(context: Context) {
         var last: Result = Result.Failed(Result.Kind.EMPTY, "not attempted")
         val deadline = if (budgetMillis > 0) System.currentTimeMillis() + budgetMillis else 0L
         while (attempt <= retries) {
-            val left = clampTimeout(deadline, timeoutMillis)
-            if (left == 0) { logCut("POST", url, budgetMillis, last); break }
+            var left = clampTimeout(deadline, timeoutMillis)
+            if (left == 0) {
+                // Never skip the *first* attempt. A caller that budgeted two seconds wants a request that may
+                // fail in two seconds, not a refusal to ask the question at all - the budget exists to cut the
+                // ladder's later rungs, which are what multiply into half a minute.
+                if (attempt > 0) { logCut("POST", url, budgetMillis, last); break }
+                left = if (timeoutMillis < MIN_ATTEMPT_MS) timeoutMillis else MIN_ATTEMPT_MS
+            }
             attempt++
             last = tryPost(url, body, headers, left, tls12, pinIpv4)
             Diary.get()?.log("HTTP") {
