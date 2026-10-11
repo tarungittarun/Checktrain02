@@ -125,9 +125,26 @@ if [ "$ACCEL" = off ]; then
 else
   echo no | avdmanager create avd -n "$AVD_NAME" -k "system-images;android-${API};${IMG};${ABI}" -d "$DEVICE" >/tmp/avd.log 2>&1
 fi
-if [ ! -f "$HOME/.android/avd/$AVD_NAME.avd/config.ini" ]; then
-  echo "::error::AVD was not created"; cat /tmp/avd.log; exit 3
+# Where the AVD actually lives is decided by the tools' own precedence: ANDROID_AVD_HOME, then
+# $ANDROID_SDK_HOME/.android/avd (the deprecated variable is still honoured, and CI images set it), then
+# $HOME/.android/avd. Assuming the last one is what turned run 38121489777's four rows red: `avdmanager`
+# created the image and reported nothing, and the check looked in the wrong home. So search instead of
+# guessing, and treat "not found" as a warning rather than a verdict - the emulator resolving `-avd` is the
+# real test of whether an AVD exists, and its failure is already captured by the boot timeout below.
+AVD_HOME=${ANDROID_AVD_HOME:-}
+[ -z "$AVD_HOME" ] && [ -n "${ANDROID_SDK_HOME:-}" ] && AVD_HOME="$ANDROID_SDK_HOME/.android/avd"
+[ -z "$AVD_HOME" ] && AVD_HOME="$HOME/.android/avd"
+if [ ! -f "$AVD_HOME/$AVD_NAME.avd/config.ini" ]; then
+  found=$(find "$SDK" "$HOME/.android" -maxdepth 7 -name config.ini -path "*/$AVD_NAME.avd/*" 2>/dev/null | head -1)
+  if [ -n "$found" ]; then
+    echo "   AVD found outside the default home: $found"
+  else
+    echo "::warning::no $AVD_NAME.avd/config.ini under $AVD_HOME (or anywhere in the SDK) - continuing, because the emulator's own resolution decides; avdmanager said:"
+    tr '\r' '\n' < /tmp/avd.log | grep -v '^[[:space:]]*$' | tail -12
+  fi
 fi
+echo "== avd env: HOME=$HOME ANDROID_AVD_HOME=${ANDROID_AVD_HOME:-unset} ANDROID_SDK_HOME=${ANDROID_SDK_HOME:-unset}"
+ls -la "$AVD_HOME" 2>/dev/null | head -6 || echo "   (no $AVD_HOME directory)"
 
 EMFLAGS=(-avd "$AVD_NAME" -no-window -no-audio -no-boot-anim -no-snapshot -no-snapshot-save -read-only
   -netfast -verbose -cores "$CORES" -memory "$MEMORY")

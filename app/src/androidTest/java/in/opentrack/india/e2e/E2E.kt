@@ -27,6 +27,10 @@ object E2E {
 
     const val PKG = "in.opentrack.india"
 
+    // Key codes for the select-all fallback, spelled out because android.view.KeyEvent is not imported here.
+    private const val KEYCODE_A = 29
+    private const val META_CTRL_ON = 4096
+
     /** First launch after `pm clear`: extraction of the offline timetable, on a slow CI disk. */
     const val COLD_START_MS = 120_000L
     /** Anything that only reads the device database. */
@@ -63,19 +67,47 @@ object E2E {
     /** Types into a field the way a hardware keyboard does, after focusing it the way a finger does. */
     fun type(name: String, value: String, timeoutMs: Long = LOCAL_MS): Boolean {
         val o = find(name, timeoutMs) ?: return false
-        o.click()
-        o.setText(value)
-        ui.waitForIdle()
+        setTextIn(o, value)
         return true
+    }
+
+    /**
+     * Put exactly [value] into a text field, whatever it held before.
+     *
+     * `UiObject2.setText` is only legal on a focused field whose selection is empty - on a field that
+     * already holds text it throws `IllegalArgumentException` - so the old content has to go first, and the
+     * obvious `setText("")` is not available for the job. The empty-string call in
+     * `endpointPersistsAcrossReopen` (restoring the default endpoint) and any second type into `fromBox`
+     * would otherwise fail on the harness rather than on the app.
+     *
+     * Three attempts, in the order a person would: the accessibility action, select-all + delete, then
+     * backspace until empty with a bound. The last one is ugly and works even when the IME refuses to
+     * cooperate, which is the property a CI suite needs from its own plumbing.
+     */
+    fun setTextIn(o: UiObject2, value: String) {
+        o.click()
+        runCatching { o.clearText() }
+        if (o.hasText()) {
+            runCatching {
+                ui.pressKeyCode(KEYCODE_A, META_CTRL_ON)
+                ui.pressDelete()
+            }
+        }
+        var guard = 0
+        while (o.hasText() && guard++ < 64) ui.pressDelete()
+        if (value.isNotEmpty()) o.setText(value)
+        ui.waitForIdle()
+    }
+
+    private fun UiObject2.hasText(): Boolean = try {
+        !text.isNullOrEmpty()
+    } catch (e: IllegalStateException) {
+        false // the node went away mid-edit; the caller's next find will see the new state
     }
 
     fun clearField(name: String) {
         val o = find(name) ?: return
-        o.click()
-        // Select-all + delete rather than `clearText()`, because the field may hold
-        // a resolved station name (long) rather than what the last keystroke produced.
-        var n = o.text?.length ?: 0
-        while (n-- > 0) ui.pressDelete()
+        setTextIn(o, "")
     }
 
     fun count(where: BySelector): Int = try {
@@ -186,9 +218,7 @@ object E2E {
 
     fun typeInBox(box: String, value: String): Boolean {
         val o = boxField(box) ?: return false
-        o.click()
-        o.setText(value)
-        ui.waitForIdle()
+        setTextIn(o, value)
         return true
     }
 

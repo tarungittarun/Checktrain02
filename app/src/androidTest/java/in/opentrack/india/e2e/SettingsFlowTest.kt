@@ -141,9 +141,9 @@ class SettingsFlowTest {
 
     private fun typeInBoxField(id: String, value: String): Boolean {
         val o = fieldOf(id) ?: return false
-        o.click()
-        o.setText(value)
-        E2E.ui.waitForIdle()
+        // Through the shared writer, because the field is not empty on the second call (the saved endpoint
+        // is restored to the default at the end of the row) and setText on a non-empty field throws.
+        E2E.setTextIn(o, value)
         return true
     }
 
