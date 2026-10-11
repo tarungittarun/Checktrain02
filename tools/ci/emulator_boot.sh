@@ -19,8 +19,12 @@ IMG=${IMG:-google_apis}
 ABI=${ABI:-x86_64}
 DEVICE=${DEVICE:-pixel_6}
 AVD_NAME=${AVD_NAME:-e2e}
-BOOT_TIMEOUT=${BOOT_TIMEOUT:-1500}
-MEMORY=${MEMORY:-2048}
+# A cold API-34 x86_64 first boot on a 2 vCPU runner with software GL is slow, and 2 GB of heap makes it
+# slower still (dex2oat thrashes), so the budget is generous and the memory is what the runner can actually
+# give: a row that times out is reported as untested, which is a worse outcome than a row that takes nine
+# minutes. Both numbers are env-overridable so a self-hosted runner can tighten them.
+BOOT_TIMEOUT=${BOOT_TIMEOUT:-2400}
+MEMORY=${MEMORY:-4096}
 CORES=${CORES:-2}
 
 SDK=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}
@@ -176,6 +180,16 @@ while :; do
   if kill -0 "$EM_PID" 2>/dev/null; then
     booted=$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)
     [ "$booted" = "1" ] && break
+  else
+    echo "::error::the emulator process exited at $((now - start))s - see /tmp/emulator.log"
+    tail -30 /tmp/emulator.log
+    exit 3
+  fi
+  # A heartbeat, once a minute: "the framework is still coming up" and "nothing has moved for 20 minutes"
+  # look the same from the outside, and the difference decides whether to wait, to enlarge the budget, or
+  # to conclude the runner cannot host this image.
+  if [ $(((now - start) % 60)) -lt 6 ] && [ "$now" != "$start" ]; then
+    echo "   [+$((now - start))s] boot_completed=${booted:-?} rss=$(ps -o rss= -p "$EM_PID" 2>/dev/null | tr -d ' ' || echo ?)kB last=$(tr '\r' '\n' < /tmp/emulator.log 2>/dev/null | grep -v '^[[:space:]]*$' | tail -1 | cut -c1-90)"
   fi
   sleep 5
 done
