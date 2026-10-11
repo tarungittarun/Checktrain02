@@ -79,7 +79,6 @@ def probe_once(host: str, port: int, path: str, timeout: float):
                         tls=tls_version,
                     )
                     return result, body
-        result["tls"] = tls_version  # unreachable, keeps flow obvious
     except socket.gaierror as e:
         result["error"] = f"DNS: {e}"
     except ssl.SSLError as e:

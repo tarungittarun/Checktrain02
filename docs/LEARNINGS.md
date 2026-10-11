@@ -26,6 +26,22 @@ recorded UNKNOWN, not guessed. The old branch also proves the pipeline shape wor
 asset generation + java/gradle setup (those steps were green). Enforced by: CI-1 rebuilds
 fresh evidence instead of importing it.
 
+## L-5 Egress rule refined: TCP-open ≠ TLS-usable (measured 2026-10-12)
+services.gradle.org, dl.google.com, maven.google.com, repo.maven.apache.org accept the
+TCP connect but die at the TLS handshake (SSL_ERROR_SYSCALL), same class as the railway
+endpoints. Only the six allow-listed hosts complete TLS. Consequences drawn:
+- Gradle distribution, AGP, SDK platforms download only inside CI runners (they have full egress).
+- gradle-wrapper.jar (43,453 B, sha256 cb0da6751c2b753a16ac168bb354870ebb1e162e9083f116729cec9c781156b8)
+  was taken from the owner's own previous-session branch (arena/508929e1-checktrain02) —
+  recorded hash here so any future tampering is a visible diff, not a mystery.
+- L-1's claim that those four build hosts were "TLS ok" was wrong at TLS depth; L-1 stands
+  for the allow-listed six only. Enforced by: .github/workflows/ci.yml probe job + this row.
+
+## L-6 Build versions pinned to the previous session's known-good set (2026-10-12)
+AGP 8.5.2, Kotlin 1.9.24, Gradle 8.7, JDK 17, compileSdk/targetSdk 34, minSdk 24.
+Reason: CI-1 must answer ONE question (does the pipeline assemble an APK) with ZERO
+version variables. Bumps are their own ADR'd, CI-verified step later.
+
 ## L-4 Repo baseline is empty by design (measured 2026-10-11)
 Head 9a0514d "1" contains only a 2-byte file `1`. docs/, CI, code: none pre-exist.
 Nothing to audit beyond this. `gh issue` #2 (open) belongs to the previous session's

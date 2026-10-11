@@ -1,0 +1,114 @@
+# OpenTrack India v2 — CI (CI-1).
+# git push IS the build process: this sandbox has no JDK route (docs/LEARNINGS.md L-2),
+# so the runner is the only compiler. Jobs cheapest-first; artifacts short-lived (owner
+# instruction 2026-10-11: keep workflow artifacts minimal); every job prints what it
+# PROVED and what it SKIPPED (brief 11.2).
+name: ci
+
+on:
+  push:
+    branches: [main, 'arena/**']
+    tags: ['v*']
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # depth 2 so the STATUS.md freshness gate can diff HEAD~1; a depth-1 checkout
+          # would make the gate skip silently, and a gate that cannot ask is worse than none.
+          fetch-depth: 2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Python gates compile
+        run: python3 -m py_compile tools/probe.py tools/test_probe.py
+      - name: "Probe self-tests (brief 7.3: the gate gets its own test, dead-primary included)"
+        working-directory: tools
+        run: python3 test_probe.py
+      - name: "Docs freshness (brief 13.3): tracker exists and a commit touching app/ touched STATUS.md"
+        run: |
+          test -f docs/STATUS.md || { echo "docs/STATUS.md missing"; exit 1; }
+          if git rev-parse --verify HEAD~1 >/dev/null 2>&1; then
+            if git diff --name-only HEAD~1 HEAD | grep -q '^app/'; then
+              git diff --name-only HEAD~1 HEAD | grep -q '^docs/STATUS.md' \
+                || { echo "::error::app/ changed without a STATUS.md update (brief 13.3)"; exit 1; }
+            fi
+            echo "PROVED: docs skeleton present + tracker discipline enforced"
+          else
+            echo "SKIPPED: root commit — no HEAD~1 to diff (stated, not silent)"
+          fi
+      - name: Verdicts (brief 11.2)
+        if: always()
+        run: |
+          echo "PROVED: python gates green on this commit"
+          echo "SKIPPED: kotlin lint — no kotlinc in sandbox-equivalent; compiler job covers it"
+
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      # M0 question: do S1/S2 answer from GitHub-hosted runners? The ledger says no
+      # (3 confirmations); this job is the 4th-measurement machinery, dated and archived.
+      - name: Run the source probe ladder from the runner
+        working-directory: tools
+        run: python3 probe.py ci
+      - uses: actions/upload-artifact@v4
+        with:
+          name: probe-ci-verdicts
+          path: tools/captures/probe-ci-*.json
+          retention-days: 3
+
+  android:
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Assemble debug APK
+        run: ./gradlew --no-daemon :app:assembleDebug --stacktrace
+      - name: Size report (ultra-lightweight is measured, not promised — brief 6.7)
+        run: |
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          ls -l "$APK"
+          du -h "$APK"
+          echo "apk_bytes=$(stat -c%s "$APK")" >> "$GITHUB_OUTPUT" 2>/dev/null || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 2
+      # Rolling release (brief 11.3): one permanent link, app-debug.apk, replaced every
+      # green build from the session branch. Debug only at CI-1; signing is M5 + ADR'd secrets.
+      - name: Publish APK to rolling release latest-apk
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest-apk --yes --cleanup-tag 2>/dev/null || true
+          gh release create latest-apk \
+            app/build/outputs/apk/debug/app-debug.apk \
+            --title "Rolling debug APK (latest green build)" \
+            --notes "Commit ${{ github.sha }} — CI-1 baseline. Provenance: nothing live yet. Install: download app-debug.apk, tap, allow unknown sources."
+      - name: Verdicts
+        if: always()
+        run: |
+          echo "PROVED: debug APK assembles in CI from this tree"
+          echo "SKIPPED: release/R8 build — exercises at M5; instrumented — no /dev/kvm assumption yet"
