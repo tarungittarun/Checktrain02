@@ -205,11 +205,22 @@ row produces a JaCoCo number.
 
 ## Resume here (state as of this push)
 
-Branch tip `9a1c11d`. CI on that commit: `checks ✓ debug APK ✓ tests + screens ✓` (the `release` job is
-tag-only by design, so `skipped` there is normal). The rolling asset **is** published by the `debug APK` job,
-which is why the download link matters: `latest-apk/app-debug.apk` is now 10 586 801 B (2026-10-11 20:35 IST)
-and is the first build carrying the socket-pool fix, the exception-class failure text, the two working probe
-controls and the diagnostic collector.
+Branch tip `1d29bf3`, "Ask through the browser engine, because the phone says that works" — CI verdict still
+pending as this is written, so treat it as unverified until the three `android` jobs say `success`. CI on the
+previous tip `f00be21`: `checks ✓ debug APK ✓ tests + screens ✓` (`release` is tag-only, `skipped` is normal),
+asset 10 602 337 B at 16:11:29Z = 21:41:29 IST, published to the rolling `latest-apk` release:
+`https://github.com/tarungittarun/Checktrain02/releases/download/latest-apk/app-debug.apk`. **Re-check the size
+and `updated_at` with `gh api` before announcing a link** — twice now a pushed commit produced no new asset
+because the job that publishes it had failed.
+
+`f00be21` is the build whose log answered the five-round question:
+`21:47:15.242 [BROWSER] POST enquiry.indianrail.gov.in body=302B -> answered 159B in 1086ms`, against
+`webview-get-ntes … got no document in 5000ms` and ~30 identical `IOException: closed` lines from the Java
+client. Transport: settled. What is open is *protocol* — what the 159 bytes say, and which of three now-shipped
+envelopes the endpoint accepts: raw JSON through the engine, the envelope as the `jsonIn` form field that the
+engine's own `application/x-www-form-urlencoded` advertises, and the site visited first so NTES's cookies are
+in the jar. `FeedProbe.browserWorks` switches transport — never belief — for the rest of the process as soon as
+a browser variant gets any HTTP answer, which is what turns a diagnosis into a phone that shows live minutes.
 
 Two facts to carry forward, because each cost a round trip:
 
@@ -264,3 +275,19 @@ Standing rule re-confirmed: **CI is the only type checker here.** The `NetworkOn
 previous log, `snap.rows`, `x.size + +`, and `setFixedRouteToAddress` resolving against the JDK's copy of
 `java.net.HttpURLConnection` were all invisible to eight green textual gates. Where an API exists only on the
 platform, reach it the way that survives both classpaths and log why.
+
+## Round 5, in one paragraph: the instrument was the last bug
+
+The most useful sentence in the newest log was not about the railway: the 159-byte answer appeared on the
+`[PROBE]` line as `webview-post … answered 159B, not running data` in the *copied report* and nowhere in the
+*log file*, because the log line dropped `r.head`. A diagnostic that shows the payload to the person holding
+the phone and hides it from the person reading the attachment loses the information exactly once, and the
+round trip costs a day. Every probe line now carries the head.
+
+Two smaller lessons from the same diff: a batch patch script that `assert`ed mid-way left one file edited and
+five not, which is the desired failure mode but only if the anchors are re-read before resuming (a block I had
+already rewritten twice in the session no longer matched what I expected, so a removal pair was dropped and
+the additions were anchored by line number instead of by prose); and my own member checker reported a Kotlin
+keyword error on the phrase "as a form field. `postUrl`" in a doc comment, which is a false positive worth
+fixing in the tool rather than dodging in the prose — `strip_noise` works line-by-line and cannot see a KDoc's
+interior, so block comments are masked before that rule looks at a file.

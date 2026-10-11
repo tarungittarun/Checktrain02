@@ -59,7 +59,25 @@ tracking. Timetables are inside the app, so the whole thing works in airplane mo
 5. Two more answers, in the same minute, both take 15 seconds:
    - In **Chrome** on that phone, open `https://enquiry.indianrail.gov.in/ntes/`. Does the page load? (Yes +
      "OFFLINE in the app" is the single most useful answer you can give us.)
-   - Turn **Wi-Fi off**, use mobile data only, tap **Refresh** once. Does the pill change?
+   - Turn **Wi-Fi off**, use mobile data only, tap **Refresh** once. Does the pill change? **And with Wi-Fi still
+     off, does that same NTES page in Chrome still show the running status?** That one pair separates "the
+     railway is refusing this app" from "your mobile carrier is refusing the railway", and it is the last
+     network variable left open.
+
+### This build specifically (round 5)
+
+The app now asks the railway **twice, by two different routes**: once as an app, once as a browser — and if the
+browser is the one that gets through, it keeps using it. So while you do steps 2–4 above, watch for two things
+and put them in the same reply:
+
+- Under the pill, a sentence that ends **"(asked through the browser engine)"**. If you see it, say so; it means
+  your phone is the first one where we proved which half of the problem is which.
+- Whether the live column ever fills with a real minute (a time marked **reported** or **projected**) after
+  waiting the 40 seconds and pressing **Refresh**. That is the pass condition for this round, and if it happens,
+  nothing else about the feed matters — tell us and stop.
+
+The log lines we read first start with `[BROWSER]` and `[PROBE]`; they now carry the server's own answer, so
+please send the file rather than a screenshot of the screen.
 
 The log lists web addresses, results and timings. It does **not** contain your name, phone number, location,
 accounts, search history or any message content, and it never leaves the phone unless you press Share.
