@@ -57,7 +57,9 @@ def main():
         marks = []
         capture = 0
         for i, ln in enumerate(lines):
-            if ln.startswith(("* What went wrong", "* Where", "FAILURE:", "ERROR:")) or "Caused by:" in ln:
+            if ln.startswith(("e: ", "error: ")):
+                capture = 1  # compiler errors are self-contained single lines
+            elif ln.startswith(("* What went wrong", "* Where", "FAILURE:", "ERROR:")) or "Caused by:" in ln:
                 capture = 8  # the marker + a few following lines carry the message
             if capture > 0:
                 marks.append(ln)

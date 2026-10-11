@@ -74,6 +74,25 @@ class ReporterAsksItsQuestion(unittest.TestCase):
         self.assertIn("Could not resolve resConfigs", body)
         self.assertIn("gradle CAUSE", body)
 
+    def test_compiler_e_lines_are_captured(self):
+        # run 38177760988 symptom: cause showed 'Compilation error. See log' but not the
+        # e: file.kt lines that actually name the problem
+        log = ["some output\n"] * 50
+        log += ["e: file:///work/app/src/main/java/X.kt:12:5 Unresolved reference: resConfigs\n"]
+        log += ["FAILURE: Build failed with an exception.\n"]
+        log += ["\tat frame\n"] * 200
+        with open("/tmp/gradle-test3.log", "w") as f:
+            f.writelines(log)
+        env = {
+            "GITHUB_REPOSITORY": "x/y", "GITHUB_RUN_ID": "1", "GITHUB_JOB": "android",
+            "GITHUB_SHA": "abc", "GITHUB_REF_NAME": "b", "GRADLE_LOG": "/tmp/gradle-test3.log",
+        }
+        with mock.patch.dict(os.environ, env), \
+             mock.patch.object(report_failure.subprocess, "run", return_value=subprocess.CompletedProcess([], 1)):
+            report_failure.main()
+        body = open("ci-failure-report-android.txt").read()
+        self.assertIn("Unresolved reference: resConfigs", body)
+
     def test_report_filename_is_per_job(self):
         with mock.patch.dict(os.environ, {"GITHUB_JOB": "probe"}):
             self.assertEqual(report_failure.report_path(), "ci-failure-report-probe.txt")
