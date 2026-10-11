@@ -71,26 +71,32 @@ runs:
   using: composite
   steps:
     - uses: actions/checkout@v4
+      continue-on-error: true  # reporting must survive a red step; the verdict step decides
     - uses: actions/setup-java@v4
       with:
         distribution: temurin
         java-version: '17'
+      continue-on-error: true  # reporting must survive a red step; the verdict step decides
     - uses: actions/download-artifact@v4
       with:
         name: apk-debug
         path: /tmp/apk
+      continue-on-error: true  # reporting must survive a red step; the verdict step decides
     - uses: actions/download-artifact@v4
       with:
         name: apk-debug-androidTest
         path: /tmp/apk
+      continue-on-error: true  # reporting must survive a red step; the verdict step decides
     - uses: actions/download-artifact@v4
       with:
         name: apk-release
         path: /tmp/apk
+      continue-on-error: true  # reporting must survive a red step; the verdict step decides
     - uses: actions/download-artifact@v4
       with:
         name: e2e-classes
         path: /tmp/classes
+      continue-on-error: true  # reporting must survive a red step; the verdict step decides
     - name: Unzip the class files used for coverage
       # Non-fatal on purpose: a missing coverage input makes the *number* unavailable, not the test run
       # invalid, and a red row that tested nothing at all is worse than a green row with no percentage.
@@ -103,6 +109,27 @@ runs:
           echo "::warning::the compiled classes did not come out of the artifact; coverage will be unavailable for this row"
           false
         fi
+    - name: What this runner actually has (so one run answers every environment question)
+      # Cheap (no network, a few seconds) and complete. The three things this pipeline has been guessing at
+      # for days - which avdmanager/sdkmanager the image really exposes, whether a system-image directory has
+      # any content, and what the row's PATH and permissions look like - are written down once, in the log,
+      # in the artifact and in a one-line notice, rather than being inferred from a boot failure afterwards.
+      shell: bash
+      run: |
+        SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+        {
+          echo "== PATH tools"; for c in adb emulator avdmanager sdkmanager java unzip timeout; do printf '%-11s %s\n' "$c" "$(command -v "$c" || echo MISSING)"; done
+          echo "== versions"; adb --version 2>&1 | head -1; "$SDK/cmdline-tools/latest/bin/avdmanager" --version 2>&1 | head -1; java -version 2>&1 | head -1
+          echo "== sdk root"; echo "SDK=$SDK writable=$([ -w "$SDK" ] && echo yes || echo no)"; ls "$SDK" 2>&1 | head -14
+          echo "== system images (path : files, build.prop)"; for d in "$SDK"/system-images/*/*/*/*; do [ -d "$d" ] && printf '%s : %s files, build.prop=%s\n' "${d#"$SDK"/system-images/}" "$(ls "$d" 2>/dev/null | wc -l)" "$([ -f "$d/build.prop" ] && echo yes || echo NO)"; done | head -12
+          echo "== kvm"; ls -l /dev/kvm 2>&1; id
+          echo "== machine"; echo "cores=$(nproc) arch=$(uname -m) $(free -m | awk 'NR==2{printf "mem=%sM avail=%sM", $2, $7}')"; df -h / /tmp 2>&1 | tail -2 | tr -s ' '
+          echo "== vmx/svm flags in cpuinfo: $(grep -c -E 'vmx|svm' /proc/cpuinfo 2>/dev/null || echo 0)"
+          echo "== avd home"; echo "ANDROID_AVD_HOME=${ANDROID_AVD_HOME:-unset}"; ls -la "${ANDROID_AVD_HOME:-$HOME/.android/avd}" 2>&1 | head -6
+        } | tee /tmp/env.txt
+        mkdir -p /tmp/e2e-artifacts && cp /tmp/env.txt /tmp/e2e-artifacts/env.txt || true
+        echo "::notice::runner: SDK=$SDK writable=$([ -w "$SDK" ] && echo yes || echo no) images=$(ls -d "$SDK"/system-images/android-*/*/* 2>/dev/null | wc -l) cores=$(nproc) kvm=$(stat -c '%A %U:%G' /dev/kvm 2>/dev/null || echo none)"
+
     - name: Boot the emulator
       id: boot
       continue-on-error: true
@@ -156,6 +183,7 @@ runs:
           granted) adb shell pm grant "$APP_ID" android.permission.ACCESS_COARSE_LOCATION ;;
           denied) adb shell pm revoke "$APP_ID" android.permission.ACCESS_COARSE_LOCATION || true ;;
         esac
+      continue-on-error: true  # reporting must survive a red step; the verdict step decides
     - name: Run the flow suite (and, for the rows that ask for it, again with the radio off)
       id: suite
       continue-on-error: true
@@ -188,12 +216,25 @@ runs:
           # outcome, not a reason to stop the harness: without this the first failing class would end the
           # row and the remaining classes would never run.
           set +e
+          # One line a minute: elapsed, how much the instrumentation runner has printed, and which window
+          # owns the screen. A pass that is working through 46 flows and a pass wedged behind a dialog look
+          # identical from outside; this is what makes a slow row diagnosable while it is still running, and
+          # not only after the budget expires.
+          ( while :; do
+              sleep 60
+              printf '[%s] %s +%ss runner_lines=%s focus=%s\n' "$(date +%T)" "$label" \
+                "$(( $(date +%s) - started ))" \
+                "$(wc -l < "/tmp/instrument-$label.log" 2>/dev/null || echo 0)" \
+                "$(adb shell dumpsys window 2>/dev/null | grep -m1 -oE 'mCurrentFocus=[^ ]+' | tr -d '\r')" \
+                | tee -a /tmp/heartbeat.txt
+            done ) & HB=$!
           timeout "${RUN_TIMEOUT:-900}" adb shell am instrument -w -e debug false -e coverage true \
             -e coverageFile "$ec" \
             -e release "$release_flag" -e offline "${OFFLINE_FLAG:-false}" \
             "${sel[@]}" \
             "$TEST_ID/androidx.test.runner.AndroidJUnitRunner" 2>&1 | tee "/tmp/instrument-$label.log"
           local rc=${PIPESTATUS[0]}
+          kill "$HB" 2>/dev/null || true
           set -e
           local secs=$(( $(date +%s) - started ))
           echo "$label rc=$rc ${secs}s $(grep -o 'Tests run: [^,]*, *Failures: [0-9]*[^)]*' "/tmp/instrument-$label.log" | tail -1)" >> /tmp/pass-times.txt
@@ -288,6 +329,7 @@ runs:
         adb exec-out "logcat -d -v brief" > /tmp/logcat.txt 2>&1 || true
         adb shell dumpsys dropbox --print > /tmp/dropbox.txt 2>&1 || true
         ls -la /tmp/evidence/evidence 2>/dev/null | head -5 || echo "no screenshots pulled"
+      continue-on-error: true  # reporting must survive a red step; the verdict step decides
     - name: Random-event stability pass on the same image
       id: monkey
       continue-on-error: true
@@ -320,6 +362,7 @@ runs:
         } | tee /tmp/diag.md
         cat /tmp/diag.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
         cp /tmp/diag.md /tmp/out/diag.md 2>/dev/null || true
+      continue-on-error: true  # reporting must survive a red step; the verdict step decides
     - name: Record what this row actually achieved
       shell: bash
       run: |
@@ -347,11 +390,15 @@ runs:
         # Everything a reader needs to explain *why*, without access to the runner afterwards: the raw
         # per-pass instrument output, the boot log, the crash scan. This is also what makes a red row
         # legible to someone who cannot open the Actions UI logs, so keep it in the artifact.
+        cp /tmp/heartbeat.txt /tmp/out/ 2>/dev/null || true
+        cp /tmp/env.txt /tmp/out/runner-env.txt 2>/dev/null || true
+        cp /tmp/avd.log /tmp/out/avd.log 2>/dev/null || true
         cp /tmp/instrument-*.log /tmp/out/ 2>/dev/null || true
         cp /tmp/boot.log /tmp/out/boot.log 2>/dev/null || true
         cp /tmp/logcat.txt /tmp/out/dropbox.txt /tmp/monkey-summary.txt /tmp/out/ 2>/dev/null || true
         for f in /tmp/cov/html/*.html; do cp "$f" /tmp/out/ 2>/dev/null || true; done
         (cd /tmp/evidence/evidence 2>/dev/null && tar czf /tmp/out/screenshots.tgz .) || true
+      continue-on-error: true  # reporting must survive a red step; the verdict step decides
     - uses: actions/upload-artifact@v4
       # No `if: always()` here: the steps above never fail the job (they carry continue-on-error and are
       # judged at the end), so this runs on the happy path and the sad one alike.
@@ -359,6 +406,7 @@ runs:
         name: e2e-result-${{ inputs.row }}
         path: /tmp/out
         if-no-files-found: warn
+      continue-on-error: true  # reporting must survive a red step; the verdict step decides
     - name: Report the row on the commit (a green row says what it proved too)
       # A green row has to state what it proved, or the run is unreadable to anyone who did not write it;
       # a red one has to carry its own evidence, because the Actions log is not reachable from a terminal.
@@ -385,6 +433,15 @@ runs:
           tail -2 /tmp/out-monkey.txt 2>/dev/null || true
           echo '```'
           echo ""
+          echo 'runner facts, and how each avdmanager invocation form was answered:'
+          echo '```'
+          grep -E "^== |MISSING|writable=|cores=" /tmp/env.txt 2>/dev/null | head -12 || echo "  (no probe output)"
+          grep -E "^   try " /tmp/avd.log 2>/dev/null | tail -4 || echo "  (no avdmanager attempts logged)"
+          echo "```"
+          echo "heartbeat (one line per minute of every pass):"
+          echo '```'
+          tail -10 /tmp/heartbeat.txt 2>/dev/null || echo "  (no heartbeat)"
+          echo "```"
           echo "boot log (sanitised) and the tail of the failing instrument pass:"
           echo '```'
           tr '\r' '\n' < /tmp/boot.log 2>/dev/null | grep -vE "Unzipping|Downloading|Loading |Fetch remote|Computing updates" | tail -22 || true
@@ -402,6 +459,7 @@ runs:
     # `steps.x.outcome` is the real outcome even when `continue-on-error` turned the *conclusion* green, which
     # is the only way to get "report, then fail" inside a composite action - its step conditions may not call
     # failure() or always().
+      continue-on-error: true  # reporting must survive a red step; the verdict step decides
     - name: Let the row decide its own verdict
       if: steps.boot.outcome == 'failure' || steps.nodev.outcome == 'failure' || steps.suite.outcome == 'failure' || steps.cov.outcome == 'failure' || steps.monkey.outcome == 'failure'
       shell: bash

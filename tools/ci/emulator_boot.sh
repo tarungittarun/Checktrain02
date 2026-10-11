@@ -131,6 +131,18 @@ for p in "${PKGS[@]}"; do
   fi
 done
 
+# Every tool this script needs, checked before anything else and named in an annotation if absent: a bare
+# "Process completed with exit code 127" five log pages later is the least informative way a row can die,
+# and it cost run ee4d09f a whole round trip.
+MISSING=""
+for c in adb timeout grep sed awk tr find; do
+  command -v "$c" >/dev/null 2>&1 || MISSING="$MISSING $c"
+done
+[ -n "$MISSING" ] && echo "::error::not on PATH for this job:$MISSING (SDK=$SDK)"
+for c in "$SDK/emulator/emulator" "$SDK/cmdline-tools/latest/bin/avdmanager" "$SDK/cmdline-tools/latest/bin/sdkmanager"; do
+  [ -x "$c" ] || echo "::warning::missing or not executable: $c"
+done
+
 # The job log is not reachable from where a red run gets diagnosed (it redirects to blob storage); the
 # annotation on the check run is. Anything the row's failure hinges on therefore goes into an `::error::`
 # or `::warning::` line on one line and capped, not only into the log.
@@ -151,20 +163,35 @@ AVD_MADE=""
 # `avdmanager [global options] create avd [action options]` - a global option after the subcommand is a
 # usage dump and a non-zero exit, which is precisely what cost run 38127110617 all four rows: the AVD was
 # never created, the emulator exited at 0s, and the "failure" read like a runner-capability problem.
-avd_create() {
-  echo no | avdmanager --sdk_root="$SDK" create avd --name "$AVD_NAME" --package "$AVD_PKG" --force "$@" \
-    >/tmp/avd.log 2>&1
-}
-if avd_create --device "$DEVICE"; then
-  AVD_MADE=avdmanager
-elif avd_create; then
-  # `-d <device>` needs a hardware profile; on a minimal SDK the profile list can be empty, in which case
-  # an unspecified device is the only thing that works.
-  echo "::warning::the '$DEVICE' hardware profile was unusable - created the AVD without a device profile: $(lastlines /tmp/avd.log)"
-  AVD_MADE=avdmanager-nodevice
-else
-  echo "::warning::avdmanager create avd failed twice: $(lastlines /tmp/avd.log)"
-fi
+# Three documented invocation forms, tried in one run and each logged by name. Run 7903081 got a usage dump
+# from the trailing-option form and run ee4d09f the same from the leading-option form; guessing again would
+# cost another 15-minute round trip, so this asks the tool all three questions at once and reports which one
+# worked - or exactly how each was rejected.
+: > /tmp/avd.log
+AVD_MADE=""
+AVD_TRIES=""
+for form in global-device global-bare trailing; do
+  case "$form" in
+    global-device) cmd=(avdmanager --sdk_root="$SDK" create avd --name "$AVD_NAME" --package "$AVD_PKG" --force --device "$DEVICE") ;;
+    global-bare)   cmd=(avdmanager --sdk_root="$SDK" create avd -n "$AVD_NAME" -k "$AVD_PKG" --force) ;;
+    trailing)      cmd=(avdmanager create avd -n "$AVD_NAME" -k "$AVD_PKG" --force -d "$DEVICE" --sdk_root="$SDK") ;;
+  esac
+  { echo "--- try $form"; echo "${cmd[*]}"; } >> /tmp/avd.log
+  # `if ...; then` swallows the status: an `if` with no `else` exits 0 when its condition is false, which is
+  # how the first version of this loop recorded every rejected form as `=0`. Capture it from the command.
+  echo no | "${cmd[@]}" >> /tmp/avd.log 2>&1 && rc=0 || rc=$?
+  if [ "$rc" = 0 ]; then
+    AVD_MADE="$form"
+    AVD_TRIES="$AVD_TRIES $form=ok"
+    echo "::notice::avdmanager accepted the '$form' form (attempts:$AVD_TRIES)"
+    break
+  fi
+  note=$(tr '\r' '\n' < /tmp/avd.log | sed -n "/--- try $form/,\$p" \
+         | grep -viE "^[[:space:]]*[-a-z]+ +:|^--- try |^avdmanager |^[[:space:]]*$" | tail -1 | cut -c1-140)
+  AVD_TRIES="$AVD_TRIES $form=$rc"
+  echo "   try $form -> rc=$rc ${note:-rejected outright (usage dump, no error sentence)}" >> /tmp/avd.log
+done
+[ -n "$AVD_MADE" ] || echo "::warning::no avdmanager form worked ($AVD_TRIES) - falling back to a hand-written AVD. Last words: $(lastlines /tmp/avd.log)"
 
 # Where the AVD actually lives is decided by the tools' own precedence: ANDROID_AVD_HOME, then
 # $ANDROID_SDK_HOME/.android/avd (the deprecated variable is still honoured, and CI images set it), then
@@ -184,6 +211,7 @@ if [ ! -f "$AVD_HOME/$AVD_NAME.avd/config.ini" ]; then
 fi
 
 if [ -z "$AVD_MADE" ]; then
+  echo "   (avdmanager attempts: ${AVD_TRIES:-none})"
   # Last resort, and the one that has rescued more CI emulators than any amount of avdmanager wrangling: an
   # AVD is two text files. The emulator reads them directly and does not care who wrote them, so a broken
   # profile database, a stale devices.xml or a version skew between cmdline-tools and the emulator package
