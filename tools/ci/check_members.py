@@ -74,7 +74,7 @@ minus plus rangeUntil mod rem times div unaryMinus unaryPlus inc dec step until 
 getOrPut getOrElse onFailure onSuccess awaitCancellable current isDisposed dispose clear
 # framework calls the render harness makes to paint a screen at another size: Context.createConfigurationContext,
 # DisplayMetrics.density, Layout.getLineWidth.
-createConfigurationContext density getLineWidth setTextSize
+createConfigurationContext density getLineWidth setTextSize requestRectangleOnScreen idleFor application
 addView await childCount contentEncoding countDown disconnect filterIndexed getInt getLastKnownLocation getSystemService hasAccuracy hasSpeed ifEmpty isProviderEnabled lastModified matchEntire maxOrNull minOrNull putIfAbsent rawQuery removeUpdates requestFocus requestLocationUpdates right setOnClickListener setOnEditorActionListener setOnFocusChangeListener setSelection sortedWith subList toByteArray toDouble toDoubleOrNull toLong trimEnd windowToken
 """.split())
 

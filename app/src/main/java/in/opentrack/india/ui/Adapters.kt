@@ -148,8 +148,13 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         }
         holder.liveArr.setTextColor(ctx.getColor(color))
         holder.liveDep.setTextColor(ctx.getColor(color))
-        holder.liveArr.text = s.showArr?.let { RailTime.formatRailMinute(it) } ?: "—"
-        holder.liveDep.text = s.showDep?.let { RailTime.formatRailMinute(it) } ?: "—"
+        // A timetable minute printed in the "live / expected" column is the most misleading thing this screen
+        // can do, because it is indistinguishable from a report about the train — and that is precisely what
+        // it is not. The column carries a number only when one was reported, or when a delay carried forward
+        // moved the row off its timetable; a pure-timetable row shows an em dash and says so in its tag.
+        val reported = s.source != TrackModel.MinuteSource.SCHEDULE
+        holder.liveArr.text = s.showArr?.let { if (reported) RailTime.formatRailMinute(it) else "—" } ?: "—"
+        holder.liveDep.text = s.showDep?.let { if (reported) RailTime.formatRailMinute(it) else "—" } ?: "—"
         holder.tag.text = tagFor(s, ctx)
         holder.tag.setTextColor(ctx.getColor(tagColorFor(s)))
         holder.dot.setBackgroundResource(dotFor(s))

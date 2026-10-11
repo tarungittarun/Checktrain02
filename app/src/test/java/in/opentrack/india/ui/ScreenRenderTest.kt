@@ -142,6 +142,14 @@ class ScreenRenderTest {
             }
             // The word under the live column is what says whether that minute was reported or projected.
             assertTrue("row $i does not name what its live column holds", text(row, R.id.liveTag).isNotBlank())
+            // The complaint this pins: an offline screen printed the schedule twice, and the right-hand copy
+            // read like a report about the train. A row nothing moved must show a dash, not a second "05:52".
+            if (m.rows[i].source == TrackModel.MinuteSource.SCHEDULE) {
+                listOf(R.id.liveArr, R.id.liveDep).forEach { id ->
+                    assertEquals("a timetable-only row must not look reported in ${name(shot, id)}",
+                        "—", text(row, id))
+                }
+            }
             assertTrue("row $i is missing its distance/platform line", text(row, R.id.stopMeta).isNotBlank())
             // No row may have its name or its "code · km · note" line cut with an ellipsis: this is where a
             // traveller reads the boarding and alighting marks, and "…you g…" was on a shipping screen.
@@ -202,6 +210,15 @@ class ScreenRenderTest {
         assertFalse("offline screen must not certify punctuality", headline.contains("on time", true))
         assertEquals(m.provenanceLabel, shot.text(R.id.provenance))
         assertEquals(9, Render.rowCount(shot.root))
+        // What the user saw, and called what it is: with nothing reported, the "live / expected" column
+        // reprinted the timetable, so every row looked like a confirmed arrival. A dash is the honest cell —
+        // the schedule column above it already says that number, and saying it twice invents a report.
+        val offline = shot.root.findViewById<RecyclerView>(R.id.stops)!!
+        val dashed = (0 until offline.childCount).count {
+            val row = offline.getChildAt(it)
+            Render.read(row, R.id.liveArr) == "—" && Render.read(row, R.id.liveDep) == "—"
+        }
+        assertEquals("an offline screen must dash both live cells in every row", offline.childCount, dashed)
         // Without a position the accent polyline is absent; the timetable line is drawn in text2/warn.
         // The offline chart is `warn` and dashed, so the rule is about the accent *line*: a few accent
         // pixels can legitimately come from the boarding tick or the "now" marker, and demanding an exact
@@ -335,7 +352,9 @@ class ScreenRenderTest {
     private fun name(shot: Render.Shot, id: Int): String =
         shot.root.resources.getResourceEntryName(id)
 
-    /** A label truncated by its own box is a layout bug, not a small-screen problem. */
-    /** Lives in [Render] now, because the large-screen test has to make the same claim about other pixels. */
+    /**
+     * A label truncated by its own box is a layout bug, not a small-screen problem. Lives in [Render] now,
+     * because the large-screen test has to make the same claim about other pixels.
+     */
     private fun assertNotClipped(tv: TextView?, what: String = "view") = Render.assertNothingCut(tv, what)
 }

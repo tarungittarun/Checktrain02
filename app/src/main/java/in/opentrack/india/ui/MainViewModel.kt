@@ -10,6 +10,9 @@ import `in`.opentrack.india.data.RailRepository
 import `in`.opentrack.india.domain.TrainFinder
 import `in`.opentrack.india.model.TrainHit
 import `in`.opentrack.india.model.TrainSummary
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import `in`.opentrack.india.model.StationHit
 
@@ -63,7 +66,7 @@ class MainViewModel(private val app: App) : ViewModel() {
     fun prepare() {
         if (_phase.value is Phase.Ready || _phase.value is Phase.Searching) return
         viewModelScope.launch {
-            val repo = app.repository { done, total -> _phase.postValue(Phase.Preparing(done, total)) }
+            val repo = ready { done, total -> _phase.postValue(Phase.Preparing(done, total)) }.await()
             _phase.postValue(
                 if (repo != null) Phase.Ready(repo.dataVersion())
                 else Phase.Broken(
@@ -159,18 +162,65 @@ class MainViewModel(private val app: App) : ViewModel() {
         }
     }
 
-    /** Suggestion dropdown sources; suspend because both read the SQLite master on IO. */
-    fun suggestStations(text: String, onResult: (List<StationHit>) -> Unit) {
-        viewModelScope.launch {
-            val repo = app.repository() ?: return@launch
-            onResult(repo.resolveStations(text))
+    /**
+     * One readiness job for the whole ViewModel, shared by `prepare()` and both suggest paths.
+     *
+     * This exists because `App.repository()` answers `null` while the 14 MB timetable is still being
+     * extracted on a first run — and the old suggest code did `?: return@launch`, which is a silent refusal to
+     * answer. Type three letters during those seconds on a fresh install and the type-ahead looked broken and
+     * said nothing about why, which is exactly what it did. Awaiting one shared job instead means a query
+     * typed mid-installation queues and lands as soon as the database opens.
+     */
+    private var readiness: Deferred<RailRepository?>? = null
+
+    private fun ready(onProgress: (Long, Long) -> Unit = { _, _ -> }): Deferred<RailRepository?> {
+        readiness?.let { return it }
+        synchronized(this) {
+            readiness?.let { return it }
+            val job = viewModelScope.async(Dispatchers.IO) { app.prepare(onProgress) }
+            readiness = job
+            return job
         }
     }
 
-    fun suggestTrains(text: String, onResult: (List<TrainSummary>) -> Unit) {
+    /** Let the next keystroke try again: a failed extraction should not be remembered forever. */
+    private fun forgetReadiness() = synchronized(this) {
+        if (readiness?.isCompleted == true) readiness = null
+    }
+
+    /**
+     * The dropdown sources, with the failure reported rather than swallowed: `onMiss` is what lets the box
+     * say "timetable still installing" or "lookup failed: SQLiteException" in the place the user is looking.
+     */
+    fun suggestStations(text: String, onResult: (List<StationHit>) -> Unit, onMiss: (String) -> Unit = {}) {
+        lookup("station", text, onResult, onMiss) { it.resolveStations(text) }
+    }
+
+    fun suggestTrains(text: String, onResult: (List<TrainSummary>) -> Unit, onMiss: (String) -> Unit = {}) {
+        lookup("train", text, onResult, onMiss) { it.findTrains(text) }
+    }
+
+    private fun <T> lookup(
+        what: String, text: String, onResult: (List<T>) -> Unit, onMiss: (String) -> Unit,
+        block: suspend (RailRepository) -> List<T>,
+    ) {
         viewModelScope.launch {
-            val repo = app.repository() ?: return@launch
-            onResult(repo.findTrains(text))
+            val repo = runCatching { ready().await() }.getOrNull()
+            if (repo == null) {
+                forgetReadiness()
+                onMiss(
+                    if (text.isBlank()) "Type at least three characters."
+                    else "The built-in timetable is still being installed on this device — " +
+                        "matches for \"$text\" will appear as soon as it is ready."
+                )
+                return@launch
+            }
+            runCatching { block(repo) }
+                .onSuccess { rows ->
+                    if (rows.isEmpty()) onMiss("Nothing in the built-in timetable matches \"$text\".")
+                    else onResult(rows)
+                }
+                .onFailure { onMiss("$what lookup failed: ${it.javaClass.simpleName}") }
         }
     }
 }

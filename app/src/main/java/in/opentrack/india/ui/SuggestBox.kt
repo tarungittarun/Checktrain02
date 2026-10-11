@@ -36,8 +36,12 @@ class SuggestBox @JvmOverloads constructor(
 ) : LinearLayout(context, attrs, defStyle) {
 
     interface Suggester {
-        /** Implementations must call [then] on the main thread; they may never call it at all. */
-        fun suggest(query: String, then: (List<Suggestion>) -> Unit)
+        /**
+         * Implementations must call [then] on the main thread. [miss] is called with a sentence when there
+         * is no list to show *and the user should know why*; an implementation that cannot tell leaves it
+         * alone and the box stays empty.
+         */
+        fun suggest(query: String, then: (List<Suggestion>) -> Unit, miss: (String) -> Unit = {})
     }
 
     private val input: EditText
@@ -45,7 +49,6 @@ class SuggestBox @JvmOverloads constructor(
     private val chip: TextView
     private val handler = Handler(Looper.getMainLooper())
     private var pending: Runnable? = null
-    private var dismissedByFocus = false
 
     var suggester: Suggester? = null
     var onPick: ((Suggestion) -> Unit)? = null
@@ -134,16 +137,35 @@ class SuggestBox @JvmOverloads constructor(
     private fun query() {
         val s = suggester
         val q = text.trim()
-        if (s == null || dismissedByFocus || q.length < MIN_QUERY) {
+        if (s == null || q.length < MIN_QUERY) {
             panel.removeAllViews(); panel.visibility = GONE
             return
         }
-        s.suggest(q) { rows ->
+        s.suggest(q, { rows ->
             // A late answer for an older keystroke must not overwrite a newer list. The input text is
             // the token; comparing it here is enough and avoids a request-sequence counter.
             if (text.trim().length < MIN_QUERY) return@suggest
             render(rows)
-        }
+        }, { why ->
+            // The reason instead of an empty box. A traveller who types "Yes" and sees nothing has no way to
+            // tell "no such station" from "the 14 MB timetable is still installing" from "the lookup threw",
+            // and each of those wants a different thing to do next.
+            if (text.trim().length < MIN_QUERY) return@suggest
+            notice(why)
+        })
+    }
+
+    /** A single grey line in the dropdown's place. Not selectable, because there is nothing to select. */
+    fun notice(line: String) {
+        panel.removeAllViews()
+        val v = LayoutInflater.from(context).inflate(R.layout.item_suggestion, panel, false)
+        (v.findViewById<TextView>(R.id.sugCode)).text = "···"
+        (v.findViewById<TextView>(R.id.sugPrimary)).text = line
+        (v.findViewById<TextView>(R.id.sugSecondary)).text = ""
+        v.isClickable = false
+        panel.addView(v)
+        panel.visibility = VISIBLE
+        bringPanelIntoView()
     }
 
     private fun render(rows: List<Suggestion>) {
@@ -152,6 +174,7 @@ class SuggestBox @JvmOverloads constructor(
             panel.visibility = GONE
             return
         }
+        bringPanelIntoView()
         rows.take(MAX_ROWS).forEach { sug ->
             val v = LayoutInflater.from(context)
                 .inflate(R.layout.item_suggestion, panel, false)
@@ -162,6 +185,17 @@ class SuggestBox @JvmOverloads constructor(
             panel.addView(v)
         }
         panel.visibility = VISIBLE
+    }
+
+    /**
+     * `adjustResize` + a soft keyboard means a panel that grows *below* the field can end up under the
+     * keyboard, i.e. present and invisible — which reads as "suggestions do not work on my phone". So the
+     * box asks its scroll parent to bring the panel up after it has a height, which is why this is posted.
+     */
+    private fun bringPanelIntoView() {
+        panel.post {
+            panel.requestRectangleOnScreen(android.graphics.Rect(0, 0, panel.width, panel.height), true)
+        }
     }
 
     private fun pick(sug: Suggestion) {

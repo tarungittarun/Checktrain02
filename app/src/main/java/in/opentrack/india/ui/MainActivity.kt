@@ -86,12 +86,18 @@ class MainActivity : AppCompatActivity() {
      */
     private fun wireBoxes() {
         val stationSuggester = object : SuggestBox.Suggester {
-            override fun suggest(query: String, then: (List<Suggestion>) -> Unit) =
-                vm.suggestStations(query) { then(RowText.rows(it)) }
+            override fun suggest(
+                query: String, then: (List<Suggestion>) -> Unit, miss: (String) -> Unit,
+            ) {
+                vm.suggestStations(query, { then(RowText.rows(it)) }, miss)
+            }
         }
         val trainSuggester = object : SuggestBox.Suggester {
-            override fun suggest(query: String, then: (List<Suggestion>) -> Unit) =
-                vm.suggestTrains(query) { then(RowText.trainRows(it)) }
+            override fun suggest(
+                query: String, then: (List<Suggestion>) -> Unit, miss: (String) -> Unit,
+            ) {
+                vm.suggestTrains(query, { then(RowText.trainRows(it)) }, miss)
+            }
         }
         listOf(binding.fromBox, binding.toBox).forEach { box ->
             box.suggester = stationSuggester
