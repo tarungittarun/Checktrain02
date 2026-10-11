@@ -107,11 +107,19 @@ class ErailPairParserTest {
     }
 
     @Test
-    fun aHalfReadRecordIsCountedInTheNoteNeverSilentlyDropped() {
+    fun recordsWeCannotReadNeverBecomeNothingRunning() {
+        // CI caught this one live (a446511): a body whose only record we could not read returned
+        // NothingRunning - our blindness dressed up as "the railway runs nothing", the exact 2.3
+        // conflation. It is Unreadable, carrying the sample.
         val header = captured.substringBefore("^")
         val broken = "^99999~NAME WITHOUT ROUTE FIELDS"
-        val listing = (parser.parse(header + broken, fetchedAt) as PairParse.Rows).listing
-        assertEquals(0, listing.trains.size)
+        val parse = parser.parse(header + broken, fetchedAt)
+        assertTrue("got $parse", parse is PairParse.Unreadable)
+        // ...and the same body WITH one good record is a listing whose note counts what it could not read
+        val good = "^" + captured.substringAfter("^16226").substringBefore("^16221")
+        val mixed = parser.parse(header + good + broken, fetchedAt)
+        val listing = (mixed as PairParse.Rows).listing
+        assertEquals(listOf("16226"), listing.numbers())
         assertTrue("note was ${listing.note}", listing.note!!.contains("1 record(s) not readable"))
     }
 

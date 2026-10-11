@@ -78,7 +78,12 @@ class ErailPairParser(
         }
 
         if (!validHeader && rows.isEmpty()) return PairParse.Unreadable(body.take(40))
-        if (rows.isEmpty()) return PairParse.NothingRunning
+        if (rows.isEmpty()) {
+            // The feed listed record(s) we could not read: that is OUR blindness, and presenting it as
+            // "nothing runs" would be the 2.3 violation - answered-empty and could-not-read stay distinct.
+            if (skipped > 0) return PairParse.Unreadable(body.take(40))
+            return PairParse.NothingRunning
+        }
 
         val note = buildList {
             stamp?.let { add("erail data stamp $it (the feed's own date, not our fetch time)") }
