@@ -49,8 +49,11 @@ permissions:
   actions: read
 
 concurrency:
-  group: e2e-${{ github.ref }}
-  cancel-in-progress: true
+  # Push and PR runs still supersede each other on a branch - that is the point of grouping. A dispatched
+  # sweep must not: it is the expensive one (four emulators, up to an hour), and a documentation push used to
+  # cancel a device run nine minutes into it, which is the worst possible way to learn that a row was alive.
+  group: e2e-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || 'ci' }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 env:
   APP_ID: in.opentrack.india
