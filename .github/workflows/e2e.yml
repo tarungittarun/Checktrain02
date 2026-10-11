@@ -81,26 +81,52 @@ jobs:
           python-version: '3.11'
       - name: Decide how much of the device matrix this event deserves
         id: scope
+        # The commit message is the third way in, and the one that works where the workflow_dispatch API
+        # does not: `[e2e-full]` runs all four rows, `[e2e-focus: TrackingFlowTest]` narrows the suite to one
+        # class, `[e2e-boot: 2700]` raises the boot budget. Values arrive through env, never interpolated into
+        # the script - a commit message is arbitrary text and a quote in it should not be able to run anything.
+        env:
+          HEAD_MSG: ${{ github.event.head_commit.message }}${{ github.event.pull_request.title }}
+          DISPATCH_FULL: ${{ inputs.full }}
+          DISPATCH_FOCUS: ${{ inputs.focus }}
+          DISPATCH_MONKEY: ${{ inputs.monkey_events }}
+          DISPATCH_BOOT: ${{ inputs.boot_timeout }}
         run: |
           # Four emulator rows is on the order of two runner-hours per push, which is a real cost on a
           # metered plan, and two of the four (density, release) answer questions about new APIs and about
           # R8 rather than "does the app work for a traveller". So: the two core rows on an ordinary push,
-          # the whole matrix on a dispatch that asks for it, on a pull request, or on main. The row set is
-          # one line to change, and nothing else in the file depends on it.
+          # the whole matrix on a dispatch that asks for it, on a pull request, on main, or on a commit that
+          # asks for it. Nothing else in the file depends on the row set.
           full=false
           case "${{ github.event_name }}" in
-            workflow_dispatch) [ "${{ inputs.full }}" = "true" ] && full=true ;;
+            workflow_dispatch) [ "$DISPATCH_FULL" = "true" ] && full=true ;;
             pull_request) full=true ;;
             push) [ "${{ github.ref }}" = "refs/heads/main" ] && full=true ;;
           esac
-          echo "full=$full" >> "$GITHUB_OUTPUT"
-          echo "focus=${{ inputs.focus }}" >> "$GITHUB_OUTPUT"
-          echo "monkey=${{ inputs.monkey_events }}" >> "$GITHUB_OUTPUT"
-          echo "boot_timeout=${{ inputs.boot_timeout }}" >> "$GITHUB_OUTPUT"
+          case "$HEAD_MSG" in *'[e2e-full]'*) full=true ;; esac
+          focus="$DISPATCH_FOCUS"
+          case "$HEAD_MSG" in *'[e2e-focus: '*)
+            focus=$(printf '%s\n' "$HEAD_MSG" | sed -n 's/.*\[e2e-focus: \([^]]*\)\].*/\1/p' | head -1) ;;
+          esac
+          monkey="$DISPATCH_MONKEY"
+          case "$HEAD_MSG" in *'[e2e-monkey: '*)
+            monkey=$(printf '%s\n' "$HEAD_MSG" | sed -n 's/.*\[e2e-monkey: \([^]]*\)\].*/\1/p' | head -1) ;;
+          esac
+          boot="$DISPATCH_BOOT"
+          case "$HEAD_MSG" in *'[e2e-boot: '*)
+            boot=$(printf '%s\n' "$HEAD_MSG" | sed -n 's/.*\[e2e-boot: \([^]]*\)\].*/\1/p' | head -1) ;;
+          esac
+          printf 'scope: full=%s focus=%s monkey=%s boot=%s\n' "$full" "${focus:-whole suite}" "${monkey:-default}" "${boot:-default}"
+          {
+            echo "full=$full"
+            echo "focus=$focus"
+            echo "monkey=$monkey"
+            echo "boot_timeout=$boot"
+          } >> "$GITHUB_OUTPUT"
           if [ "$full" = true ]; then
-            echo "::notice::device rows: all four (api34, min24, density, release); focus=${{ inputs.focus || 'whole suite' }}"
+            echo "::notice::device rows: all four (api34, min24, density, release); focus=${focus:-whole suite}"
           else
-            echo "::notice::device rows: core (api34, min24) - add the `full` checkbox on a workflow_dispatch run for the other two"
+            echo "::notice::device rows: core (api34, min24) - add [e2e-full] to the commit message, or the "full" checkbox on a dispatch, for the other two"
           fi
       - name: Flow manifest vs the tests that claim it
         run: |
