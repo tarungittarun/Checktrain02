@@ -42,6 +42,15 @@ AGP 8.5.2, Kotlin 1.9.24, Gradle 8.7, JDK 17, compileSdk/targetSdk 34, minSdk 24
 Reason: CI-1 must answer ONE question (does the pipeline assemble an APK) with ZERO
 version variables. Bumps are their own ADR'd, CI-verified step later.
 
+## L-7 erail.in ANSWERS from GitHub CI runners (measured 2026-10-12, run 38177163382)
+The probe job printed `S2-erail erail.in usable (shape unverified)` while S1 timed out
+x2 from the same runner. Consequence: the S2 parser + a captured fixture + regression
+tests can all be built and proven in CI, entirely without the phone; the phone remains
+the authority for S1 only. Do NOT parse from the ledger's memory: capture first (§7.4).
+Also learned the same run: two red jobs racing one report filename lose the push race —
+reports are now per-job files (tools/ci/report_failure.py); and `bytes.isprintable()`
+does not exist (fixed in probe.py). Enforced by: DATA_SOURCES.md S2 row + probe job.
+
 ## L-4 Repo baseline is empty by design (measured 2026-10-11)
 Head 9a0514d "1" contains only a 2-byte file `1`. docs/, CI, code: none pre-exist.
 Nothing to audit beyond this. `gh issue` #2 (open) belongs to the previous session's

@@ -140,7 +140,7 @@ def main():
             # only a structural signature (brief 3.5 + 7.4).
             sig = {
                 "bytes": len(body),
-                "prefix_kind": "text" if body[:64].isprintable() else "binary",
+                "prefix_kind": "text" if body[:64].decode("utf-8", "replace").isprintable() else "binary",
                 "sample_delims": {d: body[:2048].count(d.encode()) for d in ("~", "|", ",", "\t")},
             }
             entry["capture_signature"] = sig

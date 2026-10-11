@@ -8,7 +8,9 @@ Format per source: endpoint / auth / shape / cadence / latency / licence / verdi
 - cadence: ~5-10 min recompute; latency: minutes; licence: unofficial, no SLA
 - verdict per location:
   - phone: usable (brief-recorded, pre-2026-10-11; re-measure at M2)
-  - GitHub runners: blocked-by-network (TLS handshake; brief-recorded, 3 confirmations)
+  - GitHub runners: blocked-by-network (TLS handshake; brief-recorded, 3 confirmations;
+    re-measured 2026-10-12 run 38177163382: timeout x2 from the runner — timeout class,
+    same verdict)
   - this sandbox: blocked-by-network — re-measured 2026-10-11 by tools/probe.py,
     `SSL_connect: SSL_ERROR_SYSCALL` at TLS stage (4th independent confirmation).
 - trust: HIGH on stated values, LOW on completeness (hand-updated last-reported stop).
@@ -19,6 +21,9 @@ Format per source: endpoint / auth / shape / cadence / latency / licence / verdi
 - cadence: hours; licence: unoffical web endpoint; second WITNESS only
 - verdict per location:
   - phone: usable-but-labelled (brief-recorded; re-measure at M2)
+  - GitHub CI runner: **usable** — measured 2026-10-12 (run 38177163382, probe job):
+    TLS+HTTP completed, verdict "usable (shape unverified)". This is the M0 turning
+    point: S2's parser can be developed and regression-tested in CI, no phone needed.
   - this sandbox: blocked-by-network — re-measured 2026-10-11, same TLS failure as S1.
 - trust: MEDIUM; two agreeing keyless sources = evidence, one = hypothesis.
 

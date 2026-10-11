@@ -23,12 +23,21 @@ def tail(path, n=60):
         return f"(unreadable: {e})"
 
 
+def report_path():
+    # One file PER JOB so two red jobs in one run don't race on a single filename
+    # (run 38177163382: probe pushed first, android's push was rejected non-fast-forward).
+    job = os.environ.get("GITHUB_JOB", "job").replace("/", "-")
+    return f"ci-failure-report-{job}.txt"
+
+
 def main():
-    # Loop guard: if a report is already in the tree (pushed by a previous failed run of
-    # the same commit), do NOT push another one — red run -> report push -> red run would
-    # otherwise loop forever. The fix commit removes the file (recorded in RUNBOOK).
-    if os.path.exists("ci-failure-report.txt"):
-        print("ci-failure-report.txt already present at this commit; not pushing a duplicate")
+    path = report_path()
+    # Loop guard: if this job's report is already in the tree (pushed by a previous failed
+    # run of the same commit), do NOT push another one. The fix commit removes the files
+    # (recorded in RUNBOOK). Also: pushes by the default GITHUB_TOKEN never re-trigger
+    # workflows, so there is no push cascade either way.
+    if os.path.exists(path):
+        print(f"{path} already present at this commit; not pushing a duplicate")
         return 0
 
     out = ["CI FAILURE SELF-REPORT (tools/ci/report_failure.py)",
@@ -58,7 +67,7 @@ def main():
     if not found:
         out.append("(no gradle report files found — failure likely before compilation reports)")
 
-    with open("ci-failure-report.txt", "w") as f:
+    with open(path, "w") as f:
         f.write("\n".join(out) + "\n")
     print("".join(out))
 
@@ -70,17 +79,20 @@ def main():
     env = dict(os.environ)
     subprocess.run(["git", "config", "user.name", "ci-failure-reporter"], check=False)
     subprocess.run(["git", "config", "user.email", "ci@opentrack.local"], check=False)
-    subprocess.run(["git", "add", "ci-failure-report.txt"], check=True)
-    r = subprocess.run(["git", "commit", "-m", f"ci-failure-report for run {os.environ.get('GITHUB_RUN_ID')} (automated, diagnose-only)"], check=False)
+    subprocess.run(["git", "add", path], check=True)
+    r = subprocess.run(["git", "commit", "-m", f"ci-failure-report ({os.environ.get('GITHUB_JOB')}) for run {os.environ.get('GITHUB_RUN_ID')} (automated, diagnose-only)"], check=False)
     if r.returncode != 0:
         print("nothing to commit; skipping push")
         return 0
-    r = subprocess.run(["git", "push", "origin", f"HEAD:refs/heads/{branch}"], env=env, check=False)
-    if r.returncode != 0:
-        print("push of failure report failed (token scope?)", file=sys.stderr)
-        return 1
-    print("failure report pushed to branch " + branch)
-    return 0
+    for attempt in (1, 2):
+        r = subprocess.run(["git", "push", "origin", f"HEAD:refs/heads/{branch}"], env=env, check=False)
+        if r.returncode == 0:
+            print("failure report pushed to branch " + branch)
+            return 0
+        # A sibling job may have pushed its own report first: rebase onto it and retry once.
+        subprocess.run(["git", "pull", "--rebase", "origin", branch], env=env, check=False)
+    print("push of failure report failed after one rebase retry", file=sys.stderr)
+    return 1
 
 
 if __name__ == "__main__":

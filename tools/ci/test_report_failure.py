@@ -39,15 +39,22 @@ class ReporterAsksItsQuestion(unittest.TestCase):
         self.assertEqual(rc, 0)  # push failure must not mask the report itself
 
     def test_loop_guard_never_pushes_duplicate_report(self):
-        # a second red run on the same commit must not push again (infinite-loop guard)
-        with open("ci-failure-report.txt", "w") as f:
+        # a second red run on the same commit must not push again (infinite-loop guard);
+        # the guard keys on the PER-JOB filename so two red jobs don't collide
+        with open("ci-failure-report-android.txt", "w") as f:
             f.write("previous report\n")
         ran = []
-        with mock.patch.object(report_failure.subprocess, "run",
+        env = {"GITHUB_JOB": "android"}
+        with mock.patch.dict(os.environ, env), \
+             mock.patch.object(report_failure.subprocess, "run",
                                side_effect=lambda *a, **k: ran.append(a)):
             rc = report_failure.main()
         self.assertEqual(rc, 0)
         self.assertEqual(ran, [])  # no git commands at all
+
+    def test_report_filename_is_per_job(self):
+        with mock.patch.dict(os.environ, {"GITHUB_JOB": "probe"}):
+            self.assertEqual(report_failure.report_path(), "ci-failure-report-probe.txt")
 
     def test_report_states_absence_when_no_logs(self):
         env = {

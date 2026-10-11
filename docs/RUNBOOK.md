@@ -3,4 +3,4 @@
 2. Roll back: install the previous version tag's APK asset the same way.
 3. Log export: not built yet (diagnostics are opt-in and write nothing while disabled, §3.6).
 4. Weekly report: docs/reports/<year>-week<NN>.md — one score table per source.
-5. If ci-failure-report.txt exists in the tree: it was pushed by a red CI run; the FIX commit must delete it (loop guard depends on that).
+5. If ci-failure-report-*.txt exists in the tree: pushed by a red CI run (one file per job); the FIX commit must delete them (loop guard depends on that).

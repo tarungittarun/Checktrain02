@@ -10,7 +10,8 @@ single owner action; at most ONE open question to the owner, answerable in one w
 | D1 | docs/ skeleton (§15.2) | DONE:2026-10-11 | this commit; file list in docs/PLAN.md | complete KICKOFF.md verbatim pass (§10-15) | no | none |
 | P1 | Local JVM toolchain | BLOCKED:no-JDK-route-in-sandbox | docs/LEARNINGS.md#L-2 (4 routes tested, exact errors) | JVM proof moves to CI per §9.6; unblock = none available locally | no | none |
 | M0-1 | Source probe tool, sandbox run (§15.3) | DONE:2026-10-11 | docs/spike-verdicts.md + tools/captures/probe-sandbox-*.json (untracked) | rerun from CI once workflows land; add tools/test_probe.py (PoC-of-PoC, §7.3) | no | none |
-| CI-1 | .github/workflows + minimal Android skeleton + first CI-built APK | DOING | run 38176872386: checks SUCCESS; android FAILED at assemble (~40 s); probe FAILED; logs unreadable (L-3 root cause found: log host outside egress) | reporter round: read ci-failure-report.txt the jobs push on failure | no | none |
+| CI-1 | .github/workflows + minimal Android skeleton + first CI-built APK | DOING | run 38177163382: checks PASS; probe crashed on bytes bug after printing verdicts (S2 usable from CI!); android FAILED at assemble, report lost to push race | reporter fixed (per-job files + rebase retry); next run must yield the android gradle tail | no | none |
+| M0-1b | S2 capture from CI (7.4: parser only after a capture) | NEXT | - | add capture mode to probe job once android is green | no | none |
 | P1-fix | .pyc removed from git + __pycache__ ignored (defect of c5cfec1, owned per 14.5) | DONE:2026-10-11 | this commit: git rm --cached + .gitignore line | none | no | none |
 | M1 | Contract types + provenance + known-truths gate (§15.4) | HELD:waits-on-CI-1 | - | - | no | none |
 | M0-2 | S1/S2 verdicts from owner's phone network | HELD:waits-on-M2-APK | - | after first installable APK: one search, paste exported text (§14.3) | yes | one paste, later |

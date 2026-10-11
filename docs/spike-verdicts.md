@@ -15,8 +15,8 @@ S2-erail   erail.in                       blocked-by-network (tls)
 
 | source | sandbox | GitHub CI runners | owner's phone |
 |--------|---------|-------------------|---------------|
-| S1 NTES | blocked-by-network (TLS handshake reset; 2026-10-11, 4th independent confirmation of the brief's recorded finding) | blocked-by-network (brief-recorded, 3 confirmations) | usable (brief-recorded; re-measure once an APK exists) |
-| S2 erail | blocked-by-network (same failure mode; 2026-10-11) | unmeasured — expect blocked, same class | usable-but-labelled (brief-recorded; re-measure at M2) |
+| S1 NTES | blocked-by-network (TLS handshake reset; 2026-10-11, 4th independent confirmation of the brief's recorded finding) | blocked-by-network — measured 2026-10-12 (run 38177163382): timeout x2 | usable (brief-recorded; re-measure once an APK exists) |
+| S2 erail | blocked-by-network (same failure mode; 2026-10-11) | **usable (shape unverified)** — measured 2026-10-12 (run 38177163382): TLS+HTTP completed | usable-but-labelled (brief-recorded; re-measure at M2) |
 | S3 dumps | n/a (do-not-repeat, brief §4) | n/a | cold-start fallback only, permanently labelled |
 | S4 portals | not probed yet — add data.gov.in to tools/probe.py before M0 exit | - | - |
 | S5 APIs | forbidden at runtime (keyed; §3.1) | forbidden | design reference only |
