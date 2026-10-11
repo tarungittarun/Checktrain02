@@ -209,12 +209,23 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
+          # `set +e` and `|| true` on the probes, because this step is a convenience and a convenience that
+          # turns a green build red is worse than no convenience: Actions runs `run:` blocks with `-e`, and a
+          # `grep` for a versionName written in some other style exits 1, which failed the whole job the first
+          # time this step ran while the APK above it had built perfectly.
+          set +e
           apk=app/build/outputs/apk/debug/app-debug.apk
           tag=latest-apk
-          ver=$(grep -o 'versionName *= *"[^"]*"' app/build.gradle | head -1 | cut -d'"' -f2)
+          ver=$(grep -o 'versionName *\(=[ \t]*\)*"[^"]*"' app/build.gradle | head -1 | sed 's/.*"\(.*\)"/\1/')
           notes="Debug APK for testing on a real device. Built from ${GITHUB_SHA:0:7} by android.yml on every push. versionName: ${ver:-unknown}. On the tracking screen, long-press the provenance badge to copy a live-feed report."
           gh release create "$tag" --title "Rolling debug APK" --notes "$notes" --prerelease 2>/dev/null || true
+          if [ ! -f "$apk" ]; then
+            echo "::warning::no APK at $apk to publish; the build step already said why"
+            exit 0
+          fi
           gh release upload "$tag" "$apk" --clobber || echo "::warning::could not publish to the release; the artifact on this run still has the APK"
+          rc=$?
+          if [ "$rc" -ne 0 ]; then exit 0; fi
           {
             echo ""
             echo "### Install on a phone"
