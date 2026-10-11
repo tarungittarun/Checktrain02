@@ -232,6 +232,11 @@ object NtesAdapter {
                 else -> StopStatus.DEPARTED
             }
         }
+        // Not one row in the answer named a station we can key on, so there is nothing for the domain to
+        // anchor to and no cell for the stop table to read. Returning null here keeps that guarantee at the
+        // seam that produces it: ProviderChain would also drop this snapshot, but an adapter that hands back
+        // an empty "live" result is one refactor away from a screen that says LIVE over a table of dashes.
+        if (perStop.isEmpty()) return null
         val anchor = anchorIdx.takeIf { it >= 0 }?.let { rows[it] }
         val next = anchorIdx.takeIf { it >= 0 }?.let { rows.getOrNull(it + 1) }
         val anchorCode = anchor?.code
