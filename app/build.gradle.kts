@@ -18,7 +18,9 @@ android {
         // versionName single source of truth: 2.<milestone>.<k> (brief 11.3).
         versionCode = 2000001
         versionName = "2.0.1"
-        resConfigs += "en"
+        // AGP 8.x Kotlin DSL exposes this as a property named resourceConfigurations;
+        // resConfigs is a function there (run 38177642227 proved the difference).
+        resourceConfigurations += listOf("en")
     }
 
     buildTypes {

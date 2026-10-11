@@ -10,7 +10,7 @@ single owner action; at most ONE open question to the owner, answerable in one w
 | D1 | docs/ skeleton (§15.2) | DONE:2026-10-11 | this commit; file list in docs/PLAN.md | complete KICKOFF.md verbatim pass (§10-15) | no | none |
 | P1 | Local JVM toolchain | BLOCKED:no-JDK-route-in-sandbox | docs/LEARNINGS.md#L-2 (4 routes tested, exact errors) | JVM proof moves to CI per §9.6; unblock = none available locally | no | none |
 | M0-1 | Source probe tool, sandbox run (§15.3) | DONE:2026-10-11 | docs/spike-verdicts.md + tools/captures/probe-sandbox-*.json (untracked) | rerun from CI once workflows land; add tools/test_probe.py (PoC-of-PoC, §7.3) | no | none |
-| CI-1 | .github/workflows + minimal Android skeleton + first CI-built APK | DOING | run 38177487116: checks+probe PASS; android FAILED at configure-phase (report pushed; tail was all stack frames) | reporter now extracts the gradle CAUSE block; next run names the exact error | no | none |
+| CI-1 | .github/workflows + minimal Android skeleton + first CI-built APK | DOING | run 38177642227: CAUSE named by reporter - resConfigs is a function in AGP 8.5 Kotlin DSL | fix: resourceConfigurations; next run should reach real compilation | no | none |
 | M0-1b | S2 capture from CI (7.4: parser only after a capture) | NEXT | - | add capture mode to probe job once android is green | no | none |
 | P1-fix | .pyc removed from git + __pycache__ ignored (defect of c5cfec1, owned per 14.5) | DONE:2026-10-11 | this commit: git rm --cached + .gitignore line | none | no | none |
 | M1 | Contract types + provenance + known-truths gate (§15.4) | HELD:waits-on-CI-1 | - | - | no | none |
