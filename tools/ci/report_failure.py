@@ -46,8 +46,26 @@ def main():
 
     gradle_log = os.environ.get("GRADLE_LOG", "/tmp/gradle.log")
     if os.path.exists(gradle_log):
-        out.append("===== gradle build log (last 120 lines) =====")
-        out.append(tail(gradle_log, 120))
+        # A gradle failure's CAUSE sits above its stack trace; a raw tail shows only
+        # frames (run 38177487116 proved this). Extract the cause lines first, keep a
+        # short tail as context. Cause markers: the 'What went wrong' block, '* Where',
+        # 'Caused by', and lines starting with 'FAILURE' or 'ERROR'.
+        try:
+            lines = open(gradle_log, "r", errors="replace").readlines()
+        except OSError:
+            lines = []
+        marks = []
+        capture = 0
+        for i, ln in enumerate(lines):
+            if ln.startswith(("* What went wrong", "* Where", "FAILURE:", "ERROR:")) or "Caused by:" in ln:
+                capture = 8  # the marker + a few following lines carry the message
+            if capture > 0:
+                marks.append(ln)
+                capture -= 1
+        out.append("===== gradle CAUSE (extracted) =====")
+        out.append("".join(marks[-80:]) if marks else "(no cause markers found — see tail)")
+        out.append("===== gradle build log (last 40 lines) =====")
+        out.append(tail(gradle_log, 40))
 
     for extra in filter(None, os.environ.get("EXTRA_REPORT_FILES", "").split(":")):
         out.append(f"===== {extra} =====")

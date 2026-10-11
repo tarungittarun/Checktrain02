@@ -52,6 +52,28 @@ class ReporterAsksItsQuestion(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(ran, [])  # no git commands at all
 
+    def test_cause_extraction_beats_the_stack_trace(self):
+        # run 38177487116 symptom: 120-line tail showed only stack frames, the cause was
+        # just above the window. The reporter must print the 'What went wrong' block.
+        log = ["line\n"] * 300
+        log += ["FAILURE: Build failed with an exception.\n",
+                "* What went wrong:\n",
+                "A problem occurred configuring project ':app'.\n",
+                "> Could not resolve resConfigs\n"]
+        log += ["\tat org.gradle.stack.Frame(F%d.java:%d)\n" % (i, i) for i in range(300)]
+        with open("/tmp/gradle-test2.log", "w") as f:
+            f.writelines(log)
+        env = {
+            "GITHUB_REPOSITORY": "x/y", "GITHUB_RUN_ID": "1", "GITHUB_JOB": "android",
+            "GITHUB_SHA": "abc", "GITHUB_REF_NAME": "b", "GRADLE_LOG": "/tmp/gradle-test2.log",
+        }
+        with mock.patch.dict(os.environ, env), \
+             mock.patch.object(report_failure.subprocess, "run", return_value=subprocess.CompletedProcess([], 1)):
+            report_failure.main()
+        body = open("ci-failure-report-android.txt").read()
+        self.assertIn("Could not resolve resConfigs", body)
+        self.assertIn("gradle CAUSE", body)
+
     def test_report_filename_is_per_job(self):
         with mock.patch.dict(os.environ, {"GITHUB_JOB": "probe"}):
             self.assertEqual(report_failure.report_path(), "ci-failure-report-probe.txt")
