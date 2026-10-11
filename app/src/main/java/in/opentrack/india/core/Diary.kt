@@ -267,13 +267,27 @@ class Diary(private val file: File) {
      * security app that takes traffic per-application rather than at the tunnel level; a name like
      * `WIFI(100)` is the plain case. No identifiers are included - this is the kind, not the network.
      */
+    /**
+     * Which network the sockets are actually on, and how it got there. `vpn` in this line with `vpn=false` in
+     * the settings line is the fingerprint of an app that takes traffic per-application instead of at the
+     * tunnel level - the difference between "the railway refused us" and "something between this app and
+     * every port". The id is Android's local net id, not an identifier of the device or the subscriber.
+     */
     private fun networkHandle(): String {
         val ctx = appContextForDns ?: return "n/a"
         return runCatching {
             val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
             val n = cm.activeNetwork ?: return "no active network"
-            n.networkCapabilities?.transportTypes?.joinToString("+") { android.net.ConnectivityManager
-                .getNetworkTypeName(it) } ?: "?"
+            val caps = cm.getNetworkCapabilities(n)
+            val kinds = buildList {
+                if (caps?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) == true) add("wifi")
+                if (caps?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR) == true) add("cellular")
+                if (caps?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET) == true) add("ethernet")
+                if (caps?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN) == true) add("vpn")
+            }
+            "id=" + n + " via " + kinds.ifEmpty { listOf("unknown") }.joinToString("+") +
+                " validated=" +
+                (caps?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true)
         }.getOrElse { "unreadable " + it.javaClass.simpleName }
     }
 
