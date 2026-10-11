@@ -66,9 +66,17 @@ path_ok() {
     platform-tools) [ -x "$SDK/platform-tools/adb" ] ;;
     emulator) [ -x "$SDK/emulator/emulator" ] ;;
     platforms*) [ -d "$SDK/platforms/android-${API}" ] ;;
-    system-images*) [ -d "$SDK/system-images/${API}/${IMG}/${ABI}" ] ;;
+    system-images*) [ -d "$SDK/system-images/android-${API}/${IMG}/${ABI}" ] ;;
     *) false ;;
   esac
+}
+
+sdkmanager_says() {
+  # One line per progress tick, with \r, so a raw tail of that log is 40 kB of bars and buries the sentence
+  # that matters. Progress is dropped, errors are kept.
+  tr '\r' '\n' < /tmp/sdkmanager.log 2>/dev/null \
+    | grep -vE "Loading (package|local repository)|Fetch remote repository|Computing updates|Unzipping|Downloading|%\]$" \
+    | grep -v '^[[:space:]]*$' | tail -12
 }
 
 install_pkg() {
@@ -76,8 +84,12 @@ install_pkg() {
   path_ok "$pkg" && { echo "   $pkg already present"; return 0; }
   yes 2>/dev/null | sdkmanager --install "$pkg" > /tmp/sdkmanager.log 2>&1
   rc=${PIPESTATUS[1]}
-  if path_ok "$pkg"; then return 0; fi
-  echo "sdkmanager exit $rc for $pkg:"; tail -12 /tmp/sdkmanager.log
+  # sdkmanager's own verdict first. Only if it *says* it failed do we look at the filesystem again, because
+  # a path guess that does not match the SDK's real layout must not be able to turn a successful install
+  # into "this api level has no image" - which is what cost run 38121167143 the release and density rows.
+  [ "$rc" = 0 ] && return 0
+  if path_ok "$pkg"; then echo "   $pkg installed (exit $rc, files present)"; return 0; fi
+  echo "sdkmanager exit $rc for $pkg:"; sdkmanager_says
   return 1
 }
 
@@ -99,7 +111,7 @@ for p in "${PKGS[@]}"; do
         ;;
     esac
     echo "::error::sdkmanager could not install $p"
-    tail -25 /tmp/sdkmanager.log
+    sdkmanager_says
     exit 3
   fi
 done

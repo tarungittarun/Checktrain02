@@ -445,7 +445,7 @@ jobs:
             echo "\`$ROW\` status: \`$(cat /tmp/e2e-status-$ROW.txt 2>/dev/null | tr '\n' ' ' || echo none)\`"
             echo ""
             echo '```'
-            tail -25 /tmp/boot.log 2>/dev/null | head -30 || true
+            tr '\r' '\n' < /tmp/boot.log 2>/dev/null | grep -vE "Unzipping|Downloading|Loading |Fetch remote|Computing updates" | tail -25 || true
             tail -60 /tmp/instrument-*.log 2>/dev/null | head -80
             echo '```'
             echo 'logcat tail:'
