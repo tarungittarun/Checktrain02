@@ -43,8 +43,9 @@ class ErailIdentityCaptureTest {
         assertEquals("TLGP-MYS KUVEMPU EXPRESS", row.identity.name)
         assertEquals("TLGP", row.identity.fromCode)
         assertEquals("MYS", row.identity.toCode)
-        // 05.50 -> 15.30 with no wrap: 330 -> 930.
-        assertEquals(330, row.boardMin)
+        // 05.50 -> 15.30 with no wrap: 350 -> 930 (the identity tile times the ORIGIN departure;
+        // the pair tile for the same train times the SMET boarding, 07.55 - both coherent).
+        assertEquals(350, row.boardMin)
         assertEquals(930, row.alightMin)
         assertEquals(0, row.alightDayOffset)
     }
@@ -79,7 +80,7 @@ class ErailIdentityCaptureTest {
         assertEquals("SMET-MYS UR EXP", row.identity.name)
         assertEquals("SMET", row.identity.fromCode)
         assertEquals("MYS", row.identity.toCode)
-        assertEquals(675, row.boardMin) // 11.25
+        assertEquals(685, row.boardMin) // 11.25 = 11*60+25
         assertEquals(1025, row.alightMin) // 17.05
         assertEquals(0, row.alightDayOffset)
     }

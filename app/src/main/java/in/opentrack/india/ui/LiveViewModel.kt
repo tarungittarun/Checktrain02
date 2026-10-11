@@ -291,8 +291,8 @@ class LiveViewModel(
                 id.toCode.equals(dstCode, ignoreCase = true) ->
                 "identity confirmed live (via erail)"
             else ->
-                "${id.fromCode} → ${id.toCode} is what the live source says this number runs (via erail) " +
-                    "— the stop table below is this device's timetable"
+                "the live source says this number runs ${id.fromCode} → ${id.toCode} (via erail); " +
+                    "this device's timetable says $srcCode → $dstCode — the stop table below is the timetable's"
         }
     }
 }
