@@ -252,14 +252,19 @@ class NtesProvider(
         val parsed = runCatching { NtesWire.parse(doc.toString()) }.getOrNull()
         if (parsed == null) {
             val keys = runCatching { doc.keys().asSequence().take(8).joinToString(", ") }.getOrNull()
-            Diary.get()?.log("NTES", "reply was not a status table; top-level keys: " + (keys ?: "-"))
+            Diary.get()?.log("NTES", "reply was not a status table; top-level keys: " + (keys ?: "-") +
+                " shape=" + runCatching { NtesWire.shapeOf(doc) }.getOrDefault("-"))
             note = "The live feed answered, but its reply was not a running-status table" +
                 (if (keys.isNullOrBlank()) "." else " (it sent: $keys).")
             return null
         }
         if (parsed.isEmpty) {
+            // The dangerous case, because it is indistinguishable from the truth. "No running data" is what a
+            // wrong key name looks like from the outside, so the shape is recorded even though the parse
+            // "succeeded" - if this line ever shows a populated array, the parser is the bug, not the feed.
             note = "The live feed has no running data for train $trainNo on this date" +
                 (parsed.message?.let { " ($it)" } ?: ".")
+            Diary.get()?.log("NTES", "parsed empty; shape=" + runCatching { NtesWire.shapeOf(doc) }.getOrDefault("-"))
             return null
         }
         if (!parsed.hasLiveColumns) {
