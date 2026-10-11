@@ -16,7 +16,7 @@ tracked and the work would become invisible.
 | T9.2 | ETL runs the gate and stamps `meta.data_trust` + `data_truth_problems` | **DONE** | `python3 tools/build_refdb.py --profile halts --out /tmp/refdb.dbgz` → `meta.data_trust = 'unverified'` | — | no |
 | T9.3 | Chip/Settings stops dressing stale data in a date: `dataVersion()` has verified / never-checked / UNVERIFIED states | **DONE** | string assembled from real meta: `6,775 trains · timetable UNVERIFIED: numbers/names disagree with the live railway data of 2026-06-20 - verify before travelling` | see how it fits the chip in a screenshot after T9.4 | no |
 | T9.4 | CI verdicts per commit | **PARTIAL - read, not assumed** | `a06ac16`: android run `38160764951` **success** (so the ordering fix + new tests + vintage key compile and pass, and its APK is what `latest-apk` serves). `52cd940`: android run `38162949280` **cancelled by my own next push** - no build evidence. `7e444f5` (shape capture): android `in_progress`, e2e pending at the time of writing. The `report: failure` row on `a06ac16` is that cancelled e2e run's rollup (`--log-failed` empty), not a product failure. | read `7e444f5`'s run next round; do not push until it lands (lesson 13) | no |
-| T9.5 | C15 live station-pair search — Stage 0 PoC now lives inside `tools/ci/probe_live_feed.py` (extended, not forked): probes `FindTrainJson` + `TrainBtwStnJson` for the pairs/trains in `fixtures/known_truths.json`, **and** `erail.in` GET for the same pair as the keyless alternate; captures raw bodies to `PROBE_CAPTURE`; prints a *proposed* refresh of the truths fixture that a human must apply | **DOING** | local run proves the harness + correctly reports `TLS closed` from this sandbox (as CI did on da0633c/b41c38c) — so the honest verdict so far is `blocked-by-network`, which is itself a Stage-0 exit answer | read the CI probe comment on the pushed commit: if erail answers from a runner, pair-truth becomes CI-refreshable and C15 gets a parse test the same round; if both are blocked, C15 is device-only and `needs-device: yes` becomes true for exactly one capture | no |
+| T9.5 | C15 live station-pair search — Stage 0 PoC now lives inside `tools/ci/probe_live_feed.py` (extended, not forked): probes `FindTrainJson` + `TrainBtwStnJson` for the pairs/trains in `fixtures/known_truths.json`, **and** `erail.in` GET for the same pair as the keyless alternate; captures raw bodies to `PROBE_CAPTURE`; prints a *proposed* refresh of the truths fixture that a human must apply | **DOING — decision branch resolved: brief 7.7(a)** | CI probe comment on `ac06f62` (2026-10-12 IST): **erail.in HTTP 200 from a runner** — identity answers for 16228/16226/16221/12627 (575–986 B each) + SMET→MYS pair list 2976 B with 17 train numbers; **NTES TLS-timeout on all 13 calls** (4th independent confirmation). Runner-side pair truth is therefore CI-refreshable and C15 gets a parser written against a *captured* body (4.5) | commit the captured erail pair body as a small dated fixture (2.5), then `v2/source/PairSource` + erail parser against it, JVM-tested; capture arrives via the `PROBE_CAPTURE` artefact of the next `probe` job (download it with `gh api repos/tarungittarun/Checktrain02/actions/runs/<id>/artifacts`) | no |
 | T9.7 | Gate hardening: `must_not_include` (phantom trains) + direction-aware wording | **DONE** | gate runs clean on today's asset, 3 FAILs still reported; new check is schema-ready | see T9.7a | no |
 | T9.7a | First phantom assertion (06228 on SMET->MYS) | **HELD — deliberately unasserted** | `fixtures/known_truths.json::_pending` explains why: 0-prefix is still used for specials, so 'retired number' ≠ 'does not run' | needs one live pair answer; do not guess to make a test green | no |
 | T9.6 | C3 `NtesWire.parse` against a real payload | **DOING — capture shipped** | `NtesWire.shapeOf` + `Diary` lines on both NTES failure paths (unparseable AND parsed-empty, which was silent); gates clean | next build → owner opens 16228 with logging on → export; the `shape=` line decides the key-name question without any body leaving the phone | **yes** (log export only, no install) |
@@ -88,3 +88,46 @@ structural (`docs/v2/` restart + live-first architecture + new gates), and the r
   where it came from, and "no answer" cannot be rendered as "no trains".
   Deliberately pure JVM (no Android, no SQLite, no HTTP) so the rules are argued with failing tests rather than
   screenshots. **Not yet compiled by anything but the local balance/member gates — CI decides, as always.**
+
+## Round 13 — new session branch, kickoff actions 0.1–0.5 (2026-10-11 UTC)
+
+Session pinned to `arena/508929e1-checktrain02`, branched from `d8da0c5` (v2-fresh tip = the owner's merge of
+PR #1). Actions 0.1–0.5 of the new brief (now `docs/v2/KICKOFF.md`) executed before any feature work.
+
+| id | micro-task | state | verified-by | next action | needs-device |
+|---|---|---|---|---|---|
+| T13.1 | Brief saved as `docs/v2/KICKOFF.md` (action 0.1) | **DONE** 2026-10-11 | commit `85a9c2c` | — | no |
+| T13.2 | Refs confirmed + v2-fresh merged (action 0.2): `main=9a0514d` untouched, `origin/v2-fresh=d8da0c5`, prev-session head `ac06f62` still on `arena/edd38b02-checktrain02`, tags `v2-m1=67e7e02`/`v2-restart=52cd940` fetched; session branch tree is **identical** to `ac06f62` (owner merged the contract via PR #1), so the merge is a no-op. `3e795a5` (HANDOFF) not visible anywhere → section 12 used, as the brief instructs | **DONE** 2026-10-11 | `git ls-remote` + `git diff --stat HEAD ac06f62` (empty) | — | no |
+| T13.3 | CI verdicts for `ac06f62` and `67e7e02` read from the API (action 0.3) | **DONE** 2026-10-11 | see "Round 13 CI verdicts" below | — | no |
+| T13.4 | Probe comment read (action 0.4) → brief 7.7 branch **(a)** adopted: erail reachable+200 from CI | **DONE** 2026-10-11 | commit comment `### live-feed probe` on `ac06f62`, probe job run `114551799681`/`114551812161` success | — | no |
+| T13.5 | **16221 identity contradiction, stated per 17.4, not applied**: erail live answer says `16221 = TLGP→MYS KUVEMPU EXPRESS`; the owner-verified fixture says `16221 = KAVERI EXPRESS MAS→MYS`. Owner-verified outranks one keyless source, so the fixture stands and erail's claim is recorded here as a contradiction (erail also lists 16221 inside the SMET→MYS pair answer, consistent with its own TLGP→MYS identity). `must_not_include` stays empty (7.3) | **HELD — waiting on one word** | probe comment on `ac06f62` vs `fixtures/known_truths.json` | owner re-checks 16221 in Where Is My Train: **KUVEMPU or KAVERI?** (one word decides; then the fixture edit is applied deliberately, not auto-) | no — answerable from the phone they already own |
+| T13.6 | Erail pair capture → committed fixture: download the `PROBE_CAPTURE` artefact from the `ac06f62` probe job, save the SMET→MYS body (2976 B) as a small, attributed, dated fixture (2.5) | **NEXT** | — | `gh api repos/tarungittarun/Checktrain02/actions/runs/<probe-run-id>/artifacts` | no |
+| T13.7 | `tools/ci/known_truths_refresh.py` — the PRINT-ONLY refresher of 7.7(a), with its own test (4.4: a tool that answers a question gets a test that it asks it) | **NEXT** | — | — | no |
+| T13.8 | C15 = M2: `v2/source/PairSource` + erail pair parser **written against the T13.6 capture only** (4.5), typed failures, `PairListing` out, JVM tests per 8.2 states; then merge-into-results, overrides (7.8), TTL cache | **NEXT** | — | starts only after T13.6 lands | no |
+
+### Round 13 CI verdicts (read from the API, 19:35–19:45 UTC)
+
+- `ac06f62` (v2 Stage 1 contract — the commit that had never met a compiler): `checks` **success**,
+  `build` **success** (runs `114551833357`/`114551851788`), `debug APK` **success** (`114551709681`/`114551716481`),
+  `tests + screens (Robolectric)` **success** (`114551735835`/`114551749053`), `probe` **success**
+  (`114551799681`/`114551812161`), `plan` **success**, `release`/`e2e_full` skipped (tag-only / gated),
+  emulator rows **in_progress at report time** (`114552502517`, `114552502539`, `114552502561`, `114552502581`,
+  `114552784775`, `114552784892`; started 19:16–19:18 UTC). So the contract DID compile and its unit tests DID
+  run green — action 0.3's worry is answered by the run, not by hope. The emulator rows were still flying when
+  this round pushed (different branch ref, so the push cannot cancel them — concurrency is keyed on
+  `github.ref`, checked in both workflows).
+- `67e7e02` (v2-m1 tag): `report` **failure** — root cause read from the check-run annotation (job logs are on
+  blob hosts this sandbox cannot reach): **"no e2e row reported anything - the matrix did not run"** — the e2e
+  rows on that commit were `cancelled` (the round-9 double-push, lesson 13), and the rollup honestly refused to
+  claim anything. Not a new defect; the honest-failure behaviour working as designed. The fix is cadence, not
+  code: one push per round, which this round obeys.
+- Sandbox limit found while reading logs: `gh api .../jobs/<id>/logs` and `--log-failed` return EOF from here
+  (log storage hosts are outside this sandbox's egress allowlist). Verdicts are read from check-runs +
+  annotations, which do arrive via `api.github.com`. Recorded so the next session does not burn a round on it.
+
+### HANDOFF (round 13 state, for any session that resumes)
+
+Resume line: **first DOING is T9.5 → its first NEXT child is T13.6** (erail capture → fixture), then T13.7,
+T13.8. Open owner question: exactly one (T13.5, one word). The previous session's emulator rows may land after
+this round's report — read them before starting M2 implementation, since they are the last untested axis
+(API 24 floor, density, release/R8) for the tree this session inherited.
