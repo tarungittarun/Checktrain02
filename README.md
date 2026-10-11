@@ -115,6 +115,13 @@ misreading it.
 
 ## Tests
 
+**Asking a person, not a runner:** `docs/TEST_CARD.md` is the full card (install link, what each screen must
+do, the three-line reply we want back), and `docs/TEST_CARD_SHORT.txt` is the same thing plain enough to paste
+into a messaging app. Both end with the log-capture steps, because "the pill says OFFLINE" is only useful once
+the device says why — and a card that starts with the file size is a card that catches a stale build before it
+wastes an afternoon.
+
+
 Two suites, and the split is the point.
 
 `./gradlew :app:testDebugUnitTest` runs the JVM suite with no emulator and no network. It covers the

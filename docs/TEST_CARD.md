@@ -1,0 +1,87 @@
+# OpenTrack India — test card
+
+Hand this to anyone. Nothing here needs a technical background. Roughly 4 minutes for the first two parts,
+1 minute more only if live running status does not appear.
+
+**What the app is supposed to do:** find trains between two stations for yesterday, today or tomorrow with no
+internet at all, and — when the railway's public feed answers — show where a train actually is right now,
+which stops it has cleared, and how late each upcoming stop is expected to be.
+
+**Download (Android 7.0 or newer, about 10.6 MB):**
+<https://github.com/tarungittarun/Checktrain02/releases/download/latest-apk/app-debug.apk>
+
+On the download page, check the file size reads **10,591,177 bytes** — if it is smaller, you have an older
+build and the results will not mean anything. Tap the file, then *Install anyway* if the phone warns you about
+apps from unknown sources (it is a test build, not signed by Play). No account, no login, no key, no ads, no
+tracking. Timetables are inside the app, so the whole thing works in airplane mode.
+
+---
+
+## Part 1 — Offline search (should always pass)
+
+1. Open the app. In the two boxes, type a station or a city — **three letters starts suggesting**. Try
+   `Bang` → pick **KSR Bengaluru (SBC)**, and `Chenn` → pick **MGR Chennai Central (MAS)**.
+2. Tap **−1d**, **now** and **+1d** once each. The date under the boxes must change and the list must change
+   with it — that is the whole point of the ±24 h window.
+3. Tap **Find trains**.
+   - You should see a list of trains for that day, each with names like *… Express*, and a count.
+   - If the count is 0, the app must say so in words. A silently empty list is a bug — report it.
+4. Turn on **airplane mode** and search again. It must still work. That is the offline promise.
+
+## Part 2 — Live running status (this is the part we need your help with)
+
+1. Pick a train that is running **right now** — not tomorrow, not last week. Trains that leave your city within
+   the next hour or two are best. Tap **Track** on its row.
+2. Look at the pill under the big headline.
+
+| What you see | What it means |
+| --- | --- |
+| **LIVE · running status** + a delay like *18 min late* | Working. This is what everyone should see. |
+| **OFFLINE · schedule only** | Live data did not reach this phone. The times shown are the timetable, labelled as such. **This is the bug we want.** |
+| Anything that shows a delay but the pill says OFFLINE | **Serious** — tell us immediately with a screenshot. The app is built so this cannot happen. |
+
+3. Scroll the stop list. For each upcoming stop the *LIVE / expected* column should either hold a time marked
+   **projected**/**reported**, or a dash with the word **timetable**. It must never repeat a schedule minute as
+   if it were a real one.
+4. Tap **Show full route** then **Show my segment**. The row count must change and a line under the table must
+   say how many halts are hidden.
+5. Now compare with whatever you normally use (NTES, RailYatri, ixigo, or the website
+   [enquiry.indianrail.gov.in/ntes](https://enquiry.indianrail.gov.in/ntes/)) for the **same train at the same
+   minute**. Write down the difference in minutes, if any.
+
+## Part 3 — Only if the pill says OFFLINE: hand us the log (1 minute)
+
+1. Go **Back**, tap **Data source**.
+2. Tap **Turn on collection** under *Diagnostic log*. The line below should start saying *Collecting · … bytes*.
+3. Open the same train again, wait about 40 seconds, then tap **Refresh** once.
+4. Go back to **Data source** → **Share** (or **Save to file** if sharing is awkward). Send it to whoever asked
+   you to test.
+5. Two more answers, in the same minute, both take 15 seconds:
+   - In **Chrome** on that phone, open `https://enquiry.indianrail.gov.in/ntes/`. Does the page load? (Yes +
+     "OFFLINE in the app" is the single most useful answer you can give us.)
+   - Turn **Wi-Fi off**, use mobile data only, tap **Refresh** once. Does the pill change?
+
+The log lists web addresses, results and timings. It does **not** contain your name, phone number, location,
+accounts, search history or any message content, and it never leaves the phone unless you press Share.
+**Turn collection off** when you are done, if you would rather it recorded nothing.
+
+## Reply in these three lines
+
+```
+1) Phone / Android version, and Wi-Fi or mobile data:
+2) Train number I checked, and the pill I saw (LIVE or OFFLINE):
+3) Difference vs NTES in minutes, plus the log if it said OFFLINE:
+```
+
+---
+
+### Small things that are also worth a look
+
+- Rotate the phone, and try one-hand reach: **Back**, **Refresh**, **Track** must be tappable without
+  stretching.
+- Settings → *Display size* at the largest, then open a train: text must not be cut off or overlapping.
+- Tap a suggested station you did not type (arrow-key style suggestions must insert a real station code, not
+  free text).
+- Search the same pair twice — the second search should feel instant, and **Data source** → *Clear live cache*
+  must not break anything.
+- A train you know runs on a different day: set **−1d** and search. Yesterday's run should be there too.

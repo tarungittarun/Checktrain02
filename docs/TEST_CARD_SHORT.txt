@@ -1,0 +1,30 @@
+TRAIN APP TEST — 4 minutes, Android only
+
+Works on Android 7.0 and newer. Install (about 10.6 MB). On the page, confirm the size says 10,591,177 bytes - if it is smaller you have
+an old build. Tap the file and choose "Install anyway" if the phone warns you. No account, no login, no ads.
+
+1. Type three letters in each box: "Bang" -> pick KSR Bengaluru, "Chenn" -> pick MGR Chennai Central.
+2. Tap -1d, now and +1d once each. The date and the list must change.
+3. Tap "Find trains". On a train that is running right now (leaving in the next hour or two is best), tap "Track".
+4. Look at the pill under the big headline.
+   - "LIVE · running status" plus a delay  ->  working, that is what we want to see.
+   - "OFFLINE · schedule only"              ->  live data did not reach your phone. That is the bug. Tell us.
+5. Check the stop list: upcoming stops must show a time marked "projected" or "reported", or a dash with the
+   word "timetable". A dash is honest. A wrong delay is not - screenshot it if you see one.
+6. Compare with NTES or RailYatri for the same train at the same minute. Note the difference in minutes.
+7. Turn on airplane mode and search again. It must still work (timetables are inside the app).
+
+IF THE PILL SAYS OFFLINE (1 minute, this is the part that actually helps):
+8. Back -> "Data source" -> under Diagnostic log tap "Turn on collection". The line should say "Collecting".
+9. Open the same train again, wait 40 seconds, tap "Refresh" once.
+10. Back -> "Data source" -> tap "Share" and send it to me. (Or "Save to file" and forward the file.)
+11. Also, in the same minute: open enquiry.indianrail.gov.in/ntes in Chrome on that phone. Does it load?
+12. Then turn Wi-Fi OFF, keep mobile data on, tap "Refresh" once. Does the pill change?
+
+Privacy: the log holds web addresses, results and timings only. No name, number, location, accounts or search
+history - and it never leaves your phone unless you press Share. Switch collection off when done.
+
+Reply with three lines:
+1) phone + Android version, Wi-Fi or mobile data
+2) train number and the pill you saw (LIVE or OFFLINE)
+3) minutes of difference vs NTES, plus the log if it said OFFLINE
