@@ -180,14 +180,22 @@ def identity_from(doc):
 ERAIL_BASE = "https://erail.in/rail/getTrains.aspx"
 
 
-def erail_get(query: str, timeout: int = 20, base: str = ERAIL_BASE) -> tuple[str, str]:
+BROWSER_UA = ("Mozilla/5.0 (Linux; Android 11; Pixel 6) AppleWebKit/537.36 "
+              "(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
+
+
+def erail_get(query: str, timeout: int = 20, base: str = ERAIL_BASE,
+              headers: dict | None = None) -> tuple[str, str]:
     """One GET to erail.in. No key, no account, nothing of ours in the middle.
 
     [base] exists so the route endpoint (getRoute.aspx) is asked through the same one-attempt,
-    typed-verdict door as everything else - not through a second, braver fetcher.
+    typed-verdict door as everything else - not through a second, braver fetcher. [headers]
+    overrides the default set: the live-status endpoint answers 403 to the Dalvik UA (the 548a5db
+    run proved the path is real), so the ladder asks once more looking like the browser the page
+    expects - a header change is not a new tool, and it is still one attempt per candidate.
     """
-    req = urllib.request.Request(base + "?" + query,
-                                 headers={"User-Agent": UA, "Accept": "*/*"})
+    h = {"User-Agent": UA, "Accept": "*/*"} if headers is None else headers
+    req = urllib.request.Request(base + "?" + query, headers=h)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             body = r.read(400_000).decode("utf-8", "replace")
@@ -391,15 +399,20 @@ def erail_live_status_lines(train_no: str, date_ddmm: str,
     body is captured verbatim for the parser to meet for the first time (4.5). A dead guess is one
     honest line; a live one could close the elephant from CI alone. PARSING NOTHING here, by design.
     """
+    browser = {"User-Agent": BROWSER_UA, "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
+               "Referer": "https://erail.in/"}
     cands = [
-        (f"getRunTrain.aspx?trainno={train_no}&startDate={date_ddmm}", "https://erail.in/rail/"),
-        (f"{train_no}/", "https://erail.in/running-status/"),
+        (f"getRunTrain.aspx?trainno={train_no}&startDate={date_ddmm}", "https://erail.in/rail/", None),
+        (f"getRunTrain.aspx?TrainNo={train_no}&startDate={date_ddmm}", "https://erail.in/rail/", browser),
+        (f"{train_no}/", "https://erail.in/running-status/", None),
     ]
     out: list[str] = []
     caps: list[tuple[str, str, str]] = []
-    for q, base in cands:
-        verdict, body = get(q, base=base)
-        out.append(f"live status of {train_no} via {base}{q.split('?')[0]} · {verdict}")
+    for q, base, hdr in cands:
+        verdict, body = (get(q, base=base, headers=hdr) if hdr
+                         else get(q, base=base))
+        tag = "browser-UA" if hdr else "dalvik-UA"
+        out.append(f"live status of {train_no} via {base}{q.split('?')[0]} ({tag}) · {verdict}")
         if body:
             out.append(f"  body {len(body)}B · {body.count(chr(10)) + 1} line(s)")
             caps.append((train_no, base + q.split("?")[0], body))

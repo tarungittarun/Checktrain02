@@ -234,17 +234,19 @@ class ErailLiveStatusProbe(unittest.TestCase):
     def test_both_candidates_are_asked_and_bodies_carry_their_url(self):
         asked = []
 
-        def fake(q, timeout=20, base=plf.ERAIL_BASE):
-            asked.append(base + q.split("?")[0])
+        def fake(q, timeout=20, base=plf.ERAIL_BASE, headers=None):
+            asked.append((base + q.split("?")[0], headers is not None))
             return ("HTTP 200 2500B", "16221~actual~rows~here")
 
         lines, caps = plf.erail_live_status_lines("16221", "12-10-2026", get=fake)
         self.assertEqual(
-            ["https://erail.in/rail/getRunTrain.aspx", "https://erail.in/running-status/16221/"],
-            asked,
+            [("https://erail.in/rail/getRunTrain.aspx", False),
+             ("https://erail.in/rail/getRunTrain.aspx", True),
+             ("https://erail.in/running-status/16221/", False)],
+            asked, "dalvik first (as the app ships), browser-UA second (the 403 answerer), page last",
         )
-        self.assertTrue(any("live status of 16221" in l and "HTTP 200" in l for l in lines))
-        self.assertEqual(2, len(caps))
+        self.assertTrue(any("browser-UA" in l and "HTTP 200" in l for l in lines))
+        self.assertEqual(3, len(caps))
         self.assertEqual("16221", caps[0][0])
         self.assertTrue(caps[0][1].startswith("https://erail.in/rail/"))
         self.assertEqual("16221~actual~rows~here", caps[0][2])
@@ -252,9 +254,9 @@ class ErailLiveStatusProbe(unittest.TestCase):
     def test_a_dead_ladder_is_lines_and_no_bodies(self):
         lines, caps = plf.erail_live_status_lines(
             "16221", "12-10-2026",
-            get=lambda q, timeout=20, base=plf.ERAIL_BASE: ("HTTP 404", ""),
+            get=lambda q, timeout=20, base=plf.ERAIL_BASE, headers=None: ("HTTP 404", ""),
         )
-        self.assertEqual(2, len([l for l in lines if "HTTP 404" in l]))
+        self.assertEqual(3, len([l for l in lines if "HTTP 404" in l]))
         self.assertEqual([], caps, "nothing came back, so nothing is captured")
 
     def test_the_capture_comment_carries_live_status_bodies_with_url_and_truncates(self):
