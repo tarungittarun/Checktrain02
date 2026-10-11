@@ -215,9 +215,10 @@ class NtesProvider(
             (if (parsed.hasLiveColumns) "present" else "none yet"))
         // Said out loud so a screenshot explains itself: "live, via a shape learned on this device" is a
         // different support conversation from "live, via the shipped request".
-        val via = " · via " + adopted.name
+        // `adopted.name` is only reachable in the else branch, where the null check above has already excluded
+        // the case - `adopted` is nullable, so hoisting that read out here would not compile.
         val shaped = if (adopted == null || snap.rawNote.isNullOrBlank()) snap
-        else snap.copy(rawNote = (snap.rawNote ?: "live") + via)
+        else snap.copy(rawNote = (snap.rawNote ?: "live") + " · via " + adopted.name)
         store?.save(trainNo, shaped)
         return shaped
     }
