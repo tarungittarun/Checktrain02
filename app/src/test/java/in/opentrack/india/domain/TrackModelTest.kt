@@ -360,7 +360,10 @@ class TrackModelTest {
         ))
         assertTrue("said: ${m.feedStampLabel}", m.feedStampLabel.startsWith("feed stamped "))
         assertTrue("said: ${m.feedStampLabel}", m.feedStampLabel.contains("IST"))
-        assertEquals("feed is current", m.ageLabel)
+        // Four minutes is deliberately *not* called "current": the chip says that only under two minutes,
+        // because the whole point of the age is to let you decide whether to trust the minute printed above
+        // it. Softening 4 min into "current" is the mistake this pin exists to prevent.
+        assertEquals("feed 4 min old", m.ageLabel)
         val unmarked = model(pos = pos(1, 2, StopStatus.DEPARTED, kind = SourceKind.OFFLINE_SCHEDULE))
         assertEquals("", unmarked.feedStampLabel)
     }
