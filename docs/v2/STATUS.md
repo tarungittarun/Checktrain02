@@ -169,3 +169,17 @@ FAILED (runs of `ae7ae56`), `checks`/`plan`/`probe` passed. The compiler found w
 
 Round-14 verdicts for the record: `ae7ae56` checks/plan/probe success, build/debug APK/tests+screens failure (DEFECT-2), e2e skipped (downstream of build), report honest-failure. Previous session's api34/min24 rows: still in flight at round close.
 
+## Round 16 — the owner asked two questions and both got numbers (2026-10-12)
+
+Owner: *"workflows are running for too long — required, or problems?"* and *"many workflows executed, many
+artifacts generated — keep artifacts shorter and handle the earlier ones."* Answered with the run list and the
+artifact store, then fixed at the root. **ADR-001** records the decision.
+
+| id | micro-task | state | verified-by | next action | needs-device |
+|---|---|---|---|---|---|
+| T16.1 | **Why everything ran twice**: `pull_request` triggers mirrored every push (the branch sits open as PR #2), and `plan` gave PR events the FULL 4-row emulator matrix - so each push was executed twice, the copy being the expensive one. Fix: `pull_request` removed from both workflows; full matrix now only via `[e2e-full]`, dispatch checkbox, or main | **DONE (ADR-001)** | run list quoted in ADR-001 (5 pushes ≈ 20 runs, half redundant); this push must show **2** runs (android+e2e push events), not 4 | count this push's runs | no |
+| T16.2 | **Why artifacts piled up**: 385 artifacts in one day; `apk-debug`/`apk-release`/`e2e-classes`/`e2e-result-*` had NO retention-days → 90-day default. Fix: every upload now names 3-7 days; `opentrack-debug-apk` 30→7 (the installable lives on the `latest-apk` release, which is not an artifact and is untouched) | **DONE (ADR-001)** | workflow diffs in this push; retention matrix in ADR-001 | — | no |
+| T16.3 | **Handle the earlier pile**: the sandbox token can LIST but not delete/cancel - `POST /runs/{id}/cancel` and `DELETE /artifacts/{id}` both 403 "Resource not accessible by integration" (measured this round). So the cleanup lives in CI: new `hygiene` job (android.yml, `actions: write`) runs `tools/ci/artifact_hygiene.py` every push - deletes artifacts >6 h old, cancels runs `in_progress` >4 h as wedged (untested-with-reason, 6.2), one ::notice:: line with totals | **DONE (policy) — first real run is this push** | `test_artifact_hygiene.py` 4/4 (classification + orchestration, frozen clock injected); the 403s quoted in ADR-001 | read hygiene's ::notice:: annotation on this push: expect the ~380-artifact pile deleted | no |
+| T16.4 | **Is the CI required at all?** Answered in the round report: what each job proves (checks=static gates+tool self-tests; build=the APK the release serves; ui=Robolectric+screen previews; probe=the live-feed answers that decide the data strategy; e2e rows=device proof; report=the honest roll-up). The waste was structural (doubling + 90-day defaults), not the jobs themselves | **DONE** | round report on PR #2 | — | no |
+| DEFECT-1 (update) | The two wedged `ac06f62` e2e rows (>80 min, superseded tree): sandbox cancel returned 403, so they are left to hygiene's 4 h guillotine - their verdicts will never arrive, recorded as untested-with-reason. The live second data point is this round's previous push (`a446511`, `[e2e-full]`, push event) | **OPEN** | hygiene notice when it fires | read `a446511`'s release/density row verdicts next read | no |
+

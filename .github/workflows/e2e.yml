@@ -22,7 +22,9 @@ name: e2e
 on:
   push:
     branches: [main, 'arena/**']
-  pull_request:
+  # pull_request deliberately REMOVED (ADR-001): same reasoning as android.yml - it doubled every
+  # push's emulator spend, and emulator rows are the expensive ones. [e2e-full] in a commit message
+  # or a dispatch checkbox asks for the full matrix; nothing depends on a PR event existing.
   workflow_dispatch:
     inputs:
       full:
@@ -102,7 +104,7 @@ jobs:
           name: probe-capture
           path: probe-capture
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 7
   plan:
     runs-on: ubuntu-latest
     outputs:
@@ -137,12 +139,11 @@ jobs:
           # Four emulator rows is on the order of two runner-hours per push, which is a real cost on a
           # metered plan, and two of the four (density, release) answer questions about new APIs and about
           # R8 rather than "does the app work for a traveller". So: the two core rows on an ordinary push,
-          # the whole matrix on a dispatch that asks for it, on a pull request, on main, or on a commit that
-          # asks for it. Nothing else in the file depends on the row set.
+          # the whole matrix on a dispatch that asks for it, on main, or on a commit that asks for it
+          # ([e2e-full]). The pull_request case is gone with the trigger (ADR-001).
           full=false
           case "${{ github.event_name }}" in
             workflow_dispatch) [ "$DISPATCH_FULL" = "true" ] && full=true ;;
-            pull_request) full=true ;;
             push) [ "${{ github.ref }}" = "refs/heads/main" ] && full=true ;;
           esac
           case "$HEAD_MSG" in *'[e2e-full]'*) full=true ;; esac

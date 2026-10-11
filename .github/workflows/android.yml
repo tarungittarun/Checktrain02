@@ -16,7 +16,9 @@ on:
   push:
     branches: [main, 'arena/**']
     tags: ['v*']
-  pull_request:
+  # pull_request deliberately REMOVED (ADR-001): with the session branch always open as a PR, every
+  # push fired this workflow twice (push + PR events), doubling runner-minutes and artifacts. The
+  # round report on the PR body carries the run ids; the PR tab is a review surface, not a CI surface.
   workflow_dispatch:
 
 concurrency:
@@ -66,6 +68,8 @@ jobs:
         run: python3 tools/ci/test_known_truths_refresh.py
       - name: Import-gate self-tests (this gate missed the exact miss it exists for, once - 2026-10-12)
         run: python3 tools/ci/test_check_refs.py
+      - name: Hygiene self-tests (the tool that deletes artifacts must classify, not guess)
+        run: python3 tools/ci/test_artifact_hygiene.py
       - name: ETL importability + schema constant agreement
         run: |
           python3 -c "import sys; sys.path.insert(0, 'tools'); import build_refdb; print('SCHEMA_VERSION', build_refdb.SCHEMA_VERSION)"
@@ -108,14 +112,14 @@ jobs:
           name: ui-previews
           path: app/build/reports/previews/
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 7
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
           name: test-reports
           path: app/build/reports/tests/
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 3
       # Pixels, not a green tick: `gh api .../commits/$SHA/comments` is readable from anywhere, so the
       # render is reviewable by whoever wrote it. GitHub strips data: URIs from markdown, hence a code
       # block of base64 to decode rather than an <img>.
@@ -213,7 +217,9 @@ jobs:
           name: opentrack-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
-          retention-days: 30
+          # The installable APK lives on the `latest-apk` RELEASE (permanent, no sign-in, direct URL);
+          # this artifact copy is a convenience only, so its life is short (ADR-001).
+          retention-days: 7
       - name: Publish the APK on a rolling release so a phone can fetch it directly
         # Artifacts are CI's own copy of the build: they expire, they want a signed-in browser, and their bytes
         # live on a blob host that neither this project's sandbox nor some phone browsers can reach. A
