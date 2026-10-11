@@ -6,9 +6,15 @@ It exists because CI knowledge is worthless if it lives only in the session that
 ## Head
 
 - **HEAD / branch**: `arena/edd38b02-checktrain02` (push only here; one branch per session).
-- **Last CI observation**: run `38132893190` (commit `8bede2c`, `[e2e-full]`) — `plan` ✓, `build` ✓, four
-  device rows in progress at ~29 min with no annotations published. Superseded by the push that added the
-  row clock, the visible artifact fetch and the boot-budget cap, so its outcome is not authoritative.
+- **Last CI observation**: the run on `6abcadb` was rejected as an invalid workflow file (`jobs: null`) because
+  a scripted patch of mine put `default:` on a `workflow_dispatch` input twice — and `check_workflows.py`
+  reported 0 problems, because its block model let a mapping's first child swallow its siblings. Both are
+  fixed: the input has one default, the scanner now tracks each mapping by its children's column (discovered
+  lazily) and skips block scalars by column, and `tools/ci/test_check_workflows.py` is a permanent 11-case
+  regression set that `plan` and `android.yml` run **before** trusting the checker.
+- **State of the device sweep**: run on `8bede2c` had four rows inside the action at 29 min with nothing
+  published (annotations only appear at step boundaries). The next run adds the row clock, the visible
+  `gh run download` fetch step and the boot-budget cap, so a slow row is now bounded and legible.
 - **Open question the next run answers**: does the flow suite execute on the booted emulator now that
   `adb` is on the job's `PATH` and `avdmanager` gets `-b/--abi`? Expected: 6 instrumented passes per row,
   then coverage, then the monkey pass, then `### e2e/<row> — PASS|FAIL` on the commit.
@@ -46,6 +52,7 @@ gh api "repos/$R/commits/<sha>/comments?per_page=100" \
 | Row comment never posted | `set -e` + `grep -q … && verdict=FAIL` aborts the step | `if` statements in the action |
 | `1/1 passes green` on a row with no device | roll-up read `variant_row=` as a test | `e2e_rollup.py` (verdict-shaped values only) |
 | False `rc=0` for every failed avdmanager form | an `if` with no `else` exits 0 | capture `rc` from the command |
+| `jobs: null` right after editing an input | two `default:` keys on one input — and the linter blind to it | `dup_keys` rewritten, `tools/ci/test_check_workflows.py` runs first |
 
 ## Standing rules for edits in this tree
 
@@ -55,7 +62,8 @@ gh api "repos/$R/commits/<sha>/comments?per_page=100" \
   aborts the patch while the commit still runs.
 - CI checkers are **stdlib-only**; PyYAML is optional and `check_workflows.py` degrades to indentation
   rules when it is absent (a runner's python has no PyYAML).
-- Before pushing: `python3 tools/ci/check_workflows.py && python3 tools/ci/flow_coverage.py &&
+- Before pushing: `python3 tools/ci/test_check_workflows.py && python3 tools/ci/check_workflows.py &&
+  `python3 tools/ci/flow_coverage.py &&
   for c in check_kotlin_balance check_refs check_resources check_members; do python3 tools/ci/$c.py; done`
   and `bash -n` on every harness script. All must be 0 problems.
 - Keep the workspace lean: no generated artifacts, no scratch dirs in the repo, nothing outside it.

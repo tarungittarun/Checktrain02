@@ -44,7 +44,12 @@ jobs:
       - name: Receiver-member references
         run: python3 tools/ci/check_members.py
       - name: Workflow and action files parse the way Actions requires
-        run: python3 tools/ci/check_workflows.py
+        # The self-test runs first: a duplicate mapping key invalidates the whole file and the runner's only
+        # comment is that the workflow is malformed, so this checker is what stands between a scripted edit
+        # and an hour of guessing. If the checker itself is wrong, nothing after it means anything.
+        run: |
+          python3 tools/ci/test_check_workflows.py
+          python3 tools/ci/check_workflows.py
       - name: ETL importability + schema constant agreement
         run: |
           python3 -c "import sys; sys.path.insert(0, 'tools'); import build_refdb; print('SCHEMA_VERSION', build_refdb.SCHEMA_VERSION)"

@@ -38,10 +38,9 @@ on:
         type: string
         default: "30000"
       boot_timeout:
-        default: 1500
-        description: "Seconds to wait for an emulator to boot"
+        description: "Seconds to wait for an emulator to boot (the row's own deadline caps this anyway)"
         type: string
-        default: "2400"
+        default: "1500"
 
 permissions:
   contents: read
@@ -140,6 +139,11 @@ jobs:
           # workflow/action schema checks need a parser. The rest are stdlib, and `check_workflows.py`
           # degrades to its indentation rules rather than failing the gate over a missing package.
           python3 -m pip install --quiet pyyaml 2>/dev/null || true
+          # The linter is the only check that catches a duplicated mapping key, which is the failure that
+          # costs an entire run rather than one step - so it is checked itself, first, and its verdict on
+          # this repository's files comes after. If these cases fail, nothing below is trustworthy.
+          python3 tools/ci/test_check_workflows.py
+          python3 tools/ci/check_workflows.py
           python3 tools/ci/check_kotlin_balance.py app/src
           python3 tools/ci/check_refs.py app/src/main/java
           python3 tools/ci/check_resources.py

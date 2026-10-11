@@ -23,48 +23,82 @@ except ModuleNotFoundError:
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 
+def disp_path(path: pathlib.Path) -> str:
+    """Repo-relative when it is in the repo, absolute otherwise. The checker is also pointed at scratch files
+    while it is being developed, and a gate that crashes over a path display teaches nothing."""
+    try:
+        return str(path.relative_to(ROOT))
+    except ValueError:
+        return str(path)
+
+
 def dup_keys(path: pathlib.Path) -> list[str]:
     """A key written twice in the same mapping block: fatal to Actions, invisible to yaml.safe_load.
 
-    Line-oriented on purpose. PyYAML keeps the last value of a duplicated key, so loading the document hides
-    the exact mistake being looked for - and that is what cost two pushes here (a job carrying `if:` twice,
-    rejected as an invalid workflow file with no job ever starting and no annotation the API will show).
+    PyYAML keeps the last value of a duplicated key, so loading the document hides exactly the mistake being
+    looked for - which is what cost four pushes here (a job with `if:` twice, an input with `default:` twice).
+    The whole file is rejected, no job starts, the run is named by its path and the API shows no annotation.
 
-    The rules, in the order they matter: a `- key:` line opens a *fresh* block for that list item at the
-    column of the key (dash plus two), so sibling steps never share keys with each other; a `key:` at the
-    same column as the open block is a sibling of it, and a repeat of a sibling is the bug; a deeper `key:`
-    opens a nested block owned by that key.
+    So this is structural, line-oriented, and reads the document the way the runner's parser does:
+
+      - a frame is a mapping whose *children's* column is discovered on the first child (workflow files are
+        written with a consistent indent, and the frame model must not care what that width is);
+      - `key:` with nothing after it opens a frame for the block that follows;
+      - a `- ` line closes the previous list item's frame and opens a fresh one, so two steps in a list
+        never share keys with each other;
+      - inside a block scalar (`run: |`, `description: >`) nothing is YAML, including lines that look like
+        keys - so they are skipped by column, which is what makes `echo "x: y"` in a harness script safe.
     """
-    out = []
-    stack: list[list] = []  # [indent, owner, {key: first line}]
+    out: list[str] = []
+    stack: list[list] = []          # [child_col, owner, {key: line}]
+    skip_col: int | None = None     # while set, lines deeper than this are block-scalar text
     for n, raw in enumerate(path.read_text(encoding="utf-8").split("\n"), 1):
-        if not raw.strip() or raw.lstrip().startswith("#"):
+        if not raw.strip():
             continue
-        item = re.match(r"^(\s*)-\s+([\w.-]+):(?:\s|$)", raw)
-        if item:
-            col = len(item.group(1)) + 2
-            while stack and stack[-1][0] >= col:
+        col = len(raw) - len(raw.lstrip(" "))
+        if skip_col is not None:
+            if col > skip_col:
+                continue
+            skip_col = None
+        stripped = raw.strip()
+        if stripped.startswith("#"):
+            continue
+
+        if stripped.startswith("- "):
+            while stack and stack[-1][0] is not None and stack[-1][0] >= col + 2:
                 stack.pop()
-            stack.append([col, item.group(2), {item.group(2): n}])
+            rest = stripped[2:]
+            m = re.match(r"^([\w.\-]+):(.*)$", rest)
+            if not m:
+                continue                       # a scalar list item (`- foo`), no keys to track
+            stack.append([col + 2, rest.split(":")[0], {}])
+            key, val = m.group(1), m.group(2).strip()
+            stack[-1][2][key] = n
+            if val.startswith("|") or val.startswith(">"):
+                skip_col = col + 2
             continue
-        m = re.match(r"^(\s*)([\w.-]+):(?:\s|$)", raw)
+
+        m = re.match(r"^([\w.\-]+):(.*)$", stripped)
         if not m:
             continue
-        indent, key = len(m.group(1)), m.group(2)
-        while stack and indent < stack[-1][0]:
+        key, val = m.group(1), m.group(2).strip()
+        while stack and stack[-1][0] is not None and stack[-1][0] > col:
             stack.pop()
-        if not stack:
-            stack.append([indent, key, {key: n}])
-            continue
-        if indent == stack[-1][0]:
-            seen = stack[-1][2]
-            if key in seen:
-                out.append(f"{path.relative_to(ROOT)}:{n}: '{key}' is set twice in the block opened by "
-                           f"'{stack[-1][1]}' (first at line {seen[key]})")
-            seen[key] = n
-        else:
-            stack[-1][2][key] = n
-            stack.append([indent, key, {}])
+        if stack and stack[-1][0] is None:     # first child of a block: it decides the column
+            stack[-1][0] = col
+        if not stack or stack[-1][0] != col:
+            stack.append([col, key, {}])
+        frame = stack[-1]
+        seen = frame[2]
+        if key in seen:
+            out.append(f"{disp_path(path)}:{n}: '{key}' is set twice in the block opened by "
+                       f"'{frame[1]}' (first at line {seen[key]}) - Actions rejects the whole file for this, "
+                       f"and PyYAML will not: the later value simply wins")
+        seen[key] = n
+        if val == "":
+            stack.append([None, key, {}])      # a block follows; its column is not known yet
+        elif val.startswith("|") or val.startswith(">"):
+            skip_col = col
     return out
 
 
