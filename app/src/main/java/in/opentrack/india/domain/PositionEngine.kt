@@ -179,7 +179,8 @@ object PositionEngine {
         req.previous?.let { prev ->
             if (prev.anchorSeq > anchorNow) {
                 val kept = prev.copy(
-                    ageSeconds = age / 1000, provenance = provenance, feedAgeSeconds = feedAge,
+                    ageSeconds = age / 1000, provenance = provenance,
+                    feedAgeSeconds = feedAge, feedStampMillis = snap.feedStampMillis,
                 )
                 return Answer(
                     position = kept,
@@ -227,6 +228,7 @@ object PositionEngine {
                 confidence = confidence,
                 ageSeconds = age / 1000,
                 feedAgeSeconds = feedAge,
+                feedStampMillis = snap.feedStampMillis,
             ),
             anchorStopCode = route.stopAtSeq(anchorSeq)?.code,
             anchorStopName = route.stopAtSeq(anchorSeq)?.name,
@@ -304,6 +306,7 @@ object PositionEngine {
                 confidence = TrainPosition.Confidence.LOW,
                 ageSeconds = age / 1000,
                 feedAgeSeconds = feedAgeSeconds(snap, req),
+                feedStampMillis = snap.feedStampMillis,
             ),
             anchorStopCode = snap.atCode,
             anchorStopName = snap.atName,

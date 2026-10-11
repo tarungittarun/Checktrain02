@@ -105,6 +105,13 @@ object TrackModel {
         val hasDistances: Boolean,
         val note: String?,
         val anchorSeq: Int,
+        /**
+         * "feed stamped 07:56 IST", from the provider's own generation time, or blank when the source
+         * stamps nothing. Shown in the provenance disclosure beside the relative age: "4 min old" is the
+         * number that decides whether to trust the screen, and the clock is the number that lets you check
+         * it against your own.
+         */
+        val feedStampLabel: String = "",
     )
 
     /** Number of rows the timeline shows as "the train is here or past here". */
@@ -240,6 +247,7 @@ object TrackModel {
             headline = headline(route, pos, anchor, next, live, nowRailMinute),
             tone = tone(pos, live),
             provenanceLabel = pos.provenance.label,
+            feedStampLabel = pos.feedStampMillis?.let { "feed stamped ${RailTime.formatClock(it)} IST" } ?: "",
             isLive = live,
             // "1 min ago" on a screen with nothing to fetch is a small untruth with a big reach: the age
             // chip is the one place that says whether data arrived. `ageSeconds` is 0 for a schedule-only

@@ -349,6 +349,23 @@ class TrackModelTest {
     }
 
     @Test
+    fun theDisclosureCarriesTheFeedsOwnClockNotOnlyItsAge() {
+        // "4 min old" tells you whether to trust the screen; "stamped 07:56 IST" is what lets you check it
+        // against your own watch. Both come from the provider's stamp, and neither may be inferred from the
+        // moment our request happened to finish.
+        val stamp = RailTime.daysFromCivil(2026, 10, 11) * 86_400_000L + 7 * 3_600_000L +
+            56 * 60_000L - RailTime.IST_OFFSET_MILLIS
+        val m = model(pos = pos(2, 3, StopStatus.DEPARTED).copy(
+            feedAgeSeconds = 240L, feedStampMillis = stamp,
+        ))
+        assertTrue("said: ${m.feedStampLabel}", m.feedStampLabel.startsWith("feed stamped "))
+        assertTrue("said: ${m.feedStampLabel}", m.feedStampLabel.contains("IST"))
+        assertEquals("feed is current", m.ageLabel)
+        val unmarked = model(pos = pos(1, 2, StopStatus.DEPARTED, kind = SourceKind.OFFLINE_SCHEDULE))
+        assertEquals("", unmarked.feedStampLabel)
+    }
+
+    @Test
     fun aFeedOlderThanADayIsAdvertisedAsATimetable() {
         val m = model(pos = pos(2, 3, StopStatus.DEPARTED).copy(feedAgeSeconds = 3L * 86_400L))
         assertTrue("said: ${m.ageLabel}", m.ageLabel.contains("days old"))

@@ -208,6 +208,12 @@ data class TrainPosition(
      * asking the second one.
      */
     val feedAgeSeconds: Long? = null,
+    /**
+     * The provider's generation instant itself, kept next to the derived age so a screen can print the
+     * clock time a traveller can compare against their own watch ("stamped 07:56 IST"), not only the
+     * relative one. Null when the source stamps nothing.
+     */
+    val feedStampMillis: Long? = null,
 ) {
     enum class Confidence { HIGH, MEDIUM, LOW }
 }

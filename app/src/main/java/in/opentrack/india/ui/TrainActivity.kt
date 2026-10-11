@@ -183,6 +183,10 @@ class TrainActivity : AppCompatActivity() {
          */
         fun sourceText(m: TrackModel.View, tried: List<String>): String = buildString {
             append("Position source: ${m.provenanceLabel} · ${m.ageLabel}")
+            // The provider's own clock, when it publishes one. Kept out of the age chip because that chip is
+            // a few centimetres wide on a phone held at arm's length, and a clipped timestamp is worse than
+            // a missing one.
+            if (m.feedStampLabel.isNotEmpty()) append(" · ${m.feedStampLabel}")
             append("\nProviders tried this refresh: ")
             append(
                 if (tried.isEmpty()) "none — answered from the on-device timetable"
