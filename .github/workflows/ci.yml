@@ -29,10 +29,13 @@ jobs:
         with:
           python-version: '3.11'
       - name: Python gates compile
-        run: python3 -m py_compile tools/probe.py tools/test_probe.py
+        run: python3 -m py_compile tools/probe.py tools/test_probe.py tools/ci/report_failure.py tools/ci/test_report_failure.py
       - name: "Probe self-tests (brief 7.3: the gate gets its own test, dead-primary included)"
         working-directory: tools
         run: python3 test_probe.py
+      - name: "Reporter self-tests (brief 7.3: the mailman must be tested before he is trusted)"
+        working-directory: tools/ci
+        run: python3 test_report_failure.py
       - name: "Docs freshness (brief 13.3): tracker exists and a commit touching app/ touched STATUS.md"
         run: |
           test -f docs/STATUS.md || { echo "docs/STATUS.md missing"; exit 1; }
@@ -54,6 +57,8 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: write   # only for the failure self-reporter below
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -63,7 +68,14 @@ jobs:
       # (3 confirmations); this job is the 4th-measurement machinery, dated and archived.
       - name: Run the source probe ladder from the runner
         working-directory: tools
-        run: python3 probe.py ci
+        run: |
+          set -o pipefail
+          python3 probe.py ci 2>&1 | tee /tmp/probe.log
+      - name: Self-report on failure (logs host is unreadable from the sandbox — L-5/L-3)
+        if: failure()
+        env:
+          EXTRA_REPORT_FILES: /tmp/probe.log
+        run: python3 tools/ci/report_failure.py
       - uses: actions/upload-artifact@v4
         with:
           name: probe-ci-verdicts
@@ -84,7 +96,14 @@ jobs:
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
       - name: Assemble debug APK
-        run: ./gradlew --no-daemon :app:assembleDebug --stacktrace
+        run: |
+          set -o pipefail
+          ./gradlew --no-daemon :app:assembleDebug --stacktrace 2>&1 | tee /tmp/gradle.log
+      - name: Self-report on failure (logs host is unreadable from the sandbox — L-5/L-3)
+        if: failure()
+        env:
+          GRADLE_LOG: /tmp/gradle.log
+        run: python3 tools/ci/report_failure.py
       - name: Size report (ultra-lightweight is measured, not promised — brief 6.7)
         run: |
           APK=app/build/outputs/apk/debug/app-debug.apk
