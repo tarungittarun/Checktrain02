@@ -29,6 +29,10 @@ def parse(path: pathlib.Path) -> dict[str, str]:
     return out
 
 
+# Keys that describe the row rather than one instrumented pass.
+META = {"row", "desc", "boot", "variant", "coverage", "display", "tests", "monkey", "focus"}
+
+
 def main() -> int:
     root = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else "/tmp/rows")
     files = sorted(root.glob("*/status.txt"))
@@ -37,9 +41,19 @@ def main() -> int:
         print("::error::no e2e row reported anything - the matrix did not run")
         return 1
 
+    # Every other key in the status file is one instrumented pass (`TrackingFlowTest=passed`,
+    # `online=failed (...)`). The roll-up has to read them all: a harness that only knows about a
+    # single `all` pass would report a green row for a run that never executed the classes it names.
     def tests_of(r: dict[str, str]) -> str:
-        parts = [f"{k}={r[k]}" for k in ("all", "online", "offline") if k in r]
-        return "; ".join(parts) if parts else r.get("tests", "-")
+        passes = {k: v for k, v in r.items() if k not in META}
+        if not passes:
+            return r.get("tests", "-")
+        bad = sorted(k for k, v in passes.items() if "failed" in v or "not-run" in v)
+        line = f"{len(passes) - len(bad)}/{len(passes)} passes green"
+        if bad:
+            # The word "failed" must survive into this string: the gates below search for it.
+            line += "; failed: " + ", ".join(bad)
+        return line
 
     print("| row | boot | tests | variant | coverage |")
     print("| --- | --- | --- | --- | --- |")
@@ -52,12 +66,15 @@ def main() -> int:
         f"| {r.get('row', '?')} | {r.get('boot', '?')} | {tests_of(r)} | "
         f"{r.get('coverage', '-')} |" for r in rows) + "\n", encoding="utf-8")
 
-    booted = [r for r in rows if r.get("boot") == "ok"]
+    # `boot` carries the wall clock now ("ok 214s"), so this is a prefix test, not an equality.
+    booted = [r for r in rows if (r.get("boot") or "").startswith("ok")]
     if not booted:
-        print("::error::no emulator booted on any runner for this commit; the flow suites therefore did not "
-              "run. Either the images could not be downloaded or the runner has no /dev/kvm (GitHub-hosted "
-              "runners have none): use a self-hosted or KVM-capable runner, or run "
-              "`./gradlew :app:connectedDebugAndroidTest` on a machine with an emulator.")
+        print("::error::no emulator booted on any runner for this commit, so the flow suites did not run. "
+              "The boot log in each \`e2e-result-*\` artifact says which stage gave up (image download, AVD "
+              "creation, acceleration, or the framework never reporting boot_completed). GitHub's ubuntu "
+              "runners do expose /dev/kvm, so the usual causes are an image that cannot be fetched, a boot "
+              "that needs more heap than the row allowed (MEMORY / BOOT_TIMEOUT are env-overridable), or a "
+              "self-hosted runner without kvm.")
         return 1
     print(f"{len(booted)}/{len(rows)} rows booted an emulator and drove the APK.")
 
@@ -70,7 +87,7 @@ def main() -> int:
         return 1
     if failed:
         return 1
-    skipped = [r.get("row", "?") for r in rows if r.get("boot") != "ok"]
+    skipped = [r.get("row", "?") for r in rows if not (r.get("boot") or "").startswith("ok")]
     if skipped:
         print(f"note: rows that could not boot (acceleration): {', '.join(skipped)}")
     return 0
