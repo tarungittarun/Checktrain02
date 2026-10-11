@@ -177,24 +177,57 @@ def identity_from(doc):
 
 
 
-def erail_pair(src: str, dst: str, date_1: str) -> tuple[str, str]:
-    """One GET to erail.in for a station pair, returning (verdict, body). No key, no account, our no proxy.
+ERAIL_BASE = "https://erail.in/rail/getTrains.aspx"
 
-    The response is `~`-separated text (not JSON, not HTML tables), and its header embeds the feed stamp, so
-    a successful call tells us two things at once: which trains the railway lists for that pair *now*, and how
-    current that list is. That is the pair-search the app needs, and the offline dump's replacement.
-    """
-    url = ("https://erail.in/getTrains.aspx?Station_From=" + src + "&Station_To=" + dst +
-           "&Date_1=" + date_1 + "&Time_1=23:30&Trains=BOTH&Sort_Type=PVT&Date_Format=DD-MMM-YYYY")
-    req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "*/*"})
+
+def erail_get(query: str, timeout: int = 20) -> tuple[str, str]:
+    """One GET to erail.in. No key, no account, nothing of ours in the middle."""
+    req = urllib.request.Request(ERAIL_BASE + "?" + query,
+                                 headers={"User-Agent": UA, "Accept": "*/*"})
     try:
-        with urllib.request.urlopen(req, timeout=20) as r:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
             body = r.read(400_000).decode("utf-8", "replace")
             return f"HTTP {getattr(r, 'status', 200)} {len(body)}B", body
     except urllib.error.HTTPError as e:
         return f"HTTP {e.code}", ""
     except Exception as e:
-        return f"{type(e).__name__}: {str(e)[:90]}", ""
+        return f"{type(e).__name__}: {str(e)[:70]}", ""
+
+
+def erail_candidates(src: str, dst: str, date_1: str) -> list[str]:
+    """The pair query in every shape the site is known to accept, best guess first.
+
+    All of them are tried in one run on purpose: the runner is the only machine that can ask, and a round that
+    answers "does erail work from CI" for exactly one URL costs a build and a day. The 404 we already measured
+    stays in the list as a control - the path is /rail/getTrains.aspx, not /getTrains.aspx, and a report that
+    proves the difference is worth more than one that quietly uses the right one.
+    """
+    numeric = date_1
+    for fmt in ("%d-%b-%Y", "%d-%m-%Y", "%d/%m/%Y"):
+        try:
+            numeric = datetime.datetime.strptime(date_1, fmt).strftime("%d-%m-%Y")
+            break
+        except ValueError:
+            continue
+    common = f"Station_From={src}&Station_To={dst}&Trains=BOTH&Sort_Type=PVT&Language=0&DataSource=1"
+    return [
+        f"{common}&Date_1={numeric}&Time_1=23:30&Date_Format=DD-MM-YYYY",
+        f"{common}&Date_1={date_1}&Time_1=23:30&Date_Format=DD-MMM-YYYY",
+        common,
+        f"https://erail.in/getTrains.aspx?{common}".replace("https://erail.in/getTrains.aspx?", ""),
+    ]
+
+
+def erail_pair(src: str, dst: str, date_1: str, get=erail_get) -> tuple[str, str]:
+    """Try the pair query until one answers, and report every attempt either way."""
+    seen: list[str] = []
+    for q in erail_candidates(src, dst, date_1):
+        verdict, body = get(q)
+        seen.append(f"{verdict} [{q[:46]}…]")
+        if verdict.startswith("HTTP 200") and len(body) > 200:
+            tail = "" if not seen[:-1] else f" · after {len(seen)} attempt(s); earlier: " + " ; ".join(seen[:-1])
+            return verdict + tail, body
+    return "no candidate answered · " + " ; ".join(seen), ""
 
 
 def probe_pair(src_code: str, dst_code: str, must: list[str], date_dalvik: str,
@@ -252,6 +285,37 @@ def probe_pair(src_code: str, dst_code: str, must: list[str], date_dalvik: str,
 
 
 
+def erail_identity_lines(train_no: str, live: dict, get=erail_get) -> list[str]:
+    """"What does this number mean today", asked of the keyless source that CI can actually reach.
+
+    This is the one fact our offline copy got wrong (16228 was a different train), and the one fact a human
+    screenshot can pin but not keep pinned. If this reads OK from a runner, fixtures/known_truths.json stops
+    depending on somebody's phone and becomes refreshable by the pipeline - which is the whole difference
+    between a data bug that lasts four months and one that lasts one night.
+    """
+    out = [f"identity via erail.in · ", ""]
+    verdict, body = get(f"TrainNo={train_no}&DataSource=1&Language=0")
+    out[0] = f"identity of {train_no} via erail.in · {verdict}"
+    out.pop()
+    rec = body.splitlines()[0][:300] if body else ""
+    fields = [f.strip() for f in rec.split("~") if f.strip()]
+    out.append("  first record fields: " + (", ".join(fields[:8]) or "(nothing)"))
+    if len(fields) >= 4:
+        # Only three-letter codes are trusted as stations; anything else is a column we mis-counted, and a
+        # half-parsed identity is worse than none because it looks like a fact.
+        # Codes are 3-5 chars and 4-letter ones are common (SMET, TLGP, SBC), so slicing to 3 would silently
+        # turn SMET into MET. A test caught that here, which is the argument for testing the probe too.
+        import re as _re
+        _code = _re.compile(r"^[A-Z0-9]{3,5}$")
+        src, dst = fields[2].strip().upper(), fields[3].strip().upper()
+        if _code.match(src) and _code.match(dst):
+            live["trains"].append({"train_no": train_no, "name": fields[1][:60], "from": src, "to": dst})
+        else:
+            out.append(f"  not recorded as a truth: station fields parsed as {src!r}/{dst!r}")
+    return out
+
+
+
 def main() -> int:
     out: list[str] = []
     if not crypto_available():
@@ -291,6 +355,11 @@ def main() -> int:
         ):
             verdict, doc = call(plain)
             out.append(f"\n### train {train} · {label} · {verdict}")
+            if label == "identity":
+                # Asked whether or not NTES answered: a disagreement between the two is the finding, and a
+                # witness gated on the thing it is a witness for is no witness (lesson 14, applied here
+                # because my first version of this very line sat below `if doc is None: continue`).
+                out += erail_identity_lines(train, live)
             if doc is None:
                 continue
             if capture:

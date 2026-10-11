@@ -77,5 +77,32 @@ class FlatShapes(unittest.TestCase):
         self.assertIsNone(plf.flat_table({"a": 1}))
 
 
+class ErailWitness(unittest.TestCase):
+    def test_identity_is_asked_even_when_the_primary_died(self):
+        # The pair probe had this bug; this case exists so the identity probe cannot grow it back.
+        asked = []
+        live = {"trains": []}
+        lines = plf.erail_identity_lines("16228", live,
+                                        get=lambda q: (asked.append(q) or
+                                                       ("HTTP 200 400B", "16228~TALGUPPA MYSURU EXP~SMET~MYS~x")))
+        self.assertTrue(asked and "TrainNo=16228" in asked[0])
+        self.assertTrue(any("identity of 16228 via erail.in" in l for l in lines))
+        self.assertEqual([{"train_no": "16228", "name": "TALGUPPA MYSURU EXP", "from": "SMET", "to": "MYS"}],
+                         live["trains"], "4-letter codes must survive parsing intact")
+
+    def test_a_miscounted_column_is_reported_not_recorded(self):
+        live = {"trains": []}
+        lines = plf.erail_identity_lines("16228", live,
+                                        get=lambda q: ("HTTP 200 60B", "16228~NAME~TALGUPPA TOWN~16228"))
+        self.assertEqual([], live["trains"], "a half-parsed identity must not become a fact")
+        self.assertTrue(any("not recorded as a truth" in l for l in lines))
+
+    def test_date_forms_cover_both_styles_the_site_accepts(self):
+        qs = plf.erail_candidates("SMET", "MYS", "12-Oct-2026")
+        self.assertIn("Date_1=12-10-2026", qs[0], "the DD-MM-YYYY candidate must be numeric")
+        self.assertIn("Date_1=12-Oct-2026", qs[1])
+        self.assertEqual(4, len(qs), "the 404 control stays in the ladder so the report proves the path")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

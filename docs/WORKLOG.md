@@ -420,3 +420,24 @@ emulator verification (so they stop installing APKs), and a resumable status rec
 What this changes on the phone: the status line stops implying the timetable is current, and CI prints the
 contradictions between our data and the railway's. What it does NOT fix: the data is still wrong until the live
 pair search (C15) lands - that is round 10, and it is now the first `NEXT` line in `docs/v2/STATUS.md`.
+
+## Round 11 (12 Oct, 00:4x) — v2-fresh accepted; the probe became a real instrument
+
+Owner created `v2-fresh` from tag `v2-restart` (→ 52cd940) ✓ verified against `gh api .../branches`. Remote now:
+`main` 9a0514d (untouched), `arena/...` = working ref, `v2-fresh` = the accepted baseline for milestone PRs.
+
+CI on `db2e152`: checks/debug APK/tests+screens/probe all success. Its probe comment answered the Stage-0
+question and exposed two of my own bugs:
+1. `erail.in` from a runner = **HTTP 404, not a timeout** → the host is reachable from CI; my path was wrong.
+   The app already knows the working path (`/rail/getTrains.aspx`, used by `ErailWire`/`LiveFeedFieldTest`), and
+   my probe had invented `/getTrains.aspx`. Fixed: the probe now uses the app's own base, and tries 4 candidate
+   query shapes in one run (numeric DD-MM-YYYY first, DD-MMM-YYYY, bare, plus the 404 path as a control) so a
+   single CI pass settles "which URL works" instead of costing a build per guess.
+2. The identity witness was placed below `if doc is None: continue` — lesson 14's exact defect, reintroduced
+   while writing the fix for it. Extracted `erail_identity_lines()`, called unconditionally, and covered by
+   `tools/ci/test_probe_live_feed.py` (now 9 tests). One test immediately caught a third bug: `fields[2][-3:]`
+   truncated `SMET` to `MET`, i.e. my own probe was about to invent wrong station codes while gating the app on
+   invented station codes.
+Why it matters: erail answers "what is this number today" without a key, and CI can reach it. That is the first
+path by which `fixtures/known_truths.json` - and therefore the app's data-trust verdict - refreshes itself
+overnight instead of waiting on a phone screenshot.
