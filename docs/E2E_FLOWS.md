@@ -107,7 +107,17 @@ things happened. They need different responses, and conflating them is how a har
 | `boot=ok` with `all=failed (no test summary…)` | `am instrument` died before reporting, usually an install or signature problem | read `/tmp/instrument-all.log` in the `e2e-result-<row>` artifact; the debug-signed test APK and the app must share a key, which is why CI signs the release APK with the debug keystore |
 | `all=failed` with a JUnit stack | a real assertion failed on a real device | the same artifact holds `screenshots.tgz` and the `*.xml` window hierarchy for every assertion, tagged per flow |
 
-`report` turns the four rows into a table and fails the run when *no* row booted (there is then no evidence
+Each row posts a comment on the commit even when it is green, led by PASS / FAIL / NO DEVICE and carrying
+the boot seconds, one line per instrumented class (pass or fail, and how long it took), the coverage figure
+and the monkey verdict — the value of a run is proportional to how much of it you can read afterwards.
+
+Two rows run on an ordinary push (`api34`, `min24`); the density and release rows run on a
+`workflow_dispatch` with the `full` checkbox, on a pull request, and on `main`. A dispatch also takes
+`focus: TrackingFlowTest` to re-run one class in a few minutes instead of an hour, and `monkey_events: 0` to
+skip the stability pass. That is a cost decision, not a coverage one: the flows are the same list, and `plan`
+gates them on every event either way.
+
+`report` turns the rows into a table and fails the run when *no* row booted (there is then no evidence
 at all) or when the minSdk row's tests failed (the floor of the supported range is not optional). A modern
 row failing to boot while another row ran the suite is recorded and left red-in-the-table rather than
 red-in-the-build, because that row is a coverage question about new APIs, not about whether the app works.

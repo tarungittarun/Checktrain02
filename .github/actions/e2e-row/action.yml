@@ -228,7 +228,6 @@ runs:
             echo "$label=passed" >> /tmp/tests.txt
           fi
         }
-        # Cold-start and the flow suites in one pass; `pm clear` above is what makes the first-run case real.
         # The cold-start flow is given its own pass rather than being left to the scheduler: inside the
         # `all` pass it only tests a cold start if AndroidJUnitRunner happens to run ColdStartFlowTest
         # first, and a coin toss is not evidence. `pm clear` here means the app has genuinely never seen
