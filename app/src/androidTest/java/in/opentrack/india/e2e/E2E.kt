@@ -2,7 +2,6 @@ package `in`.opentrack.india.e2e
 
 import android.content.Context
 import android.content.Intent
-import android.graphics.Bitmap
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.BySelector
@@ -10,7 +9,6 @@ import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.UiObject2
 import androidx.test.uiautomator.Until
 import java.io.File
-import java.io.FileOutputStream
 
 /**
  * The one way this suite touches the app: pixels, resource ids and the accessibility tree — what a person
@@ -102,7 +100,14 @@ object E2E {
      */
     fun launch(cold: Boolean = false) {
         val ctx = context()
-        if (cold) check(installedDbMissing() || !flag("requireCleared")) { "expected a wiped app data dir" }
+        if (cold && flag("requireCleared")) {
+            // The harness promised `pm clear` before this launch. If the timetable database is already
+            // there, the "first run" this row is reporting on is a warm run, and every cold-start
+            // assertion below it would be measuring the wrong thing.
+            check(installedDbMissing()) {
+                "cold row launched against an app that already has its timetable installed"
+            }
+        }
         val intent = ctx.packageManager.getLaunchIntentForPackage(PKG)
             ?: error("no launcher activity in $PKG — the APK is not the one this suite was built for")
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
@@ -135,14 +140,10 @@ object E2E {
     /** Screenshots and hierarchies are the evidence a red device run needs; nobody reads a stack trace. */
     fun shot(tag: String) {
         val dir = evidenceDir() ?: return
-        runCatching {
-            val bmp: Bitmap? = ui.takeScreenshot()
-            if (bmp != null) {
-                FileOutputStream(File(dir, "$tag.png")).use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
-                bmp.recycle()
-            }
-        }
-        runCatching { FileOutputStream(File(dir, "$tag.xml")).use { ui.dumpWindowHierarchy(it) } }
+        // Both calls take the destination File: `UiDevice` has no bitmap-returning screenshot, and the
+        // hierarchy writer wants a stream only in the sense that it writes the file itself.
+        runCatching { ui.takeScreenshot(File(dir, "$tag.png")) }
+        runCatching { ui.dumpWindowHierarchy(File(dir, "$tag.xml")) }
     }
 
     private fun evidenceDir(): File? {
@@ -151,13 +152,23 @@ object E2E {
         return if (dir.mkdirs() || dir.isDirectory) dir else null
     }
 
-    /** Display metrics for the geometry assertions: dp is the unit the layouts are written in. */
-    fun widthDp(): Int = ui.displayWidthDp
-    fun heightDp(): Int = ui.displayHeightDp
+    /**
+     * Display metrics for the geometry assertions: dp is the unit the layouts are written in.
+     *
+     * Taken from the target app's own `Resources` rather than from `UiDevice`, because the density and size
+     * a layout is actually measured against is the one its `Context` reports - which is also the thing a
+     * `wm density` override changes, which is what the large-screen runner row is doing.
+     */
+    fun densityDpi(): Int = context().resources.displayMetrics.densityDpi
+    fun widthDp(): Int = dp(context().resources.displayMetrics.widthPixels)
+    fun heightDp(): Int = dp(context().resources.displayMetrics.heightPixels)
+    private fun dp(px: Int): Int = (px * 160f / densityDpi()).toInt()
 
+    // `RefDb` keeps the extracted timetable at `filesDir/refdb.db`. The name is hardcoded here on
+    // purpose: this suite does not compile against the app's classes, so a path rename is a change the
+    // cold-start flow should notice rather than absorb.
     private fun installedDbMissing(): Boolean = try {
-        val db = File(context().getDatabasePath("refdb").parentFile, ".")
-        !File(db, "refdb").exists() && !File(context().filesDir, "ref").exists()
+        !File(context().filesDir, "refdb.db").exists()
     } catch (e: Throwable) {
         true // an unreadable data dir is not evidence that the app is warm
     }
