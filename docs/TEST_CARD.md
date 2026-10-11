@@ -53,10 +53,17 @@ tracking. Timetables are inside the app, so the whole thing works in airplane mo
 
 1. Go **Back**, tap **Data source**.
 2. Tap **Turn on collection** under *Diagnostic log*. The line below should start saying *Collecting · … bytes*.
-3. Open the same train again, wait about 40 seconds, then tap **Refresh** once.
-4. Go back to **Data source** → **Share** (or **Save to file** if sharing is awkward). Send it to whoever asked
-   you to test.
-5. Two more answers, in the same minute, both take 15 seconds:
+3. Open the same train again, count to 10, then tap **Refresh** once. It should not feel like it is thinking
+   for half a minute: the app now stops waiting at about 7 seconds per source and tells you that it did.
+4. Go back to **Data source** → **Save to file** and pick a folder (this is the path that now works: the button
+   used to report "the picker was closed" whatever you chose, because it read a value nothing ever assigned).
+   **Share** still works too, and either way send the whole file - the useful part is in the middle, not the
+   top.
+5. One glance at the lines that start **`[TLS]`** tells you what the report will be read for: `handshake ok`
+   means the encrypted layer completed and the argument is about the request; `fail:...` on that line means the
+   connection never got to the railway at all, and no change to this app can fix that minute. If the line above
+   it (`[TCP]`) also failed twice, the network - not the app, not the railway - is the finding.
+6. Two more answers, in the same minute, both take 15 seconds:
    - In **Chrome** on that phone, open `https://enquiry.indianrail.gov.in/ntes/`. Does the page load? (Yes +
      "OFFLINE in the app" is the single most useful answer you can give us.)
    - Turn **Wi-Fi off**, use mobile data only, tap **Refresh** once. Does the pill change? **And with Wi-Fi still
