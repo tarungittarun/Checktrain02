@@ -131,3 +131,22 @@ Resume line: **first DOING is T9.5 → its first NEXT child is T13.6** (erail ca
 T13.8. Open owner question: exactly one (T13.5, one word). The previous session's emulator rows may land after
 this round's report — read them before starting M2 implementation, since they are the last untested axis
 (API 24 floor, density, release/R8) for the tree this session inherited.
+
+*(T13.5 answered and the T13.6–T13.8 work happened in round 14 below; the round-13 HANDOFF text is kept
+verbatim because the audit trail matters more than tidiness.)*
+
+## Round 14 — owner word applied, capture mechanism shipped, C15 scaffold (2026-10-12)
+
+Owner answered the round-13 question: **16221 is the KUVEMPU EXPRESS** — erail's live answer was right and the
+fixture's KAVERI MAS→MYS assertion was wrong. Everything this round follows from that plus brief 7.7(a).
+
+| id | micro-task | state | verified-by | next action | needs-device |
+|---|---|---|---|---|---|
+| T14.1 | 16221 corrected to `KUVEMPU EXPRESS TLGP→MYS` in `fixtures/known_truths.json`, by owner word (chat, 2026-10-12), seconded by the erail live answer; `verifiedOn`→2026-10-12; correction provenance written into the note so no tool re-litigates it | **DONE** | fixture diff in this commit; the ETL re-runs the gate in CI (build stays green per 7.4) | read the gate's new verdict line for 16221 in the next asset build log | no |
+| T14.2 | Capture mechanism (4.5's "deliverable is the capture mechanism"): e2e probe job now sets `PROBE_CAPTURE`, uploads a `probe-capture` artefact, and posts the **raw erail pair body as a commit comment** (artefact hosts are unreachable from the sandbox — the comment is the sandbox-readable path); `probe_pair` returns the body verbatim | **DOING — proven locally, CI verdict pending** | `test_probe_live_feed.py` 14/14 green incl. the capture-comment test; probe job of this push is the first that captures | next round: read the `### live-feed capture` comment on this push's probe job → commit the SMET→MYS body as a small attributed dated fixture (2.5) | no |
+| T14.3 | `tools/ci/known_truths_refresh.py` — PRINT-ONLY refresher: per-fact AGREE / CONTRADICTION / UNVERIFIABLE, contradictions flagged with both values (never applied), dead network deletes nothing; 9 tests incl. an AST guard that it contains no write-mode open | **DONE** | `test_known_truths_refresh.py` 9/9 green locally; wired into `checks` job; sandbox smoke run printed all-UNVERIFIABLE honestly (erail blocked here) | the weekly job (15.6) pastes its report | no |
+| T14.4 | DEFECT (tooling, caught before a phone): the erail identity parser read `fields[2]/[3]` as station codes — an imagined shape — so **every CI identity answer was silently rejected** ("station fields parsed as 'TLGP MYS EXP'/'TALGUPPA'"). Rewritten anchored on the `^number` field, tested against the four REAL records from the ac06f62 probe comment | **DONE** | `ErailIdentityParser` tests (real 16221 + 12627 records verbatim); the defect was caught BY writing the test from the capture first | next CI probe should record identities in its proposal — verify, it is the regression proof | no |
+(rows T14.5/T14.6/DEFECT-1 land with the v2 source commit in this same push)
+
+Round-14 CI verdicts and the previous session's emulator rows are appended to the PR (#2) body thread as read.
+

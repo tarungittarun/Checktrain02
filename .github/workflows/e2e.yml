@@ -81,6 +81,11 @@ jobs:
         continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          # The capture directory is the point of the run: a parser may only be written against a captured
+          # payload (brief 4.5), and the runner is the only machine that can ask. The probe also posts the
+          # raw erail pair body as a commit comment, because artefact storage is unreachable from the
+          # sandbox where the parser is written.
+          PROBE_CAPTURE: ${{ github.workspace }}/probe-capture
         run: |
           set +e
           echo "::notice::[probe] step 1: installing the AES dependency"
@@ -90,6 +95,14 @@ jobs:
           rc=$?
           echo "probe finished with rc=$rc"
           exit 0
+      - name: Keep the raw bodies (a parser may only be written against a capture - 4.5)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: probe-capture
+          path: probe-capture
+          if-no-files-found: warn
+          retention-days: 14
   plan:
     runs-on: ubuntu-latest
     outputs:

@@ -13,8 +13,8 @@
   "presence (does a station pair list this train at all) are the two things that do not move under a",
   "passenger's feet and are exactly the two things the app got wrong on 11 Oct 2026."
  ],
- "verifiedOn": "2026-10-11",
- "verifiedAgainst": "Where Is My Train (live IR feed) on the product owner's device, 23:20 IST, plus the app's own screenshot of the same train",
+ "verifiedOn": "2026-10-12",
+ "verifiedAgainst": "Where Is My Train (live IR feed) on the product owner's device, 23:20 IST 2026-10-11, plus the app's own screenshot of the same train; 16221 re-verified and corrected 2026-10-12 by owner word, seconded by the erail.in live answer from the CI probe on ac06f62",
  "trains": [
   {
    "train_no": "16228",
@@ -32,10 +32,10 @@
   },
   {
    "train_no": "16221",
-   "name": "KAVERI EXPRESS",
-   "from": "MAS",
+   "name": "KUVEMPU EXPRESS",
+   "from": "TLGP",
    "to": "MYS",
-   "note": "Our dump holds it as MYS->MAS, i.e. the reverse. If a train exists but is keyed backwards, every station-pair search in one direction silently loses it - which is what 'most of the trains are missing' looked like from the passenger's side."
+   "note": "CORRECTED 2026-10-12 by owner word (the acceptance authority): 16221 is the KUVEMPU EXPRESS, agreeing with erail.in's live identity answer of 2026-10-12 (CI probe on ac06f62: 'TLGP-MYS KUVEMPU EXPRESS', TLGP->MYS) and with erail listing 16221 on the SMET->MYS pair. The earlier entry (KAVERI EXPRESS, MAS->MYS, from the 23:20 IST 11 Oct reading) was wrong and is superseded here, with provenance, so a tool never re-litigates it silently."
   }
  ],
  "pair_lists": [

@@ -35,8 +35,8 @@ class ProbeFallback(unittest.TestCase):
             return "HTTP 200 900B", ("16228~TALGUPPA MYSURU EXP~SMET~22:10~MYS~07:00~2026-10-11-7-56-55~\n"
                                      "16226~SOME OTHER~SMET~11:25~MYS~17:05~x~\n")
 
-        lines, entry = plf.probe_pair("SMET", "MYS", ["16228"], "12-Oct-2026", TODAY,
-                                      fetch=lambda plain: DEAD, alt=alt)
+        lines, entry, e_body = plf.probe_pair("SMET", "MYS", ["16228"], "12-Oct-2026", TODAY,
+                                              fetch=lambda plain: DEAD, alt=alt)
         self.assertEqual([(  "SMET", "MYS", "12-Oct-2026")], asked, "alternate must be asked even when primary failed")
         self.assertTrue(any("erail.in (alternate)" in ln for ln in lines), lines)
         self.assertTrue(any("primary gave nothing usable" in ln for ln in lines),
@@ -44,19 +44,69 @@ class ProbeFallback(unittest.TestCase):
         self.assertIsNotNone(entry, "an alternate-only answer still produces a proposed fact")
         self.assertIn("16228", entry["must_include"])
         self.assertIn("16226", entry["must_include"])
+        self.assertIn("16228~TALGUPPA MYSURU EXP", e_body,
+                      "the raw body comes home: a parser may only be written against a capture (4.5)")
 
     def test_no_entry_and_no_lie_when_both_sources_are_dead(self):
-        lines, entry = plf.probe_pair("SMET", "MYS", ["16228"], "12-Oct-2026", TODAY,
-                                      fetch=lambda plain: DEAD, alt=lambda a, b, c: ("URLError: timed out", ""))
+        lines, entry, e_body = plf.probe_pair("SMET", "MYS", ["16228"], "12-Oct-2026", TODAY,
+                                              fetch=lambda plain: DEAD,
+                                              alt=lambda a, b, c: ("URLError: timed out", ""))
         self.assertIsNone(entry, "unreachable must never become an empty-but-confident fact list")
         self.assertTrue(any("erail.in (alternate)" in ln for ln in lines), "the block must still be reported")
+        self.assertEqual("", e_body, "no body means no capture, and the capture comment must not exist")
 
     def test_a_fixture_claim_contradicted_by_both_sources_is_called_out(self):
         alt_body = "16226~X~SMET~11:25~MYS~17:05~2026-10-11-7-56-55~\n"
-        lines, entry = plf.probe_pair("SMET", "MYS", ["16228"], "12-Oct-2026", TODAY,
-                                      fetch=lambda plain: ("ok", {"TRAINNO": ["16226"], "STN": ["MYS"]}),
-                                      alt=lambda a, b, c: ("HTTP 200 60B", alt_body))
+        lines, entry, e_body = plf.probe_pair("SMET", "MYS", ["16228"], "12-Oct-2026", TODAY,
+                                              fetch=lambda plain: ("ok", {"TRAINNO": ["16226"], "STN": ["MYS"]}),
+                                              alt=lambda a, b, c: ("HTTP 200 60B", alt_body))
         self.assertTrue(any("erail does not list 16228 either" in ln for ln in lines), lines)
+        self.assertEqual(alt_body, e_body)
+
+    def test_the_capture_comment_carries_the_verbatim_body_for_the_parser(self):
+        body = "16228~TLGP MYS EXP~TLGP~22:10~MYS~07:00~2026-10-11-7-56-55~\n" * 3
+        md = plf.erail_capture_comment([("SMET", "MYS", "HTTP 200 150B", body)], "2026-10-12T00:43:30+05:30")
+        self.assertIsNotNone(md)
+        self.assertIn("### live-feed capture (erail pair, raw body)", md)
+        self.assertIn("2026-10-11-7-56-55", md, "the feed stamp travels with the capture")
+        self.assertIn("16228~TLGP MYS EXP~TLGP~22:10~MYS~07:00", md, "verbatim, not a re-serialization")
+        self.assertIsNone(plf.erail_capture_comment([], "x"), "no bodies, no comment")
+        self.assertIsNone(plf.erail_capture_comment([("SMET", "MYS", "URLError: timed out", "")], "x"),
+                          "a dead fetch produces no capture either")
+
+    def test_the_proposal_skeleton_carries_the_merge_rule(self):
+        p = plf.new_proposal(TODAY, "CI probe test")
+        self.assertEqual(plf.PROPOSAL_RULE, p["_proposal_rule"])
+        self.assertIn("never delete an owner-verified fact", p["_proposal_rule"],
+                      "the ac06f62 proposal said trains:[] - the rule now travels inside the proposal")
+
+
+class ErailIdentityParser(unittest.TestCase):
+    """One parser of the getTrains.aspx record shape, shared by probe and refresher (4.4).
+
+    The well-formed cases are the REAL first lines captured by the ac06f62 probe comment (2026-10-12),
+    not invented ones - the previous field-offset parser never worked on a single real payload, which is
+    why four CI identity answers all ended in 'not recorded as a truth'.
+    """
+
+    def test_the_real_16221_record_parses(self):
+        rec = plf.parse_identity_record(
+            "2026-10-4-14-57-35~^16221~TLGP-MYS KUVEMPU EXPRESS~Talguppa~TLGP~Mysore Jn~MYS~Talguppa")
+        self.assertEqual({"name": "TLGP-MYS KUVEMPU EXPRESS", "from": "TLGP", "to": "MYS"}, rec)
+
+    def test_the_real_12627_record_parses(self):
+        rec = plf.parse_identity_record(
+            "2026-10-9-20-38-40~^12627~KARNATAKA EXP~Ksr Bengaluru~SBC~New Delhi~NDLS~Ksr Bengaluru")
+        self.assertEqual({"name": "KARNATAKA EXP", "from": "SBC", "to": "NDLS"}, rec)
+
+    def test_a_number_never_parses_as_a_station(self):
+        rec = plf.parse_identity_record("2026-10-4-15-36-31~^16228~TLGP MYS EXP~Talguppa~TLGP~Mysore Jn~MYS~Talguppa")
+        self.assertEqual("TLGP", rec["from"])
+        self.assertEqual("MYS", rec["to"])
+        self.assertIsNone(plf.parse_identity_record("16228~NAME~TALGUPPA TOWN~16228"),
+                          "the trailing 16228 is a number, not a station; with no codes this is None")
+        self.assertIsNone(plf.parse_identity_record(""))
+        self.assertIsNone(plf.parse_identity_record("no anchor~in~this~line~at~all"))
 
     def test_feed_stamp_is_read_from_the_payload(self):
         # The stamp is how a keyless text answer carries "how current am I"; without it we are back to

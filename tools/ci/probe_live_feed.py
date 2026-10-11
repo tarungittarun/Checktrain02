@@ -232,8 +232,12 @@ def erail_pair(src: str, dst: str, date_1: str, get=erail_get) -> tuple[str, str
 
 def probe_pair(src_code: str, dst_code: str, must: list[str], date_dalvik: str,
                today: datetime.datetime, capture: str | None = None,
-               fetch=call, alt=erail_pair) -> tuple[list[str], dict | None]:
+               fetch=call, alt=erail_pair) -> tuple[list[str], dict | None, str]:
     """One station pair, asked of both keyless sources, with the alternate tried no matter what.
+
+    Returns (report lines, proposed pair fact or None, erail body verbatim or ""). The body is returned so
+    the run can carry the *raw* answer home: a parser may only be written against a captured payload (4.5),
+    and the commit comment built from it is the only capture path readable from outside CI's blob storage.
 
     The `fetch=call, alt=erail_pair` injection exists for one reason: a test must be able to say "the primary
     timed out" and check that the alternate still got asked. The first version of this function put the erail
@@ -267,6 +271,10 @@ def probe_pair(src_code: str, dst_code: str, must: list[str], date_dalvik: str,
     out.append(f"### pair {src_code}->{dst_code} · erail.in (alternate) · {e_verdict}")
     e_nums: list[str] = []
     if e_body:
+        if capture:
+            with open(os.path.join(capture, f"pair-erail-{src_code}-{dst_code}.txt"), "w",
+                      encoding="utf-8") as fh:
+                fh.write(e_body)
         import re as _re
         stamp = _re.search(r"(\d{4}-\d{2}-\d{2}-\d{1,2}-\d{1,2}-\d{1,2})", e_body)
         e_nums = sorted(set(_re.findall(r"\b(\d{5})\b", e_body[:200000])))
@@ -281,8 +289,41 @@ def probe_pair(src_code: str, dst_code: str, must: list[str], date_dalvik: str,
             live_entry = {"from": src_code, "to": dst_code, "must_include": sorted(e_nums)}
         else:
             live_entry["must_include"] = sorted(set(live_entry["must_include"]) | set(e_nums))
-    return out, live_entry
+    return out, live_entry, e_body
 
+
+
+def _is_station_code(f: str) -> bool:
+    """3-5 alphanumerics with at least one letter. Pure digits are numbers, not stations - and accepting
+    them once let a train number parse as a station. Codes are never sliced to 3 (that turned SMET into MET)."""
+    return 3 <= len(f) <= 5 and f.isalnum() and any(c.isalpha() for c in f)
+
+
+def parse_identity_record(body: str) -> dict | None:
+    """First record of a getTrains.aspx identity reply -> {name, from, to}, or None when it is not one.
+
+    Written against the four real records the ac06f62 probe captured from CI (16228/16226/16221/12627),
+    which all read: <feed-stamp>~^<number>~<name>~<from station name>~<FROM>~<to station name>~<TO>~...
+    The previous version read fields[2]/fields[3] as the codes - an imagined shape - so every real CI
+    answer was rejected as 'station fields parsed as TLGP MYS EXP/TALGUPPA' and no identity ever landed
+    in a proposal. The parser now anchors on the ^number field, takes the name after it, and accepts only
+    validated station codes from there; anything else is None, never a half-parsed fact (4.5).
+    """
+    rec = body.splitlines()[0][:400] if body else ""
+    if not rec:
+        return None
+    import re as _re
+    fields = [f.strip() for f in rec.split("~")]
+    num_at = next((i for i, f in enumerate(fields) if _re.fullmatch(r"\^?\d{4,5}", f)), None)
+    if num_at is None or num_at + 1 >= len(fields):
+        return None
+    name = fields[num_at + 1]
+    if not name or len(name) > 60:
+        return None
+    codes = [f.upper() for f in fields[num_at + 2:] if _is_station_code(f.upper())]
+    if len(codes) < 2:
+        return None
+    return {"name": name, "from": codes[0], "to": codes[1]}
 
 
 def erail_identity_lines(train_no: str, live: dict, get=erail_get) -> list[str]:
@@ -293,26 +334,66 @@ def erail_identity_lines(train_no: str, live: dict, get=erail_get) -> list[str]:
     depending on somebody's phone and becomes refreshable by the pipeline - which is the whole difference
     between a data bug that lasts four months and one that lasts one night.
     """
-    out = [f"identity via erail.in · ", ""]
+    out = [f"identity of {train_no} via erail.in · ", ""]
     verdict, body = get(f"TrainNo={train_no}&DataSource=1&Language=0")
     out[0] = f"identity of {train_no} via erail.in · {verdict}"
     out.pop()
-    rec = body.splitlines()[0][:300] if body else ""
-    fields = [f.strip() for f in rec.split("~") if f.strip()]
-    out.append("  first record fields: " + (", ".join(fields[:8]) or "(nothing)"))
-    if len(fields) >= 4:
-        # Only three-letter codes are trusted as stations; anything else is a column we mis-counted, and a
-        # half-parsed identity is worse than none because it looks like a fact.
-        # Codes are 3-5 chars and 4-letter ones are common (SMET, TLGP, SBC), so slicing to 3 would silently
-        # turn SMET into MET. A test caught that here, which is the argument for testing the probe too.
-        import re as _re
-        _code = _re.compile(r"^[A-Z0-9]{3,5}$")
-        src, dst = fields[2].strip().upper(), fields[3].strip().upper()
-        if _code.match(src) and _code.match(dst):
-            live["trains"].append({"train_no": train_no, "name": fields[1][:60], "from": src, "to": dst})
-        else:
-            out.append(f"  not recorded as a truth: station fields parsed as {src!r}/{dst!r}")
+    rec = parse_identity_record(body)
+    if rec is None:
+        first = body.splitlines()[0][:120] if body else ""
+        out.append("  not recorded as a truth: " + (f"first record fields: {first!r}" if first else "(nothing)"))
+        return out
+    out.append("  first record fields: " + ", ".join(f"{k}={rec[k]}" for k in ("name", "from", "to")))
+    live["trains"].append({"train_no": train_no, **rec})
     return out
+
+
+# The proposal a probe or refresher prints is a per-fact merge suggestion, never a replacement file. The
+# ac06f62 probe comment proved the footgun: its proposed refresh carried "trains": [] because NTES was
+# unreachable, and one human paste away from erasing three owner-verified identities. So the rule travels
+# INSIDE the proposal, where the human reading it cannot miss it.
+PROPOSAL_RULE = (
+    "per-fact merge proposal, NOT a replacement: apply only rows you have read; never delete an "
+    "owner-verified fact that is absent here (absent means we could not check it, not that it moved); "
+    "a live claim that contradicts an owner-verified fact needs an owner word before it is applied"
+)
+
+
+def new_proposal(today: datetime.datetime, verified_against: str) -> dict:
+    """The skeleton of a proposed refresh, with the merge rule embedded so it survives copy-paste."""
+    return {
+        "_proposal_rule": PROPOSAL_RULE,
+        "verifiedOn": today.strftime("%Y-%m-%d"),
+        "verifiedAgainst": verified_against,
+        "trains": [],
+        "pair_lists": [],
+    }
+
+
+def erail_capture_comment(pairs: list[tuple[str, str, str, str]], probed_at: str) -> str | None:
+    """The raw erail pair body as a commit comment - the only capture path a sandbox can read.
+
+    CI artefacts live on blob hosts that some sandboxes cannot fetch, but commit comments come through the
+    API. 4.5 says a parser may only be written against a captured payload; this is how the capture gets
+    from the only machine that can ask (a runner) to the machine that writes the parser.
+    """
+    bodies = [(s, d, v, b) for s, d, v, b in pairs if b]
+    if not bodies:
+        return None
+    out = ["### live-feed capture (erail pair, raw body)", "",
+           "The C15 parser is written against exactly this text, nothing imagined (4.5).",
+           f"probed {ERAIL_BASE} at {probed_at} (IST)", ""]
+    for src, dst, verdict, body in bodies:
+        import re as _re
+        stamp = _re.search(r"(\d{4}-\d{2}-\d{2}-\d{1,2}-\d{1,2}-\d{1,2})", body)
+        out.append(f"pair {src}->{dst} · {verdict} · feed stamp: {stamp.group(1) if stamp else 'not found'}")
+        out.append("```text")
+        out.append(body[:14000])
+        if len(body) > 14000:
+            out.append(f"...[truncated at 14000 of {len(body)} bytes]")
+        out.append("```")
+        out.append("")
+    return "\n".join(out)
 
 
 
@@ -344,8 +425,7 @@ def main() -> int:
     out.append(f"plan: {len(set(trains))} train identities + {len(pairs)} station pair(s) from "
                f"fixtures/known_truths.json (verified {truths.get('verifiedOn', '?')})")
 
-    live = {"verifiedOn": today.strftime("%Y-%m-%d"), "verifiedAgainst": "CI probe " + BASE,
-            "trains": [], "pair_lists": []}
+    live = new_proposal(today, "CI probe " + BASE)
 
     for train in dict.fromkeys(trains):
         for label, plain in (
@@ -383,14 +463,21 @@ def main() -> int:
                     live["trains"].append({"train_no": train, "name": ident["name"],
                                            "from": ident["from"], "to": ident["to"]})
 
+    pair_captures: list[tuple[str, str, str, str]] = []
     for src_code, dst_code, must in pairs:
-        probe_lines, entry = probe_pair(src_code, dst_code, must, date, today, capture)
+        probe_lines, entry, e_body = probe_pair(src_code, dst_code, must, date, today, capture)
         out += probe_lines
         if entry:
             live["pair_lists"].append(entry)
+        if e_body:
+            pair_captures.append((src_code, dst_code,
+                                  next((ln for ln in probe_lines if "erail.in (alternate)" in ln), ""),
+                                  e_body))
 
     # Propose, never apply: an automated edit to the truth fixture would be a second source of "the app
     # quietly believes itself". A human reads this block and pastes it, and the commit says who checked.
+    # The proposal carries its own merge rule (PROPOSAL_RULE): the ac06f62 comment proposed "trains": []
+    # only because NTES was unreachable - one careless paste from erasing owner-verified identities.
     out.append("\n### proposed refresh of fixtures/known_truths.json")
     out.append("```json\n" + json.dumps(live, indent=1)[:3000] + "\n```")
 
@@ -405,6 +492,13 @@ def main() -> int:
              "-f", f"body=### live-feed probe\n\n```\n{body[:5000]}\n```"],
             check=False, timeout=60,
         )
+        capture_md = erail_capture_comment(pair_captures, today.isoformat(timespec="seconds"))
+        if capture_md:
+            subprocess.run(
+                ["gh", "api", "-X", "POST", f"repos/{repo}/commits/{sha}/comments",
+                 "-f", f"body={capture_md}"],
+                check=False, timeout=60,
+            )
     if os.environ.get("GITHUB_STEP_SUMMARY"):
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as fh:
             fh.write("### live-feed probe\n\n```\n" + body[:4500] + "\n```\n")

@@ -60,6 +60,18 @@ lesson names where it is *enforced*, because a lesson in prose is a wish.
     → Enforced by `tools/ci/test_probe_live_feed.py` (run by the `checks` job), whose first case is literally
     "primary dies, alternate must still be asked". Any future fallback ships with that shape of test.
 
+15. **A capture in hand outranks an imagined shape, and a proposal is not a diff.** Two defects of one family,
+    both on 2026-10-12, neither of which reached a phone only because a test was written first. (a) The erail
+    identity parser passed every test while never working on a single real payload - and the real records were
+    sitting in our own probe comment all along; the moment a test was written FROM a captured record, the
+    parser failed. It now anchors on the `^number` field the records actually carry. (b) The probe's
+    "proposed refresh" carried `"trains": []` purely because NTES was unreachable - one careless paste from
+    erasing three owner-verified identities; 16221 proved the flip side too, where erail contradicted the
+    fixture and the OWNER (not the tool) resolved it. Proposals now carry their merge rule inside the JSON,
+    and the refresher is print-only with an AST test proving it has no write power.
+    → Enforced by `ErailIdentityParser` tests written from the captured records, `NoWritePower.
+    test_the_tool_contains_no_write_mode_open`, and `test_the_proposal_skeleton_carries_the_merge_rule`.
+
 ## Method the next rounds follow (what "actual product development" means here)
 
 Scope → contract → **component PoC with an executable pass criterion** → implementation → automated proof at

@@ -1,4 +1,4 @@
-package `in`.opentrack.india.v2
+package `in`.opentrack.india.v2.contract
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
