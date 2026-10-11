@@ -12,7 +12,9 @@ class PairCacheTest {
 
     private val t0 = 1_760_000_000_000L
 
-    private fun listing(from: String = "SMET", to: String = "MYS", vararg numbers: String) =
+    // vararg FIRST: as positional `listing("16226")` used to bind the train number to `from`,
+    // producing an empty listing the cache correctly refused - and the test NPE'd (898b196).
+    private fun listing(vararg numbers: String, from: String = "SMET", to: String = "MYS") =
         PairListing(
             from, to,
             numbers.map { n ->
@@ -52,7 +54,7 @@ class PairCacheTest {
     @Test
     fun oldestEntriesFallOffTheFixedCapacity() {
         val cache = PairCache(capacity = 2)
-        cache.put(listing(from = "A", to = "B", "11111"), t0)
+        cache.put(listing("11111", from = "A", to = "B"), t0)
         cache.put(listing(from = "C", to = "D", "22222"), t0 + 1)
         cache.put(listing(from = "E", to = "F", "33333"), t0 + 2)
         assertNull(cache.peek("A", "B"))

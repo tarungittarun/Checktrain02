@@ -115,8 +115,11 @@ class ErailPairParserTest {
         val broken = "^99999~NAME WITHOUT ROUTE FIELDS"
         val parse = parser.parse(header + broken, fetchedAt)
         assertTrue("got $parse", parse is PairParse.Unreadable)
-        // ...and the same body WITH one good record is a listing whose note counts what it could not read
-        val good = "^" + captured.substringAfter("^16226").substringBefore("^16221")
+        // ...and the same body WITH one good record is a listing whose note counts what it could not
+        // read. (The first version sliced off the ^16226 anchor and re-prefixed only "^", so the
+        // number field came out empty and the parser HONESTLY returned Unreadable - the 898b196
+        // ClassCast was this test's bug, not the parser's.)
+        val good = "^16226" + captured.substringAfter("^16226").substringBefore("^16221")
         val mixed = parser.parse(header + good + broken, fetchedAt)
         val listing = (mixed as PairParse.Rows).listing
         assertEquals(listOf("16226"), listing.numbers())

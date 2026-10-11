@@ -65,9 +65,12 @@ class ErailTransport(
     private fun classify(e: IOException, startedMillis: Long): PairWireFailure {
         val msg = (e.message ?: "").lowercase()
         return when {
-            "timeout" in msg || "timed out" in msg -> PairWireFailure.TIMEOUT
+            // TLS first: "handshake timed out" contains "timed out" and IS a TLS failure - the
+            // 898b196 run caught the timeout keyword swallowing it (someone in the middle is not
+            // "their site is slow").
             "ssl" in msg || "tls" in msg || "handshake" in msg ||
                 "certificate" in msg -> PairWireFailure.TLS
+            "timeout" in msg || "timed out" in msg -> PairWireFailure.TIMEOUT
             else -> PairWireFailure.NETWORK
         }
     }
