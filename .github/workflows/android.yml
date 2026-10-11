@@ -64,6 +64,8 @@ jobs:
         # known_truths_refresh proposes fixture edits and never writes them; its AST is asserted to contain
         # no write-mode open, because auto-editing the file the gate trusts is the app believing itself.
         run: python3 tools/ci/test_known_truths_refresh.py
+      - name: Import-gate self-tests (this gate missed the exact miss it exists for, once - 2026-10-12)
+        run: python3 tools/ci/test_check_refs.py
       - name: ETL importability + schema constant agreement
         run: |
           python3 -c "import sys; sys.path.insert(0, 'tools'); import build_refdb; print('SCHEMA_VERSION', build_refdb.SCHEMA_VERSION)"

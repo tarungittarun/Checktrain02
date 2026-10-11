@@ -39,15 +39,50 @@ USE = re.compile(r"\b([A-Z]\w*)\.([a-z]\w*)\s*[(\[]?")
 
 
 def main() -> int:
-    root = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else "app/src/main/java")
-    files = sorted(root.rglob("*.kt"))
+    # Multiple roots are deliberate: test sources import the types the MAIN tree declares, so the
+    # import-package rule can only run honestly when both are scanned together
+    # (`check_refs.py app/src/main/java app/src/test/java`).
+    roots = [pathlib.Path(a) for a in (sys.argv[1:] or ["app/src/main/java"])]
+    files = sorted({f for r in roots for f in r.rglob("*.kt")})
     # name -> (file text, path) for our own objects/classes
     decls: dict[str, tuple[str, pathlib.Path]] = {}
+    # every declaration site per name, with its package: simple names are NOT unique across v1/v2
+    # (SourceKind exists in in.opentrack.india.model AND in.opentrack.india.v2.contract), so an
+    # import matches when ANY declared package matches the one the import names.
+    decl_pkgs: dict[str, list[tuple[str, pathlib.Path]]] = {}
+    pkg_of: dict[pathlib.Path, str] = {}
     for f in files:
         text = f.read_text()
+        pm = re.search(r"^package\s+(.+)$", text, re.M)
+        if pm:
+            pkg_of[f] = pm.group(1).strip().replace("`", "")
         for m in DECL.finditer(text):
             decls.setdefault(m.group("name"), (text, f))
+            decl_pkgs.setdefault(m.group("name"), []).append((pkg_of.get(f, ""), f))
     problems = 0
+    # An import of our own namespace must name the package the type is actually declared in. The
+    # compiler rejects a moved-package import, but this checker used to match the simple name and let
+    # exactly that through: PairSource.kt imported `in`.opentrack.india.v2.Provenance after the type
+    # had moved to .v2.contract, the gate stayed green, and CI's compiler caught it a push later.
+    for f in files:
+        text = f.read_text()
+        for im in re.finditer(r"^import\s+(\S+)$", text, re.M):
+            fqn = im.group(1).replace("`", "").rstrip(";").strip()
+            if not fqn.startswith("in.opentrack."):
+                continue  # generated (R, BuildConfig, databinding) and library imports are not ours to declare
+            if ".databinding" in fqn or fqn.rsplit(".", 1)[-1] in ("R", "BuildConfig"):
+                continue
+            name = fqn.rsplit(".", 1)[-1]
+            pkg = fqn.rsplit(".", 1)[0]
+            sites = decl_pkgs.get(name)
+            if not sites:
+                problems += 1
+                print(f"{f}: import `{fqn}` names a type no source in this tree declares")
+                continue
+            if not any(p == pkg for p, _ in sites):
+                have = ", ".join(sorted({p for p, _ in sites if p}))
+                problems += 1
+                print(f"{f}: import `{fqn}` but `{name}` is declared in package(s) {have}")
     for f in files:
         text = f.read_text()
         for use in USE.finditer(text):

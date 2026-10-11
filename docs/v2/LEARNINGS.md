@@ -36,9 +36,14 @@ lesson names where it is *enforced*, because a lesson in prose is a wish.
     imply PascalCase keys. Every fix there so far was a hypothesis.
     → Enforced by Stage 0's fixture requirement: no parser without a captured response.
 11. **Local gates are not a type-checker.** `apply()` reporting `ok` proves an anchor matched, not that the file
-    parses; `ast.parse`/`bash -n` in the same breath caught two of my own edits.
-    → Enforced by running `py_compile` + `bash -n` + `check_*` on every edit round, and never announcing a
-    build before the run says so.
+    parses; `ast.parse`/`bash -n` in the same breath caught two of my own edits. And on 2026-10-12 they proved
+    it again in the other direction: `check_refs` matched simple type names, so a moved-package import
+    (`in.opentrack.india.v2.Provenance` after the type moved to `.v2.contract`) sailed through nine green gates
+    and died in the compiler one push later - CI is the compiler, and now the gate checks the PACKAGE an
+    import names, with a self-test that reproduces the exact miss.
+    → Enforced by running `py_compile` + `bash -n` + `check_*` on every edit round; by `check_refs.py`'s
+    import-package rule over main+test roots together; and by `tools/ci/test_check_refs.py`, whose first case
+    is the real miss.
 12. **Tooling-shaped promises need receipts.** Telling the owner "install this APK" as the test loop was a
     design failure, not a constraint. Emulators exist in CI; the missing piece is fixtures + a local mock.
     → Enforced by T9.9 and PLAN.md §6, which states what the emulator *cannot* prove (railway egress) instead
