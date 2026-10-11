@@ -103,6 +103,8 @@ runs:
       continue-on-error: true
       shell: bash
       run: |
+        echo "::notice::[row] step 7/20: Unzip the class files used for coverage"
+        set +e  # this step reports on the row; the last step decides the verdict
         if unzip -qo /tmp/classes/e2e-classes.zip -d /tmp && ls /tmp/cls >/dev/null 2>&1; then
           echo "classes for coverage: $(find /tmp/cls -name '*.class' | wc -l) files"
         else
@@ -116,6 +118,8 @@ runs:
       # in the artifact and in a one-line notice, rather than being inferred from a boot failure afterwards.
       shell: bash
       run: |
+        echo "::notice::[row] step 8/20: What this runner actually has (so one run answers every envi"
+        set +e  # this step reports on the row; the last step decides the verdict
         SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
         {
           echo "== PATH tools"; for c in adb emulator avdmanager sdkmanager java unzip timeout; do printf '%-11s %s\n' "$c" "$(command -v "$c" || echo MISSING)"; done
@@ -135,6 +139,8 @@ runs:
       continue-on-error: true
       shell: bash
       run: |
+        echo "::notice::[row] step 9/20: Boot the emulator"
+        set +e  # this step reports on the row; the last step decides the verdict
         set -o pipefail
         started=$(date +%s)
         set +e
@@ -163,6 +169,8 @@ runs:
       if: steps.boot.outcome == 'failure'
       shell: bash
       run: |
+        echo "::notice::[row] step 10/20: Say so, in one sentence, if this runner cannot host an emula"
+        set +e  # this step reports on the row; the last step decides the verdict
         echo "--- emulator_boot.sh said:"
         tr '\r' '\n' < /tmp/boot.log 2>/dev/null | grep -vE "Unzipping|Downloading|%\]" | tail -30 || echo "(no boot log)"
         echo "--- adb sees:"; adb devices || true
@@ -172,6 +180,8 @@ runs:
       if: steps.boot.outcome == 'success'
       shell: bash
       run: |
+        echo "::notice::[row] step 11/20: Install the built APKs (cold: wiped data, so first-run extra"
+        set +e  # this step reports on the row; the last step decides the verdict
         adb root >/dev/null 2>&1 || true
         if [ "$VARIANT" = release ]; then apk=/tmp/apk/app-release.apk; else apk=/tmp/apk/app-debug.apk; fi
         echo "installing $apk"
@@ -190,6 +200,8 @@ runs:
       if: steps.boot.outcome == 'success'
       shell: bash
       run: |
+        echo "::notice::[row] step 12/20: Run the flow suite (and, for the rows that ask for it, again"
+        set +e  # this step reports on the row; the last step decides the verdict
         set -o pipefail
         release_flag=false; [ "$VARIANT" = release ] && release_flag=true
         : > /tmp/pass-times.txt; touch /tmp/diag.env
@@ -302,6 +314,8 @@ runs:
       if: steps.boot.outcome == 'success'
       shell: bash
       run: |
+        echo "::notice::[row] step 13/20: Coverage of the app, from the device runs"
+        set +e  # this step reports on the row; the last step decides the verdict
         set -o pipefail
         # Merge the per-pass .ec files so the number is the suite's coverage, not one pass of it.
         mkdir -p /tmp/ec && cp /tmp/cover-*.ec /tmp/ec/ 2>/dev/null || true
@@ -324,6 +338,8 @@ runs:
       if: steps.boot.outcome == 'success'
       shell: bash
       run: |
+        echo "::notice::[row] step 14/20: Pull the evidence (screenshots and window hierarchies for ev"
+        set +e  # this step reports on the row; the last step decides the verdict
         mkdir -p /tmp/evidence
         adb pull "/sdcard/Android/data/$TEST_ID/files/evidence" /tmp/evidence >/dev/null 2>&1 || true
         adb exec-out "logcat -d -v brief" > /tmp/logcat.txt 2>&1 || true
@@ -336,6 +352,8 @@ runs:
       if: steps.boot.outcome == 'success'
       shell: bash
       run: |
+        echo "::notice::[row] step 15/20: Random-event stability pass on the same image"
+        set +e  # this step reports on the row; the last step decides the verdict
         started=$(date +%s)
         COUNT="$MONKEY" bash tools/ci/monkey_stability.sh 2>&1 | tail -40
         echo "monkey_seconds=$(( $(date +%s) - started ))" >> /tmp/diag.env
@@ -344,6 +362,8 @@ runs:
     - name: Diagnostics - what the device and the runner looked like
       shell: bash
       run: |
+        echo "::notice::[row] step 16/20: Diagnostics - what the device and the runner looked like"
+        set +e  # this step reports on the row; the last step decides the verdict
         # Everything here exists so a row can be judged from one screen instead of four: how long the boot
         # took, what the emulator reported, whether the runner was starved, whether the app was ever
         # alive, and how long each class took. A red row without numbers invites guessing.
@@ -366,6 +386,8 @@ runs:
     - name: Record what this row actually achieved
       shell: bash
       run: |
+        echo "::notice::[row] step 17/20: Record what this row actually achieved"
+        set +e  # this step reports on the row; the last step decides the verdict
         {
           echo "row=$ROW"
           echo "desc=$ROW_DESC"
@@ -415,6 +437,8 @@ runs:
         GH_TOKEN: ${{ inputs.github_token }}
       shell: bash
       run: |
+        echo "::notice::[row] step 19/20: Report the row on the commit (a green row says what it prove"
+        set +e  # this step reports on the row; the last step decides the verdict
         # Every test here is an `if`, not `cmd && var=x`: Actions runs `bash -e`, and a short-circuit that
         # ends false aborts the step - which is why no row comment was ever posted, on any run, while the
         # report job's comment arrived. `grep -q` finding nothing returns 1, and the assignment after `&&`
@@ -464,5 +488,7 @@ runs:
       if: steps.boot.outcome == 'failure' || steps.nodev.outcome == 'failure' || steps.suite.outcome == 'failure' || steps.cov.outcome == 'failure' || steps.monkey.outcome == 'failure'
       shell: bash
       run: |
+        echo "::notice::[row] step 20/20: Let the row decide its own verdict"
+        set +e  # this step reports on the row; the last step decides the verdict
         echo "::error::$ROW failed - boot, tests, coverage or the stability pass; the comment on this commit says which, and the e2e-result-$ROW artifact holds the logs and screenshots"
         exit 1
