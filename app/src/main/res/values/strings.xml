@@ -86,7 +86,6 @@
     <string name="no_live_data">Shown from the timetable — no live report reached this device</string>
     <string name="empty_results">Nothing matches yet. Type at least three letters of a station or train.</string>
     <string name="trains_between">%1$d train(s) · %2$s → %3$s</string>
-    <string name="data_as_of">Offline timetable · %1$s · %2$s trains</string>
 
     <plurals name="trains_found">
         <item quantity="one">%d train</item>

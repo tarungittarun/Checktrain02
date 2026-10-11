@@ -38,3 +38,25 @@ if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
     echo "| ref/$(basename "$out") | $bytes |"
   } >> "$GITHUB_STEP_SUMMARY"
 fi
+
+# Does this dataset agree with the railway at all? tools/ci/data_truths.py holds the handful of facts a human
+# read off a live source (fixtures/known_truths.json). A disagreement is deliberately not fatal here - a red
+# build leaves the passenger on an OLDER APK, which is worse than a build that admits doubt - but the verdict
+# is stamped inside the asset (meta.data_trust) and the app then refuses to present these times as
+# authoritative. Green pipeline, honest screen, report in the job summary.
+python3 - "$out" << 'GATEEOF' || true
+import gzip, os, sqlite3, sys
+sys.path.insert(0, os.path.join("tools", "ci"))
+import data_truths
+blob = open(sys.argv[1], "rb").read()
+path = "/tmp/refdb-truths.db"
+open(path, "wb").write(gzip.decompress(blob) if blob[:2] == b"\x1f\x8b" else blob)
+db = sqlite3.connect(path)
+res = data_truths.evaluate(db, data_truths.load_truths())
+db.close()
+print(data_truths.report(res))
+summary = os.environ.get("GITHUB_STEP_SUMMARY")
+if summary:
+    with open(summary, "a", encoding="utf-8") as fh:
+        fh.write("### Offline data vs known truths\n\n```\n%s\n```\n\n" % data_truths.report(res))
+GATEEOF

@@ -1,0 +1,42 @@
+# STATUS — resume here, do not restart here
+
+**Protocol.** The first `DOING` line, else the first `NEXT` line, is where work continues. A `DONE` line is
+re-opened only when its `verified-by` artifact fails — never by curiosity, never because a new round forgot it
+existed. State changes land in the same commit as the code they describe. `needs-device: yes` is the only
+legitimate reason to ask the owner to install an APK.
+Branch note: this session is pinned to `arena/edd38b02-checktrain02` by the harness, so the "fresh branch" the
+owner asked for is realised as this `docs/v2/` restart on this ref. Do not create other branches — they are not
+tracked and the work would become invisible.
+
+## Round 9 — data truth as a first-class object
+
+| id | micro-task | state | verified-by | next action | needs-device |
+|---|---|---|---|---|---|
+| T9.1 | Known-truths gate: `fixtures/known_truths.json` + `tools/ci/data_truths.py` (the repo's only check against reality) | **DONE** 2026-10-11 | standalone run exit=1, 5 FAILs on today's asset; `report()` output in step summary | extend with direction-aware pair check (T9.7) | no |
+| T9.2 | ETL runs the gate and stamps `meta.data_trust` + `data_truth_problems` | **DONE** | `python3 tools/build_refdb.py --profile halts --out /tmp/refdb.dbgz` → `meta.data_trust = 'unverified'` | — | no |
+| T9.3 | Chip/Settings stops dressing stale data in a date: `dataVersion()` has verified / never-checked / UNVERIFIED states | **DONE** | string assembled from real meta: `6,775 trains · timetable UNVERIFIED: numbers/names disagree with the live railway data of 2026-06-20 - verify before travelling` | see how it fits the chip in a screenshot after T9.4 | no |
+| T9.4 | CI gate + build for `a06ac16` (ordering fix, vintage key, tests) and this round's commit | **DOING** | `gh run` conclusion for `checks`, `debug APK`, `tests + screens`; unit test `catchableTrainsComeFirst…` | read the run, report it verbatim; do not claim green before it says so | no |
+| T9.5 | C15 live station-pair search (`TrainBtwStnJson`) — PoC script `tools/poc/livefeed.py` that CI runs, saving redacted fixtures + a parse test | **NEXT** | — | build PoC in CI first (runners reach erail? no — prove reachability matrix, then decide on-device-only) | no |
+| T9.6 | C3 `NtesWire.parse` against a real payload | **BLOCKED** | needs one captured response body | owner re-attached the diary file; `/home/user/uploads/` arrived **empty** in the sandbox — ask once, then move on | **yes** (log only, no install) |
+| T9.7 | Gate hardening: assert `from→to` presence **and** absence of phantom trains, per pair, direction-aware | **NEXT** | — | add `must_not_include` + reverse-direction detection to `data_truths.py` | no |
+| T9.8 | C14 self-healing store: `train_overrides(train_no, source, fetched_at, payload)` with TTL; live wins while fresh | **PLANNED** | schema v4 migration test | design after T9.5 proves a live response exists | no |
+| T9.9 | Emulator runs the **installed-shaped APK against fixtures** (mock at `10.0.2.2`) so parse+UI+states are CI-proved | **PLANNED** | new `e2e.yml` row + golden screenshots | start with one flow (pair search → detail) on API 34 | no |
+| T9.10 | Housekeeping: dead `R.string.data_as_of` and now-unused `RailTime` import removed | **DONE** 2026-10-11 | grep proved each was referenced exactly once (its own definition); `check_resources` + `check_refs` clean | — | no |
+| T9.11 | Results-screen staleness line (repo has no `repo` accessor in `MainActivity`; needs a state field) | **DEFERRED** (round 8, deliberately) | — | lands with T9.3's follow-up when `MainViewModel` exposes it | no |
+
+## Owner's words that outrank any plan above
+
+- *"most of the train showing here are incorrect… even train numbers are incorrect… I need the latest and running info"*
+- *"build a new branch… exact correct approach… step by step and in best methodology like how actual product development happens"*
+- *"why cannot you test the final apk with expected functionality in emulators… Everytime I can't install the apk"*
+- *"most importantly is not final apk, it's the each component… their correctness and consistency, compatibility, and end user experience… as a owner of a PRODUCT"*
+- *"have track status in each of you micro task… so that if you are freezed somewhere… you should continue from where left, instead of repetition"*
+
+## Latest verified device state (so nobody re-derives it)
+
+Owner's phone, 23:20 IST 2026-10-11, `motorola edge 50 neo` / Android 16, Wi-Fi + 5G up:
+our app on 16228 shows `SMET → SBC · 274 km`, `Delay: no live feed`, every row `—  timetable`,
+`Next: Birur Jn · 23:40 due · in 21 min`, chart captioned "amber dotted = what the timetable implies… not a
+report about the train" (labelled correctly ✓), while Where Is My Train shows `16228 Talguppa - Mysuru Express
+(TLGP-MYS)` with per-stop actuals + `Platform 1` and `0 km to Bhadravati · Updated few seconds ago`.
+Installed APK is `7f84cd6`; `latest-apk` currently serves `71fa6bd`.

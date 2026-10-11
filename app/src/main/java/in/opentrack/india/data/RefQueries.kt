@@ -1,7 +1,6 @@
 package `in`.opentrack.india.data
 
 import android.database.Cursor
-import `in`.opentrack.india.core.RailTime
 import `in`.opentrack.india.core.Text
 import `in`.opentrack.india.model.PairStop
 import `in`.opentrack.india.model.SegmentRow
@@ -287,7 +286,20 @@ class RefQueries(private val ref: RefDb) {
         val trains = db.rawQuery("SELECT COUNT(*) FROM trains", null).use { c ->
             if (c.moveToNext()) c.getInt(0) else 0
         }
-        "${Text.group(trains)} trains · " + vintageLabel(db.metaString("source_vintage"))
+        // Three states, because the middle one is the common one on a phone that has an asset built before
+        // this gate existed: verified, contradicted, and never-checked. A dataset whose numbers predate the
+        // 2022-23 renumbering is not "113 days old" - that framing borrowed authority from a git commit date
+        // and was itself a lie - so when the gate says the data disagrees with reality, the date stops being
+        // the headline and the doubt is.
+        val vintage = db.metaString("source_vintage")
+        when (db.metaString("data_trust")) {
+            "verified" -> "${Text.group(trains)} trains · " + vintageLabel(vintage)
+            null, "" -> "${Text.group(trains)} trains · " +
+                (if (vintage.isNullOrBlank()) "timetable not checked against reality"
+                 else "timetable not checked against reality (copy from $vintage)")
+            else -> "${Text.group(trains)} trains · timetable UNVERIFIED: numbers/names disagree with the " +
+                "live railway data of " + (vintage ?: "an unknown date") + " - verify before travelling"
+        }
     }
 
     /**

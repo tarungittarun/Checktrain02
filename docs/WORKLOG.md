@@ -398,3 +398,25 @@ ride on CI (no Android SDK in this sandbox).
 Still open after this round, in order: live per-row running status is the actual ask and the ETL fix only buys
 honesty; a runtime schedule refresh (so the phone is not pinned to whatever HEAD CI saw) is not built; the
 NTES browser transport works on the device but the parse has never been fed a real payload.
+
+## Round 9 (11 Oct, 23:4x) — v2 restart: reality as a test, and a plan that says what it cannot prove
+
+Owner rejected the build again and asked for a fresh start with real product methodology, per-component PoCs,
+emulator verification (so they stop installing APKs), and a resumable status record. Delivered this round:
+
+- `docs/v2/{PLAN,COMPONENTS,STATUS,LEARNINGS}.md` — the restart: stages 0-6 with exit criteria and the
+  user-visible delta per stage; a component register where every entry names the check that proves it (and two
+  honest `MISSING`/`BLOCKED` states); a micro-task tracker whose first `DOING`/`NEXT` line is the resume point;
+  twelve lessons, each pointing at the artifact that enforces it.
+- `tools/ci/data_truths.py` + `fixtures/known_truths.json` — the repo's first check against *reality*. Run on
+  tonight's asset it fails 5 of 8 facts: 16228 is a different train than ours, 16221 is keyed backwards (which
+  is why it "vanished" from one direction of search), two SMET->MYS services missing, and 10.9% of our numbers
+  are the retired 0-prefix style. Non-fatal by design (a red build strands the owner on an older APK), stamped
+  into `meta.data_trust`, reported in the job summary via `prepare_asset.sh`, and read by the ETL log.
+- `RefQueries.dataVersion()` no longer lets a date vouch for unverified data: verified / never-checked /
+  UNVERIFIED are three different sentences, and the third one tells the passenger to verify before travelling.
+- Removed the dead `R.string.data_as_of` and the `RailTime` import its removal orphaned.
+
+What this changes on the phone: the status line stops implying the timetable is current, and CI prints the
+contradictions between our data and the railway's. What it does NOT fix: the data is still wrong until the live
+pair search (C15) lands - that is round 10, and it is now the first `NEXT` line in `docs/v2/STATUS.md`.

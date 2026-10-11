@@ -695,6 +695,22 @@ def write_db(db_path: str, stations: dict[str, dict[str, Any]], models: dict[str
         raise SystemExit(f"[etl] FAIL: {km_bad}/{stop_rows} stops have no distance - the fallback to "
                          "geodesic rescaling is not firing")
 
+    # ---- reality check. Everything else in this file judges the dataset against itself, which is how a
+    # wrong train number passed every gate for months: the fixtures it compares against came from the same
+    # stale dump. `data_truths` is the one gate whose facts were typed by a human reading a live source.
+    # A contradiction is deliberately NOT fatal - a red build leaves the passenger on an older APK, which is
+    # worse than a build that admits it is unverified - but the verdict ships inside the asset, so the UI
+    # cannot present these times as authoritative.
+    trust: dict[str, Any] = {"verdict": "unverified", "problems": ["gate did not run"]}
+    try:
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "ci"))
+        import data_truths
+        trust = data_truths.evaluate(db, data_truths.load_truths())
+        log(data_truths.report(trust).replace("\n", "\n[etl]   "))
+    except Exception as e:  # never let the gate's own breakage read as "the data is fine"
+        log(f"data truths: gate failed to run ({e}) - asset marked unverified")
+    db.commit()
+
     db.execute("UPDATE stations SET rank=(SELECT COUNT(*) FROM station_trains t "
                "WHERE t.station_code = stations.code)")
     for k, v in [("schema_version", SCHEMA_VERSION), ("profile", profile),
@@ -705,6 +721,8 @@ def write_db(db_path: str, stations: dict[str, dict[str, Any]], models: dict[str
                  ("source_vintage", min((v for v in SOURCE_VINTAGES.values() if v), default="")),
                  ("source_vintages", ";".join(f"{k.split('/')[-1]}@{v}" for k, v in sorted(SOURCE_VINTAGES.items()))),
                  ("sources", ";".join(sorted({s["repo"] for s in SOURCES}))),
+                 ("data_trust", trust.get("verdict", "unverified")),
+                 ("data_truth_problems", "; ".join(trust.get("problems", []))[:1500]),
                  ("station_count", db.execute("SELECT COUNT(*) FROM stations").fetchone()[0]),
                  ("train_count", db.execute("SELECT COUNT(*) FROM trains").fetchone()[0]),
                  ("stop_count", db.execute("SELECT COUNT(*) FROM stops").fetchone()[0]),
