@@ -7,10 +7,10 @@ import java.io.File
 import java.io.IOException
 import java.io.InputStream
 import java.net.HttpURLConnection
-import javax.net.ssl.HttpsURLConnection
 import java.net.SocketTimeoutException
 import java.net.URL
 import java.util.zip.GZIPInputStream
+import javax.net.ssl.HttpsURLConnection
 
 /**
  * The app's entire networking surface: one GET helper.
