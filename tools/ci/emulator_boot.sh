@@ -190,10 +190,8 @@ AvdId=$AVD_NAME
 PlayStore.enabled=false
 abi.type=$ABI
 avd.ini.encoding=UTF-8
-device.name=$DEVICE
-hw.device.name=$DEVICE
-hw.device.manufacturer=Google
 hw.arch=x86
+Abi=$ABI
 hw.cpu.ncore=$CORES
 hw.ramSize=$MEMORY
 vm.heapSize=256
@@ -213,8 +211,6 @@ disk.dataPartition.size=6G
 hw.lcd.density=420
 hw.lcd.width=1080
 hw.lcd.height=2400
-skin.name=1080x2400
-skin.dynamic=yes
 image.sysdir.1=system-images/android-${API}/${IMG}/${ABI}/
 tag.id=${IMG}
 tag.ids=${IMG}
@@ -241,10 +237,15 @@ INI
   # 38127110617's hand-written AVD died: the emulator takes the architecture from the config, and a key it
   # does not read leaves it guessing from the image directory. Name it in every spelling the tools use, and
   # say what the file ended up containing, because this file is the one thing the reader cannot inspect.
-  for k in hw.arch abi.type Abi image.sysdir.1 tag.id tag.ids target API_LEVEL; do
+  # The keys in an annotation, because the reader cannot open the file: "Found AVD target architecture: arm"
+  # on an x86_64 image is only explicable from the config, and the emulator picks the profile's own default
+  # if a device/skin key sends it looking in a database the image may not have. So no device.name, no skin.*
+  # - just the display numbers - and every architecture spelling set from $ABI.
+  for k in hw.arch abi.type Abi image.sysdir.1 tag.id tag.ids target API_LEVEL hw.ramSize hw.cpu.ncore; do
     printf '%s=%s\n' "$k" "$(grep -m1 "^$k=" "$AVD_HOME/$AVD_NAME.avd/config.ini" | cut -d= -f2-)"
   done > /tmp/avd-config-keys.txt
   grep -q '^image.sysdir.1=' "$AVD_HOME/$AVD_NAME.avd/config.ini" || echo "::error::hand-written config.ini has no image.sysdir.1"
+  echo "::notice::hand-written AVD keys: $(tr '\n' ' ' < /tmp/avd-config-keys.txt | cut -c1-360)"
 fi
 
 if [ ! -d "$SDK/system-images/android-${API}/${IMG}/${ABI}" ]; then
@@ -256,7 +257,10 @@ echo "== avd: home=$AVD_HOME made-by=$AVD_MADE accel=$ACCEL (HOME=$HOME ANDROID_
 [ -f "$AVD_HOME/$AVD_NAME.avd/config.ini" ] || echo "::error::no $AVD_NAME.avd/config.ini in $AVD_HOME even after every fallback - the emulator will not start"
 ls -la "$AVD_HOME" 2>/dev/null | head -6 || echo "   (no $AVD_HOME directory)"
 
-EMFLAGS=(-avd "$AVD_NAME" -no-window -no-audio -no-boot-anim -no-snapshot -no-snapshot-save -read-only
+# No -read-only: it tells the emulator not to create anything, and an AVD that was assembled by hand has no
+# userdata-qemu.img yet - the run would die on "Unable to find a suitable userdata" for a reason that has
+# nothing to do with the app. -no-snapshot -no-snapshot-save already keep the run stateless.
+EMFLAGS=(-avd "$AVD_NAME" -no-window -no-audio -no-boot-anim -no-snapshot -no-snapshot-save
   -netfast -verbose -cores "$CORES" -memory "$MEMORY")
 if [ "$ACCEL" = kvm ]; then
   EMFLAGS+=(-gpu swiftshader_indirect -accel on)

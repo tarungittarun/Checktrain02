@@ -367,9 +367,13 @@ runs:
         GH_TOKEN: ${{ inputs.github_token }}
       shell: bash
       run: |
+        # Every test here is an `if`, not `cmd && var=x`: Actions runs `bash -e`, and a short-circuit that
+        # ends false aborts the step - which is why no row comment was ever posted, on any run, while the
+        # report job's comment arrived. `grep -q` finding nothing returns 1, and the assignment after `&&`
+        # never ran, so the step died before reaching `gh api` and the failure looked like a permission.
         verdict=PASS
-        grep -q failed /tmp/tests.txt 2>/dev/null && verdict=FAIL
-        [ "${{ steps.boot.outcome }}" = success ] || verdict="NO DEVICE"
+        if grep -q failed /tmp/tests.txt 2>/dev/null; then verdict=FAIL; fi
+        if [ "${{ steps.boot.outcome }}" != success ]; then verdict="NO DEVICE"; fi
         {
           echo "### e2e/$ROW — $verdict"
           echo ""
