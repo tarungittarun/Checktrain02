@@ -71,6 +71,9 @@ javaClass getMethod invoke
 firstInstallTime versionCode substringBeforeLast
 setFixedRouteToAddress getAllByName hostAddress filterIsInstance
 isSuccess launch
+# v2 live-search slice (2026-10-12): Kotlin Map.getValue, HttpURLConnection.setRequestProperty,
+# URL.protocol - the erail transport and the merge tests call these; framework, not typos.
+getValue setRequestProperty protocol remove addAll
 lastModified openOutputStream toByteArray registerForActivityResult clear text
 packageName contentResolver connect takeLast log
 removeFirst addLast appendText appendBytes readBytes copyOfRange versionName lastUpdateTime getPackageInfo packageManager getLinkProperties hasTransport hasCapability getNetworkCapabilities activeNetwork mkdirs resume install tailLabels exportName rotationPlan getAllByName hostAddress getSharedPreferences putString putInt
