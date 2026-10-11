@@ -481,6 +481,10 @@ jobs:
             echo ""
             echo "Flows are gated against docs/E2E_FLOWS.md; screenshots and window hierarchies are in the"
             echo "\`e2e-result-*\` artifacts of this run."
+            echo ""
+            echo "The \`--min-lines\` floor is checked against the first row that produced a JaCoCo report;"
+            echo "per-row numbers are in the table above, and they differ because only some rows toggle the"
+            echo "radio or drive the release variant."
           } > /tmp/body.md
           gh api -X POST "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/comments" -f body="$(cat /tmp/body.md)" \
             || echo "::warning::could not post the roll-up"

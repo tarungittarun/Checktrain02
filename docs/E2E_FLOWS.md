@@ -95,3 +95,19 @@ this workflow cannot reach, and what it would take:
 3. **Anything the app shows on failure is asserted to be a sentence, not an absence** (`never-silent`,
    `airplane-track`, `screen-explains-itself`), because the two bugs that reached a real device in this
    project were both silence: an empty suggestion list, and a live column reprinting the timetable.
+
+## Reading a red row
+
+The matrix writes one status line per row and posts it on the commit, so a failure says which of the three
+things happened. They need different responses, and conflating them is how a harness becomes decoration:
+
+| The row says | It means | Do this |
+| --- | --- | --- |
+| `boot=failed` | the runner could not host an emulator (no usable `/dev/kvm` for an x86 image), so **nothing was tested** | run the workflow on a KVM-capable runner — `ubuntu-latest` qualifies where it exposes `/dev/kvm`, otherwise any self-hosted box with `kvm`; the product is not implicated |
+| `boot=ok` with `all=failed (no test summary…)` | `am instrument` died before reporting, usually an install or signature problem | read `/tmp/instrument-all.log` in the `e2e-result-<row>` artifact; the debug-signed test APK and the app must share a key, which is why CI signs the release APK with the debug keystore |
+| `all=failed` with a JUnit stack | a real assertion failed on a real device | the same artifact holds `screenshots.tgz` and the `*.xml` window hierarchy for every assertion, tagged per flow |
+
+`report` turns the four rows into a table and fails the run when *no* row booted (there is then no evidence
+at all) or when the minSdk row's tests failed (the floor of the supported range is not optional). A modern
+row failing to boot while another row ran the suite is recorded and left red-in-the-table rather than
+red-in-the-build, because that row is a coverage question about new APIs, not about whether the app works.
