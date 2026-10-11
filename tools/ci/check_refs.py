@@ -74,7 +74,9 @@ def main() -> int:
             owner, body = m.group(1), m.group(2)
             if owner not in decls:
                 continue
-            kw = re.findall(r"(?:^|[,\s(])([a-z]\w*)\s*=", body)
+            # `(?!=)` matters: a comparison inside a constructor call (`x = if (a == null) …`) is not a
+            # named argument, and reading it as one invents a missing field on the type.
+            kw = re.findall(r"(?:^|[,\s(])([a-z]\w*)\s*=(?!=)", body)
             if not kw:
                 continue
             otext, _ = decls[owner]

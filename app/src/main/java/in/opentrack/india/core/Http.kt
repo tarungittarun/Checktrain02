@@ -60,6 +60,67 @@ class Http(context: Context) {
         return last
     }
 
+    /**
+     * Blocking POST with an explicit body and headers. Uncached on purpose: the cache here is keyed by URL,
+     * and a live-status POST asks a different question on every call — caching it would let the app serve a
+     * ten-minute-old answer as though it had just arrived, which is the one thing this product must not do.
+     */
+    fun post(
+        url: String,
+        body: String,
+        headers: Map<String, String> = emptyMap(),
+        timeoutMillis: Int = DEFAULT_TIMEOUT,
+        retries: Int = 0,
+    ): Result {
+        var attempt = 0
+        var last: Result = Result.Failed(Result.Kind.EMPTY, "not attempted")
+        while (attempt <= retries) {
+            attempt++
+            last = tryPost(url, body, headers, timeoutMillis)
+            if (last is Result.Ok) return last
+            if (last is Result.Failed && last.kind == Result.Kind.HTTP) break
+            if (attempt <= retries) sleep(400L * attempt)
+        }
+        return last
+    }
+
+    private fun tryPost(url: String, body: String, headers: Map<String, String>, timeoutMillis: Int): Result {
+        var conn: HttpURLConnection? = null
+        return try {
+            conn = (URL(url).openConnection() as HttpURLConnection).apply {
+                connectTimeout = timeoutMillis
+                readTimeout = timeoutMillis
+                requestMethod = "POST"
+                doOutput = true
+                setRequestProperty("User-Agent", USER_AGENT)
+                setRequestProperty("Accept-Encoding", "gzip")
+                setRequestProperty("Connection", "close")
+                for ((k, v) in headers) setRequestProperty(k, v)
+            }
+            conn.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+            val code = conn.responseCode
+            if (code >= 400) return Result.Failed(Result.Kind.HTTP, "HTTP $code")
+            val stream: InputStream = conn.inputStream.use { raw ->
+                if ("gzip".equals(conn.contentEncoding, ignoreCase = true)) GZIPInputStream(raw) else raw
+            }
+            val text = stream.bufferedReader(Charsets.UTF_8).use(BufferedReader::readText)
+            stream.close()
+            if (text.isBlank()) Result.Failed(Result.Kind.EMPTY, "empty body")
+            else Result.Ok(text, fromCache = false, ageMillis = 0)
+        } catch (e: SocketTimeoutException) {
+            Result.Failed(Result.Kind.TIMEOUT, e.message ?: "timeout")
+        } catch (e: IOException) {
+            val offline = e.message?.let {
+                it.contains("Unable to resolve host") || it.contains("ENETUNREACH") || it.contains("ENONET")
+            } == true
+            Result.Failed(if (offline) Result.Kind.OFFLINE else Result.Kind.HTTP, e.message ?: "io error")
+        } catch (e: Throwable) {
+            Result.Failed(Result.Kind.PARSE, e.message ?: "unexpected")
+        } finally {
+            runCatching { conn?.disconnect() }
+        }
+    }
+
     private fun tryOnce(url: String, timeoutMillis: Int): Result {
         var conn: HttpURLConnection? = null
         return try {

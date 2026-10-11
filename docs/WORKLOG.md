@@ -6,18 +6,33 @@ It exists because CI knowledge is worthless if it lives only in the session that
 ## Head
 
 - **HEAD / branch**: `arena/edd38b02-checktrain02` (push only here; one branch per session).
-- **Last CI observation**: the run on `6abcadb` was rejected as an invalid workflow file (`jobs: null`) because
-  a scripted patch of mine put `default:` on a `workflow_dispatch` input twice — and `check_workflows.py`
-  reported 0 problems, because its block model let a mapping's first child swallow its siblings. Both are
-  fixed: the input has one default, the scanner now tracks each mapping by its children's column (discovered
-  lazily) and skips block scalars by column, and `tools/ci/test_check_workflows.py` is a permanent 11-case
-  regression set that `plan` and `android.yml` run **before** trusting the checker.
-- **State of the device sweep**: run on `8bede2c` had four rows inside the action at 29 min with nothing
-  published (annotations only appear at step boundaries). The next run adds the row clock, the visible
-  `gh run download` fetch step and the boot-budget cap, so a slow row is now bounded and legible.
-- **Open question the next run answers**: does the flow suite execute on the booted emulator now that
-  `adb` is on the job's `PATH` and `avdmanager` gets `-b/--abi`? Expected: 6 instrumented passes per row,
-  then coverage, then the monkey pass, then `### e2e/<row> — PASS|FAIL` on the commit.
+- **What the last commit changed (and why it took four rounds)**: the app now speaks the railway's own
+  mobile enquiry protocol — `remote/NtesWire.kt` (AES-framed POST, cross-checked against a reference
+  implementation's byte-exact vectors in `NtesWireTest`) and `remote/LiveProvider.kt:NtesProvider`, registered
+  ahead of the timetable source. Until this commit every provider we had could only answer with the
+  *schedule*, which is exactly the complaint: a screen of planned times dressed up as tracking. NTES answers
+  with per-stop actual arrivals/departures, platforms, delays and its own last-update stamp, and it needs no
+  key, no account and no server of ours — the crypto constants are inside the official app and shared by
+  every client, so this satisfies "no keys, no proxies, no ads" rather than bending it. The timetable source
+  stays in the chain as the labelled alternate, and a shape we cannot open yields a sentence on screen, never
+  a silent dash. `Http.post` was added for it (deliberately uncached: caching a live-status answer is how a
+  tracker starts lying about age).
+- **New CI job `probe`**: a development sandbox is not allowed to reach `enquiry.indianrail.gov.in`, so the
+  runner POSTs each sub-service and posts the *schema* (key names, how many rows carry actuals, the header
+  fields) as a commit comment. Read that comment before trusting or rewriting the parser — `tools/ci/probe_live_feed.py`.
+- **State of the device sweep** (as of `53399c4`): the run got further than any before — `plan` ✓, `build` ✓
+  and all four rows (`api34`, `min24`, `density`, `release`) at step 5 of the row action 18 minutes in, i.e.
+  inside the boot step. That run was superseded by the live-feed commit, which changes no harness code, so the
+  next run answers the same question with the fix riding along.
+- **Open questions the next run answers**: (1) does the flow suite execute on the booted emulator now that
+  `adb` is on the job's `PATH` and `avdmanager` gets `-b/--abi`; (2) does `ShowFullRunJson` answer our envelope
+  from a GitHub runner, and does the row comment from `LiveFeedFieldTest` report `reported > 0` — that number
+  is the product claim, and "0 rows reported" with a note is the honest version of the same result.
+- **Gate discipline** (learned the hard way): after *any* workflow YAML edit run
+  `python3 tools/ci/test_check_workflows.py && python3 tools/ci/check_workflows.py`; a duplicated key inside a
+  mapping once passed the old scanner and killed a run as an invalid file. `check_refs` no longer reads
+  `x == y` inside a constructor call as a named argument, and `check_members` knows the JDK/org.json calls the
+  crypto client makes — both were false positives, fixed in the checkers rather than by bending the app.
 
 ## Reading a run from here (the only channels that work)
 

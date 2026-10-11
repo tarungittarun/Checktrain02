@@ -124,6 +124,152 @@ class ErailProvider(
     }
 }
 
+/**
+ * Primary live source: the railway's own running-status feed, which carries actual times per halt.
+ *
+ * This is the provider whose absence made the whole product look like a timetable. It is tried before
+ * [ErailProvider] and *after* the user's override, and it is deliberately not the only source: its payload
+ * is AES-framed with a key that is fixed inside the official app (see [NtesWire]), so an upstream rotation
+ * is a real possibility, and the price of that risk is falling back to a labelled timetable — never a
+ * blank screen and never a schedule wearing a "live" badge.
+ */
+class NtesProvider(
+    private val http: Http,
+    private val baseUrl: String = NtesWire.BASE_URL,
+    private val store: SnapshotStore? = null,
+) : LiveProvider {
+
+    override val kind = SourceKind.PROVIDER_NTES
+
+    @Volatile
+    private var note: String? = null
+
+    override fun failureNote(): String? = note
+
+    override fun fetch(trainNo: String, route: TrainRoute, journeyEpochDay: Long): LiveSnapshot? {
+        note = null
+        val plain = NtesWire.plainFor(NtesWire.SUB_LIVE, trainNo, journeyEpochDay)
+        val headers = mapOf(
+            "Content-Type" to "application/json",
+            "charset" to "utf-8",
+            // The feed answers the client signature it expects; with anything else some deployments of it
+            // reset the connection, which the traveller would otherwise experience as "no live data".
+            "User-Agent" to NtesWire.USER_AGENT,
+        )
+        val got = http.post(baseUrl, NtesWire.envelope(plain), headers, timeoutMillis = TIMEOUT, retries = 1)
+        val body = when (got) {
+            is Http.Result.Ok -> got
+            is Http.Result.Failed -> {
+                note = transportFailureSentence(got)
+                return null
+            }
+        }
+        val doc = NtesWire.unwrapJson(body.body)
+        if (doc == null) {
+            // The one failure that is ours rather than upstream's, so it has to be distinguishable: an
+            // envelope we could not open means the framing changed, not that the train is not running.
+            note = "The live feed answered, but this build could not open its envelope (its protocol may have changed)."
+            return null
+        }
+        val parsed = runCatching { NtesWire.parse(doc.toString()) }.getOrNull()
+        if (parsed == null) {
+            val keys = runCatching { doc.keys().asSequence().take(8).joinToString(", ") }.getOrNull()
+            note = "The live feed answered, but its reply was not a running-status table" +
+                (if (keys.isNullOrBlank()) "." else " (it sent: $keys).")
+            return null
+        }
+        if (parsed.isEmpty) {
+            note = "The live feed has no running data for train $trainNo on this date" +
+                (parsed.message?.let { " ($it)" } ?: ".")
+            return null
+        }
+        if (!parsed.hasLiveColumns) {
+            note = "The live feed is tracking this run but has not reported an arrival or departure minute " +
+                "at any halt yet, so the times below are the timetable until it does."
+        }
+        val snap = NtesAdapter.toSnapshot(parsed, trainNo, journeyEpochDay) ?: return null
+        store?.save(trainNo, snap)
+        return snap
+    }
+
+    companion object {
+        /** Slower than the timetable source on purpose: the envelope costs a round trip and a decrypt. */
+        const val TIMEOUT = 15_000
+    }
+}
+
+/** Maps the feed's rows onto a domain snapshot. Separate object so the mapping is testable without HTTP. */
+object NtesAdapter {
+
+    fun toSnapshot(parsed: NtesWire.Parsed, trainNo: String, journeyEpochDay: Long): LiveSnapshot? {
+        val rows = parsed.rows
+        if (rows.isEmpty()) return null
+        val perStop = LinkedHashMap<String, LiveStopFields>()
+        var anchorIdx = -1
+        var anchorEvent = StopStatus.DEPARTED
+        for ((i, s) in rows.withIndex()) {
+            val code = s.code ?: continue
+            val departed = s.departed == true || s.actDep != null
+            val arrived = s.actArr != null || s.delayArr != null
+            if (departed || arrived || s.cancelled) anchorIdx = i
+            perStop[code] = LiveStopFields(
+                actualArrivalMin = s.actArr,
+                actualDepartureMin = s.actDep,
+                delayArrivalMin = s.delayArr,
+                delayDepartureMin = s.delayDep,
+                platform = s.platform,
+                cancelled = s.cancelled,
+                departed = when {
+                    s.departed != null -> s.departed
+                    s.actDep != null -> true
+                    s.actArr != null -> false
+                    else -> null
+                },
+            )
+            anchorEvent = when {
+                s.cancelled && anchorIdx == i -> StopStatus.CANCELLED_HERE
+                arrived && !departed && anchorIdx == i -> StopStatus.ARRIVED
+                else -> StopStatus.DEPARTED
+            }
+        }
+        val anchor = anchorIdx.takeIf { it >= 0 }?.let { rows[it] }
+        val next = anchorIdx.takeIf { it >= 0 }?.let { rows.getOrNull(it + 1) }
+        val anchorCode = anchor?.code
+        // A "current station" the feed names is only useful if it exists on the timetable we hold; the
+        // domain matches on station code, so an unknown code is dropped rather than guessed at.
+        val feedCode = parsed.currentCode?.takeIf { c -> perStop.containsKey(c) } ?: anchorCode
+        // No halt with an event and no station named in the header: the feed knows nothing about where
+        // this train is, which is a different screen from "it is standing at a halt".
+        val positionKnown = anchor != null || anchorCode != null
+        return LiveSnapshot(
+            trainNo = trainNo,
+            journeyEpochDay = journeyEpochDay,
+            atCode = feedCode,
+            atSeq = 0,
+            atName = anchor?.name ?: parsed.currentName,
+            event = if (positionKnown) anchorEvent else StopStatus.UNKNOWN,
+            eventMinute = anchor?.actDep ?: anchor?.actArr,
+            scheduledMinuteAtEvent = anchor?.schedDep ?: anchor?.schedArr,
+            nextCode = parsed.nextCode?.takeIf { it.isNotBlank() } ?: next?.code,
+            expectedNextMinute = next?.actArr,
+            delayMinutes = anchor?.let { it.delayDep ?: it.delayArr }
+                ?: rows.lastOrNull { (it.delayDep ?: it.delayArr) != null }?.let { it.delayDep ?: it.delayArr },
+            platform = anchor?.platform,
+            perStop = perStop,
+            fetchedAtMillis = System.currentTimeMillis(),
+            sourceKind = SourceKind.PROVIDER_NTES,
+            feedStampMillis = parsed.feedStampMillis,
+            rawNote = buildString {
+                parsed.message?.let { append(it.take(200)) }
+                parsed.trainName?.let {
+                    if (isNotEmpty()) append(" \u00b7 ")
+                    append(it.take(60))
+                }
+            }.ifEmpty { null },
+        )
+    }
+}
+
 /** Turns the parsed wire rows into a domain snapshot. Separate object so it is testable alone. */
 object ErailAdapter {
 
@@ -370,6 +516,7 @@ class ProviderChain(private val providers: List<LiveProvider>) {
             ProviderChain(
                 listOf(
                     OverrideProvider(http, overrideUrl, store),
+                    NtesProvider(http, NtesWire.BASE_URL, store),
                     ErailProvider(http, ErailProvider.DEFAULT_BASE, columnHint, store),
                     CacheProvider(store),
                 )

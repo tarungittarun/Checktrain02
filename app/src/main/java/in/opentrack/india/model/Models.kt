@@ -175,6 +175,8 @@ data class LiveStopFields(
  */
 enum class SourceKind(val label: String, val live: Boolean) {
     PROVIDER("LIVE", true),
+    /** The railway's own running-status feed, per stop: the difference between a tracker and a timetable. */
+    PROVIDER_NTES("LIVE · running status", true),
     PROVIDER_OVERRIDE("LIVE · custom", true),
     SNAPSHOT_FILE("LIVE · snapshot", true),
     CACHED("LIVE · cached", false),

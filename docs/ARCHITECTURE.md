@@ -10,7 +10,7 @@ this file carries the global *why*.
 | --- | --- | --- |
 | C1 | Offline-first: search + timetable with no network | reference DB in the APK, `syncRefDb` at build time |
 | C2 | Ultra-lightweight | 6 AndroidX deps, no Compose/Maps/RxJava/Gson/Room, `resConfigs "en"`, R8 + `shrinkResources` |
-| C3 | No API keys, no proxy server of ours | one direct HTTPS GET to a keyless public endpoint; recovery via on-device Settings |
+| C3 | No API keys, no proxy server of ours | one direct HTTPS call to a public endpoint, authenticated only by constants inside the official app; recovery via on-device Settings |
 | C4 | −24 h … +24 h search around a chosen instant | `TrainFinder.runsBetween` is pure and unit-tested |
 | C5 | Live position vs schedule, never faked | `PositionEngine` rules + provenance labels on every screen |
 | C6 | APK built by GitHub Actions, nothing installed locally | `.github/workflows/android.yml`, `tools/ci/*` static checks |
@@ -252,7 +252,7 @@ Deliberate test choices worth keeping:
 | Retrofit/OkHttp/Gson | 1.4 MB for one GET with a cache we need to size ourselves anyway |
 | Google Maps + a marker | a key, a tile provider, network in tunnels, and it still cannot express "14 min late at RTM" |
 | A proxy server aggregating third-party APIs | exactly the fragile, key-bearing, always-on dependency C3 forbids |
-| NTES / NPRTI as the primary source | no keyless bulk endpoint reachable from a phone without a session; kept out of v1 |
+| ~~NTES as the primary source~~ **now the primary source** | an earlier reading of this problem was wrong, and it is worth keeping as the reason the app once showed timetables: the *web* endpoints of NTES/NPRTI do need a session or a key, but the **mobile** API (`enquiry.indianrail.gov.in/crisns/AppServAnd`) needs neither. It takes a POST whose body is `MD5(plain+secret)#HEX(BASE64(AES-128-CBC(plain)))` under a Dalvik user agent, with the AES key, IV and signature secret compiled into the official app and shared by every client — constants, not credentials, so C3 still holds. It answers per-stop actual times, platforms, delays and a last-updated stamp, which is the difference between a tracker and a timetable. `remote/NtesWire.kt` implements the framing; `NtesProvider` is tried before the timetable source and falls back to it, labelled, if upstream ever rotates the crypto. |
 | Compose | 2.5 MB and a lifecycle model that buys nothing for three linear screens |
 | A `train_geo` table of route polylines | the drawn line is schedule-vs-live, not geography; ~2 MB for a shape nobody looks at |
 | Raw-JSON cache instead of SQLite | no `station_trains` index, so "trains at this station" becomes a full scan per keystroke |

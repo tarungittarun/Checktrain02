@@ -145,6 +145,9 @@ dependencies {
     androidTestImplementation "junit:junit:4.13.2"
 
     testImplementation "junit:junit:4.13.2"
+    // org.json exists at runtime on Android and as a throwing stub in unit tests, so the real one goes on
+    // the test classpath — the live-feed parser is tested on the JVM, where a stub would fail every case.
+    testImplementation "org.json:json:20240303"
     testImplementation "org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1"
     // Robolectric runs the real Android framework on the JVM: layouts inflate, measures and lays out,
     // and with GraphicsMode.NATIVE actually paints into a Bitmap. That is what makes it possible to

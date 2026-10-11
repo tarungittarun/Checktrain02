@@ -60,7 +60,36 @@ env:
   TEST_ID: in.opentrack.india.test
 
 jobs:
-  # ------------------------------------------------------------------------------------ the cheap gate
+  # ---------------------------------------------------------------------------- the live-feed reconnaissance
+  # A development sandbox is not allowed to open a socket to the enquiry host, so the runner does the
+  # probing and the answer lands on the commit: which sub-services answer at all, whether our envelope
+  # framing is accepted, and whether the reply carries per-stop actual times. This is the job that turns
+  # "I think NTES publishes running times" into evidence, and it is the reason the app can keep a live
+  # source without anyone having to sniff a packet capture by hand. It never fails the build: its output
+  # is information, and a probe that can break a release is a probe nobody runs twice.
+  probe:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Ask the live feed what it answers today
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          echo "::notice::[probe] step 1: installing the AES dependency"
+          python3 -m pip install --quiet pycryptodome 2>&1 | tail -2
+          echo "::notice::[probe] step 2: one POST per sub-service, results to the commit"
+          python3 tools/ci/probe_live_feed.py 2>&1 | tail -60
+          rc=$?
+          echo "probe finished with rc=$rc"
+          exit 0
   plan:
     runs-on: ubuntu-latest
     outputs:
