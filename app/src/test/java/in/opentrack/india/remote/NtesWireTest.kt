@@ -83,6 +83,12 @@ class NtesWireTest {
         )
     }
 
+    /**
+     * A captured-shape answer from the mobile feed, indented for reading. It is fed to the parser as is:
+     * JSON ignores the whitespace between tokens, and an earlier draft of this fixture stripped every space
+     * out of the whole document — which quietly mangled the message inside the strings and turned the
+     * "the feed said it is 12 minutes late" assertion into a test of the test's own formatter.
+     */
     private val fixture = """
         {"CTT":"JKM","CTT_NAME":"Jhamat","NEXT":"BP","TMNAME":"12627 CHENNAI EXP",
          "MSG":"Train is running late by 12 minutes","LASTUPD":"11-10-2026 09:42",
@@ -92,7 +98,7 @@ class NtesWireTest {
            {"STN":"JKM","ARR":"21.54","ATA":"22.10","DEP":"21.56","ATD":"22.12","ARRPLT":"3","DIST":"89","DELAY":"16"},
            {"STN":"BP","ARR":"00.35","ATA":"","DEP":"00.40","ATD":"","ARRPLT":"","DIST":"231","DELAY":""}
          ]}
-    """.trimIndent().replace("\n", "").replace(" ", "")
+    """.trimIndent()
 
     @Test
     fun `running times arrive as actuals and stay absent where the feed said nothing`() {

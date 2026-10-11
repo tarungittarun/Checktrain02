@@ -64,9 +64,16 @@ object NtesWire {
     /** The whole POST body. The envelope is hex and base64 only, so no JSON escaping is needed. */
     fun envelope(plain: String): String = "{\"jsonIn\":\"" + wrap(plain) + "\"}"
 
-    /** `MD5(plain+secret)#HEX(BASE64(AES(plain)))` — the framing both ways. */
-    fun wrap(plain: String): String =
-        md5Upper(plain + SECRET) + "#" + hexEncode(base64Encode(aes(Cipher.ENCRYPT_MODE, plain.toByteArray(Charsets.UTF_8))))
+    /**
+     * `MD5(plain+secret)#HEX(BASE64(AES(plain)))` — the framing both ways. The two encodings stack in that
+     * order and the outer one is hex *of the base64 text*, not of the ciphertext: reading the reference
+     * client closely matters here, because `HEX(ciphertext)` compiles just as happily and every request then
+     * gets rejected by the server as a malformed envelope, which on a phone looks like "no live data".
+     */
+    fun wrap(plain: String): String {
+        val cipherText = aes(Cipher.ENCRYPT_MODE, plain.toByteArray(Charsets.UTF_8))
+        return md5Upper(plain + SECRET) + "#" + hexEncode(base64Encode(cipherText).toByteArray(Charsets.UTF_8))
+    }
 
     /**
      * Recover the payload text from a response. Accepts a bare JSON body as well as the enveloped one,
@@ -81,7 +88,9 @@ object NtesWire {
             if (!nested.isNullOrBlank()) payload = nested
         }
         val hex = payload.substringAfter('#', payload).trim()
-        val plain = String(aes(Cipher.DECRYPT_MODE, hexDecode(hex)), Charsets.UTF_8)
+        // Unwrap in the same order the sender stacked them: hex -> base64 text -> ciphertext.
+        val cipherText = base64Decode(String(hexDecode(hex), Charsets.UTF_8))
+        val plain = String(aes(Cipher.DECRYPT_MODE, cipherText), Charsets.UTF_8)
         // PKCS#7 padding bytes are 0x01..0x10; strip them rather than trusting the tail of a string.
         return plain.trimEnd { it.code in 1..16 }
     }
