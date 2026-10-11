@@ -214,7 +214,6 @@ class SuggestBox @JvmOverloads constructor(
 
     private fun hideNow() {
         panel.visibility = GONE
-        dismissedByFocus = false
     }
 
     /** Exposed for the render tests: how many rows are showing. */
