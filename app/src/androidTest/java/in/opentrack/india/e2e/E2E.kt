@@ -80,22 +80,33 @@ object E2E {
      * `endpointPersistsAcrossReopen` (restoring the default endpoint) and any second type into `fromBox`
      * would otherwise fail on the harness rather than on the app.
      *
-     * Three attempts, in the order a person would: the accessibility action, select-all + delete, then
-     * backspace until empty with a bound. The last one is ugly and works even when the IME refuses to
-     * cooperate, which is the property a CI suite needs from its own plumbing.
+     * Two attempts, in the order a person would: select-all + delete, then backspace until empty with a
+     * bound, and an explicit error rather than a mysterious `IllegalArgumentException` if the field
+     * refuses both - because that failure is the harness's, and must not be read as the app's.
      */
     fun setTextIn(o: UiObject2, value: String) {
         o.click()
-        runCatching { o.clearText() }
-        if (o.hasText()) {
+        // Select-all then delete, retried while text remains: `UiObject2` has no clearText() (only the
+        // deprecated UiObject did), and this is the gesture a person uses, so it works on every widget the
+        // app actually contains.
+        var tries = 0
+        while (o.hasText() && tries++ < 4) {
             runCatching {
                 ui.pressKeyCode(KEYCODE_A, META_CTRL_ON)
                 ui.pressDelete()
             }
         }
+        // Backspaces as the last resort: an IME that ignores the shortcut still honours delete, and the
+        // field is bounded (a station name, a URL), so the loop terminates.
         var guard = 0
-        while (o.hasText() && guard++ < 64) ui.pressDelete()
-        if (value.isNotEmpty()) o.setText(value)
+        while (o.hasText() && guard++ < 96) ui.pressDelete()
+        if (value.isNotEmpty()) {
+            if (o.hasText()) {
+                error("the harness could not empty the field before typing '$value' - a test-plumbing " +
+                    "problem, not an app bug; look at the screenshot for the keyboard state")
+            }
+            o.setText(value)
+        }
         ui.waitForIdle()
     }
 
