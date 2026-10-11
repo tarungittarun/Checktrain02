@@ -177,6 +177,7 @@ jobs:
           python3 tools/ci/check_refs.py app/src/main/java
           python3 tools/ci/check_resources.py
           python3 tools/ci/check_members.py
+          python3 tools/ci/check_literals.py
           # The two rules that cost a push each, checked before the runner gets a say:
           # a key written twice in one mapping block, and an action input with both `required`
           # and `default`. Both make the whole file invalid - no job starts, no annotation to read.
@@ -194,7 +195,7 @@ jobs:
             echo "### e2e gate failed"
             echo ""
             echo "Each checker's own words, so a red \`plan\` job is actionable without opening the UI:"
-            for c in flow_coverage check_kotlin_balance check_refs check_resources check_members check_workflows; do
+            for c in flow_coverage check_kotlin_balance check_refs check_resources check_members check_literals check_workflows; do
               echo ""
               echo "#### \`$c\`"
               echo '```'

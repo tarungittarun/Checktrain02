@@ -94,4 +94,14 @@
     </plurals>
     <string name="feed_report_copied">Live-feed report copied to the clipboard</string>
     <string name="feed_report_empty">Nothing to report yet — the screen has not finished loading</string>
+    <string name="settings_diag_title">Diagnostic log</string>
+    <string name="settings_diag_hint">Off by default, and nothing is recorded until you turn it on. Each line is one request, one provider verdict or one parse refusal: host, status, elapsed, no train numbers, no locations, no payload contents. The file stays on this phone unless you share or save it yourself.</string>
+    <string name="settings_diag_on">Turn on collection</string>
+    <string name="settings_diag_off">Turn off collection</string>
+    <string name="settings_diag_share">Share</string>
+    <string name="settings_diag_save">Save to file</string>
+    <string name="settings_diag_clear">Clear</string>
+    <string name="diag_saved">Diagnostic log saved</string>
+    <string name="diag_nothing">Nothing collected yet</string>
+    <string name="diag_empty_hint">Turn collection on, reproduce the problem, then come back here to share or save it</string>
 </resources>

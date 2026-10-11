@@ -7,6 +7,7 @@ import java.io.File
 import java.io.IOException
 import java.io.InputStream
 import java.net.HttpURLConnection
+import `in`.opentrack.india.core.Diary
 import java.net.SocketTimeoutException
 import java.net.URL
 import java.util.zip.GZIPInputStream
@@ -73,11 +74,13 @@ class Http(context: Context) {
         while (attempt <= retries) {
             attempt++
             last = tryOnce(url, timeoutMillis, headers)
+            Diary.get()?.log("HTTP") { "GET " + hostOf(url) + " try#" + attempt + " -> " + verdict(last) }
             if (last is Result.Ok || last !is Result.Failed) return last
             if (last.kind == Result.Kind.HTTP) break            // 4xx/5xx will not fix itself
             if (attempt <= retries) sleep(300L * attempt)
         }
         if (last is Result.Failed) {
+            Diary.get()?.log("HTTP", "GET " + hostOf(url) + " served the response cache instead: " + verdict(last))
             cached(url)?.let { (body, age) ->
                 Log.d(TAG, "serving cached body (${age / 1000}s old) after ${last.kind}")
                 return Result.Ok(body, fromCache = true, ageMillis = age)
@@ -104,6 +107,10 @@ class Http(context: Context) {
         while (attempt <= retries) {
             attempt++
             last = tryPost(url, body, headers, timeoutMillis, tls12)
+            Diary.get()?.log("HTTP") {
+                "POST " + hostOf(url) + " try#" + attempt + (if (tls12) " tls1.2" else "") +
+                    " body=" + body.length + "B -> " + verdict(last)
+            }
             if (last is Result.Ok) return last
             if (last is Result.Failed && last.kind == Result.Kind.HTTP) break
             if (attempt <= retries) sleep(400L * attempt)
@@ -140,7 +147,7 @@ class Http(context: Context) {
             if (text.isBlank()) Result.Failed(Result.Kind.EMPTY, "empty body")
             else Result.Ok(text, fromCache = false, ageMillis = 0)
         } catch (e: SocketTimeoutException) {
-            Result.Failed(Result.Kind.TIMEOUT, "${'$'}{e.javaClass.simpleName}: ${'$'}{e.message ?: "timeout"}")
+            Result.Failed(Result.Kind.TIMEOUT, failText(e, "timeout"))
         } catch (e: IOException) {
             val offline = e.message?.let {
                 it.contains("Unable to resolve host") || it.contains("ENETUNREACH") || it.contains("ENONET")
@@ -154,7 +161,7 @@ class Http(context: Context) {
                 "${e.javaClass.simpleName}: ${e.message ?: "io error"}",
             )
         } catch (e: Throwable) {
-            Result.Failed(Result.Kind.PARSE, "${'$'}{e.javaClass.simpleName}: ${'$'}{e.message ?: "unexpected"}")
+            Result.Failed(Result.Kind.PARSE, failText(e, "unexpected"))
         } finally {
             if (!bodyRead) runCatching { conn?.disconnect() }
         }
@@ -170,6 +177,30 @@ class Http(context: Context) {
         javax.net.ssl.SSLContext.getInstance("TLSv1.2").apply {
             init(null, null, null)
         }.socketFactory
+
+    /**
+     * One line per attempt: host and verdict. The query string is left out deliberately - a query is where a
+     * train number and a travel date live, and a log the user pastes into a public issue should not become a
+     * record of the trains they followed. Body size yes, body contents never; that is also why the encrypted
+     * POST envelope is measured rather than quoted.
+     */
+    private fun hostOf(url: String): String =
+        url.substringAfter("://", url).substringBefore("/").substringBefore("?")
+
+    /**
+     * "IOException: closed" rather than "closed" - and built by concatenation rather than a template on
+     * purpose. This project has twice shipped diagnostic text where a patch script's escaping leaked into the
+     * source, so a literal template placeholder reached a user's screen; the string is load-bearing enough
+     * should not depend on any tooling understanding it. tools/ci/check_literals.py fails the build on a leak.
+     */
+    private fun failText(e: Throwable, fallback: String): String =
+        e.javaClass.simpleName + ": " + (e.message ?: fallback)
+
+    private fun verdict(r: Result): String = when (r) {
+        is Result.Ok -> "answered " + r.body.length + "B" +
+            (if (r.fromCache) " from cache age=" + (r.ageMillis / 1000) + "s" else "")
+        is Result.Failed -> r.kind.toString() + " " + r.message
+    }
 
     private fun tryOnce(url: String, timeoutMillis: Int, headers: Map<String, String> = emptyMap()): Result = serial {
         var conn: HttpURLConnection? = null
@@ -213,16 +244,16 @@ class Http(context: Context) {
             store(url, body)
             Result.Ok(body, fromCache = false, ageMillis = 0)
         } catch (e: SocketTimeoutException) {
-            Result.Failed(Result.Kind.TIMEOUT, "${'$'}{e.javaClass.simpleName}: ${'$'}{e.message ?: "timeout"}")
+            Result.Failed(Result.Kind.TIMEOUT, failText(e, "timeout"))
         } catch (e: IOException) {
             val offline = e.message?.contains("Unable to resolve host") == true ||
                 e.message?.contains("ENETUNREACH") == true || e.message?.contains("ENONET") == true
             Result.Failed(
                 if (offline) Result.Kind.OFFLINE else Result.Kind.HTTP,
-                "${'$'}{e.javaClass.simpleName}: ${'$'}{e.message ?: "io error"}",
+                failText(e, "io error"),
             )
         } catch (e: Throwable) {
-            Result.Failed(Result.Kind.HTTP, "${'$'}{e.javaClass.simpleName}: ${'$'}{e.message ?: "unexpected"}")
+            Result.Failed(Result.Kind.HTTP, failText(e, "unexpected"))
         } finally {
             // Only a request that never finished reading may disconnect. A completed one hands its socket back
             // to the pool on purpose; pulling the rug out from under the pool is the fault described above.

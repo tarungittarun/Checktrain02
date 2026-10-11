@@ -70,6 +70,65 @@ a publicly documented sample credential. If the probe shows that only a keyed so
 correct output is an evidence-backed proposal to the user (endpoint, what the key costs, what it means for the
 no-accounts promise), not a quiet exception in the provider chain.
 
+
+## The opt-in diagnostic log, and why the second field report was from a stale build
+
+The third device paste looked like a re-test of the fix and was not one: it still listed `get-howtherail`, a
+variant deleted in the previous commit, and its GET lines still lacked the exception class that commit added.
+Same words, older build. Nothing about that is the user's fault - a rolling release asset is easy to believe
+is current - but it cost a round trip, so the report now starts with the truth:
+
+    build 1.0.0 code 53 · diagSchema 1 · log off
+
+A report that cannot say which build wrote it is a rumour. That line is also why `flow_coverage` and the
+`checks` job must never be the only gate: `117a465`'s probe shipped a control host (`howtherail.in`) that
+does not resolve anywhere, and every gate was green.
+
+### What was built instead of another screenshot request
+
+`core/Diary.kt`, driven from the Data source screen (the one screen the user had already found):
+
+* **Off until switched on.** `log()` returns before it touches the buffer or the disk. No shadow capture that
+  merely has not been flushed - the first byte of the file exists because the user asked for it, and the
+  screen says how many bytes and when the last entry was written, because "I enabled it and nothing happened"
+  is otherwise indistinguishable from a broken switch.
+* **Content by rule, not by taste.** Host and verdict per request attempt, provider verdicts, parse refusals
+  with only the JSON *key names*, the probe's matrix. No query strings (they carry the train number and the
+  travel date), no response bodies, no locations, no accounts. A redaction pass drops `app_key`/`api_key`/
+  `token`/`secret`/`password`/`sckey` values and any bare 32-hex digest, and there is a unit test asserting
+  each - so the pass cannot quietly rot while new fields are added around it.
+* **Egress facts the app cannot otherwise learn.** On enable: device/OS, transport (incl. whether a VPN is
+  the active route), whether Private DNS is `off`/`opportunistic`/`hostname` - with the resolver reduced to
+  its last two labels because those hostnames embed account ids - and a name-resolution plus TCP/443 probe of
+  the four hosts this app needs. `howtherail.in` returning NXDOMAIN on a phone while Chrome loads the railway
+  site is exactly the fact that distinguishes "the feed refuses us" from "one app's traffic is being filtered",
+  and no CI runner can produce it.
+* **Shares only how the user chooses.** `Share` (plain-text intent) and `Save to file` (system document
+  picker). There is no upload path in the code, which is the only version of "log collector" compatible with a
+  screen that reads "no accounts, no API keys, no ads, no analytics".
+* `Clear` deletes and writes nothing afterwards, so the card goes back to "nothing collected yet" while the
+  switch stays on - a user mid-repro must not have to re-enable and start the capture over.
+
+The first line of the file is written synchronously and the rest on a daemon executor: an append per socket
+attempt must never be able to slow a refresh, and an unbounded log must never be the reason a phone lags.
+Rotation keeps the newer half and records the cut, because a log that eats its tail destroys the one capture
+worth having.
+
+Covered on-device by `SettingsFlowTest#diagnosticCollectorIsInertThenLiveThenEmpty` (flow `diag-log-collector`):
+inert, then visibly live, then emptied by Clear. The system share sheet and document picker are deliberately
+not driven - a chooser is Android's UI, and a row that fails when Google changes it tells us nothing.
+
+### Where the network question now stands
+
+The fix that the stale paste did not test (`258a28b`) is still the leading hypothesis: `Http` used to call
+`disconnect()` in a `finally` on a process-shared instance, and Android pools keep-alive sockets per process,
+so one thread tearing down a connection closes the socket another thread is handshaking on - `IOException:
+closed`, uniform across unrelated hosts, sub-second, and invisible to a CI runner that issues one request at a
+time. The next report either shows that fixed (attempts now serialised, sockets returned to the pool) or it
+carries the class names and the DNS/VPN/Private-DNS block that says why. If the log shows `tcp443=false` for
+every host while Chrome loads the same pages, the answer is a per-app network policy on the device, and this
+app's honest state remains "schedule only, labelled" - not a silent fallback, and not a key baked into an APK.
+
 ## What CI can and cannot prove about the live feed
 
 `AppServAnd` at `enquiry.indianrail.gov.in` **refuses connections from GitHub's runner IPs**: two runs, three

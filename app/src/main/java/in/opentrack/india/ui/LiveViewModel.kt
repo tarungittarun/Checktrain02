@@ -4,6 +4,7 @@ import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import `in`.opentrack.india.core.Diary
 import `in`.opentrack.india.App
 import `in`.opentrack.india.core.RailTime
 import `in`.opentrack.india.data.RailRepository
@@ -76,6 +77,7 @@ class LiveViewModel(
             while (isActive) {
                 val seconds = repo()?.prefs?.autoRefreshSeconds ?: 60
                 if (seconds <= 0 || !auto) {
+                    Diary.get()?.log("UI", "auto refresh is off; only re-deriving position from the cache")
                     // Disabled: still keep the screen honest by re-deriving position from the cached
                     // snapshot once a minute, so the marker does not freeze mid-leg.
                     delay(60_000)
@@ -97,7 +99,11 @@ class LiveViewModel(
         auto = enabled
     }
 
-    fun refresh() {
+    /** [manual] is only about the log: a tap and an auto tick take the same path, and knowing which one
+     * produced a result is what makes a timing question (does a second request interfere with the first?)
+     * answerable from a file instead of from a guess. */
+    fun refresh(manual: Boolean = false) {
+        Diary.get()?.log("UI", if (manual) "refresh tapped by the user" else "refresh (auto tick)")
         val previous = lastAnswer?.position
         viewModelScope.launch {
             val repo = repo() ?: run {

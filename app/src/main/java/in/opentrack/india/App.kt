@@ -7,6 +7,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import `in`.opentrack.india.core.Diary
 import `in`.opentrack.india.data.Prefs
 
 /**
@@ -22,6 +23,17 @@ class App : Application() {
 
     @Volatile
     private var repository: RailRepository? = null
+
+    /**
+     * The diagnostic log is installed before anything can fail, so that the very first launch of a broken
+     * build is capturable. Installing is not collecting: [in.opentrack.india.core.Diary] records nothing at
+     * all until the user turns collection on, and that choice is restored here rather than assumed.
+     */
+    override fun onCreate() {
+        super.onCreate()
+        val diary = Diary.install(this)
+        if (Prefs(this).diaryEnabled) diary.resume(this)
+    }
 
     suspend fun repository(onProgress: (Long, Long) -> Unit = { _, _ -> }): RailRepository? {
         repository?.let { return it }

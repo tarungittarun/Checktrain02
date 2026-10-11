@@ -36,13 +36,52 @@ class SettingsFlowTest {
     @Test
     fun everyControlIsReachableAndBackReturns() {
         assertTrue("the Data source button does not open settings", openSettings())
-        for (id in listOf("state", "overrideUrl", "columnHint", "refreshChoices", "save", "clear", "about")) {
+        for (
+            id in listOf(
+                "state", "overrideUrl", "columnHint", "refreshChoices", "save", "clear", "about",
+                "diagToggle", "diagShare", "diagSave", "diagClear", "diagState",
+            )
+        ) {
             assertTrue("settings screen is missing the control '$id'", E2E.visible(id))
         }
         assertTrue("the install state is blank: '${E2E.text("state")}'", E2E.text("state").isNotBlank())
         E2E.shot("settings")
         assertTrue("back does not leave settings", E2E.tap("back"))
         assertTrue("back did not return to search", E2E.visible("fromBox"))
+    }
+
+    /**
+     * The diagnostic collector, driven end to end: off by default, visibly live once enabled, and emptied by
+     * Clear. The reason this is a device flow rather than a unit test is that the whole feature exists to be
+     * handed to a stranger in distress — if the state line never changes when the switch is flipped, the
+     * feature is worthless no matter how correct the file writing is.
+     */
+    // @flow diag-log-collector
+    @Test
+    fun diagnosticCollectorIsInertThenLiveThenEmpty() {
+        assertTrue(openSettings())
+        val idle = E2E.text("diagState")
+        assertTrue(
+            "the card does not explain how to start collecting: '" + idle + "'",
+            idle.contains("reproduce", ignoreCase = true) || idle.contains("Turn on", ignoreCase = true),
+        )
+        assertTrue("collection cannot be turned on", E2E.tap("diagToggle"))
+        E2E.ui.wait(Until.hasObject(E2E.res("diagState")), E2E.LOCAL_MS)
+        val live = E2E.text("diagState") + " " + E2E.text("diagToggle")
+        assertTrue(
+            "enabling collection left no visible trace: '" + live + "'",
+            live.contains("bytes", ignoreCase = true) || live.contains("Turn off", ignoreCase = true),
+        )
+        // Clear must empty it while leaving collection on — a user mid-repro must not have to re-enable.
+        assertTrue("clear is unreachable", E2E.tap("diagClear"))
+        E2E.ui.wait(Until.hasObject(E2E.res("diagState")), E2E.LOCAL_MS)
+        val cleared = E2E.text("diagState")
+        assertTrue(
+            "after Clear the card still claims content: '" + cleared + "'",
+            cleared.contains("reproduce", ignoreCase = true) || cleared.isBlank(),
+        )
+        assertTrue("collection cannot be turned off", E2E.tap("diagToggle"))
+        E2E.shot("settings-diary")
     }
 
     // @flow endpoint-save-reload

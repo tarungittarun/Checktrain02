@@ -1,6 +1,7 @@
 package `in`.opentrack.india.data
 
 import android.content.Context
+import `in`.opentrack.india.core.Diary
 import `in`.opentrack.india.core.Http
 import `in`.opentrack.india.core.RailTime
 import `in`.opentrack.india.domain.PositionEngine
@@ -89,7 +90,10 @@ class RailRepository private constructor(
             overrideUrl = prefs.overrideUrl.ifBlank { null },
             columnHint = prefs.columnHint.ifBlank { null },
         )
+        val chainT0 = System.currentTimeMillis()
         val outcome = chain.fetch(trainNo, route, originEpochDay)
+        Diary.get()?.log("CHAIN", "in " + (System.currentTimeMillis() - chainT0) + "ms: " +
+            (outcome.notes.take(4).joinToString(" | ") { it.take(140) }))
         val gps = if (prefs.useLocation && hasLocationPermission()) {
             sensors.singleFix()?.let { sensors.evidence(it, route) }
         } else null

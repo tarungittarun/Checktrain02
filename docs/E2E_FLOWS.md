@@ -50,6 +50,7 @@ railway happens to be reporting today says so, and its test asserts the invarian
 | `back-nav` | tracking → search | Back returns to the search screen with the previous query intact | `TrackingFlowTest#backKeepsTheSearchQuery` | all |
 | `density-change` | tracking | The screen is coherent at every density the fleet runs (no overflow, no clipped plot) — the axis Robolectric cannot fake, since it ignores `fontScale` | `TrackingFlowTest#chartHasGeometryAndLegend` | large, density |
 | `settings-open` | settings | The screen shows the install state, the endpoint field, the column map and the refresh choice | `SettingsFlowTest#everyControlIsReachableAndBackReturns` | all |
+| `diag-log-collector` | settings | The diagnostic log is inert until the user turns it on, says so on screen once they do, and is emptied by Clear without losing the switch | `SettingsFlowTest#diagnosticCollectorIsInertThenLiveThenEmpty` | all |
 | `endpoint-save-reload` | settings | A typed endpoint survives Save and reopening | `SettingsFlowTest#endpointPersistsAcrossReopen` | all |
 | `endpoint-rejects-non-http` | settings | A non-URL endpoint is not tried silently: the tracking screen says the configured endpoint was skipped | `SettingsFlowTest#junkEndpointSaysSo` | all |
 | `column-hint` | settings | A column map is accepted and persisted (the escape hatch for a feed format change must be reachable) | `SettingsFlowTest#columnHintPersists` | all |

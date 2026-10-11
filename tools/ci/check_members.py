@@ -64,6 +64,10 @@ getLocationInWindow getPixel drawColor mkdirs compress recycle zipWithNext getCh
 # Android + JDK + Kotlin stdlib members these files actually call, gathered by running this checker and
 # keeping what was framework. Listed rather than guessed so a typo cannot hide behind a wildcard.
 ALLOW |= set("""
+isSuccess launch
+lastModified openOutputStream toByteArray registerForActivityResult clear text
+packageName contentResolver connect takeLast log
+removeFirst addLast appendText appendBytes readBytes copyOfRange versionName lastUpdateTime getPackageInfo packageManager getLinkProperties hasTransport hasCapability getNetworkCapabilities activeNetwork mkdirs resume install tailLabels exportName rotationPlan getAllByName hostAddress getSharedPreferences putString putInt
 length getString getOrNull edit toInt toFloat coerceIn coerceAtLeast coerceAtMost delete lastOrNull
 groupValues exists applicationContext lineTo moveTo rewind toEpochDay parentFile toIntOrNull takeIf str
 removeAllViews bool responseCode isFile absolutePath withIndex second accuracy latitude longitude

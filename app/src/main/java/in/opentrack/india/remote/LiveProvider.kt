@@ -1,6 +1,7 @@
 package `in`.opentrack.india.remote
 
 import android.content.Context
+import `in`.opentrack.india.core.Diary
 import `in`.opentrack.india.core.Http
 import `in`.opentrack.india.core.RailTime
 import `in`.opentrack.india.model.LiveSnapshot
@@ -170,9 +171,11 @@ class NtesProvider(
             is Http.Result.Ok -> got
             is Http.Result.Failed -> {
                 note = transportFailureSentence(got) +
-                    (if (adopted != null) " (asked with the shape this device adopted: {D}{adopted.name})" else "")
+                    (if (adopted != null) " (asked with the shape this device adopted: " + adopted.name + ")" else "")
                 // Refused is the moment the experiment matters: the device is the only place that can tell a
                 // wrong request from a blocked network, so ask it instead of guessing from a sandbox.
+                Diary.get()?.log("NTES", "refused: " + got.kind + " " + got.message +
+                    (if (adopted == null) " (shipped shape)" else " (adopted shape " + adopted.name + ")"))
                 if (got.kind == Http.Result.Kind.HTTP || got.kind == Http.Result.Kind.TIMEOUT) {
                     FeedProbe.maybeStart(http, trainNo, journeyEpochDay)
                 }
@@ -184,11 +187,13 @@ class NtesProvider(
             // The one failure that is ours rather than upstream's, so it has to be distinguishable: an
             // envelope we could not open means the framing changed, not that the train is not running.
             note = "The live feed answered, but this build could not open its envelope (its protocol may have changed)."
+            Diary.get()?.log("NTES", "envelope unopenable: body=" + body.body.length + "B, framing changed?")
             return null
         }
         val parsed = runCatching { NtesWire.parse(doc.toString()) }.getOrNull()
         if (parsed == null) {
             val keys = runCatching { doc.keys().asSequence().take(8).joinToString(", ") }.getOrNull()
+            Diary.get()?.log("NTES", "reply was not a status table; top-level keys: " + (keys ?: "-"))
             note = "The live feed answered, but its reply was not a running-status table" +
                 (if (keys.isNullOrBlank()) "." else " (it sent: $keys).")
             return null
@@ -202,11 +207,17 @@ class NtesProvider(
             note = "The live feed is tracking this run but has not reported an arrival or departure minute " +
                 "at any halt yet, so the times below are the timetable until it does."
         }
-        val snap = NtesAdapter.toSnapshot(parsed, trainNo, journeyEpochDay) ?: return null
+        val snap = NtesAdapter.toSnapshot(parsed, trainNo, journeyEpochDay) ?: run {
+            Diary.get()?.log("NTES", "rows parsed (" + parsed.rows.size + ") but no station matched the timetable")
+            return null
+        }
+        Diary.get()?.log("NTES", "accepted: " + snap.rows.size + " stops, live rows " +
+            (if (parsed.hasLiveColumns) "present" else "none yet"))
         // Said out loud so a screenshot explains itself: "live, via a shape learned on this device" is a
         // different support conversation from "live, via the shipped request".
+        val via = " · via " + adopted.name
         val shaped = if (adopted == null || snap.rawNote.isNullOrBlank()) snap
-        else snap.copy(rawNote = "{D}{snap.rawNote} · via {D}{adopted.name}")
+        else snap.copy(rawNote = (snap.rawNote ?: "live") + via)
         store?.save(trainNo, shaped)
         return shaped
     }

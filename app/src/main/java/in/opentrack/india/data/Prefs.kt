@@ -33,6 +33,14 @@ class Prefs(context: Context) {
         get() = sp.getInt(KEY_REFRESH, 60)
         set(v) = sp.edit().putInt(KEY_REFRESH, v.coerceIn(0, 3600)).apply()
 
+    /**
+     * Whether the user has asked for a diagnostic log. Persisted, because a log left on across a restart is
+     * how a bug that only happens on the first request after boot ever gets caught.
+     */
+    var diaryEnabled: Boolean
+        get() = sp.getBoolean(KEY_DIARY, false)
+        set(v) = sp.edit().putBoolean(KEY_DIARY, v).apply()
+
     var lastFromCode: String
         get() = sp.getString(KEY_LAST_FROM, "").orEmpty()
         set(v) = sp.edit().putString(KEY_LAST_FROM, v).apply()
@@ -70,7 +78,8 @@ class Prefs(context: Context) {
     companion object {
         private const val KEY_OVERRIDE = "overrideUrl"
         private const val KEY_COLUMN_HINT = "columnHint"
-        private const val KEY_REFRESH = "refreshSeconds"
+        private const val KEY_DIARY = "diary"
+    private const val KEY_REFRESH = "refreshSeconds"
         private const val KEY_LAST_FROM = "lastFrom"
         private const val KEY_LAST_TO = "lastTo"
         private const val KEY_LAST_TRAIN = "lastTrain"

@@ -11,6 +11,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.LinearLayoutManager
 import `in`.opentrack.india.App
+import `in`.opentrack.india.core.Diary
 import `in`.opentrack.india.R
 import `in`.opentrack.india.core.RailTime
 import `in`.opentrack.india.databinding.ActivityTrainBinding
@@ -64,7 +65,7 @@ class TrainActivity : AppCompatActivity() {
         binding.stops.adapter = stopAdapter
         binding.stops.isNestedScrollingEnabled = false
 
-        binding.refresh.setOnClickListener { vm.refresh() }
+        binding.refresh.setOnClickListener { vm.refresh(manual = true) }
         binding.toggle.setOnClickListener {
             fullRoute = !fullRoute
             binding.toggle.setText(
@@ -192,12 +193,21 @@ class TrainActivity : AppCompatActivity() {
         val timetable = m.rows.count { it.source == TrackModel.MinuteSource.SCHEDULE }
         val text = buildString {
             append("OpenTrack India live-feed report\n")
+            // Written first on purpose. A report is only evidence about the build that produced it, and one
+            // round of debugging was lost to a paste from a stale install that looked identical otherwise.
+            val pi = runCatching { packageManager.getPackageInfo(packageName, 0) }.getOrNull()
+            val diary = Diary.get()
+            append(
+                "build " + (pi?.versionName ?: "?") + " code " + (pi?.versionCode ?: -1) +
+                    " · diagSchema " + Diary.SCHEMA +
+                    " · log " + (if (diary?.enabled == true) "on" else "off") + "\n",
+            )
             append("train ${m.trainNo} · ${m.runDateLabel} · seen ${RailTime.formatClock(System.currentTimeMillis())} IST\n")
             // Filtered rather than concatenated: an empty feed-stamp used to leave "· " hanging at the end of
             // the line, which is the sort of detail that makes a diagnostic look unfinished in a screenshot.
             append(listOf(
-                "source ${'$'}{m.provenanceLabel}",
-                "age ${'$'}{m.ageLabel}",
+                "source " + m.provenanceLabel,
+                "age " + m.ageLabel,
                 m.feedStampLabel,
             ).filter { it.isNotBlank() }.joinToString(" · "))
             append("\n")

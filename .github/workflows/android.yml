@@ -43,6 +43,11 @@ jobs:
       # coarse stand-in that has already caught three of those before a push.
       - name: Receiver-member references
         run: python3 tools/ci/check_members.py
+      # Every diagnostic string here has been written or rewritten by a scripted patch, and more than once an
+      # escape leaked into the source: a template that is valid Kotlin and renders literal gibberish on the
+      # user's screen. This checker exists because reading the diff was not enough to catch it.
+      - name: No patch-script escaping leaked into Kotlin strings
+        run: python3 tools/ci/check_literals.py
       - name: Workflow and action files parse the way Actions requires
         # The self-test runs first: a duplicate mapping key invalidates the whole file and the runner's only
         # comment is that the workflow is malformed, so this checker is what stands between a scripted edit

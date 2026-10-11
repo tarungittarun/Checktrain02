@@ -1,5 +1,6 @@
 package `in`.opentrack.india.remote
 
+import `in`.opentrack.india.core.Diary
 import `in`.opentrack.india.core.Http
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -78,6 +79,12 @@ object FeedProbe {
      * are regenerated here rather than stored, so an adopted variant can never be replayed with the probe's
      * original question attached to it.
      */
+    /** The newest probe line, for the log; the whole matrix is in render() when someone copies it. */
+    private fun lastOf(out: List<Result>): String {
+        val r = out.lastOrNull() ?: return "nothing"
+        return r.name + ": " + r.outcome + (if (r.head.isBlank()) "" else " | " + r.head.take(90))
+    }
+
     fun rebuild(v: Variant, trainNo: String, journeyEpochDay: Long): Variant {
         val plain = NtesWire.plainFor(NtesWire.SUB_LIVE, trainNo, journeyEpochDay)
         return when {
@@ -214,6 +221,7 @@ object FeedProbe {
                 val t0 = System.currentTimeMillis()
                 val got = execute(http, v, trainNo, journeyEpochDay)
                 val ms = System.currentTimeMillis() - t0
+                Diary.get()?.log("PROBE", lastOf(out) + " in " + ms + "ms")
                 var usable = false
                 if (got is Http.Result.Ok) {
                     val doc = NtesWire.unwrapJson(got.body)
@@ -257,7 +265,7 @@ object FeedProbe {
         val keep = listOf("loc", "proxy", "http")
         val parts = body.lines().map { it.trim() }.filter { it.contains('=') }.mapNotNull { line ->
             val k = line.substringBefore('=').trim().lowercase()
-            if (k in keep) "$k=${'$'}{line.substringAfter('=').trim()}" else null
+            if (k in keep) k + "=" + line.substringAfter("=").trim() else null
         }
         return if (parts.isEmpty()) "answered, fields unreadable" else parts.joinToString(" ")
     }
