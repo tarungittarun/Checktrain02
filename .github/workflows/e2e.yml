@@ -319,6 +319,9 @@ jobs:
             # An empty `-e class` value is an error from the runner, not a request to run everything, so the
             # flag is added only when a filter was actually asked for.
             [ -n "${CLASS_FILTER:-}" ] && sel=(-e class "$CLASS_FILTER")
+            # Word-splitting here is deliberate: the variable holds a flag triple such as
+            # `-e requireCleared true`, and every caller of it is in this file.
+            [ -n "${EXTRA_ARGS:-}" ] && sel+=($EXTRA_ARGS)
             # `coverage true` is what makes the JaCoCo agent that `testCoverageEnabled` installs flush its
             # data at the end of the run; without the flag there is no coverage file to measure.
             adb shell am instrument -w -e debug false -e coverage true -e coverageFile "$ec" \
@@ -339,9 +342,22 @@ jobs:
             fi
           }
           # Cold-start and the flow suites in one pass; `pm clear` above is what makes the first-run case real.
-          # Order matters: the live-feed field test needs the network, so it runs before the radio goes off,
-          # and the degradation suite runs with it off. Each pass writes its own coverage file, and the
-          # merge below makes the number the suite's coverage rather than one pass of it.
+          # The cold-start flow is given its own pass rather than being left to the scheduler: inside the
+          # `all` pass it only tests a cold start if AndroidJUnitRunner happens to run ColdStartFlowTest
+          # first, and a coin toss is not evidence. `pm clear` here means the app has genuinely never seen
+          # the 14 MB timetable, and `-e requireCleared true` makes the test fail if that promise is broken.
+          if [ "$VARIANT" = debug ]; then
+            adb shell pm clear "$APP_ID" || true
+            case "${{ matrix.location }}" in
+              granted) adb shell pm grant "$APP_ID" android.permission.ACCESS_COARSE_LOCATION || true ;;
+              *) adb shell pm revoke "$APP_ID" android.permission.ACCESS_COARSE_LOCATION || true ;;
+            esac
+            CLASS_FILTER="in.opentrack.india.e2e.ColdStartFlowTest" \
+              EXTRA_ARGS="-e requireCleared true" run_suite cold || true
+          fi
+          # Order matters for the rest: the live-feed field test needs the network, so it runs before the
+          # radio goes off, and the degradation suite runs with it off. Each pass writes its own coverage
+          # file, and the merge below makes the number the suite's coverage rather than one pass of it.
           if [ "${{ matrix.offline }}" = true ]; then
             CLASS_FILTER="in.opentrack.india.realdevice.LiveFeedFieldTest" run_suite online
           fi

@@ -18,7 +18,7 @@ railway happens to be reporting today says so, and its test asserts the invarian
 
 | Flow | Screen | What the traveller sees | Test | Runners |
 | --- | --- | --- | --- | --- |
-| `cold-start` | search | First launch after `pm clear` reports the offline timetable being installed with a real percentage, then a usable search screen — never a blank frame, never an ANR | `ColdStartFlowTest#coldStartInstallsThenAnswers` | all |
+| `cold-start` | search | First launch after `pm clear` reports the offline timetable being installed with a real percentage, then a usable search screen — never a blank frame, never an ANR | `ColdStartFlowTest#coldStartInstallsThenAnswers` | cold, all |
 | `data-chip` | search | The data chip states what is installed (counts or "not installed"), which is what makes "no results" interpretable | `ColdStartFlowTest#dataChipStatesWhatIsInstalled` | all |
 | `type-ahead-station` | search | Three letters in Board-at or Get-off-at open a list of matches; tapping one puts the *name* in the field and the code in the "Selected" chip | `StationSearchFlowTest#threeLettersOfferMatchesThatFillTheField` | all |
 | `type-ahead-train` | search | Three digits in the train box offer trains; tapping one fills the number | `TrainSearchFlowTest#trainBoxSuggestsAndFills` | all |
