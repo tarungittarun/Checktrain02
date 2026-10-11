@@ -64,7 +64,7 @@ tracking. Timetables are inside the app, so the whole thing works in airplane mo
      railway is refusing this app" from "your mobile carrier is refusing the railway", and it is the last
      network variable left open.
 
-### This build specifically (round 6)
+### This build specifically (round 7)
 
 The app now asks the railway **twice, by two different routes**: once as an app, once as a browser — and if the
 browser is the one that gets through, it keeps using it. So while you do steps 2–4 above, watch for two things
@@ -73,6 +73,9 @@ and put them in the same reply:
 - Under the pill, a sentence that ends **"(asked from the site's own page, the way its app does)"** — it means
   your phone is the first where we proved which half of the problem is which. **You should not see it yet**: it
   only appears once the railway has actually sent a real answer, and that is the thing being tested.
+- **Two things you reported are fixed in this build:** the train screen no longer waits ~20-40 seconds
+  (the app now stops waiting at about 7 seconds and tells you it did), and **Save to file** now saves —
+  it was reading a value nothing ever set, so it always claimed you had cancelled the picker.
 - **One question that could end this in a minute:** does that phone have any app that filters other apps'
   traffic — NetGuard, AdGuard, a VPN, an anti-virus with a firewall, a "data saver"? If yes, turn it off (or
   allow this app) and tap **Refresh**. Here is why that is the right question: on your last log the app's own

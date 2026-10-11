@@ -8,6 +8,7 @@ import `in`.opentrack.india.core.Diary
 import `in`.opentrack.india.App
 import `in`.opentrack.india.core.RailTime
 import `in`.opentrack.india.data.RailRepository
+import `in`.opentrack.india.remote.FeedProbe
 import `in`.opentrack.india.domain.PositionEngine
 import `in`.opentrack.india.domain.Suggestion
 import `in`.opentrack.india.domain.TrackModel
@@ -104,6 +105,12 @@ class LiveViewModel(
      * answerable from a file instead of from a guess. */
     fun refresh(manual: Boolean = false) {
         Diary.get()?.log("UI", if (manual) "refresh tapped by the user" else "refresh (auto tick)")
+        if (manual) {
+            // The traveller pressed the button. A background experiment that is holding a socket to find out
+            // why the last press failed is now the reason this press is slow, so it is told to stop; the
+            // diagnostic resumes on the next refusal and has never been the point of the screen.
+            FeedProbe.requestCancel()
+        }
         val previous = lastAnswer?.position
         viewModelScope.launch {
             val repo = repo() ?: run {

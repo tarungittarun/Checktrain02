@@ -2,7 +2,6 @@ package `in`.opentrack.india.ui
 
 import `in`.opentrack.india.R
 import android.content.Intent
-import android.net.Uri
 import android.os.Bundle
 import android.widget.ArrayAdapter
 import android.widget.Toast
@@ -36,13 +35,17 @@ class SettingsActivity : AppCompatActivity() {
      * pending target is remembered here rather than written to a bundle: the export is a one-shot gesture that
      * loses its meaning if the screen is recreated mid-picker, and a stale path would be worse than a lost tap.
      */
-    private var pendingExport: Uri? = null
+
 
     private val exportDocument = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
     ) { result ->
-        val uri = pendingExport
-        pendingExport = null
+        // `ACTION_CREATE_DOCUMENT` answers with the location the user chose, in `result.data`. Reading a
+        // field that nothing ever assigned is how this became a button that always said "the picker was
+        // closed", however carefully a file was picked - and a whole report then had to travel through a
+        // share sheet instead. The null check stays in the branch: the compiler stops tracking `uri` when the
+        // decision is hoisted into a boolean.
+        val uri = result.data?.data
         val diary0 = Diary.get()
         runCatching { diary0?.awaitIdle() }
         val bytes = diary0?.text()?.toByteArray(Charsets.UTF_8) ?: ByteArray(0)
@@ -53,7 +56,11 @@ class SettingsActivity : AppCompatActivity() {
             uri == null || result.resultCode != RESULT_OK -> toast("Not saved - the picker was closed")
             else -> {
                 val outcome = runCatching { contentResolver.openOutputStream(uri)?.use { it.write(bytes) } }
-                if (outcome.isSuccess) toast(R.string.diag_saved) else toast("Could not write that file")
+                if (outcome.isSuccess) {
+                    // Which file, where - a log exported to an unknown path is a log the user cannot attach.
+                    val where = runCatching { uri.lastPathSegment ?: uri.toString() }.getOrDefault("file")
+                    toast(getString(R.string.diag_saved) + " - " + where.take(64))
+                } else toast("Could not write that file: " + (outcome.exceptionOrNull()?.javaClass?.simpleName ?: ""))
             }
         }
     }

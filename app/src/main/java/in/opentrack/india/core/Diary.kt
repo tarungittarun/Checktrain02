@@ -163,6 +163,31 @@ class Diary(private val file: File) {
     }
 
     /**
+     * What the port probes concluded, per host, with the time they concluded it: `host -> ("v4=ok v6=absent",
+     * timestamp)`. Written from the collector's own executor, read from anywhere - which is safe because the
+     * whole map is replaced atomically and a torn read would only cost one skipped fast path.
+     */
+    @Volatile
+    private var portVerdicts: Map<String, Pair<String, Long>> = emptyMap()
+
+    /**
+     * True when the last environment snapshot found port 443 unopenable for [host] and that snapshot is still
+     * recent. The live providers ask this before they ask the network anything, because the difference between
+     * "this Wi-Fi cannot open a socket" and "the railway is refusing our client" is worth nine seconds of
+     * patience to the person holding the phone - and it is already measured, for free, when collection is on.
+     *
+     * Only ever true when collection has been turned on at least once, since that is when the probe runs. An
+     * app that has not probed is an app that says "I don't know" here, which is the correct answer, not a
+     * licence to skip a request.
+     */
+    fun portUnreachable(host: String): Boolean {
+        val got = portVerdicts[host] ?: return false
+        if (System.currentTimeMillis() - got.second > PORT_VERDICT_FRESH_MS) return false
+        val v = got.first
+        return v.contains("v4=fail") && (v.contains("v6=fail") || v.contains("v6=absent"))
+    }
+
+    /**
      * The environment, captured once when collection starts.
      *
      * This is the part a report from a phone can tell and no CI run can: whether a Private DNS profile is
@@ -225,11 +250,19 @@ class Diary(private val file: File) {
                 host + ": " + addrs.size + " addr(s) A=" + (v4?.hostAddress ?: "none") +
                 " AAAA=" + (v6?.hostAddress?.substringBefore("%") ?: "none"),
                 )
-                append(
-                "TCP",
-                host + " 443: v4=" + reach(v4) + " v6=" + reach(v6) +
-                " in " + (System.currentTimeMillis() - t0) + "ms",
-                )
+                val tcp = "v4=" + reach(v4) + " v6=" + reach(v6)
+                // Remembered, not only printed: the live chain asks whether the port was open before it
+                // spends the traveller's minute, and the answer is already measured here.
+                portVerdicts = portVerdicts + mapOf(host to (tcp to System.currentTimeMillis()))
+                append("TCP", host + " 443: " + tcp + " in " + (System.currentTimeMillis() - t0) + "ms")
+                // Six rounds of reports have turned on a distinction nobody here could see. "Socket opens,
+                // then IOException: closed" is what both of these look like: a far end that refuses this
+                // client's TLS fingerprint, and a congested link that drops a long handshake. So ask for the
+                // handshake alone, on this thread, with nothing after it. `TCP ok / TLS fail` is the
+                // encrypted layer; `TCP ok / TLS ok` with requests still dying is a question about the client
+                // above it - and the browser engine's 2xx already answers the other half of that sentence.
+                val tls = handshake(host)
+                append("TLS", host + " 443 handshake: " + tls)
                 }.onFailure {
                 append("DNS", host + " -> UNRESOLVABLE " + it.javaClass.simpleName + ": " + it.message?.take(120))
                 }
@@ -296,14 +329,59 @@ class Diary(private val file: File) {
             host.startsWith("172.16.") || host.startsWith("172.17.") || host.startsWith("fe80") ||
             host == "::1"
 
-    /** One address, one TCP attempt, one word back. "absent" is a fact about DNS, not about the network. */
-    private fun reach(addr: InetAddress?): String =
-        if (addr == null) "absent" else runCatching {
-            Socket().use { s ->
-                s.connect(InetSocketAddress(addr, 443), TCP_PROBE_MS)
-                "ok"
-            }
-        }.getOrElse { "fail:" + it.javaClass.simpleName }
+    /**
+     * One address, up to two TCP attempts, one word back.
+     *
+     * The second try is not politeness. The 22:38 report reads `v4=fail:SocketTimeoutException … in 2632ms`
+     * on a link where every other host took 1.2-2.2 s to connect and where the same phone completed requests
+     * a minute later: one timeout on a congested Wi-Fi is not a verdict about routing. Since something
+     * downstream now *acts* on this line by skipping requests, it has to be twice as sure as the thing it
+     * replaced. "absent" is a fact about DNS, not about the network.
+     */
+/**
+     * A TLS handshake with the app's own platform client, and nothing else.
+     *
+     * Deliberately not a request: a request would answer "does the endpoint like our payload", which is
+     * argued elsewhere over every header shape the app can produce, while *this* answers whether the
+     * encrypted layer completes at all. `HttpsURLConnection.connect()` is used rather than a raw
+     * `SSLSocket` because the point is to measure the client the app actually ships - its ALPN list, its SNI,
+     * its session cache - and that client may send the tiny buffered GET that goes with it, which is a public
+     * page and contains nothing the user typed. Only reachable from the collector's own executor, on the one
+     * host list this app cares about, while collection is switched on.
+     */
+    private fun handshake(host: String): String {
+        val started = System.currentTimeMillis()
+        return runCatching {
+            val conn = java.net.URL("https://" + host + "/").openConnection()
+            if (conn !is javax.net.ssl.HttpsURLConnection) return "not an https URL"
+            conn.connectTimeout = TCP_PROBE_MS * 2
+            conn.readTimeout = TCP_PROBE_MS * 2
+            // Setter call, not property assignment: Android's HttpURLConnection has setInstanceFollowRedirects
+            // with no getter, and Kotlin only synthesises a property when both halves exist.
+            conn.setInstanceFollowRedirects(false)
+            conn.connect()
+            conn.disconnect()
+            "ok in " + (System.currentTimeMillis() - started) + "ms"
+        }.getOrElse {
+            "fail:" + it.javaClass.simpleName + " in " + (System.currentTimeMillis() - started) + "ms"
+        }
+    }
+
+    private fun reach(addr: InetAddress?): String {
+        if (addr == null) return "absent"
+        val first = connect(addr)
+        if (first == "ok") return "ok"
+        val second = connect(addr)
+        return if (second == "ok") "ok-retry" else first + ",then:" + second
+    }
+
+    private fun connect(addr: InetAddress): String = runCatching {
+        Socket().use { s ->
+            s.connect(InetSocketAddress(addr, 443), TCP_PROBE_MS)
+            "ok"
+        }
+    }.getOrElse { "fail:" + it.javaClass.simpleName }
+
 
 
     /** Last `n` labels of a dotted name - enough to identify a resolver, not enough to identify an account. */
@@ -362,6 +440,9 @@ class Diary(private val file: File) {
         private const val MAX_LINE = 400
         private const val SHARE_BYTES = 220_000
         private const val TCP_PROBE_MS = 2_500
+        /** Two minutes: long enough to cover the refresh that follows the snapshot, short enough that a
+            network which has recovered is not still being described as dead. */
+        private const val PORT_VERDICT_FRESH_MS = 120_000L
         private val SECRET_KEYS = arrayOf(
             "app_key", "appkey", "api_key", "apikey", "token", "secret", "password", "sckey", "jsonKey",
         )

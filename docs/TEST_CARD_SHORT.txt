@@ -29,7 +29,7 @@ Reply with three lines:
 2) train number and the pill you saw (LIVE or OFFLINE)
 3) minutes of difference vs NTES, plus the log if it said OFFLINE
 
-ROUND 6 - THREE SHORT LINES IN YOUR REPLY
+ROUND 7 - TWO FIXES FOR YOU, THREE LINES FOR US
 a) Does the sentence under the pill end with "(asked from the site's own page, the way its app does)"?
    You should NOT see that yet - it only appears if the railway really answered.
 b) After the 40 seconds and Refresh, does any stop show a real minute (marked reported/projected)?
@@ -38,8 +38,10 @@ The app now reads the railway's answer as bytes, and its log line shows the HTTP
 If (b) says yes, that is the whole fix - tell us and stop testing the feed.
 Send the log FILE (lines start [BROWSER] / [PROBE]); a screenshot of the screen is not enough.
 
-IF YOUR PHONE HAS A TRAFFIC FILTER (NetGuard, AdGuard, a VPN, an anti-virus firewall, data saver):
-pause it for one minute and tap Refresh. Last log: the app's own requests were cut mid-secure-handshake to
-BOTH the railway AND one.one.one.one, yet api.railradar.in answered 401 normally. A railway that blocks
-Cloudflare's test page but not a Cloudflare railway API is unlikely; a phone-side filter that judges the
-client, not the app, fits exactly. Say which app it was, if any.
+FIXED IN THIS BUILD: the train screen no longer hangs 20-40 seconds (it stops waiting at ~7s and says so),
+and Save to file actually saves now - it was reporting "picker was closed" whatever you did.
+
+WHAT YOUR LAST LOG SHOWED: at 22:39 that Wi-Fi took 2.6s just to open a socket to the railway (and FAILED),
+2.2s to erail, 2.0s to a Cloudflare API. Everything on that link was slow - so that log cannot tell us whether
+the railway refuses the app. Please run it once more when the network is calm, and once on MOBILE DATA.
+The log now has a line starting [TLS] for each site: "handshake ok" vs "fail:..." is the whole answer.

@@ -57,13 +57,13 @@ object FeedProbe {
     // 4s per try, and a total budget, because every request now passes through Http's single socket
     // monitor: a diagnostic that can hold the user's own refresh behind it for half a minute is a
     // diagnostic that costs the app the thing it is trying to measure.
-    private const val PER_TRY_TIMEOUT = 5_000
+    private const val PER_TRY_TIMEOUT = 4_000
     // A cold web view is not a socket write: the engine answered in ~1.1 s of its own on a device, and a
     // 5 s cap turned a page load plus a request into a timeout. Generous, because it runs after a failure.
-    private const val BROWSER_TIMEOUT = 12_000
-    private const val MAX_TRIES = 12   // every variant, controls included - a probe that ran out of tries
+    private const val BROWSER_TIMEOUT = 8_000
+    private const val MAX_TRIES = 9   // every variant, controls included - a probe that ran out of tries
                                     // before its own control host is a probe that proves nothing
-    private const val TOTAL_BUDGET = 34_000
+    private const val TOTAL_BUDGET = 18_000
 
     @Volatile
     private var last: List<Result> = emptyList()
@@ -104,6 +104,19 @@ object FeedProbe {
     var browserPage: String = ""
         private set
 
+    /**
+     * Set when the traveller asks for data: a refresh tap outranks a background experiment, because the
+     * experiment exists only to explain why that refresh failed. A phone's log showed one variant taking
+     * 162 s while the user waited - the probe holding a socket the UI needed, on a network that was already
+     * failing every attempt at 5 s. Nothing is lost by yielding: it runs again on the next refusal.
+     */
+    @Volatile
+    private var cancelRequested = false
+
+    fun requestCancel() {
+        cancelRequested = true
+    }
+
     /** True once a probe has finished in this process, so a report can say whether to wait for it. */
     val ready: Boolean get() = last.isNotEmpty()
 
@@ -118,10 +131,12 @@ object FeedProbe {
                 val page = if (rebuilt.warm.isNotBlank()) rebuilt.warm else BrowserFetch.originPage(rebuilt.url)
                 BrowserFetch.apiCall(rebuilt.url, rebuilt.body, page, rebuilt.headers, BROWSER_TIMEOUT)
             } else if (rebuilt.body == null) {
-                http.get(rebuilt.url, PER_TRY_TIMEOUT, 0, rebuilt.headers, rebuilt.pin4)
+                http.get(rebuilt.url, PER_TRY_TIMEOUT, 0, rebuilt.headers, rebuilt.pin4,
+                    budgetMillis = PER_TRY_TIMEOUT + 1_500)
             } else {
                 http.post(
                     rebuilt.url, rebuilt.body, rebuilt.headers, PER_TRY_TIMEOUT, 0, rebuilt.tls12, rebuilt.pin4,
+                    PER_TRY_TIMEOUT + 1_500,
                 )
             }
         } catch (e: Throwable) {
@@ -182,9 +197,57 @@ object FeedProbe {
             "User-Agent" to NtesWire.USER_AGENT,
         )
         return listOf(
+            // The shipped shape stays first - a control that is not the thing under test - and the browser
+            // questions come second rather than last. They are the only ones never answered: a device's report
+            // spent 162 s on a Java shape and the probe's budget ran out before a single browser variant ran,
+             // which is the difference between a round that decides something and a round that re-measures
+            // `IOException: closed` for the ninth time.
             Variant(
                 "post-dalvik-json", NtesWire.BASE_URL, envelope, dalvik, false,
                 "the shape this build ships",
+            ),
+            Variant(
+                "webview-post", NtesWire.BASE_URL, envelope,
+                mapOf("Content-Type" to "application/json", "charset" to "utf-8"), false,
+                "the shipped request sent from the railway's own origin with its content type declared: the " +
+                    "same bytes the app posts, minus the client signature that gets hung up on",
+                false, true,
+            ),
+            Variant(
+                "webview-get-ntes",
+                "https://enquiry.indianrail.gov.in/ntes/others/liveStatusJsonNew?trainNo=$trainNo" +
+                    "&journeyDate=$startIso",
+                null,
+                mapOf("Accept" to "application/json, text/plain, */*"),
+                false,
+                "the GET the NTES site itself makes. No Referer is set here on purpose: fetch ignores that " +
+                    "header, and riding a page of theirs supplies a real one - which is the only kind of " +
+                    "Referer an endpoint would honour anyway",
+                false, true,
+            ),
+            Variant(
+                "webview-post-form", NtesWire.BASE_URL,
+                "jsonIn=" + java.net.URLEncoder.encode(NtesWire.wrap(wirePlain), "UTF-8"),
+                mapOf("Content-Type" to "application/x-www-form-urlencoded"), false,
+                "the envelope as a form field, declared as one: the endpoint's own web client is a jQuery " +
+                    "application and the answer of 159 bytes we mistook for its refusal was this platform's " +
+                    "XML parser complaining about JSON, so the payload question is still open",
+                false, true,
+            ),
+            Variant(
+                "webview-post-session", NtesWire.BASE_URL, envelope,
+                mapOf("Content-Type" to "application/json", "charset" to "utf-8"), false,
+                "the NTES page loaded first so its own session cookie is in the jar, then the API asked from " +
+                    "inside it: the difference between an anonymous POST and the request the page makes",
+                false, true, "https://enquiry.indianrail.gov.in/ntes/",
+            ),
+            Variant(
+                "webview-erail",
+                "https://erail.in/rail/getTrains.aspx?TrainNo=$trainNo&DataSource=1&Language=0",
+                null, emptyMap(), false,
+                "the alternate source through the same engine - if it answers here, run data from erail becomes " +
+                    "reachable on exactly the devices where the app's own client was refused",
+                false, true,
             ),
             Variant(
                 "post-tls12", NtesWire.BASE_URL, envelope, dalvik, true,
@@ -262,49 +325,6 @@ object FeedProbe {
                 true,
             ),
             Variant(
-                "webview-post", NtesWire.BASE_URL, envelope,
-                mapOf("Content-Type" to "application/json", "charset" to "utf-8"), false,
-                "the shipped request sent from the railway's own origin with its content type declared: the " +
-                    "same bytes the app posts, minus the client signature that gets hung up on",
-                false, true,
-            ),
-            Variant(
-                "webview-get-ntes",
-                "https://enquiry.indianrail.gov.in/ntes/others/liveStatusJsonNew?trainNo=$trainNo" +
-                    "&journeyDate=$startIso",
-                null,
-                mapOf("Accept" to "application/json, text/plain, */*"),
-                false,
-                "the GET the NTES site itself makes. No Referer is set here on purpose: fetch ignores that " +
-                    "header, and riding a page of theirs supplies a real one - which is the only kind of " +
-                    "Referer an endpoint would honour anyway",
-                false, true,
-            ),
-            Variant(
-                "webview-post-form", NtesWire.BASE_URL,
-                "jsonIn=" + java.net.URLEncoder.encode(NtesWire.wrap(wirePlain), "UTF-8"),
-                mapOf("Content-Type" to "application/x-www-form-urlencoded"), false,
-                "the envelope as a form field, declared as one: the endpoint's own web client is a jQuery " +
-                    "application and the answer of 159 bytes we mistook for its refusal was this platform's " +
-                    "XML parser complaining about JSON, so the payload question is still open",
-                false, true,
-            ),
-            Variant(
-                "webview-post-session", NtesWire.BASE_URL, envelope,
-                mapOf("Content-Type" to "application/json", "charset" to "utf-8"), false,
-                "the NTES page loaded first so its own session cookie is in the jar, then the API asked from " +
-                    "inside it: the difference between an anonymous POST and the request the page makes",
-                false, true, "https://enquiry.indianrail.gov.in/ntes/",
-            ),
-            Variant(
-                "webview-erail",
-                "https://erail.in/rail/getTrains.aspx?TrainNo=$trainNo&DataSource=1&Language=0",
-                null, emptyMap(), false,
-                "the alternate source through the same engine - if it answers here, run data from erail becomes " +
-                    "reachable on exactly the devices where the app's own client was refused",
-                false, true,
-            ),
-            Variant(
                 "get-erail-ipv4", "https://erail.in/rail/getTrains.aspx?TrainNo=$trainNo&DataSource=1&Language=0",
                 null, emptyMap(), false,
                 "the same pin on a host we know answers, which is what proves the pinned route itself works " +
@@ -321,6 +341,7 @@ object FeedProbe {
     fun maybeStart(http: Http, trainNo: String, journeyEpochDay: Long) {
         if (running || ready) return
         running = true
+        cancelRequested = false
         val tries = variants(trainNo, isoDate(journeyEpochDay),
             NtesWire.plainFor(NtesWire.SUB_LIVE, trainNo, journeyEpochDay)).take(MAX_TRIES)
         Thread({
@@ -330,9 +351,15 @@ object FeedProbe {
             try {
             val started = System.currentTimeMillis()
             for (v in tries) {
+                if (cancelRequested) {
+                    out += Result(v.name, "skipped (a refresh was asked for - the diagnostic yields)", "", 0L)
+                    break
+                }
                 if (System.currentTimeMillis() - started > TOTAL_BUDGET) {
-                    out += Result(v.name, "skipped (probe budget reached)", "", 0L)
-                    continue
+                    out += Result(v.name,
+                        "skipped (probe budget of " + TOTAL_BUDGET / 1000 + "s reached; the rest were not tried)",
+                        "", 0L)
+                    break
                 }
                 val t0 = System.currentTimeMillis()
                 val got = execute(http, v, trainNo, journeyEpochDay)

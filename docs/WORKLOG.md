@@ -336,3 +336,36 @@ interior, so block comments are masked before that rule looks at a file.
 | `[BROWSER] POST … -> EMPTY browser answered with an empty document in 123ms` | The latched flag doing damage one refresh later: the reused engine had no document to give. Fast now, wrong then. |
 | `[CHAIN] … LIVE · cached: Nothing this device has stored about 20651 is new enough to show` | Working as designed: a >24 h-old snapshot is refused rather than shown as live. The kind label `LIVE` in that line is a provider name, not a claim to the traveller. |
 | `get-egress-trace: IOException: closed` for `one.one.one.one` while `api.railradar.in` answered `HTTP 401` | Not "the whole network blocks TLS". Some hosts close this app's Java handshake, others answer — which is why address-family and DNS theories were abandoned and why per-host reachability has to be measured rather than inferred. |
+
+## Round 7: the 22:38 log is about the Wi-Fi, and the app was the slow part
+
+Two user complaints, both real, both ours:
+
+1. **20-40 seconds to paint a train.** Not the railway's doing. `Http`'s ladder - a retry, a pinned-v4
+   second chance, a resolver-blip retry, each granted the *full* per-attempt timeout - multiplies to 31.5 s
+   and 44.1 s in the two `[CHAIN]` lines that report, with the first attempt failing at 5 s every time. One
+   probe variant logged **162 s** while the traveller waited, because the probe's own budget was only checked
+   *between* variants and nothing bounded a variant from inside. So: `Http.get/post` take a wall-clock
+   `budgetMillis`, every rung is clamped to what remains (and skipped below 900 ms, because an attempt that
+   cannot finish is not a second chance), the live fetch gets 6.5 s and the alternate source 4 s, and the
+   probe now yields the moment a manual refresh is asked for (`FeedProbe.requestCancel`, checked between
+   variants, which `break`s instead of `continue`-ing through the rest of the matrix).
+2. **"Save to file is not working."** It read `pendingExport`, a field that was never assigned, so every
+   outcome - including a file saved perfectly - took the "you closed the picker" branch. The URI the document
+   picker returns lives in `result.data?.data`; that is what is written to now, and the toast names the
+   destination because a log exported to an unknown path cannot be attached to a report.
+
+The analytic addition is the one this saga needed from the start: `[TLS] <host> 443 handshake: ok|fail:X in
+Nms`, the app's own HTTPS client completing a handshake and nothing else, from the collector's thread. "The
+socket opens and then `IOException: closed`" is the *same sentence* for a far end that refuses this client's
+TLS fingerprint and for a congested link that drops a long handshake - six rounds of logs could not tell those
+apart, and they have opposite answers. Paired with the two-try TCP probe (`v4=fail:SocketTimeoutException`
+here, `v4=ok in 94ms` in the 21:47 run, same phone, 50 minutes apart) and with the browser engine's verdict,
+a single report now separates: network congested / TLS refused / payload refused.
+
+And the honesty note for this round's own reading: the 22:38 report **cannot** say anything about the
+railway's policy, because its `[TCP]` line shows the phone could not open the socket at all - 2.6 s timeout to
+the feed, 2.2 s to erail, 2.0 s to Cloudflare, and `UnknownHostException` bursts for hosts that had resolved
+minutes earlier. Asking it to confirm or deny a fingerprint block is asking a question the log does not
+contain. The user's filter is also now exonerated by their own evidence: no filter app exists on that phone,
+which retires my "security app judging the client" theory along with the address-family one before it.

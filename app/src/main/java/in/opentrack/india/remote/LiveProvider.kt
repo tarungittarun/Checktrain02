@@ -62,10 +62,12 @@ private fun ask(
     body: String?,
     headers: Map<String, String>,
     timeoutMillis: Int = Http.DEFAULT_TIMEOUT,
+    budgetMillis: Int = 0,
 ): Http.Result {
     if (!FeedProbe.browserWorks) {
-        return if (body == null) http.get(url, timeoutMillis, 1, headers)
-        else http.post(url, body, headers, timeoutMillis = timeoutMillis, retries = 1)
+        return if (body == null) http.get(url, timeoutMillis, 1, headers, budgetMillis = budgetMillis)
+        else http.post(url, body, headers, timeoutMillis = timeoutMillis, retries = 1,
+            budgetMillis = budgetMillis)
     }
     Diary.get()?.log("TRANSPORT") { "asking from the site's own page, which this device accepted" }
     // The page is part of the finding, not a detail of it: if this device's answer came from a request riding
@@ -73,6 +75,21 @@ private fun ask(
     val page = if (FeedProbe.browserPage.isBlank()) BrowserFetch.originPage(url) else FeedProbe.browserPage
     return BrowserFetch.apiCall(url, body, page, headers, BrowserFetch.defaultTimeout)
 }
+
+/**
+ * The one question worth asking before a socket is: did this network manage to open port 443 at all when the
+ * app last looked? If it did not, every request shape this app can produce fails the same way, and saying so
+ * costs the traveller nothing instead of thirty seconds of retry ladder.
+ *
+ * Null - "we do not know" - is the answer whenever the diagnostic collector has never been switched on, since
+ * that probe is part of it. Not knowing must never become a licence to skip a real request, so the callers
+ * treat anything other than a fresh "unreachable" as permission to proceed.
+ */
+private fun portDead(host: String): String? =
+    if (Diary.get()?.portUnreachable(host) == true) {
+        "This network could not open a connection to " + host + " on port 443 when the app last tried, so no " +
+            "request was sent. The times shown are the published timetable."
+    } else null
 
 private fun transportFailureSentence(failure: Http.Result.Failed): String =
     when (failure.kind) {
@@ -105,13 +122,16 @@ class ErailProvider(
 
     override fun fetch(trainNo: String, route: TrainRoute, journeyEpochDay: Long): LiveSnapshot? {
         note = null
+        portDead("erail.in")?.let { note = it; return null }
         val url = buildString {
             append(baseUrl.trimEnd('/'))
             append("/rail/getTrains.aspx?TrainNo=").append(trainNo)
             append("&DataSource=1&Language=0&Cache=true&Flag=1")
             append("&Date=").append(RailTime.formatIsoDate(journeyEpochDay))
         }
-        val r = when (val got = ask(http, url, null, emptyMap())) {
+        // Four seconds for the alternate source. It is the second opinion, not the answer: making the
+        // traveller wait through its whole ladder to be told "also refused" is how this app read as frozen.
+        val r = when (val got = ask(http, url, null, emptyMap(), Http.DEFAULT_TIMEOUT, 4_000)) {
             is Http.Result.Ok -> got
             // Every one of these used to be `as? Ok ?: return null`, which collapsed five distinguishable
             // failures into one blank screen. The device state that causes each is different — aeroplane
@@ -183,6 +203,7 @@ class NtesProvider(
 
     override fun fetch(trainNo: String, route: TrainRoute, journeyEpochDay: Long): LiveSnapshot? {
         note = null
+        portDead(BrowserFetch.hostOf(baseUrl))?.let { note = it; return null }
         // If this device already found a request shape the feed answers, use it. Adoption is per-process and
         // per-network rather than baked into the build, because the difference between an answer and a closed
         // socket here belongs to the carrier and the server, not to the APK - and a rebuild should never be the
@@ -199,7 +220,10 @@ class NtesProvider(
         val got = if (adopted != null) {
             FeedProbe.execute(http, adopted, trainNo, journeyEpochDay)
         } else {
-            ask(http, baseUrl, NtesWire.envelope(plain), headers, TIMEOUT)
+            // Six and a half seconds, most of it for the first attempt: a traveller watching a spinner for
+            // 30 s because three polite retries are queued behind each other has been measured here twice,
+            // and the retries never once changed the outcome. They are still tried - inside a budget.
+            ask(http, baseUrl, NtesWire.envelope(plain), headers, TIMEOUT, 6_500)
         }
         val body = when (got) {
             is Http.Result.Ok -> got

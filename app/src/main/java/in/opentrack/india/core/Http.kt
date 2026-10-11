@@ -69,12 +69,16 @@ class Http(context: Context) {
         retries: Int = 1,
         headers: Map<String, String> = emptyMap(),
         pinIpv4: Boolean = false,
+        budgetMillis: Int = 0,
     ): Result {
         var last: Result = Result.Failed(Result.Kind.EMPTY, "not attempted")
         var attempt = 0
+        val deadline = if (budgetMillis > 0) System.currentTimeMillis() + budgetMillis else 0L
         while (attempt <= retries) {
+            val left = clampTimeout(deadline, timeoutMillis)
+            if (left == 0) { logCut("GET", url, budgetMillis, last); break }
             attempt++
-            last = tryOnce(url, timeoutMillis, headers, pinIpv4)
+            last = tryOnce(url, left, headers, pinIpv4)
             Diary.get()?.log("HTTP") {
                 "GET " + hostOf(url) + " try#" + attempt + (if (pinIpv4) " pinned-v4" else "") +
                     " -> " + verdict(last)
@@ -83,13 +87,15 @@ class Http(context: Context) {
             if (last.kind == Result.Kind.HTTP) break            // 4xx/5xx will not fix itself
             if (attempt <= retries) sleep(300L * attempt)
         }
-        if (last is Result.Failed && !pinIpv4 && last.kind != Result.Kind.OFFLINE) {
+        if (last is Result.Failed && !pinIpv4 && last.kind != Result.Kind.OFFLINE &&
+            clampTimeout(deadline, timeoutMillis) > 0
+        ) {
             // One unprompted second chance, pinned to an A record. A phone on Wi-Fi whose IPv6 path is
             // half-alive sees exactly this: the first address returned is AAAA, the handshake dies as
             // "closed" a few hundred milliseconds in, and a browser on the same network loads the page
             // because it retries the other family. Chrome's advantage is not magic - it is that it tries
             // twice. Doing the same here fixes every host the app talks to, not only the feed.
-            when (val pinned = tryOnce(url, timeoutMillis, headers, true)) {
+            when (val pinned = tryOnce(url, clampTimeout(deadline, timeoutMillis), headers, true)) {
                 is Result.Ok -> {
                     Diary.get()?.log("HTTP", "GET " + hostOf(url) + " recovered on the pinned IPv4 route")
                     return pinned
@@ -97,14 +103,14 @@ class Http(context: Context) {
                 else -> last = if (verdict(last).length >= verdict(pinned).length) last else pinned
             }
         }
-        if (resolverBlip(last)) {
+        if (resolverBlip(last) && clampTimeout(deadline, timeoutMillis) > 0) {
             // Not "offline": the name service blinked. A phone's log showed five hosts failing to resolve
             // within 70 ms of each other, after every one of them had resolved cleanly a minute earlier - what
             // a filtering private-DNS resolver does when a burst outruns it. One pause and one retry costs
             // 600 ms on the rare bad minute and hides the class of failure from the traveller entirely. If the
             // name is genuinely gone, the retry fails identically and the message the user reads is unchanged.
             sleep(600L)
-            val again = tryOnce(url, timeoutMillis, headers)
+            val again = tryOnce(url, clampTimeout(deadline, timeoutMillis), headers)
             Diary.get()?.log("HTTP", "GET " + hostOf(url) + " after a resolver blip -> " + verdict(again))
             if (again is Result.Ok) return again
             last = again
@@ -132,12 +138,16 @@ class Http(context: Context) {
         retries: Int = 0,
         tls12: Boolean = false,
         pinIpv4: Boolean = false,
+        budgetMillis: Int = 0,
     ): Result {
         var attempt = 0
         var last: Result = Result.Failed(Result.Kind.EMPTY, "not attempted")
+        val deadline = if (budgetMillis > 0) System.currentTimeMillis() + budgetMillis else 0L
         while (attempt <= retries) {
+            val left = clampTimeout(deadline, timeoutMillis)
+            if (left == 0) { logCut("POST", url, budgetMillis, last); break }
             attempt++
-            last = tryPost(url, body, headers, timeoutMillis, tls12, pinIpv4)
+            last = tryPost(url, body, headers, left, tls12, pinIpv4)
             Diary.get()?.log("HTTP") {
                 "POST " + hostOf(url) + " try#" + attempt + (if (tls12) " tls1.2" else "") +
                     (if (pinIpv4) " pinned-v4" else "") + " body=" + body.length + "B -> " + verdict(last)
@@ -146,15 +156,17 @@ class Http(context: Context) {
             if (last is Result.Failed && last.kind == Result.Kind.HTTP) break
             if (attempt <= retries) sleep(400L * attempt)
         }
-        if (resolverBlip(last)) {
+        if (resolverBlip(last) && clampTimeout(deadline, timeoutMillis) > 0) {
             sleep(600L)
-            val again = tryPost(url, body, headers, timeoutMillis, tls12)
+            val again = tryPost(url, body, headers, clampTimeout(deadline, timeoutMillis), tls12)
             Diary.get()?.log("HTTP", "POST " + hostOf(url) + " after a resolver blip -> " + verdict(again))
             if (again is Result.Ok) return again
             last = again
         }
-        if (last is Result.Failed && !pinIpv4 && last.kind != Result.Kind.OFFLINE) {
-            val pinned = tryPost(url, body, headers, timeoutMillis, tls12, true)
+        if (last is Result.Failed && !pinIpv4 && last.kind != Result.Kind.OFFLINE &&
+            clampTimeout(deadline, timeoutMillis) > 0
+        ) {
+            val pinned = tryPost(url, body, headers, clampTimeout(deadline, timeoutMillis), tls12, true)
             Diary.get()?.log("HTTP") {
                 "POST " + hostOf(url) + " pinned-v4 retry -> " + verdict(pinned)
             }
@@ -168,6 +180,32 @@ class Http(context: Context) {
      * The A record for a host, or null. Resolution failures are swallowed here on purpose: the caller has
      * its own, better-informed error path, and "no IPv4 answer" must not become a second failure message.
      */
+    /**
+     * The timeout for the next attempt, given a wall-clock budget for the whole call. Zero means "do not
+     * start one": an attempt that cannot finish inside the budget is not a second chance, it is the traveller
+     * waiting.
+     *
+     * This exists because the ladder in this class - a retry, a pinned-v4 second chance, a resolver-blip
+     * retry - was designed one socket at a time, so it multiplies. Two device reports show what that costs
+     * when a network is merely congested rather than refusing: a live refresh of 31.5 s, another of 44.1 s,
+     * and 162 s for a single probe variant in which every individual attempt had already failed at 5 s. The
+     * rungs stay; each now happens inside a budget the caller chooses.
+     */
+    private fun clampTimeout(deadline: Long, configured: Int): Int {
+        if (deadline == 0L) return configured
+        val left = (deadline - System.currentTimeMillis()).toInt()
+        return if (left < MIN_ATTEMPT_MS) 0 else if (left < configured) left else configured
+    }
+
+    /** Says out loud that the ladder was cut, so a fast failure in a log is not read as a new symptom. */
+    private fun logCut(verb: String, url: String, budgetMillis: Int, last: Result) {
+        if (budgetMillis <= 0) return
+        Diary.get()?.log("HTTP") {
+            verb + " " + hostOf(url) + " stopped waiting at " + budgetMillis +
+                "ms of budget - the retry ladder was not finished (last: " + verdict(last) + ")"
+        }
+    }
+
     private fun firstIpv4(url: String): java.net.InetAddress? = runCatching {
         java.net.InetAddress.getAllByName(java.net.URL(url).host)
             .filterIsInstance<java.net.Inet4Address>().firstOrNull()
@@ -388,6 +426,9 @@ class Http(context: Context) {
     companion object {
         private const val TAG = "Http"
         const val DEFAULT_TIMEOUT = 12_000
+
+        /** An attempt allowed less than this is not an attempt, it is a new way to fail, so it is skipped. */
+        private const val MIN_ATTEMPT_MS = 900
         private const val MAX_CACHE_AGE = 24 * 60 * 60_000L
         private const val USER_AGENT =
             "OpenTrackIndia/1.0 (offline-first railway tracker; no accounts, no tracking)"
