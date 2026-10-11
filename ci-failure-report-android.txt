@@ -1,0 +1,126 @@
+CI FAILURE SELF-REPORT (tools/ci/report_failure.py)
+repo=tarungittarun/Checktrain02 run=38177904738
+job=android sha=2caeb7268fa93800874e9c1be2763a0f9fc52e88
+
+===== gradle CAUSE (extracted) =====
+e: file:///home/runner/work/Checktrain02/Checktrain02/app/src/main/java/in/opentrack/india/MainActivity.kt:1:9 Package name must be a '.'-separated identifier list
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':app:compileDebugKotlin'.
+> A failure occurred while executing org.jetbrains.kotlin.compilerRunner.GradleCompilerRunnerWithWorkers$GradleKotlinCompilerWorkAction
+   > Compilation error. See log for more details
+
+* Try:
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights.
+Caused by: org.gradle.workers.internal.DefaultWorkerExecutor$WorkExecutionException: A failure occurred while executing org.jetbrains.kotlin.compilerRunner.GradleCompilerRunnerWithWorkers$GradleKotlinCompilerWorkAction
+	at org.gradle.workers.internal.DefaultWorkerExecutor$WorkItemExecution.waitForCompletion(DefaultWorkerExecutor.java:287)
+	at org.gradle.internal.work.DefaultAsyncWorkTracker.lambda$waitForItemsAndGatherFailures$2(DefaultAsyncWorkTracker.java:130)
+	at org.gradle.internal.Factories$1.create(Factories.java:31)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.withoutLocks(DefaultWorkerLeaseService.java:336)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.withoutLocks(DefaultWorkerLeaseService.java:319)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.withoutLock(DefaultWorkerLeaseService.java:324)
+	at org.gradle.internal.work.DefaultAsyncWorkTracker.waitForItemsAndGatherFailures(DefaultAsyncWorkTracker.java:126)
+Caused by: org.jetbrains.kotlin.gradle.tasks.CompilationErrorException: Compilation error. See log for more details
+	at org.jetbrains.kotlin.gradle.tasks.TasksUtilsKt.throwExceptionIfCompilationFailed(tasksUtils.kt:20)
+	at org.jetbrains.kotlin.compilerRunner.GradleKotlinCompilerWork.run(GradleKotlinCompilerWork.kt:141)
+	at org.jetbrains.kotlin.compilerRunner.GradleCompilerRunnerWithWorkers$GradleKotlinCompilerWorkAction.execute(GradleCompilerRunnerWithWorkers.kt:73)
+	at org.gradle.workers.internal.DefaultWorkerServer.execute(DefaultWorkerServer.java:63)
+	at org.gradle.workers.internal.NoIsolationWorkerFactory$1$1.create(NoIsolationWorkerFactory.java:66)
+	at org.gradle.workers.internal.NoIsolationWorkerFactory$1$1.create(NoIsolationWorkerFactory.java:62)
+	at org.gradle.internal.classloader.ClassLoaderUtils.executeInClassloader(ClassLoaderUtils.java:100)
+
+===== gradle build log (last 40 lines) =====
+	at org.gradle.execution.plan.DefaultPlanExecutor$ExecutorWorker.execute(DefaultPlanExecutor.java:463)
+	at org.gradle.execution.plan.DefaultPlanExecutor$ExecutorWorker.run(DefaultPlanExecutor.java:380)
+	at org.gradle.internal.concurrent.ExecutorPolicy$CatchAndRecordFailures.onExecute(ExecutorPolicy.java:64)
+	at org.gradle.internal.concurrent.AbstractManagedExecutor$1.run(AbstractManagedExecutor.java:47)
+Caused by: org.jetbrains.kotlin.gradle.tasks.CompilationErrorException: Compilation error. See log for more details
+	at org.jetbrains.kotlin.gradle.tasks.TasksUtilsKt.throwExceptionIfCompilationFailed(tasksUtils.kt:20)
+	at org.jetbrains.kotlin.compilerRunner.GradleKotlinCompilerWork.run(GradleKotlinCompilerWork.kt:141)
+	at org.jetbrains.kotlin.compilerRunner.GradleCompilerRunnerWithWorkers$GradleKotlinCompilerWorkAction.execute(GradleCompilerRunnerWithWorkers.kt:73)
+	at org.gradle.workers.internal.DefaultWorkerServer.execute(DefaultWorkerServer.java:63)
+	at org.gradle.workers.internal.NoIsolationWorkerFactory$1$1.create(NoIsolationWorkerFactory.java:66)
+	at org.gradle.workers.internal.NoIsolationWorkerFactory$1$1.create(NoIsolationWorkerFactory.java:62)
+	at org.gradle.internal.classloader.ClassLoaderUtils.executeInClassloader(ClassLoaderUtils.java:100)
+	at org.gradle.workers.internal.NoIsolationWorkerFactory$1.lambda$execute$0(NoIsolationWorkerFactory.java:62)
+	at org.gradle.workers.internal.AbstractWorker$1.call(AbstractWorker.java:44)
+	at org.gradle.workers.internal.AbstractWorker$1.call(AbstractWorker.java:41)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:200)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:195)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:66)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:59)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:157)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:59)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.call(DefaultBuildOperationRunner.java:53)
+	at org.gradle.internal.operations.DefaultBuildOperationExecutor.call(DefaultBuildOperationExecutor.java:73)
+	at org.gradle.workers.internal.AbstractWorker.executeWrappedInBuildOperation(AbstractWorker.java:41)
+	at org.gradle.workers.internal.NoIsolationWorkerFactory$1.execute(NoIsolationWorkerFactory.java:59)
+	at org.gradle.workers.internal.DefaultWorkerExecutor.lambda$submitWork$0(DefaultWorkerExecutor.java:174)
+	at org.gradle.internal.work.DefaultConditionalExecutionQueue$ExecutionRunner.runExecution(DefaultConditionalExecutionQueue.java:187)
+	at org.gradle.internal.work.DefaultConditionalExecutionQueue$ExecutionRunner.access$700(DefaultConditionalExecutionQueue.java:120)
+	at org.gradle.internal.work.DefaultConditionalExecutionQueue$ExecutionRunner$1.run(DefaultConditionalExecutionQueue.java:162)
+	at org.gradle.internal.Factories$1.create(Factories.java:31)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.withLocks(DefaultWorkerLeaseService.java:264)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.runAsWorkerThread(DefaultWorkerLeaseService.java:128)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.runAsWorkerThread(DefaultWorkerLeaseService.java:133)
+	at org.gradle.internal.work.DefaultConditionalExecutionQueue$ExecutionRunner.runBatch(DefaultConditionalExecutionQueue.java:157)
+	at org.gradle.internal.work.DefaultConditionalExecutionQueue$ExecutionRunner.run(DefaultConditionalExecutionQueue.java:126)
+	... 2 more
+
+
+BUILD FAILED in 1m 10s
+23 actionable tasks: 23 executed
+
+===== app/build/outputs/logs/manifest-merger-debug-report.txt =====
+-- Merging decision tree log ---
+manifest
+ADDED from /home/runner/work/Checktrain02/Checktrain02/app/src/main/AndroidManifest.xml:2:1-21:12
+INJECTED from /home/runner/work/Checktrain02/Checktrain02/app/src/main/AndroidManifest.xml:2:1-21:12
+INJECTED from /home/runner/work/Checktrain02/Checktrain02/app/src/main/AndroidManifest.xml:2:1-21:12
+INJECTED from /home/runner/work/Checktrain02/Checktrain02/app/src/main/AndroidManifest.xml:2:1-21:12
+	package
+		INJECTED from /home/runner/work/Checktrain02/Checktrain02/app/src/main/AndroidManifest.xml
+	android:versionName
+		INJECTED from /home/runner/work/Checktrain02/Checktrain02/app/src/main/AndroidManifest.xml
+	android:versionCode
+		INJECTED from /home/runner/work/Checktrain02/Checktrain02/app/src/main/AndroidManifest.xml
+	xmlns:android
+		ADDED from /home/runner/work/Checktrain02/Checktrain02/app/src/main/AndroidManifest.xml:2:11-69
+application
+ADDED from /home/runner/work/Checktrain02/Checktrain02/app/src/main/AndroidManifest.xml:7:5-19:19
+INJECTED from /home/runner/work/Checktrain02/Checktrain02/app/src/main/AndroidManifest.xml:7:5-19:19
+	android:extractNativeLibs
+		INJECTED from /home/runner/work/Checktrain02/Checktrain02/app/src/main/AndroidManifest.xml
+	android:label
+		ADDED from /home/runner/work/Checktrain02/Checktrain02/app/src/main/AndroidManifest.xml:8:9-40
+	android:allowBackup
+		ADDED from /home/runner/work/Checktrain02/Checktrain02/app/src/main/AndroidManifest.xml:9:9-36
+	android:theme
+		ADDED from /home/runner/work/Checktrain02/Checktrain02/app/src/main/AndroidManifest.xml:10:9-59
+activity#in.opentrack.india.MainActivity
+ADDED from /home/runner/work/Checktrain02/Checktrain02/app/src/main/AndroidManifest.xml:11:9-18:20
+	android:exported
+		ADDED from /home/runner/work/Checktrain02/Checktrain02/app/src/main/AndroidManifest.xml:13:13-36
+	android:name
+		ADDED from /home/runner/work/Checktrain02/Checktrain02/app/src/main/AndroidManifest.xml:12:13-41
+intent-filter#action:name:android.intent.action.MAIN+category:name:android.intent.category.LAUNCHER
+ADDED from /home/runner/work/Checktrain02/Checktrain02/app/src/main/AndroidManifest.xml:14:13-17:29
+action#android.intent.action.MAIN
+ADDED from /home/runner/work/Checktrain02/Checktrain02/app/src/main/AndroidManifest.xml:15:17-69
+	android:name
+		ADDED from /home/runner/work/Checktrain02/Checktrain02/app/src/main/AndroidManifest.xml:15:25-66
+category#android.intent.category.LAUNCHER
+ADDED from /home/runner/work/Checktrain02/Checktrain02/app/src/main/AndroidManifest.xml:16:17-77
+	android:name
+		ADDED from /home/runner/work/Checktrain02/Checktrain02/app/src/main/AndroidManifest.xml:16:27-74
+uses-sdk
+INJECTED from /home/runner/work/Checktrain02/Checktrain02/app/src/main/AndroidManifest.xml reason: use-sdk injection requested
+INJECTED from /home/runner/work/Checktrain02/Checktrain02/app/src/main/AndroidManifest.xml
+INJECTED from /home/runner/work/Checktrain02/Checktrain02/app/src/main/AndroidManifest.xml
+	android:targetSdkVersion
+		INJECTED from /home/runner/work/Checktrain02/Checktrain02/app/src/main/AndroidManifest.xml
+	android:minSdkVersion
+		INJECTED from /home/runner/work/Checktrain02/Checktrain02/app/src/main/AndroidManifest.xml
+
