@@ -37,3 +37,9 @@ c) With Wi-Fi OFF, does the NTES page in Chrome still show that train's status?
 The app now reads the railway's answer as bytes, and its log line shows the HTTP number and type - the two facts we never had.
 If (b) says yes, that is the whole fix - tell us and stop testing the feed.
 Send the log FILE (lines start [BROWSER] / [PROBE]); a screenshot of the screen is not enough.
+
+IF YOUR PHONE HAS A TRAFFIC FILTER (NetGuard, AdGuard, a VPN, an anti-virus firewall, data saver):
+pause it for one minute and tap Refresh. Last log: the app's own requests were cut mid-secure-handshake to
+BOTH the railway AND one.one.one.one, yet api.railradar.in answered 401 normally. A railway that blocks
+Cloudflare's test page but not a Cloudflare railway API is unlikely; a phone-side filter that judges the
+client, not the app, fits exactly. Say which app it was, if any.

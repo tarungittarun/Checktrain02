@@ -73,6 +73,15 @@ and put them in the same reply:
 - Under the pill, a sentence that ends **"(asked from the site's own page, the way its app does)"** — it means
   your phone is the first where we proved which half of the problem is which. **You should not see it yet**: it
   only appears once the railway has actually sent a real answer, and that is the thing being tested.
+- **One question that could end this in a minute:** does that phone have any app that filters other apps'
+  traffic — NetGuard, AdGuard, a VPN, an anti-virus with a firewall, a "data saver"? If yes, turn it off (or
+  allow this app) and tap **Refresh**. Here is why that is the right question: on your last log the app's own
+  Java requests were hung up on mid-handshake to `enquiry.indianrail.gov.in` **and** to `one.one.one.one`,
+  while a request to `api.railradar.in` from the same app got a real `HTTP 401` answer. A railway WAF that
+  also refuses Cloudflare's own reachability check, but not a Cloudflare-hosted railway API, would be a very
+  strange beast; a filter on the phone that keys on the *client* rather than the app is the shape that fits.
+  We are not asking you to uninstall anything — just to try once with the filter paused, then say which one
+  it was.
 - In the log, lines like `[BROWSER] POST enquiry.indianrail.gov.in via enquiry.indianrail.gov.in -> HTTP 200
   application/json body=4213B in 812ms`. The `HTTP` number and the word after it are what every earlier round
   was missing; send the file so we get them.
