@@ -140,11 +140,16 @@ object BrowserFetch {
             is Http.Result.Ok -> "body=" + verdict.body.length + "B"
             is Http.Result.Failed -> verdict.kind.toString() + " " + verdict.message
         }
+        // The first 180 characters of a *successful* body, on the same line. Their last log had the sentence
+        // "this build could not open its envelope" and no way to say why: a refusal inside a 200 - an
+        // `AlertMsg`, a login redirect, an HTML page where JSON was promised - is the whole next round of
+        // work, and it was not recorded. Nothing user-generated is in here, only what a public endpoint said.
+        val peek = if (verdict is Http.Result.Ok) " :: " + verdict.body.take(180).replace('\n', ' ') else ""
         Diary.get()?.log("BROWSER") {
             // Status and content type on the line, because that pair is the whole reason this file was
             // rewritten: without them, "answered 159B" looked like a verdict for a round.
             (if (body == null) "GET " else "POST ") + hostOf(url) + " via " + hostOf(page) +
-                " -> HTTP " + call.status.get() + " " + call.contentType.get() + " " + how +
+                " -> HTTP " + call.status.get() + " " + call.contentType.get() + " " + how + peek +
                 " in " + ms + "ms"
         }
         lastError = (verdict as? Http.Result.Failed)?.message

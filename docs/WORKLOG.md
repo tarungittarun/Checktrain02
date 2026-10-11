@@ -205,10 +205,19 @@ row produces a JaCoCo number.
 
 ## Resume here (state as of this push)
 
-Branch tip `1d29bf3`, "Ask through the browser engine, because the phone says that works" — CI verdict still
-pending as this is written, so treat it as unverified until the three `android` jobs say `success`. CI on the
-previous tip `f00be21`: `checks ✓ debug APK ✓ tests + screens ✓` (`release` is tag-only, `skipped` is normal),
-asset 10 602 337 B at 16:11:29Z = 21:41:29 IST, published to the rolling `latest-apk` release:
+Verified states, so nobody re-derives them: `b7c42c5` failed with one compiler error —
+`Modifier 'inner' is not applicable inside 'standalone object'` at `BrowserFetch.kt:201` — fixed by making
+`Call` nested and naming the singleton where it is used, which is also what `check_members.object_inner` now
+catches locally. `a9efa01` (the fix, plus the serialised engine and the adopted-origin change) and `eaac1cd`
+are both `checks ✓ debug APK ✓ tests + screens ✓`; `release` is tag-only, `skipped` is normal, and an
+`e2e` row cancelled by a newer push is that same concurrency working as designed. Read the verdict of a run
+whose log you cannot fetch from here through the **commit comments**:
+`gh api repos/tarungittarun/Checktrain02/commits/<sha>/check-runs` → the failed check-run's annotations, then
+`gh api repos/…/commits/<sha>/comments` — the workflow's own "Report the failure on the commit" step pastes the
+```e: file:///…``` lines there, which is how `b7c42c5` was diagnosed in one call when
+`gh run view --log` could not reach `results-receiver.actions.githubusercontent.com` from this sandbox.
+
+Download link, published by the `debug APK` job of the runs above:
 `https://github.com/tarungittarun/Checktrain02/releases/download/latest-apk/app-debug.apk`. **Re-check the size
 and `updated_at` with `gh api` before announcing a link** — twice now a pushed commit produced no new asset
 because the job that publishes it had failed.
