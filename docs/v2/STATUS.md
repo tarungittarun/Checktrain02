@@ -15,7 +15,7 @@ tracked and the work would become invisible.
 | T9.1 | Known-truths gate: `fixtures/known_truths.json` + `tools/ci/data_truths.py` (the repo's only check against reality) | **DONE** 2026-10-11 | standalone run exit=1, 5 FAILs on today's asset; `report()` output in step summary | extend with direction-aware pair check (T9.7) | no |
 | T9.2 | ETL runs the gate and stamps `meta.data_trust` + `data_truth_problems` | **DONE** | `python3 tools/build_refdb.py --profile halts --out /tmp/refdb.dbgz` → `meta.data_trust = 'unverified'` | — | no |
 | T9.3 | Chip/Settings stops dressing stale data in a date: `dataVersion()` has verified / never-checked / UNVERIFIED states | **DONE** | string assembled from real meta: `6,775 trains · timetable UNVERIFIED: numbers/names disagree with the live railway data of 2026-06-20 - verify before travelling` | see how it fits the chip in a screenshot after T9.4 | no |
-| T9.4 | CI gate + build for `a06ac16` (ordering fix, vintage key, tests) and this round's commit | **DOING** | `gh run` conclusion for `checks`, `debug APK`, `tests + screens`; unit test `catchableTrainsComeFirst…` | read the run, report it verbatim; do not claim green before it says so | no |
+| T9.4 | CI verdicts per commit | **PARTIAL - read, not assumed** | `a06ac16`: android run `38160764951` **success** (so the ordering fix + new tests + vintage key compile and pass, and its APK is what `latest-apk` serves). `52cd940`: android run `38162949280` **cancelled by my own next push** - no build evidence. `7e444f5` (shape capture): android `in_progress`, e2e pending at the time of writing. The `report: failure` row on `a06ac16` is that cancelled e2e run's rollup (`--log-failed` empty), not a product failure. | read `7e444f5`'s run next round; do not push until it lands (lesson 13) | no |
 | T9.5 | C15 live station-pair search (`TrainBtwStnJson`) — PoC script `tools/poc/livefeed.py` that CI runs, saving redacted fixtures + a parse test | **NEXT** | — | build PoC in CI first (runners reach erail? no — prove reachability matrix, then decide on-device-only) | no |
 | T9.6 | C3 `NtesWire.parse` against a real payload | **DOING — capture shipped** | `NtesWire.shapeOf` + `Diary` lines on both NTES failure paths (unparseable AND parsed-empty, which was silent); gates clean | next build → owner opens 16228 with logging on → export; the `shape=` line decides the key-name question without any body leaving the phone | **yes** (log export only, no install) |
 | T9.6a | The uploaded diary never reached the sandbox (`/home/user/uploads` absent, twice) | **BLOCKED: transfer, not analysis** | `find` in the sandbox found nothing | if a diary is re-sent, look for `[TLS]`, `[NET]` and (after the next build) `shape=` | no |
@@ -41,3 +41,9 @@ our app on 16228 shows `SMET → SBC · 274 km`, `Delay: no live feed`, every ro
 report about the train" (labelled correctly ✓), while Where Is My Train shows `16228 Talguppa - Mysuru Express
 (TLGP-MYS)` with per-stop actuals + `Platform 1` and `0 km to Bhadravati · Updated few seconds ago`.
 Installed APK is `7f84cd6`; `latest-apk` currently serves `71fa6bd`.
+
+## Push discipline (new, from lesson 13)
+
+One push per round. `docs/v2/*` and the shape-logging commit are **committed locally and deliberately not
+pushed** while run `38162835…`/`7e444f5` is in flight; they go with round 10's code so that a build's evidence
+is never cancelled by impatience. Resume rule: check that run's conclusion first, then push.
