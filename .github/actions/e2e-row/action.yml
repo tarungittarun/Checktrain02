@@ -72,38 +72,58 @@ runs:
   steps:
     - uses: actions/checkout@v4
       continue-on-error: true  # reporting must survive a red step; the verdict step decides
+    - name: Start the row's clock
+      # The job has timeout-minutes: 80, and a job GitHub cancels mid-flight leaves nothing: no comment, no
+      # artifact, no roll-up line. The row therefore keeps its own deadline below that, and every phase
+      # compares against it - the classes that cannot fit are reported as skipped, which is information,
+      # rather than being cancelled, which is not.
+      id: clock
+      shell: bash
+      run: |
+        minutes=${ROW_BUDGET_MINUTES:-58}
+        case "$minutes" in (*[!0-9]*|'') minutes=58 ;; esac
+        echo "row_deadline=$(( $(date +%s) + minutes * 60 ))" > /tmp/deadline
+        echo "row budget ${minutes}m; the last minutes belong to diagnostics, the artifact and the comment"
+        echo "row_started=$(date +%s)" >> /tmp/diag.env
+
     - uses: actions/setup-java@v4
       with:
         distribution: temurin
         java-version: '17'
       continue-on-error: true  # reporting must survive a red step; the verdict step decides
-    - uses: actions/download-artifact@v4
-      with:
-        name: apk-debug
-        path: /tmp/apk
-      continue-on-error: true  # reporting must survive a red step; the verdict step decides
-    - uses: actions/download-artifact@v4
-      with:
-        name: apk-debug-androidTest
-        path: /tmp/apk
-      continue-on-error: true  # reporting must survive a red step; the verdict step decides
-    - uses: actions/download-artifact@v4
-      with:
-        name: apk-release
-        path: /tmp/apk
-      continue-on-error: true  # reporting must survive a red step; the verdict step decides
-    - uses: actions/download-artifact@v4
-      with:
-        name: e2e-classes
-        path: /tmp/classes
-      continue-on-error: true  # reporting must survive a red step; the verdict step decides
+    - name: Fetch the APKs and the coverage classes (one step, timed, so a slow artifact service is visible)
+      # This was four `download-artifact@v4` steps: no trace line, no wall clock, no per-artifact outcome,
+      # and inside a composite action their steps are not individually visible from the API at all. When a
+      # row sat 29 minutes without a single annotation, that block was the one place a hang could hide with
+      # no evidence either way. `gh run download` is the same service with a timeout per pull and one line
+      # each into the log, the artifact and - on failure - the annotation stream.
+      id: fetch
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
+      shell: bash
+      run: |
+        mkdir -p /tmp/apk /tmp/classes
+        for spec in "apk-debug:/tmp/apk" "apk-debug-androidTest:/tmp/apk" "apk-release:/tmp/apk" "e2e-classes:/tmp/classes"; do
+          name=${spec%%:*}; dir=${spec#*:}; started=$(date +%s)
+          timeout 240 gh run download "${{ github.run_id }}" -n "$name" -D "$dir" > "/tmp/fetch-$name.log" 2>&1
+          rc=$?
+          echo "   $name -> rc=$rc in $(( $(date +%s) - started ))s into $dir ($(ls "$dir" 2>/dev/null | tr '\n' ' '))"
+          [ "$rc" = 0 ] || echo "     $(tail -2 /tmp/fetch-$name.log | tr '\n' ' ' | cut -c1-160)"
+          [ "$rc" = 0 ] || echo "::warning::$name did not arrive (rc=$rc)"
+        done
+        echo "on disk: $(du -sh /tmp/apk /tmp/classes 2>/dev/null | tr -s '\n' ' ')"
+        for f in app-debug.apk app-debug-androidTest.apk; do
+          [ -s "/tmp/apk/$f" ] || echo "::error::/tmp/apk/$f is missing or empty - this row has nothing to install"
+        done
+        echo "fetch_seconds=$(( $(date +%s) - ${started:-$(date +%s)} ))" >> /tmp/diag.env
+
     - name: Unzip the class files used for coverage
       # Non-fatal on purpose: a missing coverage input makes the *number* unavailable, not the test run
       # invalid, and a red row that tested nothing at all is worse than a green row with no percentage.
       continue-on-error: true
       shell: bash
       run: |
-        echo "::notice::[row] step 7/20: Unzip the class files used for coverage"
+        echo "::notice::[row] step 7: Unzip the class files used for coverage"
         set +e  # this step reports on the row; the last step decides the verdict
         if unzip -qo /tmp/classes/e2e-classes.zip -d /tmp && ls /tmp/cls >/dev/null 2>&1; then
           echo "classes for coverage: $(find /tmp/cls -name '*.class' | wc -l) files"
@@ -118,7 +138,7 @@ runs:
       # in the artifact and in a one-line notice, rather than being inferred from a boot failure afterwards.
       shell: bash
       run: |
-        echo "::notice::[row] step 8/20: What this runner actually has (so one run answers every envi"
+        echo "::notice::[row] step 8: What this runner actually has (so one run answers every envi"
         set +e  # this step reports on the row; the last step decides the verdict
         SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
         {
@@ -139,7 +159,7 @@ runs:
       continue-on-error: true
       shell: bash
       run: |
-        echo "::notice::[row] step 9/20: Boot the emulator"
+        echo "::notice::[row] step 9: Boot the emulator"
         set +e  # this step reports on the row; the last step decides the verdict
         set -o pipefail
         started=$(date +%s)
@@ -148,6 +168,15 @@ runs:
         # SDK really is; the boot script also appends it to $GITHUB_PATH, and this export covers the step
         # that reads the boot log's own verdict.
         export PATH="${ANDROID_HOME:-/usr/local/lib/android/sdk}/platform-tools:${ANDROID_HOME:-/usr/local/lib/android/sdk}/emulator:$PATH"
+        # Leave the boot room to be slow, but not the whole row: whatever is left after the boot minus the
+        # minutes the tests, the stability pass and the reporting need is the boot budget. A 40-minute
+        # boot-timeout default is how a row spends its life waiting for a device that is never coming.
+        deadline=$(cut -d= -f2 /tmp/deadline 2>/dev/null || echo 0)
+        if [ "$deadline" -gt 0 ]; then
+          left=$(( deadline - $(date +%s) - 1500 ))
+          [ "$left" -lt "${BOOT_TIMEOUT:-1500}" ] && [ "$left" -gt 240 ] && export BOOT_TIMEOUT=$left
+          echo "boot budget capped to ${BOOT_TIMEOUT}s of the row's remaining ${left}s"
+        fi
         bash tools/ci/emulator_boot.sh 2>&1 | tee /tmp/boot.log
         rc=${PIPESTATUS[0]}
         set -e
@@ -173,7 +202,7 @@ runs:
       if: steps.boot.outcome == 'failure'
       shell: bash
       run: |
-        echo "::notice::[row] step 10/20: Say so, in one sentence, if this runner cannot host an emula"
+        echo "::notice::[row] step 10: Say so, in one sentence, if this runner cannot host an emula"
         set +e  # this step reports on the row; the last step decides the verdict
         echo "--- emulator_boot.sh said:"
         tr '\r' '\n' < /tmp/boot.log 2>/dev/null | grep -vE "Unzipping|Downloading|%\]" | tail -30 || echo "(no boot log)"
@@ -184,7 +213,7 @@ runs:
       if: steps.boot.outcome == 'success'
       shell: bash
       run: |
-        echo "::notice::[row] step 11/20: Install the built APKs (cold: wiped data, so first-run extra"
+        echo "::notice::[row] step 11: Install the built APKs (cold: wiped data, so first-run extra"
         set +e  # this step reports on the row; the last step decides the verdict
         adb root >/dev/null 2>&1 || true
         if [ "$VARIANT" = release ]; then apk=/tmp/apk/app-release.apk; else apk=/tmp/apk/app-debug.apk; fi
@@ -204,7 +233,7 @@ runs:
       if: steps.boot.outcome == 'success'
       shell: bash
       run: |
-        echo "::notice::[row] step 12/20: Run the flow suite (and, for the rows that ask for it, again"
+        echo "::notice::[row] step 12: Run the flow suite (and, for the rows that ask for it, again"
         set +e  # this step reports on the row; the last step decides the verdict
         set -o pipefail
         release_flag=false; [ "$VARIANT" = release ] && release_flag=true
@@ -212,6 +241,21 @@ runs:
         run_suite() {
           local label=$1
           echo "=== $label ==="
+          # Never start a pass the row cannot afford to report. `left` is the seconds to the row deadline;
+          # below two minutes the pass is declared skipped (a word the roll-up reads as not-green, so a
+          # budget that was too small is visible as a gap and not as a pass).
+          local deadline left rt
+          deadline=$(cut -d= -f2 /tmp/deadline 2>/dev/null || echo 0)
+          left=$(( deadline - $(date +%s) ))
+          if [ "$deadline" -gt 0 ] && [ "$left" -lt 120 ]; then
+            echo "$label=skipped (row budget: ${left}s left, a pass needs two minutes to run and report)" >> /tmp/tests.txt
+            echo "::warning::$label not started - the row's own budget was spent before it. Raise ROW_BUDGET_MINUTES or use focus: to narrow the suite."
+            return 0
+          fi
+          rt=${RUN_TIMEOUT:-600}
+          if [ "$deadline" -gt 0 ] && [ $(( left - 90 )) -lt "$rt" ]; then rt=$(( left - 90 )); fi
+          [ "$rt" -lt 120 ] && rt=120
+          RUN_TIMEOUT=$rt
           adb logcat -c || true
           local ec="/sdcard/Android/data/$APP_ID/files/cover-$label.ec"
           adb shell rm -f "$ec" || true
@@ -244,7 +288,7 @@ runs:
                 "$(adb shell dumpsys window 2>/dev/null | grep -m1 -oE 'mCurrentFocus=[^ ]+' | tr -d '\r')" \
                 | tee -a /tmp/heartbeat.txt
             done ) & HB=$!
-          timeout "${RUN_TIMEOUT:-900}" adb shell am instrument -w -e debug false -e coverage true \
+          timeout "$RUN_TIMEOUT" adb shell am instrument -w -e debug false -e coverage true \
             -e coverageFile "$ec" \
             -e release "$release_flag" -e offline "${OFFLINE_FLAG:-false}" \
             "${sel[@]}" \
@@ -258,7 +302,7 @@ runs:
           adb pull "$ec" "/tmp/cover-$label.ec" >/dev/null 2>&1 || true
           grep -E "^Tests run|FAILURES|INSTRUMENTATION_RESULT|Error:" "/tmp/instrument-$label.log" | tail -20 || true
           if [ "$rc" = 124 ]; then
-            echo "$label=failed (instrument exceeded ${RUN_TIMEOUT:-900}s; the device may have wedged - see the logcat tail in the artifact)" >> /tmp/tests.txt
+            echo "$label=failed (instrument exceeded ${RUN_TIMEOUT}s; the device may have wedged - see the logcat tail in the artifact)" >> /tmp/tests.txt
           elif grep -qE "FAILURES!!!|Tests run: [0-9]+,  Failures: [1-9]|INSTRUMENTATION_FAILED|Exception" \
                "/tmp/instrument-$label.log"; then
             echo "$label=failed" >> /tmp/tests.txt
@@ -281,7 +325,7 @@ runs:
             *) adb shell pm revoke "$APP_ID" android.permission.ACCESS_COARSE_LOCATION || true ;;
           esac
           CLASS_FILTER="in.opentrack.india.e2e.ColdStartFlowTest" \
-            EXTRA_ARGS="-e requireCleared true" RUN_TIMEOUT=600 run_suite cold || true
+            EXTRA_ARGS="-e requireCleared true" RUN_TIMEOUT=540 run_suite cold || true
         fi
         # Order matters for the rest: the live-feed field test needs the network, so it runs before the
         # radio goes off, and the degradation suite runs with it off. Each pass writes its own coverage
@@ -318,7 +362,7 @@ runs:
       if: steps.boot.outcome == 'success'
       shell: bash
       run: |
-        echo "::notice::[row] step 13/20: Coverage of the app, from the device runs"
+        echo "::notice::[row] step 13: Coverage of the app, from the device runs"
         set +e  # this step reports on the row; the last step decides the verdict
         set -o pipefail
         # Merge the per-pass .ec files so the number is the suite's coverage, not one pass of it.
@@ -342,7 +386,7 @@ runs:
       if: steps.boot.outcome == 'success'
       shell: bash
       run: |
-        echo "::notice::[row] step 14/20: Pull the evidence (screenshots and window hierarchies for ev"
+        echo "::notice::[row] step 14: Pull the evidence (screenshots and window hierarchies for ev"
         set +e  # this step reports on the row; the last step decides the verdict
         mkdir -p /tmp/evidence
         adb pull "/sdcard/Android/data/$TEST_ID/files/evidence" /tmp/evidence >/dev/null 2>&1 || true
@@ -356,7 +400,7 @@ runs:
       if: steps.boot.outcome == 'success'
       shell: bash
       run: |
-        echo "::notice::[row] step 15/20: Random-event stability pass on the same image"
+        echo "::notice::[row] step 15: Random-event stability pass on the same image"
         set +e  # this step reports on the row; the last step decides the verdict
         started=$(date +%s)
         COUNT="$MONKEY" bash tools/ci/monkey_stability.sh 2>&1 | tail -40
@@ -366,7 +410,7 @@ runs:
     - name: Diagnostics - what the device and the runner looked like
       shell: bash
       run: |
-        echo "::notice::[row] step 16/20: Diagnostics - what the device and the runner looked like"
+        echo "::notice::[row] step 16: Diagnostics - what the device and the runner looked like"
         set +e  # this step reports on the row; the last step decides the verdict
         # Everything here exists so a row can be judged from one screen instead of four: how long the boot
         # took, what the emulator reported, whether the runner was starved, whether the app was ever
@@ -390,7 +434,7 @@ runs:
     - name: Record what this row actually achieved
       shell: bash
       run: |
-        echo "::notice::[row] step 17/20: Record what this row actually achieved"
+        echo "::notice::[row] step 17: Record what this row actually achieved"
         set +e  # this step reports on the row; the last step decides the verdict
         {
           echo "row=$ROW"
@@ -441,7 +485,7 @@ runs:
         GH_TOKEN: ${{ inputs.github_token }}
       shell: bash
       run: |
-        echo "::notice::[row] step 19/20: Report the row on the commit (a green row says what it prove"
+        echo "::notice::[row] step 19: Report the row on the commit (a green row says what it prove"
         set +e  # this step reports on the row; the last step decides the verdict
         # Every test here is an `if`, not `cmd && var=x`: Actions runs `bash -e`, and a short-circuit that
         # ends false aborts the step - which is why no row comment was ever posted, on any run, while the
@@ -492,7 +536,7 @@ runs:
       if: steps.boot.outcome == 'failure' || steps.nodev.outcome == 'failure' || steps.suite.outcome == 'failure' || steps.cov.outcome == 'failure' || steps.monkey.outcome == 'failure'
       shell: bash
       run: |
-        echo "::notice::[row] step 20/20: Let the row decide its own verdict"
+        echo "::notice::[row] step 20: Let the row decide its own verdict"
         set +e  # this step reports on the row; the last step decides the verdict
         echo "::error::$ROW failed - boot, tests, coverage or the stability pass; the comment on this commit says which, and the e2e-result-$ROW artifact holds the logs and screenshots"
         exit 1

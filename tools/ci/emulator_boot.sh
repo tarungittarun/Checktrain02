@@ -23,7 +23,7 @@ AVD_NAME=${AVD_NAME:-e2e}
 # slower still (dex2oat thrashes), so the budget is generous and the memory is what the runner can actually
 # give: a row that times out is reported as untested, which is a worse outcome than a row that takes nine
 # minutes. Both numbers are env-overridable so a self-hosted runner can tighten them.
-BOOT_TIMEOUT=${BOOT_TIMEOUT:-2400}
+BOOT_TIMEOUT=${BOOT_TIMEOUT:-1500}
 MEMORY=${MEMORY:-4096}
 CORES=${CORES:-2}
 
