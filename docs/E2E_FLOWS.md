@@ -35,6 +35,8 @@ railway happens to be reporting today says so, and its test asserts the invarian
 | `bogus-train-number` | search | Five digits that exist nowhere produce the no-train sentence, not an empty list | `TrainSearchFlowTest#nonexistentTrainNumberIsExplicit` | all |
 | `settings-entry` | search | The Data source button opens the settings screen | `SettingsFlowTest#everyControlIsReachableAndBackReturns` | all |
 | `track-open` | tracking | A result's Track button opens that train, that date | `TrackingFlowTest#openingAResultShowsThatTrain` | all |
+| `live-pair-list` | search | The pair list names its source — rows carry `via erail`, or the screen states the feed died; unnamed rows are the founding bug's door and fail the row | `StationSearchFlowTest#pairRowsNameTheirSource` | all |
+| `details-live-identity` | tracking | The details screen asks erail what this number runs TODAY and relabels the route line — confirmed, or both readings shown on mismatch, or the untouched timetable label when nothing answered | `TrackingFlowTest#routeLabelGainsTheLiveIdentityConfirmation` | all |
 | `headline-position` | tracking | The headline names where the train is or says plainly that only the timetable is known | `TrackingFlowTest#headlineAlwaysNamesAState` | all |
 | `stop-table-columns` | tracking | Every halt row carries SCH times; the LIVE cell is either a reported minute or a dash — never a reprinted schedule minute | `TrackingFlowTest#liveCellIsAMinuteOrADashNeverTheTimetable` | all |
 | `distance-ladder` | tracking | Distance is 0 at the first halt, the route total at the last, and never decreases between | `TrackingFlowTest#distancesRunFromZeroToTheTotal` | all |
