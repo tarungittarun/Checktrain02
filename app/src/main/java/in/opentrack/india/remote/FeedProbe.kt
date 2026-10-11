@@ -60,10 +60,10 @@ object FeedProbe {
     private const val PER_TRY_TIMEOUT = 5_000
     // A cold web view is not a socket write: the engine answered in ~1.1 s of its own on a device, and a
     // 5 s cap turned a page load plus a request into a timeout. Generous, because it runs after a failure.
-    private const val BROWSER_TIMEOUT = 10_000
-    private const val MAX_TRIES = 16   // every variant, controls included - a probe that ran out of tries
+    private const val BROWSER_TIMEOUT = 12_000
+    private const val MAX_TRIES = 12   // every variant, controls included - a probe that ran out of tries
                                     // before its own control host is a probe that proves nothing
-    private const val TOTAL_BUDGET = 62_000
+    private const val TOTAL_BUDGET = 34_000
 
     @Volatile
     private var last: List<Result> = emptyList()
@@ -102,14 +102,11 @@ object FeedProbe {
         val rebuilt = rebuild(v, trainNo, journeyEpochDay)
         return try {
             if (rebuilt.browser) {
-                when {
-                    rebuilt.warm.isNotBlank() && rebuilt.body != null ->
-                        BrowserFetch.postAfterSession(rebuilt.warm, rebuilt.url, rebuilt.body, BROWSER_TIMEOUT)
-                    rebuilt.body != null && rebuilt.body.startsWith("jsonIn=") ->
-                        BrowserFetch.postForm(rebuilt.url, "jsonIn", rebuilt.body.substringAfter("="), BROWSER_TIMEOUT)
-                    rebuilt.body != null -> BrowserFetch.post(rebuilt.url, rebuilt.body, BROWSER_TIMEOUT)
-                    else -> BrowserFetch.get(rebuilt.url, BROWSER_TIMEOUT, rebuilt.headers)
-                }
+                // One path for everything browser-side, and it carries the headers - which the renderer it
+                // replaced could not: `postUrl` fixes Content-Type and drops everything else, so every header
+                // question this app asked "through a browser" was actually asked with no headers at all.
+                val page = if (rebuilt.warm.isNotBlank()) rebuilt.warm else BrowserFetch.originPage(rebuilt.url)
+                BrowserFetch.apiCall(rebuilt.url, rebuilt.body, page, rebuilt.headers, BROWSER_TIMEOUT)
             } else if (rebuilt.body == null) {
                 http.get(rebuilt.url, PER_TRY_TIMEOUT, 0, rebuilt.headers, rebuilt.pin4)
             } else {
@@ -255,9 +252,10 @@ object FeedProbe {
                 true,
             ),
             Variant(
-                "webview-post", NtesWire.BASE_URL, envelope, emptyMap(), false,
-                "the shipped request through the system browser engine: same URL, same bytes, different " +
-                    "client - the last variable a phone's own report has not yet ruled out",
+                "webview-post", NtesWire.BASE_URL, envelope,
+                mapOf("Content-Type" to "application/json", "charset" to "utf-8"), false,
+                "the shipped request sent from the railway's own origin with its content type declared: the " +
+                    "same bytes the app posts, minus the client signature that gets hung up on",
                 false, true,
             ),
             Variant(
@@ -265,27 +263,27 @@ object FeedProbe {
                 "https://enquiry.indianrail.gov.in/ntes/others/liveStatusJsonNew?trainNo=$trainNo" +
                     "&journeyDate=$startIso",
                 null,
-                mapOf(
-                    "Referer" to "https://enquiry.indianrail.gov.in/ntes/",
-                    "Accept" to "application/json, text/plain, */*",
-                ),
+                mapOf("Accept" to "application/json, text/plain, */*"),
                 false,
-                "the GET the NTES site itself makes, through the browser engine and with the site's own " +
-                    "Referer - green here means the endpoint wants a browser's context, not our headers",
+                "the GET the NTES site itself makes. No Referer is set here on purpose: fetch ignores that " +
+                    "header, and riding a page of theirs supplies a real one - which is the only kind of " +
+                    "Referer an endpoint would honour anyway",
                 false, true,
             ),
             Variant(
                 "webview-post-form", NtesWire.BASE_URL,
                 "jsonIn=" + java.net.URLEncoder.encode(NtesWire.wrap(wirePlain), "UTF-8"),
-                emptyMap(), false,
-                "the envelope as the form field the browser's own Content-Type advertises - what an ASP.NET " +
-                    "endpoint reads when it is not handed a raw JSON body",
+                mapOf("Content-Type" to "application/x-www-form-urlencoded"), false,
+                "the envelope as a form field, declared as one: the endpoint's own web client is a jQuery " +
+                    "application and the answer of 159 bytes we mistook for its refusal was this platform's " +
+                    "XML parser complaining about JSON, so the payload question is still open",
                 false, true,
             ),
             Variant(
-                "webview-post-session", NtesWire.BASE_URL, envelope, emptyMap(), false,
-                "the site first, then the API, so the engine carries whatever cookie NTES hands its own " +
-                    "scripts: the difference between an anonymous POST and the one the page itself makes",
+                "webview-post-session", NtesWire.BASE_URL, envelope,
+                mapOf("Content-Type" to "application/json", "charset" to "utf-8"), false,
+                "the NTES page loaded first so its own session cookie is in the jar, then the API asked from " +
+                    "inside it: the difference between an anonymous POST and the request the page makes",
                 false, true, "https://enquiry.indianrail.gov.in/ntes/",
             ),
             Variant(

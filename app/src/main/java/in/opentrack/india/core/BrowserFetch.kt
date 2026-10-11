@@ -11,37 +11,57 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import org.json.JSONObject
 
 /**
- * A request issued through the system browser engine instead of `java.net.HttpURLConnection`.
+ * A request sent with the browser engine's network stack, with the answer read back as **bytes**.
  *
- * Why this exists, stated plainly, because it is the unusual part of this app: a phone in Bengaluru connected
- * the TCP socket to the railway enquiry endpoint in 94 ms, resolved cleanly, and then had every TLS handshake
- * hung up on - `IOException: closed`, ~400 ms, eleven times, across every request shape and both TLS profiles
- * this app could produce. Chrome on the same phone, same Wi-Fi, same minute, loaded the same site. The only
- * remaining difference between the two was the client: the browser's TLS fingerprint, ALPN set and header
- * order are examined by the far end, and this app's platform HTTP stack does not survive that examination.
+ * Why the app has one at all: on the phone this project is developed against, `HttpURLConnection` opens the
+ * socket to the railway enquiry endpoint in ~100 ms and then has every TLS handshake hung up on -
+ * `IOException: closed`, across eleven request shapes and both TLS profiles - while Chrome on the same phone,
+ * same Wi-Fi, same minute loads the same site. The difference is the client: the browser's fingerprint, ALPN
+ * set and header order are examined at the far end, and this app's platform stack does not survive that. Using
+ * the engine that is already installed costs no key, no proxy of ours, and no sign-up.
  *
- * So rather than ship a proxy or a key, the app asks with the browser's own network stack - which is already
- * on the device, is the thing that demonstrably works there, and costs nothing to use.
+ * Why it is no longer a *renderer*. The previous version of this file asked the engine to `loadUrl`/`postUrl`
+ * the API directly and read `document.body.innerText` back. That is what produced the line that made me
+ * believe the endpoint "answered 159 bytes" from a phone in Bengaluru. Those 159 bytes were:
  *
- * What this is NOT: a browser, a web view in the UI, or a way for a page to reach the app.
+ *     This page contains the following errors: error on line 1 at column 1: Start tag expected, '<' not found
+ *     Below is a rendering of the page up to the fir
  *
- *  - The view is never attached to a window and is never shown. The traveller sees the same screens as before.
- *  - JavaScript is enabled only to read back the response text of the API document itself; there is no
- *    `addJavascriptInterface`, so no page - not even a hostile error page served in place of the API - can
- *    call into this process.
- *  - File, content and database access are off; the cache is off; nothing is persisted by us. The WebView's
- *    own cookie jar stays in the app's data directory, which is what lets a session cookie work, and it is
- *    cleared when the user clears the live cache from Settings.
- *  - No third-party page is ever loaded here: the only URLs are the railway endpoints this app already calls.
+ * - Android's own message for "the server sent me something that is not markup". The response body never
+ * reached us: a JSON answer cannot be rendered, so the parser error *became* the document, truncated at
+ * column 1, exactly as the wording promises. A GET of the same API through the same renderer returned 506
+ * bytes of the NTES HTML page for the same reason: the site answers a mis-called endpoint with its own page.
+ * Two consequences, both acted on here: an answer read this way can never be parsed into live data, and it
+ * must never be reported as if it had been.
  *
- * Threading: `WebView` insists on one thread, so the work is posted to the main looper and awaited on the
- * caller's (an IO) thread. The main thread is never blocked - the latch is on the other side - and a load that
- * never finishes is abandoned at the timeout, after which the view is torn down so one stuck page cannot
- * poison the next refresh.
+ * So the request now rides *inside* a page. The engine loads a same-origin document - any of them, including
+ * the site's own 404 - and from that document this code runs `fetch()` on the API and reads the returned text
+ * out of a JavaScript global. Same origin, so the site's cookies and its `Referer` are there; a real
+ * `Response` object, so the HTTP status and `Content-Type` are known for the first time; and no parser in the
+ * middle, so the bytes are the server's, not the renderer's. It is, in other words, the request the NTES
+ * website makes for itself - which is the one request shape this app has never been able to produce, because
+ * it needs an origin.
+ *
+ * What this is NOT: a browser, a web view in the UI, or a way for a page to reach into the app.
+ *
+ *  - The view is never attached to a window and never shown; the traveller sees the same screens as before.
+ *  - There is no `addJavascriptInterface`, so no document - not even a hostile one served in place of the
+ *    API - can call into this process. The only script run here is the three-line `fetch` above, and the only
+ *    thing read back is one global this code names.
+ *  - File, content, database and cache access are off; nothing is persisted by us. The engine's own cookie jar
+ *    stays in the app's data directory, which is what makes a session cookie possible, and it is cleared by the
+ *    same button in Settings that clears the live cache.
+ *  - Only railway endpoints are ever loaded: [originPage] derives the ride-along page from the API URL itself.
+ *
+ * Threading: `WebView` insists on the main looper, so the work is posted there and awaited on the caller's (an
+ * IO) thread. The main thread is never blocked - the latch is on the other side - and a call that outlives its
+ * budget tears the engine down, so one stalled page cannot poison the next refresh.
  */
 object BrowserFetch {
 
@@ -53,6 +73,9 @@ object BrowserFetch {
 
     private val main = Handler(Looper.getMainLooper())
     private val creating = Any()
+
+    /** A cold engine, a page load and a request: measured at 3.9 s for a GET on a device, so 5 s was too tight. */
+    val defaultTimeout = 13_000
 
     /** True once a fetch has been attempted, so a report can tell "not tried" from "tried and refused". */
     @Volatile
@@ -67,40 +90,54 @@ object BrowserFetch {
         appContext = context.applicationContext
     }
 
-    /** A cold web view plus a page load is not a socket write: 5 s was too tight, measured on a device. */
-    val defaultTimeout = 9_000
+    /**
+     * The document a same-origin request is sent from. Derived from the API URL rather than configured, so
+     * there is no way for this to end up fetching through an unrelated site's session.
+     */
+    fun originPage(url: String): String = "https://" + hostOf(url) + "/"
 
-    fun get(url: String, timeoutMillis: Int = defaultTimeout, headers: Map<String, String> = emptyMap()): Http.Result =
-        exchange(url, null, headers, timeoutMillis, "GET", read = true)
+    internal fun hostOf(url: String): String = url.substringAfter("://", "").substringBefore("/")
 
     /**
-     * The envelope as a form field. `postUrl` fixes Content-Type at `application/x-www-form-urlencoded`, so a
-     * raw JSON body is a request whose declared shape does not match its contents - which is exactly the kind
-     * of thing an ASP.NET endpoint answers with a short error object. The 159-byte answer this produced is the
-     * reason the variant exists, and the log carries what it said.
+     * One API call, as the site itself would make it. [page] can be pointed at a deeper URL when the point of
+     * the question is the session cookie the site's own scripts receive.
      */
-    fun postForm(url: String, formKey: String, value: String, timeoutMillis: Int = defaultTimeout): Http.Result =
-        exchange(url, formKey + "=" + java.net.URLEncoder.encode(value, "UTF-8"), emptyMap(), timeoutMillis, "POST-form")
+    fun apiCall(
+        url: String,
+        body: String?,
+        page: String = originPage(url),
+        headers: Map<String, String> = emptyMap(),
+        timeoutMillis: Int = defaultTimeout,
+    ): Http.Result {
+        val ctx = appContext ?: return Http.Result.Failed(
+            Http.Result.Kind.HTTP, "BrowserFetch not initialised (no application context)",
+        )
+        tried = true
+        val t0 = System.currentTimeMillis()
+        val call = Call(url, body, page, headers)
+        runCatching { main.post { call.start(ctx) } }
+            .onFailure { call.note("main-looper unavailable: " + it.javaClass.simpleName) }
 
-    /**
-     * Visit the site, then post - so any cookie the site hands its own scripts is in the jar when the API is
-     * asked. The warm-up document is deliberately not read back: only whether a page finished matters, and a
-     * 400 KB HTML page has no business in a log or a parser.
-     */
-    fun postAfterSession(siteUrl: String, url: String, body: String, timeoutMillis: Int = defaultTimeout): Http.Result {
-        runCatching { exchange(siteUrl, null, emptyMap(), timeoutMillis, "WARM", read = false) }
-        return exchange(url, body, emptyMap(), timeoutMillis, "POST+site-session")
+        val answered = call.done.await(timeoutMillis.toLong(), TimeUnit.MILLISECONDS)
+        if (!answered) abandon()
+        val ms = System.currentTimeMillis() - t0
+        val verdict = call.verdict(answered, timeoutMillis)
+        val how = when (verdict) {
+            is Http.Result.Ok -> "body=" + verdict.body.length + "B"
+            is Http.Result.Failed -> verdict.kind.toString() + " " + verdict.message
+        }
+        Diary.get()?.log("BROWSER") {
+            // Status and content type on the line, because that pair is the whole reason this file was
+            // rewritten: without them, "answered 159B" looked like a verdict for a round.
+            (if (body == null) "GET " else "POST ") + hostOf(url) + " via " + hostOf(page) +
+                " -> HTTP " + call.status.get() + " " + call.contentType.get() + " " + how +
+                " in " + ms + "ms"
+        }
+        lastError = (verdict as? Http.Result.Failed)?.message
+        return verdict
     }
 
-    /**
-     * `postUrl` fixes the Content-Type at `application/x-www-form-urlencoded`, so the JSON envelope travels as
-     * the raw body the endpoint reads from its input stream. Whether this server inspects the header is exactly
-     * what the probe line answers; nothing is assumed.
-     */
-    fun post(url: String, body: String, timeoutMillis: Int): Http.Result =
-        exchange(url, body, emptyMap(), timeoutMillis, "POST")
-
-    /** Clears the browser engine's cookie jar; wired to the same button that clears the app's live cache. */
+    /** Clears the engine's cookie jar; wired to the same button that clears the app's live cache. */
     fun clearCookies() {
         val ctx = appContext ?: return
         runCatching {
@@ -119,105 +156,14 @@ object BrowserFetch {
         Diary.get()?.log("BROWSER", "cookies cleared for ctx=" + ctx.javaClass.simpleName)
     }
 
-    private fun exchange(
-        url: String,
-        body: String?,
-        headers: Map<String, String>,
-        timeoutMillis: Int,
-        kind: String,
-        read: Boolean = true,
-    ): Http.Result {
-        val ctx = appContext ?: return Http.Result.Failed(
-            Http.Result.Kind.HTTP, "BrowserFetch not initialised (no application context)",
-        )
-        tried = true
-        val t0 = System.currentTimeMillis()
-        val done = CountDownLatch(1)
-        val text = AtomicReference<String?>(null)
-        val failure = AtomicReference<String?>(null)
-
-        runCatching {
-            main.post {
-                runCatching {
-                    val w = ensureView(ctx)
-                    var pending = true
-                    w.webViewClient = object : WebViewClient() {
-                        override fun onPageFinished(v: WebView, pageUrl: String) {
-                            if (!pending) return
-                            pending = false
-                            if (read) readBack(v, text, done) else done.countDown()
-                        }
-
-                        override fun onReceivedError(
-                            v: WebView,
-                            request: WebResourceRequest,
-                            error: WebResourceError,
-                        ) {
-                            if (!request.isForMainFrame || !pending) return
-                            pending = false
-                            failure.set("webview " + (error.description ?: "load error"))
-                            done.countDown()
-                        }
-                    }
-                    if (body == null) w.loadUrl(url, headers) else w.postUrl(url, body.toByteArray(Charsets.UTF_8))
-                }.onFailure {
-                    failure.set(it.javaClass.simpleName + ": " + it.message)
-                    pendingAll(done)
-                }
-            }
-        }.onFailure {
-            failure.set("main-looper unavailable: " + it.javaClass.simpleName)
-            pendingAll(done)
-        }
-
-        val answered = done.await(timeoutMillis.toLong(), TimeUnit.MILLISECONDS)
-        val ms = System.currentTimeMillis() - t0
-        val verdict: Http.Result = when {
-            !answered -> {
-                abandon()
-                Http.Result.Failed(Http.Result.Kind.TIMEOUT, "BrowserFetch $kind got no document in ${timeoutMillis}ms")
-            }
-            failure.get() != null -> Http.Result.Failed(Http.Result.Kind.HTTP, failure.get()!!)
-            else -> {
-                val got = text.get().orEmpty()
-                if (got.isBlank()) Http.Result.Failed(Http.Result.Kind.EMPTY, "browser answered with an empty document")
-                else Http.Result.Ok(got, fromCache = false, ageMillis = 0)
-            }
-        }
-        Diary.get()?.log("BROWSER") {
-            kind + " " + url.substringAfter("://", url).substringBefore("/") +
-                (if (body == null) "" else " body=" + body.length + "B") + " -> " +
-                (if (verdict is Http.Result.Ok) "answered " + verdict.body.length + "B"
-                 else (verdict as Http.Result.Failed).let { it.kind.toString() + " " + it.message }) +
-                " in " + ms + "ms"
-        }
-        lastError = (verdict as? Http.Result.Failed)?.message
-        return verdict
-    }
-
-    private fun pendingAll(done: CountDownLatch) {
-        runCatching { done.countDown() }
-    }
-
-    /**
-     * The document is JSON or text, so `documentElement.textContent` is the payload itself. What
-     * evaluateJavascript hands back is a JSON-encoded string literal, so it is decoded as one - which also
-     * means a page that tries to smuggle quotes or newlines into the parse gets a failure, not a splice.
-     */
-    private fun readBack(v: WebView, text: AtomicReference<String?>, done: CountDownLatch) {
-        runCatching {
-            v.evaluateJavascript(
-                "(document.body && document.body.innerText !== undefined && document.body.innerText.length > 0)" +
-                    " ? document.body.innerText : (document.documentElement ? document.documentElement.textContent : '')",
-            ) { raw ->
-                val decoded = runCatching { JSONObject("{\"v\":" + (raw ?: "null") + "}").optString("v") }
-                    .getOrNull()
-                if (decoded.isNullOrBlank()) text.set(raw?.trim()?.trim('"')) else text.set(decoded)
-                done.countDown()
-            }
-        }.onFailure {
-            text.set(null)
-            done.countDown()
+    /** A load that never reported back is not reusable: drop the engine so the next attempt starts clean. */
+    private fun abandon() {
+        val dead = view ?: return
+        view = null
+        main.post {
+            runCatching { dead.stopLoading() }
+            runCatching { dead.loadUrl("about:blank") }
+            runCatching { dead.destroy() }
         }
     }
 
@@ -244,13 +190,150 @@ object BrowserFetch {
         }
     }
 
-    /** A load that never reported back is not reusable: drop the engine so the next attempt starts clean. */
-    private fun abandon() {
-        val dead = view ?: return
-        view = null
-        main.post {
-            runCatching { dead.loadUrl("about:blank") }
-            runCatching { dead.destroy() }
+    /**
+     * One call: load the page, run the fetch, poll for the global, decode twice.
+     *
+     * The double decode is not ceremony. `evaluateJavascript` hands back the *source text* of the JS value, so
+     * a string global arrives quoted and escaped; that literal is decoded once to recover the JSON this script
+     * built, and the JSON is decoded again for the fields. Anything else - a page that replaced the global with
+     * something unparseable, an error page that threw - ends in [note], never in a splice.
+     */
+    private inner class Call(
+        val url: String,
+        val body: String?,
+        val page: String,
+        val headers: Map<String, String>,
+    ) {
+        val done = CountDownLatch(1)
+        private val settled = AtomicBoolean(false)
+        private val text = AtomicReference<String?>(null)
+        val status = AtomicInteger(-1)
+        val contentType = AtomicReference<String>("unknown")
+        private val problem = AtomicReference<String?>(null)
+        private val started = AtomicBoolean(false)
+        private val tries = AtomicInteger(0)
+
+        fun start(ctx: Context) {
+            runCatching {
+                val w = ensureView(ctx)
+                w.webViewClient = object : WebViewClient() {
+                    override fun onPageFinished(v: WebView, pageUrl: String) {
+                        send(v)
+                    }
+
+                    override fun onReceivedError(
+                        v: WebView,
+                        request: WebResourceRequest,
+                        error: WebResourceError,
+                    ) {
+                        if (!request.isForMainFrame) return
+                        // Do not give up here. A page that answers 404 or 403 is still a document from the
+                        // right origin, which is all this needs: the fetch runs from it and carries the
+                        // cookies and Referer of that origin. Abandoning on a page error is how a
+                        // "reachable, refused" endpoint gets reported as "unreachable" - and the railway's
+                        // root path is exactly such a page.
+                        send(v)
+                    }
+                }
+                w.loadUrl(page)
+            }.onFailure { note(it.javaClass.simpleName + ": " + it.message) }
+        }
+
+        private fun send(v: WebView) {
+            if (!started.compareAndSet(false, true)) return
+            runCatching {
+                v.evaluateJavascript(script(), null)
+                main.postDelayed({ read(v) }, POLL_MS)
+            }.onFailure { note("javascript unavailable: " + it.javaClass.simpleName) }
+        }
+
+        private fun read(v: WebView) {
+            if (settled.get()) return
+            runCatching {
+                v.evaluateJavascript("window.__otr || ''") { raw ->
+                    runCatching {
+                        val wrapped = JSONObject("{\"v\":" + (raw ?: "''") + "}").optString("v")
+                        if (wrapped.isEmpty()) {
+                            if (tries.incrementAndGet() < MAX_POLLS && !settled.get()) {
+                                main.postDelayed({ read(v) }, POLL_MS)
+                            } else {
+                                note("the page accepted the request and the answer never arrived")
+                            }
+                        } else {
+                            val o = JSONObject(wrapped)
+                            status.set(o.optInt("st", -1))
+                            contentType.set(o.optString("ty", "unknown"))
+                            val got = o.optString("bd", "")
+                            text.set(got)
+                            if (status.get() == 0) {
+                                note("the browser refused the same-origin request: " + got.take(160))
+                            } else {
+                                settled.set(true)
+                                done.countDown()
+                            }
+                        }
+                    }.onFailure { note("unreadable answer: " + it.javaClass.simpleName) }
+                }
+            }.onFailure { note("evaluateJavascript failed: " + it.javaClass.simpleName) }
+        }
+
+        fun note(message: String) {
+            if (settled.compareAndSet(false, true)) {
+                problem.set(message)
+                runCatching { done.countDown() }
+            }
+        }
+
+        fun verdict(answered: Boolean, timeoutMillis: Int): Http.Result {
+            if (!answered) {
+                return Http.Result.Failed(
+                    Http.Result.Kind.TIMEOUT,
+                    "the browser gave no answer in " + timeoutMillis + "ms (page " + hostOf(page) + ")",
+                )
+            }
+            problem.get()?.let { return Http.Result.Failed(Http.Result.Kind.HTTP, it) }
+            val got = text.get().orEmpty()
+            val label = "HTTP " + status.get() + " " + contentType.get()
+            if (status.get() in 200..299) {
+                if (got.isBlank()) {
+                    return Http.Result.Failed(Http.Result.Kind.EMPTY, label + " with an empty body")
+                }
+                return Http.Result.Ok(got, fromCache = false, ageMillis = 0)
+            }
+            return Http.Result.Failed(
+                Http.Result.Kind.HTTP,
+                label + (if (got.isBlank()) "" else " " + got.take(200).replace('\n', ' ')),
+            )
+        }
+
+        /**
+         * The script, with the request described by a JSON literal instead of interpolated strings: an endpoint
+         * URL, a header value or an envelope that contains a quote cannot then break the script or reach a
+         * second statement, which is the difference between "read the API" and "run whatever a response told
+         * us to run".
+         */
+        private fun script(): String {
+            val spec = JSONObject()
+            spec.put("u", url)
+            spec.put("m", if (body == null) "GET" else "POST")
+            spec.put("b", body ?: JSONObject.NULL)
+            val h = JSONObject()
+            for ((k, value) in headers) h.put(k, value)
+            spec.put("h", h)
+            // JSONObject escapes quotes and control characters but not the two line terminators JSON allows
+            // and JavaScript source does not, so those are encoded by hand.
+            val literal = spec.toString().replace("\u2028", "\\u2028").replace("\u2029", "\\u2029")
+            return "(function(){window.__otr='';var s=" + literal + ";" +
+                "fetch(s.u,{method:s.m,body:s.b,headers:s.h,credentials:'include',cache:'no-store'})" +
+                ".then(function(r){return r.text().then(function(t){window.__otr=JSON.stringify(" +
+                "{st:r.status,ty:(r.headers.get('content-type')||''),bd:t.slice(0,200000))})})" +
+                ".catch(function(e){window.__otr=JSON.stringify({st:0,ty:'fetch-refused'," +
+                "bd:String((e&&e.name)||e)})})})()"
         }
     }
+
+    private const val POLL_MS = 150L
+
+    /** 6 s of polling, which on this network is far more than a same-origin fetch on a loaded page takes. */
+    private const val MAX_POLLS = 40
 }

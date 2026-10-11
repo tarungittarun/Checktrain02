@@ -62,8 +62,15 @@ class FeedProbeTest {
         val rebuilt = FeedProbe.rebuild(form, "22691", 20738L)
         assertTrue("the form body must stay a jsonIn field across a rebuild, got ${rebuilt.body}",
             rebuilt.body!!.startsWith("jsonIn=") && rebuilt.body != form.body)
-        assertTrue("a browser POST declares its own content type, so claiming JSON here would be a lie",
-            form.headers.isEmpty())
+        // The invariant the 159-byte mistake taught: a body is only ever sent with the content type that
+        // describes it. The renderer this code used to go through could not set one at all, which is why
+        // "we tried a browser and it answered" was never a finding about the payload.
+        for (v in browser) {
+            if (v.body != null) {
+                assertTrue(v.name + " must declare the content type its body actually is",
+                    v.headers.keys.any { it.equals("Content-Type", ignoreCase = true) })
+            }
+        }
     }
 
     @Test

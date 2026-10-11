@@ -44,13 +44,17 @@ interface LiveProvider {
 /**
  * One request, sent by whichever client this device will actually let through.
  *
- * The order is not a preference. A phone that hung up on `HttpURLConnection` and answered the system browser
- * engine a second later has told us which transport it permits - and on that phone, asking again with the
- * refused client is known to be futile, which is exactly what the last five rounds of logs looked like. So:
- * the JDK client whenever it is not demonstrably blocked, the browser engine on devices where the probe saw
- * it accepted. `browserWorks` only ever becomes true from a probe that got *any* HTTP answer through that
- * engine while the same bytes were refused by the other client - it is a transport verdict, never a claim
- * that a body parsed, so a payload that still does not parse is reported exactly as it would have been.
+ * The order is not a preference. A phone that hung up on `HttpURLConnection`, then got a 2xx from the same URL
+ * sent from inside a page of the site's own a second later, has told us which client it permits - and on that
+ * phone, asking again with the refused client is known-futile, which is what the last five rounds of logs
+ * looked like. So: the JDK client whenever it is not demonstrably blocked, the site's own origin on devices
+ * where the probe proved otherwise.
+ *
+ * `browserWorks` is latched only on a real 2xx body, never on a document the engine rendered. That is not
+ * pedantry: the previous version of this latch was set by a "159-byte answer" which turned out to be Android's
+ * XML parser complaining about JSON, and once latched it routed every refresh of the app through a transport
+ * that had nothing to give back. A diagnostic that changes what the traveller sees is a bug, so the latch is
+ * strict and the answer is read as bytes from `fetch()`, not as a page.
  */
 private fun ask(
     http: Http,
@@ -63,9 +67,8 @@ private fun ask(
         return if (body == null) http.get(url, timeoutMillis, 1, headers)
         else http.post(url, body, headers, timeoutMillis = timeoutMillis, retries = 1)
     }
-    Diary.get()?.log("TRANSPORT") { "asking through the browser engine, which this device accepted" }
-    return if (body == null) BrowserFetch.get(url, BrowserFetch.defaultTimeout, headers)
-    else BrowserFetch.post(url, body, BrowserFetch.defaultTimeout)
+    Diary.get()?.log("TRANSPORT") { "asking from the site's own page, which this device accepted" }
+    return BrowserFetch.apiCall(url, body, BrowserFetch.originPage(url), headers, BrowserFetch.defaultTimeout)
 }
 
 private fun transportFailureSentence(failure: Http.Result.Failed): String =
@@ -200,7 +203,7 @@ class NtesProvider(
             is Http.Result.Failed -> {
                 note = transportFailureSentence(got) +
                     (if (adopted != null) " (asked with the shape this device adopted: " + adopted.name + ")" else "") +
-                    (if (FeedProbe.browserWorks) " (asked through the browser engine)" else "")
+                    (if (FeedProbe.browserWorks) " (asked from the site's own page, the way its app does)" else "")
                 // Refused is the moment the experiment matters: the device is the only place that can tell a
                 // wrong request from a blocked network, so ask it instead of guessing from a sandbox.
                 Diary.get()?.log("NTES", "refused: " + got.kind + " " + got.message +
