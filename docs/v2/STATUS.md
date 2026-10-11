@@ -70,3 +70,21 @@ structural (`docs/v2/` restart + live-first architecture + new gates), and the r
   the "second witness" was fictional. Fixed by extracting `probe_pair()` with injected transports +
   `tools/ci/test_probe_live_feed.py` in the `checks` job. The erail-from-runner answer is therefore still
   pending - it arrives with the next probe comment, which is the first one that actually asked.
+
+## Round 12 — the freeze is in force, and Stage 1 has a spine
+
+**Owner instruction: "just focus on fresh start."** Applied as policy, not sentiment:
+
+- **Legacy freeze.** No new features, refactors or cosmetics in `ui/`, `remote/FeedProbe.kt`, `core/BrowserFetch.kt`
+  or `core/Diary.kt`. Those files may change only to (a) fix a blocking defect or (b) expose something v2 needs,
+  and each such change must say here why it could not be done inside v2. Everything additive lands in
+  `in.opentrack.india.v2`.
+- **v2 is written forward, not ported.** A v1 component is inherited only by name in `COMPONENTS.md` with its PoC
+  still passing; otherwise v2 grows its own. The accumulated probe ladder stays a legacy diagnostic, not an
+  architectural input.
+- **Stage 1 started**: `v2/Provenance.kt` (SourceKind / Provenance / Freshness) + `v2/Facts.kt` (TrainIdentity /
+  RouteStop / PairListing) + `ContractTest` (12 tests). The contract is the *fix* for the class of bug that
+  started this: provenance is a required constructor argument, so a time cannot reach a screen without saying
+  where it came from, and "no answer" cannot be rendered as "no trains".
+  Deliberately pure JVM (no Android, no SQLite, no HTTP) so the rules are argued with failing tests rather than
+  screenshots. **Not yet compiled by anything but the local balance/member gates — CI decides, as always.**
