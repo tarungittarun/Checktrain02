@@ -205,6 +205,11 @@ row produces a JaCoCo number.
 
 ## Resume here (state as of this push)
 
+Rolling asset as of the last green build: **10 607 777 B, updated 2026-10-11T16:59:50Z = 22:29:50 IST**, from
+`07d050f` — `gh api repos/tarungittarun/Checktrain02/releases/tags/latest-apk` said so, which is the only
+acceptable source for the number in a test card. If your download does not match that size, you are being served
+a cached build and nothing in the new log means anything yet.
+
 Verified states, so nobody re-derives them: `b7c42c5` failed with one compiler error —
 `Modifier 'inner' is not applicable inside 'standalone object'` at `BrowserFetch.kt:201` — fixed by making
 `Call` nested and naming the singleton where it is used, which is also what `check_members.object_inner` now
