@@ -55,8 +55,8 @@ class PairCacheTest {
     fun oldestEntriesFallOffTheFixedCapacity() {
         val cache = PairCache(capacity = 2)
         cache.put(listing("11111", from = "A", to = "B"), t0)
-        cache.put(listing(from = "C", to = "D", "22222"), t0 + 1)
-        cache.put(listing(from = "E", to = "F", "33333"), t0 + 2)
+        cache.put(listing("22222", from = "C", to = "D"), t0 + 1)
+        cache.put(listing("33333", from = "E", to = "F"), t0 + 2)
         assertNull(cache.peek("A", "B"))
         assertEquals(listOf("33333"), cache.peek("E", "F")!!.listing.numbers())
     }

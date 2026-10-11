@@ -10,3 +10,7 @@ Then the two standing checks from the full card: (1) offline search always works
 (2) live status either names its source or admits it is the timetable - never a schedule minute
 dressed up as a live one. If anything crashes: Settings -> diagnostics on, reproduce, Save to
 file, PASTE the text here (attachments arrive empty).
+
+THE BIG ONE (60 s, unlocks live arrival/departure times): Settings -> diagnostics ON -> open any
+train running right now -> wait 20 s -> Settings -> Save to file -> PASTE the text in chat.
+Only your phone reaches the railway's live feed; that paste is the whole unblock.

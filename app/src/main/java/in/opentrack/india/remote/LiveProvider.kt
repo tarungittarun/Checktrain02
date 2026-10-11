@@ -242,6 +242,13 @@ class NtesProvider(
             }
         }
         val doc = NtesWire.unwrapJson(body.body)
+        // LEGACY-FREEZE (5.2b): this line is here, not in v2, because the transport it observes is this
+        // file's. It is the capture mechanism 4.5 demands: no parser may be written against the real
+        // NTES reply until a real reply has been SEEN, and this - opt-in log, bounded, no PII (train
+        // numbers and minutes only) - is how the phone, the only machine that can reach NTES, shows it
+        // to us. shape= lines name keys; body1= carries values.
+        Diary.get()?.log("NTES", "body1=" + body.body.take(1500) +
+            (if (body.body.length > 1500) " …(" + body.body.length + "B total)" else ""))
         if (doc == null) {
             // The one failure that is ours rather than upstream's, so it has to be distinguishable: an
             // envelope we could not open means the framing changed, not that the train is not running.

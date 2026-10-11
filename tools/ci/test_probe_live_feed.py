@@ -67,7 +67,7 @@ class ProbeFallback(unittest.TestCase):
         body = "16228~TLGP MYS EXP~TLGP~22:10~MYS~07:00~2026-10-11-7-56-55~\n" * 3
         md = plf.erail_capture_comment([("SMET", "MYS", "HTTP 200 150B", body)], "2026-10-12T00:43:30+05:30")
         self.assertIsNotNone(md)
-        self.assertIn("### live-feed capture (erail pair, raw body)", md)
+        self.assertIn("### live-feed capture (erail, raw bodies)", md)
         self.assertIn("2026-10-11-7-56-55", md, "the feed stamp travels with the capture")
         self.assertIn("16228~TLGP MYS EXP~TLGP~22:10~MYS~07:00", md, "verbatim, not a re-serialization")
         self.assertIsNone(plf.erail_capture_comment([], "x"), "no bodies, no comment")
@@ -98,6 +98,25 @@ class ErailIdentityParser(unittest.TestCase):
         rec = plf.parse_identity_record(
             "2026-10-9-20-38-40~^12627~KARNATAKA EXP~Ksr Bengaluru~SBC~New Delhi~NDLS~Ksr Bengaluru")
         self.assertEqual({"name": "KARNATAKA EXP", "from": "SBC", "to": "NDLS"}, rec)
+
+    def test_the_identity_body_travels_to_the_capture_comment(self):
+        # The TrainNo reply may be the full SCHEDULE; the parser (17.1: schedule from erail when NTES
+        # is runner-blocked) may only be written against the captured text, so the comment carries it.
+        body = "2026-10-4-14-57-35~^16221~TLGP-MYS KUVEMPU EXPRESS~Talguppa~TLGP~Mysore Jn~MYS~x\nrow2~stuff"
+        md = plf.erail_capture_comment([], "2026-10-12T01:31:44+05:30", identities=[("16221", body)])
+        self.assertIsNotNone(md)
+        self.assertIn("### live-feed capture (erail, raw bodies)", md)
+        self.assertIn("train 16221 identity/schedule body", md)
+        self.assertIn("row2~stuff", md, "the whole body, not just the first record")
+        self.assertIsNone(plf.erail_capture_comment([], "x", identities=[("16221", "")]),
+                          "an empty body is no capture")
+
+    def test_identity_lines_return_the_body_for_capture(self):
+        live = {"trains": []}
+        _lines, body = plf.erail_identity_lines(
+            "16221", live,
+            get=lambda q: ("HTTP 200 639B", "2026-10-4-14-57-35~^16221~TLGP-MYS KUVEMPU EXPRESS~Talguppa~TLGP~Mysore Jn~MYS~Talguppa"))
+        self.assertIn("^16221", body, "the verbatim body comes home with the parsed lines")
 
     def test_a_number_never_parses_as_a_station(self):
         rec = plf.parse_identity_record("2026-10-4-15-36-31~^16228~TLGP MYS EXP~Talguppa~TLGP~Mysore Jn~MYS~Talguppa")
@@ -132,7 +151,7 @@ class ErailWitness(unittest.TestCase):
         # The pair probe had this bug; this case exists so the identity probe cannot grow it back.
         asked = []
         live = {"trains": []}
-        lines = plf.erail_identity_lines("16228", live,
+        lines, _body = plf.erail_identity_lines("16228", live,
                                         get=lambda q: (asked.append(q) or
                                                        ("HTTP 200 400B", "16228~TALGUPPA MYSURU EXP~SMET~MYS~x")))
         self.assertTrue(asked and "TrainNo=16228" in asked[0])
@@ -142,7 +161,7 @@ class ErailWitness(unittest.TestCase):
 
     def test_a_miscounted_column_is_reported_not_recorded(self):
         live = {"trains": []}
-        lines = plf.erail_identity_lines("16228", live,
+        lines, _body = plf.erail_identity_lines("16228", live,
                                         get=lambda q: ("HTTP 200 60B", "16228~NAME~TALGUPPA TOWN~16228"))
         self.assertEqual([], live["trains"], "a half-parsed identity must not become a fact")
         self.assertTrue(any("not recorded as a truth" in l for l in lines))

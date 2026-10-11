@@ -326,7 +326,7 @@ def parse_identity_record(body: str) -> dict | None:
     return {"name": name, "from": codes[0], "to": codes[1]}
 
 
-def erail_identity_lines(train_no: str, live: dict, get=erail_get) -> list[str]:
+def erail_identity_lines(train_no: str, live: dict, get=erail_get) -> tuple[list[str], str]:
     """"What does this number mean today", asked of the keyless source that CI can actually reach.
 
     This is the one fact our offline copy got wrong (16228 was a different train), and the one fact a human
@@ -342,10 +342,10 @@ def erail_identity_lines(train_no: str, live: dict, get=erail_get) -> list[str]:
     if rec is None:
         first = body.splitlines()[0][:120] if body else ""
         out.append("  not recorded as a truth: " + (f"first record fields: {first!r}" if first else "(nothing)"))
-        return out
+        return out, body
     out.append("  first record fields: " + ", ".join(f"{k}={rec[k]}" for k in ("name", "from", "to")))
     live["trains"].append({"train_no": train_no, **rec})
-    return out
+    return out, body
 
 
 # The proposal a probe or refresher prints is a per-fact merge suggestion, never a replacement file. The
@@ -370,18 +370,22 @@ def new_proposal(today: datetime.datetime, verified_against: str) -> dict:
     }
 
 
-def erail_capture_comment(pairs: list[tuple[str, str, str, str]], probed_at: str) -> str | None:
-    """The raw erail pair body as a commit comment - the only capture path a sandbox can read.
+def erail_capture_comment(pairs: list[tuple[str, str, str, str]], probed_at: str,
+                          identities: list[tuple[str, str]] | None = None) -> str | None:
+    """The raw erail bodies as a commit comment - the only capture path a sandbox can read.
 
     CI artefacts live on blob hosts that some sandboxes cannot fetch, but commit comments come through the
     API. 4.5 says a parser may only be written against a captured payload; this is how the capture gets
-    from the only machine that can ask (a runner) to the machine that writes the parser.
+    from the only machine that can ask (a runner) to the machine that writes the parser. Identities are
+    carried too because the TrainNo reply is (a) the identity fact and (b) possibly the full SCHEDULE -
+    the pair capture proved the value of carrying the whole body rather than the parsed summary.
     """
     bodies = [(s, d, v, b) for s, d, v, b in pairs if b]
-    if not bodies:
+    idents = [(n, b) for n, b in (identities or []) if b]
+    if not bodies and not idents:
         return None
-    out = ["### live-feed capture (erail pair, raw body)", "",
-           "The C15 parser is written against exactly this text, nothing imagined (4.5).",
+    out = ["### live-feed capture (erail, raw bodies)", "",
+           "Parsers are written against exactly this text, nothing imagined (4.5).",
            f"probed {ERAIL_BASE} at {probed_at} (IST)", ""]
     for src, dst, verdict, body in bodies:
         import re as _re
@@ -391,6 +395,14 @@ def erail_capture_comment(pairs: list[tuple[str, str, str, str]], probed_at: str
         out.append(body[:14000])
         if len(body) > 14000:
             out.append(f"...[truncated at 14000 of {len(body)} bytes]")
+        out.append("```")
+        out.append("")
+    for no, body in idents:
+        out.append(f"train {no} identity/schedule body · {len(body)}B · lines: {body.count(chr(10)) + 1}")
+        out.append("```text")
+        out.append(body[:6000])
+        if len(body) > 6000:
+            out.append(f"...[truncated at 6000 of {len(body)} bytes]")
         out.append("```")
         out.append("")
     return "\n".join(out)
@@ -427,6 +439,7 @@ def main() -> int:
 
     live = new_proposal(today, "CI probe " + BASE)
 
+    identity_captures: list[tuple[str, str]] = []
     for train in dict.fromkeys(trains):
         for label, plain in (
             ("identity", f"service=TrainBtwStnMob&subService=FindTrainJson&trainNo={train}"),
@@ -439,7 +452,10 @@ def main() -> int:
                 # Asked whether or not NTES answered: a disagreement between the two is the finding, and a
                 # witness gated on the thing it is a witness for is no witness (lesson 14, applied here
                 # because my first version of this very line sat below `if doc is None: continue`).
-                out += erail_identity_lines(train, live)
+                id_lines, id_body = erail_identity_lines(train, live)
+                out += id_lines
+                if id_body:
+                    identity_captures.append((train, id_body))
             if doc is None:
                 continue
             if capture:
@@ -492,7 +508,8 @@ def main() -> int:
              "-f", f"body=### live-feed probe\n\n```\n{body[:5000]}\n```"],
             check=False, timeout=60,
         )
-        capture_md = erail_capture_comment(pair_captures, today.isoformat(timespec="seconds"))
+        capture_md = erail_capture_comment(pair_captures, today.isoformat(timespec="seconds"),
+                                           identities=identity_captures)
         if capture_md:
             subprocess.run(
                 ["gh", "api", "-X", "POST", f"repos/{repo}/commits/{sha}/comments",
