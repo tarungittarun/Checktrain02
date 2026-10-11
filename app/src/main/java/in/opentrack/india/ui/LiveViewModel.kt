@@ -116,7 +116,7 @@ class LiveViewModel(
                 return@launch
             }
             lastAnswer = live.answer
-            _ui.value = buildUi(live.route, live.answer, live.tried)
+            _ui.value = buildUi(live.route, live.answer, live.tried, live.notes)
             _error.value = null
         }
     }
@@ -132,7 +132,7 @@ class LiveViewModel(
             )
         )
         lastAnswer = answer
-        _ui.value = buildUi(cached, answer, emptyList())
+        _ui.value = buildUi(cached, answer, emptyList(), emptyList())
     }
 
     private fun nowMinute(now: Long): Int =
@@ -141,6 +141,7 @@ class LiveViewModel(
 
     private fun buildUi(
         route: TrainRoute, answer: PositionEngine.Answer, tried: List<String>,
+        notes: List<String> = emptyList(),
     ): Ui {
         val now = System.currentTimeMillis()
         val nowRail = nowMinute(now)
@@ -152,8 +153,14 @@ class LiveViewModel(
             alightSeq = route.stops.lastOrNull { it.code.equals(toCode, true) }?.seq
                 ?: route.stops.lastOrNull()?.seq ?: route.lastSeq,
             runEpochDay = originEpochDay,
-            note = answer.note ?: if (pos.provenance.live) null
-            else "No live report reached this device — every minute below is the timetable, not the train.",
+            // The source's own sentence leads. It is the only one that names a cause the traveller can act
+            // on — no network, a timeout, a refusal, or the case this endpoint really is: it answered about
+            // the train and published no arrival or departure minute at all. "No live report reached this
+            // device" is the last resort, for when no source had anything more specific to say.
+            note = notes.firstOrNull { it.isNotBlank() } ?: answer.note
+                ?: if (pos.provenance.live) null
+                else "No live report reached this device — every minute below is the timetable, " +
+                    "not the train.",
         )
         return Ui(
             route = route, answer = answer, model = model,

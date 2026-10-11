@@ -58,8 +58,27 @@ object ErailWire {
         val positionLine: String?,
     )
 
-    data class Parsed(val header: Header?, val stops: List<WireStop>, val unclassifiedRows: Int) {
+    data class Parsed(
+        val header: Header?,
+        val stops: List<WireStop>,
+        val unclassifiedRows: Int,
+        /** when the payload's rows carry *reported* times at all — see [hasLiveColumns] */
+        val feedStampMillis: Long? = null,
+    ) {
         val isEmpty: Boolean get() = header == null && stops.isEmpty()
+
+        /**
+         * False means the enquiry service answered, and answered about *this* train, but published no
+         * running-time column for it: no arrival minute, no departure minute, no signed delay anywhere.
+         * That is the normal state of this endpoint, not an error — and it is precisely the thing the
+         * screen used to hide by printing the timetable in the "live" column. The provider reports it, so
+         * the traveller reads "this source has no per-stop running times" instead of a table of numbers
+         * that look like a report.
+         */
+        val hasLiveColumns: Boolean
+            get() = stops.any {
+                it.actArr != null || it.actDep != null || it.delayArr != null || it.delayDep != null
+            }
     }
 
     fun splitRecords(text: String): List<List<String>> =
@@ -79,8 +98,56 @@ object ErailWire {
             else if (header == null) header = headerFrom(fields, text)
             else if (fields.size >= 3) unclassified++
         }
-        return Parsed(header, stops, unclassified)
+        return Parsed(header, stops, unclassified, feedStampMillis(rows))
     }
+
+    /**
+     * The instant the provider says the payload was generated. The enquiry service writes a stamp into
+     * the header record of every answer — `2026-10-11-7-56-55`, i.e. 07:56:55 IST on 11 October 2026 —
+     * and that is the only number on this whole problem that answers "how fresh is the *data*", as
+     * opposed to "how long ago did we touch the network". It is scanned across every record rather than
+     * read from a fixed column for the same reason the rest of this parser is shape-based: the servers
+     * drop empty fields, so positions move.
+     */
+    fun feedStampMillis(rows: List<List<String>>): Long? {
+        for (row in rows) {
+            for (candidate in row) {
+                val f = candidate.trim()
+                if (STAMP_RE.matches(f)) return stampToMillis(f)
+            }
+        }
+        return null
+    }
+
+    fun feedStampMillis(text: String): Long? = feedStampMillis(splitRecords(text))
+
+    /**
+     * `YYYY-M-D-H-M-S` in IST to epoch millis. Deliberately not `SimpleDateFormat`: it is lenient by
+     * default, so a misread field silently becomes a date in the wrong month and the header then
+     * confidently prints an age computed from it. Here every part is range-checked and a bad one yields
+     * null, which the UI renders as "no stamp from this source".
+     */
+    fun stampToMillis(raw: String): Long? {
+        val m = STAMP_RE.matchEntire(raw.trim()) ?: return null
+        val g = m.groupValues
+        val year = g[1].toIntOrNull() ?: return null
+        val month = g[2].toIntOrNull() ?: return null
+        val day = g[3].toIntOrNull() ?: return null
+        val hour = g[4].toIntOrNull() ?: return null
+        val minute = g[5].toIntOrNull() ?: return null
+        val second = g[6].toIntOrNull() ?: return null
+        if (year < 2000 || year > 2100 || month !in 1..12 || day !in 1..31 ||
+            hour > 23 || minute > 59 || second > 59
+        ) return null
+        val epochDay = runCatching { RailTime.daysFromCivil(year, month, day) }.getOrNull() ?: return null
+        return epochDay * MILLIS_PER_DAY + hour * 3_600_000L + minute * 60_000L + second * 1_000L -
+            RailTime.IST_OFFSET_MILLIS
+    }
+
+    private const val MILLIS_PER_DAY = 86_400_000L
+
+    /** Month and day are not zero-padded in this format, which is why this is not a `SimpleDateFormat`. */
+    private val STAMP_RE = Regex("^(\\d{4})-(\\d{1,2})-(\\d{1,2})-(\\d{1,2})-(\\d{1,2})-(\\d{1,2})$")
 
     /**
      * A record is a stop when it contains a station-code-shaped field and at least one time.

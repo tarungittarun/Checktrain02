@@ -2,6 +2,7 @@ package `in`.opentrack.india.remote
 
 import `in`.opentrack.india.core.RailTime
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -152,5 +153,55 @@ class ErailWireTest {
         assertEquals(3, parsed.stops.size)
         assertEquals("RTM", parsed.stops[2].code)
         assertNull(parsed.stops[2].schedDep)
+    }
+
+    // ---------------------------------------------------------------- the feed's own clock
+    //
+    // Of everything the reachable keyless enquiry service publishes about a train, exactly one fact is not
+    // in the timetable: the instant it generated the answer. Reading it is what lets the header say "the
+    // feed is 40 minutes old" instead of "we touched the network a moment ago" — so this is the only
+    // freshness claim this source can honestly support, and it is pinned here.
+
+    @Test
+    fun readsTheFeedsGenerationStampWhereverTheRecordPutsIt() {
+        // Framing copied from a live fetch of the between-stations enquiry: the header record, then one
+        // record per train, empties dropped by the server, the stamp's *position* not fixed. The times are
+        // dotted (`19.20`) exactly as that service writes them, which is also why the row below is not
+        // mistaken for a halt: a duration of "37.40" must not be read as a clock.
+        val text = "~SBC~Ksr Bengaluru~NDLS~New Delhi~~2026-10-11-7-56-55~~~^" +
+            "12627~KARNATAKA EXP~SBC~NDLS~19.20~09.00~37.40"
+        val parsed = ErailWire.parse(text)
+        val stamp = parsed.feedStampMillis
+        assertNotNull("a stamp the parser cannot read is a freshness claim the screen cannot make", stamp)
+        assertEquals("11 Oct 2026", RailTime.formatDate(RailTime.istEpochDay(stamp!!)))
+        assertTrue(
+            "the stamp must land on 07:56 IST, got ${RailTime.formatClock(stamp)}",
+            RailTime.formatClock(stamp).startsWith("07:56"),
+        )
+        // No actual minutes in that payload, which is what the live column of the screen is for.
+        assertFalse(parsed.hasLiveColumns)
+    }
+
+    @Test
+    fun aMissingOrImpossibleStampIsNoStampAtAll() {
+        assertNull(ErailWire.parse("1~BCT~Mumbai Central~17:05~^2~BRC~Vadodara~22:31~22:41").feedStampMillis)
+        // A lenient reader turns month 13 into January of the next year and then prints an age computed
+        // from a date that never existed; an ISO timestamp with a `T` is what the format change looks like
+        // when it happens. Both must answer "no stamp", which the UI renders as the age of our own fetch.
+        assertNull(ErailWire.stampToMillis("2026-13-11-7-56-55"))
+        assertNull(ErailWire.stampToMillis("2026-10-11-47-56-55"))
+        assertNull(ErailWire.stampToMillis("2026-10-11T07:56:55"))
+        assertNotNull(ErailWire.stampToMillis("2026-1-5-7-6-5"))
+    }
+
+    @Test
+    fun aPayloadWithNoActualMinutesSaysSoInsteadOfLookingLive() {
+        val scheduleOnly = "1~SBC~Ksr Bengaluru~19:20~^2~YWA~Yesvantpur~20:45~20:50~^3~NDLS~New Delhi~09:00"
+        assertFalse("a timetable payload must not read as a report",
+            ErailWire.parse(scheduleOnly).hasLiveColumns)
+        // The second row carries the feed's own signed delay: one reported fact is enough to say the
+        // source did report something, which is the difference between "no live feed" and "15 min late".
+        val reported = "1~SBC~Ksr Bengaluru~19:20~^2~YWA~Yesvantpur~20:45~20:50~+15"
+        assertTrue(ErailWire.parse(reported).hasLiveColumns)
     }
 }

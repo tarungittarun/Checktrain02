@@ -244,7 +244,11 @@ object TrackModel {
             // "1 min ago" on a screen with nothing to fetch is a small untruth with a big reach: the age
             // chip is the one place that says whether data arrived. `ageSeconds` is 0 for a schedule-only
             // answer, which `age()` renders as "live" — exactly the claim this app must never make.
-            ageLabel = if (live) age(pos.ageSeconds) else "no live fetch",
+            ageLabel = when {
+                !live -> "no live fetch"
+                pos.feedAgeSeconds != null -> feedAgeLabel(pos.feedAgeSeconds!!)
+                else -> age(pos.ageSeconds)
+            },
             delayLabel = delayLabel(pos, live),
             nextLabel = nextLabel(next, route, alightSeq),
             progressLabel = progressLabel,
@@ -364,6 +368,19 @@ object TrackModel {
         val nm = TitleCase.of(next.name)
         val at = if (next.seq == alightSeq) "$nm (your stop)" else nm
         return "Next: $at · $clock $kind$when0"
+    }
+
+    /**
+     * The provider's own "as of" stamp, worded for somebody standing on a platform. `age()` above can
+     * only report when *we* last read the network, and a feed generated six hours ago is not made
+     * current by fetching it fast; that is the difference between "live" and "live · feed 6 h old", and
+     * the second one is the only honest reading of a delayed upstream.
+     */
+    private fun feedAgeLabel(seconds: Long): String = when {
+        seconds < 120 -> "feed is current"
+        seconds < 3600 -> "feed ${seconds / 60} min old"
+        seconds < 86_400 -> "feed ${seconds / 3600} h old"
+        else -> "feed is ${seconds / 86_400} days old — read this as a timetable"
     }
 
     private fun age(seconds: Long): String = when {

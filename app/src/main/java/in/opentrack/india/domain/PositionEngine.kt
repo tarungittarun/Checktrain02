@@ -110,6 +110,7 @@ object PositionEngine {
     private fun fromSnapshot(req: Request, snap: LiveSnapshot): Answer {
         val route = req.route
         val age = (req.nowMillis - snap.fetchedAtMillis).coerceAtLeast(0L)
+        val feedAge = feedAgeSeconds(snap, req)
         var provenance = when {
             age > HISTORY_MS -> SourceKind.CACHED
             snap.sourceKind.live && age > STALE_MS -> SourceKind.CACHED
@@ -177,7 +178,9 @@ object PositionEngine {
         val anchorNow = anchorSeq
         req.previous?.let { prev ->
             if (prev.anchorSeq > anchorNow) {
-                val kept = prev.copy(ageSeconds = age / 1000, provenance = provenance)
+                val kept = prev.copy(
+                    ageSeconds = age / 1000, provenance = provenance, feedAgeSeconds = feedAge,
+                )
                 return Answer(
                     position = kept,
                     anchorStopCode = route.stopAtSeq(prev.anchorSeq)?.code,
@@ -223,6 +226,7 @@ object PositionEngine {
                 provenance = provenance,
                 confidence = confidence,
                 ageSeconds = age / 1000,
+                feedAgeSeconds = feedAge,
             ),
             anchorStopCode = route.stopAtSeq(anchorSeq)?.code,
             anchorStopName = route.stopAtSeq(anchorSeq)?.name,
@@ -268,6 +272,15 @@ object PositionEngine {
     }
 
     /**
+     * How old the *fact* is, as opposed to how old our socket read was. A provider that stamps its
+     * payload lets the screen answer the traveller's real question ("is this where the train is now?"),
+     * and a stamp in the future — device clock skew, or an upstream format change we are misreading —
+     * is dropped rather than printed as a negative age, because the UI has no honest way to show that.
+     */
+    private fun feedAgeSeconds(snap: LiveSnapshot, req: Request): Long? =
+        snap.feedStampMillis?.let { ((req.nowMillis - it) / 1000L).takeIf { s -> s >= 0L } }
+
+    /**
      * The feed is alive but its station is not on our timetable — a diversion, or a halt the bundled
      * dump does not cover. Say so and show the last known state instead of snapping the marker to a
      * plausible-looking stop, which is how these apps generate wrong-train complaints.
@@ -290,11 +303,19 @@ object PositionEngine {
                 provenance = provenance,
                 confidence = TrainPosition.Confidence.LOW,
                 ageSeconds = age / 1000,
+                feedAgeSeconds = feedAgeSeconds(snap, req),
             ),
             anchorStopCode = snap.atCode,
             anchorStopName = snap.atName,
-            note = "last report “${snap.atName ?: snap.atCode}” is not on the scheduled route " +
-                "(diversion, or not in the offline timetable)",
+            note = if (snap.atCode == null && snap.atName == null) {
+                // The feed answered about *this train* without naming a station anywhere: this is what a
+                // source that publishes no running times looks like from here, and quoting a report of
+                // “null” at a traveller is not a sentence, it is a bug report on a screen.
+                "the live feed named no station for this run, so there is nothing to place on the route"
+            } else {
+                "last report “${snap.atName ?: snap.atCode}” is not on the scheduled route " +
+                    "(diversion, or not in the offline timetable)"
+            },
             unresolved = true,
             perStop = snap.perStop,
         )

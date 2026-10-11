@@ -22,7 +22,32 @@ interface LiveProvider {
     val kind: SourceKind
     /** Blocking; called on an IO dispatcher. Must return null rather than throw. */
     fun fetch(trainNo: String, route: TrainRoute, journeyEpochDay: Long): LiveSnapshot?
+
+    /**
+     * A sentence for the traveller explaining an empty [fetch], in the language of what actually
+     * happened: "the network is off", "the request timed out", "the server answered 503", "the answer
+     * did not parse", "the answer carries no running times". Null means "nothing specific to say", and
+     * the chain then falls back to the generic offline sentence. This exists because "no live data" and
+     * "live data is unavailable for a reason you could act on" are different screens, and every other
+     * train app in this space shows the first while meaning the second.
+     */
+    fun failureNote(): String? = null
 }
+
+/**
+ * The sentence a transport failure deserves. File-level rather than one per provider because what the
+ * traveller needs — "your device is offline", "the server refused us", "the reply was not data" — is
+ * the same whoever made the request, and two copies of it drift the moment one gets reworded.
+ */
+private fun transportFailureSentence(failure: Http.Result.Failed): String =
+    when (failure.kind) {
+        Http.Result.Kind.OFFLINE -> "This device has no network route to the live feed."
+        Http.Result.Kind.TIMEOUT -> "The live feed did not answer within the time limit."
+        Http.Result.Kind.HTTP -> "The live feed refused the request" +
+            (if (failure.message.isNotBlank()) " (" + failure.message + ")" else "") + "."
+        Http.Result.Kind.EMPTY -> "The live feed answered with an empty body."
+        Http.Result.Kind.PARSE -> "The live feed answered with something unreadable."
+    }
 
 /**
  * Primary source: the public enquiry service, keyed by train number + journey date, live flavour.
@@ -38,21 +63,61 @@ class ErailProvider(
 
     override val kind = SourceKind.PROVIDER
 
+    @Volatile
+    private var note: String? = null
+
+    override fun failureNote(): String? = note
+
     override fun fetch(trainNo: String, route: TrainRoute, journeyEpochDay: Long): LiveSnapshot? {
+        note = null
         val url = buildString {
             append(baseUrl.trimEnd('/'))
             append("/rail/getTrains.aspx?TrainNo=").append(trainNo)
             append("&DataSource=1&Language=0&Cache=true&Flag=1")
             append("&Date=").append(RailTime.formatIsoDate(journeyEpochDay))
         }
-        val r = http.get(url) as? Http.Result.Ok ?: return null
+        val r = when (val got = http.get(url)) {
+            is Http.Result.Ok -> got
+            // Every one of these used to be `as? Ok ?: return null`, which collapsed five distinguishable
+            // failures into one blank screen. The device state that causes each is different — aeroplane
+            // mode, a slow tunnel, a server refusing us, a page that changed shape — so the sentence the
+            // traveller gets has to be different too, or the only advice we can give is "try again".
+            is Http.Result.Failed -> {
+                note = transportFailureSentence(got)
+                return null
+            }
+        }
         val parsed = runCatching { ErailWire.parse(r.body, columnHint) }.getOrNull()
-        if (parsed == null || parsed.isEmpty) return null
+        if (parsed == null) {
+            note = "The live feed answered, but its reply is not in the format this build understands."
+            return null
+        }
+        if (parsed.isEmpty) {
+            note = "The live feed has nothing at all about train $trainNo."
+            return null
+        }
+        // The honest headline for the endpoint's real limitation: it publishes the timetable, the run
+        // window and berth availability, and *not* per-stop running times. A snapshot is still built from
+        // whatever it did report, but the screen is told why the live column stays dashed.
+        if (!parsed.hasLiveColumns) {
+            // Copied to a local first: `feedStampMillis` is a property of another file, so a null test on
+            // it does not license passing the value to a non-null parameter, and `!!` in a string template
+            // is how a copy that runs on every refresh ends up crashing on the one that does not.
+            val stamp = parsed.feedStampMillis
+            note = if (stamp != null) {
+                "The live feed answered (its data is stamped ${RailTime.formatClock(stamp)} IST) " +
+                    "but published no arrival or departure minute for this run, so every minute below is the timetable."
+            } else {
+                "The live feed published no arrival or departure minute for this run, so every minute below " +
+                    "is the timetable."
+            }
+        }
         val snap = ErailAdapter.toSnapshot(parsed, trainNo, journeyEpochDay, r.fromCache, r.ageMillis)
             ?: return null
         store?.save(trainNo, snap)
         return snap
     }
+
 
     companion object {
         const val DEFAULT_BASE = "https://erail.in"
@@ -111,6 +176,7 @@ object ErailAdapter {
             perStop = perStop,
             fetchedAtMillis = System.currentTimeMillis() - ageMillis,
             sourceKind = if (fromCache) SourceKind.CACHED else SourceKind.PROVIDER,
+            feedStampMillis = parsed.feedStampMillis,
             rawNote = buildString {
                 parsed.header?.positionLine?.let { append(it.take(240)) }
                 if (parsed.unclassifiedRows > 0) {
@@ -136,24 +202,51 @@ class OverrideProvider(
 
     override val kind = SourceKind.PROVIDER_OVERRIDE
 
+    @Volatile
+    private var note: String? = null
+
+    override fun failureNote(): String? = note
+
     override fun fetch(trainNo: String, route: TrainRoute, journeyEpochDay: Long): LiveSnapshot? {
+        note = null
         val t = template?.trim().orEmpty()
-        if (t.isEmpty() || !t.startsWith("http")) return null
+        // Two distinct states this used to share one: "you never configured an endpoint" (nothing to
+        // explain, the built-in source is in charge) and "your endpoint is set but is not a URL" (a typo
+        // in Settings, which the traveller can fix). Silence was the more confusing of the two answers.
+        if (t.isEmpty()) return null
+        if (!t.startsWith("http")) {
+            note = "The custom live endpoint in Settings is not a URL starting with http, so it was not tried."
+            return null
+        }
         val url = t.replace("{trainNo}", trainNo)
             .replace("{date}", RailTime.formatIsoDate(journeyEpochDay))
             .replace("{dateCompact}", RailTime.formatCompactDate(journeyEpochDay))
             .replace("{srcCode}", route.srcCode)
             .replace("{dstCode}", route.dstCode)
-        val r = http.get(url) as? Http.Result.Ok ?: return null
+        val r = when (val got = http.get(url)) {
+            is Http.Result.Ok -> got
+            is Http.Result.Failed -> {
+                note = "Your endpoint: " + transportFailureSentence(got)
+                return null
+            }
+        }
         val snap = runCatching { SnapshotCodec.decode(r.body, fallbackTrainNo = trainNo) }.getOrNull()
             ?.copy(fetchedAtMillis = System.currentTimeMillis() - r.ageMillis,
                 sourceKind = if (r.fromCache) SourceKind.CACHED else SourceKind.PROVIDER_OVERRIDE)
-            ?: return null
+            ?: run {
+                note = "Your endpoint answered, but the reply was not the JSON shape this app reads " +
+                    "(see the snapshot format in the README)."
+                return null
+            }
         // A hand-built endpoint can answer with the wrong train (a cached proxy, a copy-pasted URL, a
         // template that ignored {trainNo}). Showing another train's position is the single worst
         // failure this screen can have, so an identity mismatch is treated as "no answer" and left at
         // that — the header then reads OFFLINE/CACHED, which is true of the *requested* train.
-        if (snap.trainNo.isNotEmpty() && trainNo.isNotEmpty() && snap.trainNo != trainNo) return null
+        if (snap.trainNo.isNotEmpty() && trainNo.isNotEmpty() && snap.trainNo != trainNo) {
+            note = "Your endpoint answered with train ${snap.trainNo} while this screen asked for $trainNo, " +
+                "so its answer was refused rather than shown."
+            return null
+        }
         if (snap.sourceKind == SourceKind.PROVIDER_OVERRIDE) store?.save(trainNo, snap)
         return snap
     }
@@ -166,8 +259,29 @@ class OverrideProvider(
  */
 class CacheProvider(private val store: SnapshotStore) : LiveProvider {
     override val kind = SourceKind.CACHED
-    override fun fetch(trainNo: String, route: TrainRoute, journeyEpochDay: Long): LiveSnapshot? =
-        store.load(trainNo)?.takeIf { it.perStop.isNotEmpty() || it.atCode != null }
+
+    @Volatile
+    private var note: String? = null
+
+    override fun failureNote(): String? = note
+
+    override fun fetch(trainNo: String, route: TrainRoute, journeyEpochDay: Long): LiveSnapshot? {
+        note = null
+        val snap = store.load(trainNo)
+        if (snap == null) {
+            // Distinguish "this device has never been online with this train" from "the live feed is down
+            // and there is no rescue": the first calls for a walk out of the tunnel, the second for a
+            // retry later, and the file layer knows which one it is.
+            note = "Nothing this device has stored about $trainNo is new enough to show — a snapshot older " +
+                "than 24 hours is refused rather than presented as live."
+            return null
+        }
+        if (snap.perStop.isEmpty() && snap.atCode == null) {
+            note = "The snapshot on this device is too incomplete to show."
+            return null
+        }
+        return snap
+    }
 }
 
 /** Per-train snapshot file, named by train number so a "recent" list can rehydrate without an index. */
@@ -213,16 +327,42 @@ class SnapshotStore(context: Context) {
  */
 class ProviderChain(private val providers: List<LiveProvider>) {
 
-    data class Outcome(val snapshot: LiveSnapshot?, val winner: SourceKind, val tried: List<String>)
+    data class Outcome(
+        val snapshot: LiveSnapshot?,
+        val winner: SourceKind,
+        val tried: List<String>,
+        /**
+         * Why each source that came back empty did so, in its own words. Surfaced even when a later source
+         * rescued the screen, because "showing the last thing we fetched at 06:12, because the live feed
+         * timed out" is a more useful sentence than either half of it alone.
+         */
+        val notes: List<String> = emptyList(),
+    )
 
     fun fetch(trainNo: String, route: TrainRoute, journeyEpochDay: Long): Outcome {
         val tried = ArrayList<String>(providers.size)
+        val notes = ArrayList<String>(providers.size)
         for (p in providers) {
-            val snap = runCatching { p.fetch(trainNo, route, journeyEpochDay) }.getOrNull()
+            var thrown: Throwable? = null
+            val snap = try {
+                p.fetch(trainNo, route, journeyEpochDay)
+            } catch (e: Throwable) {
+                thrown = e
+                null
+            }
             tried += p.kind.name + (if (snap == null) "=miss" else "=hit")
-            if (snap != null) return Outcome(snap, snap.sourceKind, tried)
+            if (snap == null) {
+                // A provider is allowed to be silent about why it declined; a provider that *threw* must
+                // not be, because that is the one case where the app itself may be at fault, and after
+                // R8 this sentence is often the only trace of it a user will ever be able to show us.
+                val why = p.failureNote() ?: thrown?.let {
+                    "this source did not answer properly (${it.javaClass.simpleName})."
+                }
+                if (why != null && why.isNotBlank()) notes += "${p.kind.label}: $why"
+            }
+            if (snap != null) return Outcome(snap, snap.sourceKind, tried, notes)
         }
-        return Outcome(null, SourceKind.NONE, tried)
+        return Outcome(null, SourceKind.NONE, tried, notes)
     }
 
     companion object {

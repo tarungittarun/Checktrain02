@@ -331,4 +331,38 @@ class TrackModelTest {
         val m = model(pos = pos(2, 3, StopStatus.DEPARTED))
         assertEquals(2, TrackModel.passedCount(m.rows))
     }
+
+    // ---------------------------------------------------------------- the age chip
+    //
+    // The chip used to report the age of *our request*, so a feed nobody had refreshed in six hours said
+    // "live". These pins are the difference between "we read the network a moment ago" and "the fact
+    // itself is this old", which is the sentence a traveller decides whether to trust the screen by.
+
+    @Test
+    fun theAgeChipPrefersTheFeedsOwnStamp() {
+        val m = model(pos = pos(2, 3, StopStatus.DEPARTED).copy(feedAgeSeconds = 40 * 60L))
+        assertEquals("feed 40 min old", m.ageLabel)
+        val fresh = model(pos = pos(2, 3, StopStatus.DEPARTED).copy(feedAgeSeconds = 30L))
+        assertEquals("feed is current", fresh.ageLabel)
+        val hours = model(pos = pos(2, 3, StopStatus.DEPARTED).copy(feedAgeSeconds = 7 * 3600L))
+        assertEquals("feed 7 h old", hours.ageLabel)
+    }
+
+    @Test
+    fun aFeedOlderThanADayIsAdvertisedAsATimetable() {
+        val m = model(pos = pos(2, 3, StopStatus.DEPARTED).copy(feedAgeSeconds = 3L * 86_400L))
+        assertTrue("said: ${m.ageLabel}", m.ageLabel.contains("days old"))
+        assertTrue("said: ${m.ageLabel}", m.ageLabel.contains("timetable"))
+    }
+
+    @Test
+    fun noStampFromTheSourceMeansNoClaimAboutTheSource() {
+        // With nothing stamped the chip may report only what the device knows — when it fetched. And a
+        // schedule-only screen must not say "live" at all, because `age(0)` would: 0 seconds since a fetch
+        // that never happened is exactly the unprovable claim this app was written to stop making.
+        val offline = model(pos = pos(1, 2, StopStatus.DEPARTED, kind = SourceKind.OFFLINE_SCHEDULE))
+        assertEquals("no live fetch", offline.ageLabel)
+        val fetched = model(pos = pos(2, 3, StopStatus.DEPARTED).copy(ageSeconds = 40 * 60L))
+        assertEquals("updated 40 min ago", fetched.ageLabel)
+    }
 }

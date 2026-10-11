@@ -43,6 +43,8 @@ class RailRepository private constructor(
         val answer: PositionEngine.Answer,
         val tried: List<String>,
         val originEpochDay: Long,
+        /** why each live source that declined did so, in the sources' own sentences */
+        val notes: List<String> = emptyList(),
     ) {
         val provenance: SourceKind get() = answer.position.provenance
     }
@@ -101,7 +103,7 @@ class RailRepository private constructor(
                 gps = gps,
             )
         )
-        Live(route, answer, outcome.tried, originEpochDay)
+        Live(route, answer, outcome.tried, originEpochDay, outcome.notes)
     }
 
     fun hasLocationPermission(): Boolean =

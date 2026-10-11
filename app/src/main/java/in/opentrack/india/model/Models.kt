@@ -140,6 +140,14 @@ data class LiveSnapshot(
     val fetchedAtMillis: Long,
     val sourceKind: SourceKind,
     val rawNote: String? = null,
+    /**
+     * The instant the *provider* says this data was generated, from the timestamp its own payload
+     * carries. It is not the same as [fetchedAtMillis]: our HTTP response can arrive in half a second
+     * and still contain a feed the upstream generated six hours ago, and "updated just now" on such a
+     * screen is the exact lie this product exists to avoid. Null when the source stamps nothing, which
+     * means the app can only claim the age of its own fetch — and the header says that instead.
+     */
+    val feedStampMillis: Long? = null,
 ) {
     companion object {
         fun empty(trainNo: String, kind: SourceKind) = LiveSnapshot(
@@ -193,6 +201,13 @@ data class TrainPosition(
     val confidence: Confidence,
     /** seconds since the data was fetched; the UI must surface it, per the honesty rule */
     val ageSeconds: Long,
+    /**
+     * seconds since the *feed itself* says it was generated, when the source stamps that. Kept beside
+     * [ageSeconds] rather than replacing it because they answer two different questions — "how old is
+     * the newest thing we touched" and "how old is the fact" — and a traveller reading a live screen is
+     * asking the second one.
+     */
+    val feedAgeSeconds: Long? = null,
 ) {
     enum class Confidence { HIGH, MEDIUM, LOW }
 }

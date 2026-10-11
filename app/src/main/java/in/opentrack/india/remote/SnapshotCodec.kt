@@ -41,6 +41,7 @@ object SnapshotCodec {
         top += "delayMinutes" to s.delayMinutes?.toString()
         top += "platform" to s.platform
         top += "fetchedAt" to s.fetchedAtMillis.toString()
+        top += "feedStamp" to s.feedStampMillis?.let { (it / 1000L).toString() }
         top += "source" to s.sourceKind.name
         top += "note" to s.rawNote
         val stops = s.perStop.entries.joinToString(",") { (code, f) ->
@@ -161,6 +162,9 @@ object SnapshotCodec {
                     .takeIf { it > 1_000_000_000_000L } ?: System.currentTimeMillis(),
                 sourceKind = runCatching { SourceKind.valueOf(str2(data["source"]) ?: "") }
                     .getOrDefault(SourceKind.PROVIDER),
+                // Absent on a file written by an older build: no stamp, so the header says "updated n min
+                // ago" (the age of the fetch) rather than claiming the feed is current.
+                feedStampMillis = num(data["feedStamp"])?.toLong()?.takeIf { it > 0L }?.let { it * 1000L },
                 rawNote = str2(data["note"]) ?: str2(data["message"]),
             )
         }
