@@ -181,42 +181,91 @@ class ErailRouteCapture(unittest.TestCase):
     a dead endpoint is a fact in a line, never an exception and never a half-truth.
     """
 
-    def test_the_route_is_asked_of_the_route_endpoint_and_reported_verbatim(self):
+    def test_the_route_ladder_mirrors_the_proven_param_style_first(self):
         asked = []
 
         def fake(q, timeout=20, base=plf.ERAIL_BASE):
             asked.append((q, base))
             return ("HTTP 200 900B", "16221~TLGP~MYS~first stop row~second stop row")
 
-        lines, body = plf.erail_route_lines("16221", get=fake)
-        self.assertTrue(asked, "the endpoint must actually be asked")
-        self.assertIn("trainno=16221", asked[0][0])
+        lines, caps = plf.erail_route_lines("16221", get=fake)
+        self.assertEqual(3, len(asked), "each candidate is asked exactly once")
+        self.assertEqual("TrainNo=16221&DataSource=1&Language=0", asked[0][0],
+                         "first candidate mirrors the identity call that demonstrably works")
         self.assertEqual("https://erail.in/rail/getRoute.aspx", asked[0][1],
                          "the route question goes to getRoute.aspx, not getTrains.aspx")
-        self.assertTrue(any("route of 16221 via erail.in getRoute.aspx · HTTP 200" in l for l in lines))
+        self.assertTrue(any("route of 16221" in l and "HTTP 200" in l for l in lines))
         self.assertTrue(any("first:" in l for l in lines), "a trimmed first-line hint travels")
-        self.assertIn("16221~TLGP~MYS~first stop row~second stop row", body)
+        self.assertEqual([("16221", "https://erail.in/rail/getRoute.aspx",
+                           "16221~TLGP~MYS~first stop row~second stop row")] * 3,
+                         caps, "every answering candidate is captured with its URL")
 
-    def test_a_dead_route_endpoint_is_a_fact_not_a_crash(self):
-        lines, body = plf.erail_route_lines(
+    def test_a_dead_route_ladder_is_a_fact_not_a_crash(self):
+        lines, caps = plf.erail_route_lines(
             "16221", get=lambda q, timeout=20, base=plf.ERAIL_BASE: ("HTTP 404", ""))
-        self.assertTrue(any("HTTP 404" in l for l in lines))
-        self.assertEqual("", body, "no body means no capture, and the comment says so by absence")
+        self.assertEqual(3, len([l for l in lines if "HTTP 404" in l]))
+        self.assertEqual([], caps, "no body means no capture, and the comment says so by absence")
 
-    def test_the_capture_comment_carries_route_bodies_but_never_empty_ones(self):
+    def test_the_capture_comment_carries_route_bodies_with_url_but_never_empty_ones(self):
         md = plf.erail_capture_comment([], "2026-10-12T04:00:00+05:30",
-                                       routes=[("16221", "A~B~C"), ("16228", "")])
+                                       routes=[("16221", "https://erail.in/rail/getRoute.aspx", "A~B~C"),
+                                               ("16228", "https://erail.in/rail/getRoute.aspx", "")])
         self.assertIn("### live-feed capture (erail, raw bodies)", md)
-        self.assertIn("train 16221 route body · 5B · lines: 1", md)
+        self.assertIn("train 16221 route body (https://erail.in/rail/getRoute.aspx) · 5B · lines: 1", md)
         self.assertIn("A~B~C", md)
         self.assertNotIn("train 16228 route body", md, "an empty route body is not a capture")
 
     def test_the_capture_comment_truncates_a_route_body_at_6000_and_says_so(self):
         md = plf.erail_capture_comment([], "2026-10-12T04:00:00+05:30",
-                                       routes=[("12627", "x" * 7000)])
+                                       routes=[("12627", "https://erail.in/rail/getRoute.aspx", "x" * 7000)])
         self.assertIn("x" * 6000, md)
         self.assertNotIn("x" * 6001, md)
         self.assertIn("truncated at 6000 of 7000 bytes", md)
+
+
+class ErailLiveStatusProbe(unittest.TestCase):
+    """The elephant asked of erail, from CI: live arrival/departure without the phone.
+
+    These tests pin the probe's honesty, not a reply shape nobody has captured yet: every candidate
+    is asked exactly once, its verdict is a line, bodies are captured verbatim with their URL, and a
+    dead ladder is facts-in-lines - never an exception, never a half-parsed claim (4.5).
+    """
+
+    def test_both_candidates_are_asked_and_bodies_carry_their_url(self):
+        asked = []
+
+        def fake(q, timeout=20, base=plf.ERAIL_BASE):
+            asked.append(base + q.split("?")[0])
+            return ("HTTP 200 2500B", "16221~actual~rows~here")
+
+        lines, caps = plf.erail_live_status_lines("16221", "12-10-2026", get=fake)
+        self.assertEqual(
+            ["https://erail.in/rail/getRunTrain.aspx", "https://erail.in/running-status/16221/"],
+            asked,
+        )
+        self.assertTrue(any("live status of 16221" in l and "HTTP 200" in l for l in lines))
+        self.assertEqual(2, len(caps))
+        self.assertEqual("16221", caps[0][0])
+        self.assertTrue(caps[0][1].startswith("https://erail.in/rail/"))
+        self.assertEqual("16221~actual~rows~here", caps[0][2])
+
+    def test_a_dead_ladder_is_lines_and_no_bodies(self):
+        lines, caps = plf.erail_live_status_lines(
+            "16221", "12-10-2026",
+            get=lambda q, timeout=20, base=plf.ERAIL_BASE: ("HTTP 404", ""),
+        )
+        self.assertEqual(2, len([l for l in lines if "HTTP 404" in l]))
+        self.assertEqual([], caps, "nothing came back, so nothing is captured")
+
+    def test_the_capture_comment_carries_live_status_bodies_with_url_and_truncates(self):
+        md = plf.erail_capture_comment([], "2026-10-12T04:00:00+05:30",
+                                       live_status=[("16221", "https://erail.in/rail/getRunTrain.aspx",
+                                                     "y" * 6500), ("16228", "u", "")])
+        self.assertIn("train 16221 live-status body (https://erail.in/rail/getRunTrain.aspx)", md)
+        self.assertIn("y" * 6000, md)
+        self.assertNotIn("y" * 6001, md)
+        self.assertIn("truncated at 6000 of 6500 bytes", md)
+        self.assertNotIn("train 16228 live-status body", md, "empty bodies are not captures")
 
 
 if __name__ == "__main__":

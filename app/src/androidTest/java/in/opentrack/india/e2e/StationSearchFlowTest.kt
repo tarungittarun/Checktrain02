@@ -175,4 +175,33 @@ class StationSearchFlowTest {
         assertEquals("swap did not exchange the fields", before.first, after.second)
         E2E.shot("swap")
     }
+    // @flow live-pair-list (v2 slice 1 + 2): the pair search must SAY where its rows came from.
+    // A row without a named source is the founding bug's door: timetable dressed as live. So the
+    // contract here is exactly: rows exist -> at least one names erail (the live authority);
+    // nothing answered -> a typed message exists. Silence and unnamed rows both fail.
+    @Test
+    fun pairRowsNameTheirSource() {
+        assertTrue("board-at 'yes' never resolved", E2E.typeInBox("fromBox", "yes"))
+        assertTrue("no suggestion for 'yes'", E2E.ui.wait(Until.findObject(By.res(E2E.PKG, "id/sugPrimary")), E2E.LOCAL_MS) != null)
+        assertTrue("could not pick 'yes'", E2E.tapSuggestion("fromBox", 0))
+        assertTrue("get-off-at 'ndls' never resolved", E2E.typeInBox("toBox", "ndls"))
+        assertTrue("no suggestion for 'ndls'", E2E.ui.wait(Until.findObject(By.res(E2E.PKG, "id/sugPrimary")), E2E.LOCAL_MS) != null)
+        assertTrue("could not pick 'ndls'", E2E.tapSuggestion("toBox", 0))
+        assertTrue("Find never ran", E2E.tap("find"))
+        val answered = E2E.ui.wait(Until.hasObject(By.res(E2E.PKG, "id/resultsTitle")), E2E.NETWORK_MS)
+        val metas = E2E.all(By.res(E2E.PKG, "id/hitMeta")).mapNotNull { it.text }
+        val status = E2E.text("statusLine")
+        assertTrue(
+            "the pair search ended in silence (header=$answered, rows=${metas.size}, status='$status')",
+            answered || metas.isNotEmpty() || status.isNotBlank(),
+        )
+        if (metas.isNotEmpty()) {
+            assertTrue(
+                "rows were shown but none names its source (2.3): first='${metas.first()}'",
+                metas.any { it.contains("erail", ignoreCase = true) } || status.contains("erail", ignoreCase = true),
+            )
+        }
+        E2E.shot("live-pair-rows")
+    }
+
 }

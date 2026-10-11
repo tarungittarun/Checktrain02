@@ -352,24 +352,58 @@ def erail_identity_lines(train_no: str, live: dict, get=erail_get) -> tuple[list
     return out, body
 
 
-def erail_route_lines(train_no: str, get=erail_get) -> tuple[list[str], str]:
+def erail_route_lines(train_no: str,
+                      get=erail_get) -> tuple[list[str], list[tuple[str, str, str]]]:
     """The per-stop ROUTE of one number, asked of erail's getRoute.aspx - the endpoint the details
     screen's stale timetable really needs (17.1: schedule = NTES -> erail -> asset).
 
-    The reply's shape is UNKNOWN until this capture lands - getRoute.aspx may serve tilde records or
-    an HTML table - so this function PARSES NOTHING. It reports the verdict, the size, and a trimmed
-    first-line hint, and hands the raw body to the capture comment, where the next round's parser
-    will meet it for the first time (4.5: no shape without a capture). A wrong guess about the
-    endpoint's parameters is therefore cheap: an honest "HTTP 404" line in a probe comment.
+    The reply's shape is UNKNOWN until a capture lands - getRoute.aspx may serve tilde records or an
+    HTML table - so this function PARSES NOTHING. First run asked one parameter spelling and got four
+    honest HTTP 404s; the ladder now tries the spellings, best-reasoned first (the identity call's
+    exact casing/params, then the DataSource=0 form, then the 404'd control so the report always
+    carries the comparison). Each candidate is asked exactly once; bodies are captured verbatim with
+    their URL for the parser to meet for the first time (4.5). A dead guess is one honest line.
     """
-    out = [f"route of {train_no} via erail.in getRoute.aspx · "]
-    verdict, body = get(f"trainno={train_no}&DataSource=0&Language=0",
-                        base="https://erail.in/rail/getRoute.aspx")
-    out[0] += verdict
-    if body:
-        first = body.splitlines()[0][:120] if body.splitlines() else ""
-        out.append(f"  body {len(body)}B · {body.count(chr(10)) + 1} line(s) · first: {first!r}")
-    return out, body
+    cands = [
+        (f"TrainNo={train_no}&DataSource=1&Language=0", "https://erail.in/rail/getRoute.aspx"),
+        (f"TrainNo={train_no}&DataSource=0&Language=0", "https://erail.in/rail/getRoute.aspx"),
+        (f"trainno={train_no}&DataSource=0&Language=0", "https://erail.in/rail/getRoute.aspx"),
+    ]
+    out: list[str] = []
+    caps: list[tuple[str, str, str]] = []
+    for q, base in cands:
+        verdict, body = get(q, base=base)
+        out.append(f"route of {train_no} via {base} ({q.split('&')[1] if '&' in q else 'control'}) · {verdict}")
+        if body:
+            first = body.splitlines()[0][:120] if body.splitlines() else ""
+            out.append(f"  body {len(body)}B · {body.count(chr(10)) + 1} line(s) · first: {first!r}")
+            caps.append((train_no, base, body))
+    return out, caps
+
+
+def erail_live_status_lines(train_no: str, date_ddmm: str,
+                            get=erail_get) -> tuple[list[str], list[tuple[str, str, str]]]:
+    """The ACTUAL arrival/departure question (the elephant), asked of erail's live-status surface.
+
+    The owner's phone is the only machine NTES answers to, but erail advertises live running status
+    too - so before declaring the phone the only door, the probe ASKS. The endpoint names and page
+    paths are candidates, not knowledge: each is tried exactly once, its verdict is reported, and any
+    body is captured verbatim for the parser to meet for the first time (4.5). A dead guess is one
+    honest line; a live one could close the elephant from CI alone. PARSING NOTHING here, by design.
+    """
+    cands = [
+        (f"getRunTrain.aspx?trainno={train_no}&startDate={date_ddmm}", "https://erail.in/rail/"),
+        (f"{train_no}/", "https://erail.in/running-status/"),
+    ]
+    out: list[str] = []
+    caps: list[tuple[str, str, str]] = []
+    for q, base in cands:
+        verdict, body = get(q, base=base)
+        out.append(f"live status of {train_no} via {base}{q.split('?')[0]} · {verdict}")
+        if body:
+            out.append(f"  body {len(body)}B · {body.count(chr(10)) + 1} line(s)")
+            caps.append((train_no, base + q.split("?")[0], body))
+    return out, caps
 
 
 # The proposal a probe or refresher prints is a per-fact merge suggestion, never a replacement file. The
@@ -396,7 +430,8 @@ def new_proposal(today: datetime.datetime, verified_against: str) -> dict:
 
 def erail_capture_comment(pairs: list[tuple[str, str, str, str]], probed_at: str,
                           identities: list[tuple[str, str]] | None = None,
-                          routes: list[tuple[str, str]] | None = None) -> str | None:
+                          routes: list[tuple[str, str]] | None = None,
+                          live_status: list[tuple[str, str, str]] | None = None) -> str | None:
     """The raw erail bodies as a commit comment - the only capture path a sandbox can read.
 
     CI artefacts live on blob hosts that some sandboxes cannot fetch, but commit comments come through the
@@ -407,8 +442,9 @@ def erail_capture_comment(pairs: list[tuple[str, str, str, str]], probed_at: str
     """
     bodies = [(s, d, v, b) for s, d, v, b in pairs if b]
     idents = [(n, b) for n, b in (identities or []) if b]
-    routes_ = [(n, b) for n, b in (routes or []) if b]
-    if not bodies and not idents and not routes_:
+    routes_ = [(n, u, b) for n, u, b in (routes or []) if b]
+    status_ = [(n, u, b) for n, u, b in (live_status or []) if b]
+    if not bodies and not idents and not routes_ and not status_:
         return None
     out = ["### live-feed capture (erail, raw bodies)", "",
            "Parsers are written against exactly this text, nothing imagined (4.5).",
@@ -431,8 +467,16 @@ def erail_capture_comment(pairs: list[tuple[str, str, str, str]], probed_at: str
             out.append(f"...[truncated at 6000 of {len(body)} bytes]")
         out.append("```")
         out.append("")
-    for no, body in routes_:
-        out.append(f"train {no} route body · {len(body)}B · lines: {body.count(chr(10)) + 1}")
+    for no, url, body in routes_:
+        out.append(f"train {no} route body ({url}) · {len(body)}B · lines: {body.count(chr(10)) + 1}")
+        out.append("```text")
+        out.append(body[:6000])
+        if len(body) > 6000:
+            out.append(f"...[truncated at 6000 of {len(body)} bytes]")
+        out.append("```")
+        out.append("")
+    for no, url, body in status_:
+        out.append(f"train {no} live-status body ({url}) · {len(body)}B · lines: {body.count(chr(10)) + 1}")
         out.append("```text")
         out.append(body[:6000])
         if len(body) > 6000:
@@ -450,6 +494,7 @@ def main() -> int:
         return 0
     today = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=5, minutes=30)))
     date = today.strftime("%d-%b-%Y")
+    date_num = today.strftime("%d-%m-%Y")
     capture = os.environ.get("PROBE_CAPTURE")
     if capture:
         os.makedirs(capture, exist_ok=True)
@@ -474,7 +519,8 @@ def main() -> int:
     live = new_proposal(today, "CI probe " + BASE)
 
     identity_captures: list[tuple[str, str]] = []
-    route_captures: list[tuple[str, str]] = []
+    route_captures: list[tuple[str, str, str]] = []
+    live_status_captures: list[tuple[str, str, str]] = []
     for train in dict.fromkeys(trains):
         for label, plain in (
             ("identity", f"service=TrainBtwStnMob&subService=FindTrainJson&trainNo={train}"),
@@ -493,10 +539,12 @@ def main() -> int:
                     identity_captures.append((train, id_body))
                 # The route capture rides the same loop: one extra GET per train per probe run, and
                 # the per-stop schedule question (T20.2's sequel) gets its first real body to read.
-                route_lines, route_body = erail_route_lines(train)
+                route_lines, route_caps = erail_route_lines(train)
                 out += route_lines
-                if route_body:
-                    route_captures.append((train, route_body))
+                route_captures.extend(route_caps)
+                ls_lines, ls_caps = erail_live_status_lines(train, date_num)
+                out += ls_lines
+                live_status_captures.extend(ls_caps)
             if doc is None:
                 continue
             if capture:
@@ -550,7 +598,8 @@ def main() -> int:
             check=False, timeout=60,
         )
         capture_md = erail_capture_comment(pair_captures, today.isoformat(timespec="seconds"),
-                                           identities=identity_captures, routes=route_captures)
+                                           identities=identity_captures, routes=route_captures,
+                                           live_status=live_status_captures)
         if capture_md:
             subprocess.run(
                 ["gh", "api", "-X", "POST", f"repos/{repo}/commits/{sha}/comments",

@@ -270,4 +270,22 @@ class TrackingFlowTest {
         )
         E2E.assertNoSystemDialog("back")
     }
+    // @flow details-live-identity (round 20): the details screen asks erail what this number runs
+    // TODAY. 12627 is owner-verified (KARNATAKA EXP, SBC->NDLS) and erail answers the same from the
+    // runners every probe run - so the label must gain the live confirmation inside the network
+    // budget. A silent timetable label here means the new fetch never fired or never answered,
+    // which is exactly what this row exists to catch.
+    @Test
+    fun routeLabelGainsTheLiveIdentityConfirmation() {
+        val before = E2E.text("routeLabel")
+        assertTrue("no route label to relabel", before.isNotBlank())
+        val saw = E2E.ui.wait(Until.hasObject(By.textContains("confirmed live")), E2E.NETWORK_MS)
+        val label = E2E.text("routeLabel")
+        assertTrue(
+            "the live identity never reached the label (after='$label', saw=$saw)",
+            label.contains("confirmed live"),
+        )
+        E2E.shot("details-live-identity")
+    }
+
 }
