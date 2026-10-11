@@ -92,6 +92,10 @@ jobs:
         with:
           python-version: '3.11'
       - name: Delete stale artifacts, cancel wedged runs
+        env:
+          # gh refuses to run in Actions without a token in the environment; the 3b7a14d run failed on
+          # exactly that. `github.token` + the job's actions: write is the whole authority needed.
+          GH_TOKEN: ${{ github.token }}
         run: python3 tools/ci/artifact_hygiene.py
 
   ui:

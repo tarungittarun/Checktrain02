@@ -37,7 +37,7 @@ class PairCache(
 
     /** Fresh entry or null. A stale entry is readable via [peek] but is never answered as if current. */
     fun get(fromCode: String, toCode: String, nowMillis: Long): Entry? =
-        peek(fromCode, toCode)?.takeIf { it.isFresh(nowMillis) }
+        peek(fromCode, toCode)?.takeIf { it.isFresh(nowMillis, ttlMillis) }
 
     /** The entry however old - the caller owns the honesty about its age. */
     fun peek(fromCode: String, toCode: String): Entry? = map[key(fromCode, toCode)]
