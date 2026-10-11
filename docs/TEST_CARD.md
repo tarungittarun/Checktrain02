@@ -64,14 +64,18 @@ tracking. Timetables are inside the app, so the whole thing works in airplane mo
      railway is refusing this app" from "your mobile carrier is refusing the railway", and it is the last
      network variable left open.
 
-### This build specifically (round 5)
+### This build specifically (round 6)
 
 The app now asks the railway **twice, by two different routes**: once as an app, once as a browser — and if the
 browser is the one that gets through, it keeps using it. So while you do steps 2–4 above, watch for two things
 and put them in the same reply:
 
-- Under the pill, a sentence that ends **"(asked through the browser engine)"**. If you see it, say so; it means
-  your phone is the first one where we proved which half of the problem is which.
+- Under the pill, a sentence that ends **"(asked from the site's own page, the way its app does)"** — it means
+  your phone is the first where we proved which half of the problem is which. **You should not see it yet**: it
+  only appears once the railway has actually sent a real answer, and that is the thing being tested.
+- In the log, lines like `[BROWSER] POST enquiry.indianrail.gov.in via enquiry.indianrail.gov.in -> HTTP 200
+  application/json body=4213B in 812ms`. The `HTTP` number and the word after it are what every earlier round
+  was missing; send the file so we get them.
 - Whether the live column ever fills with a real minute (a time marked **reported** or **projected**) after
   waiting the 40 seconds and pressing **Refresh**. That is the pass condition for this round, and if it happens,
   nothing else about the feed matters — tell us and stop.

@@ -213,14 +213,34 @@ asset 10 602 337 B at 16:11:29Z = 21:41:29 IST, published to the rolling `latest
 and `updated_at` with `gh api` before announcing a link** — twice now a pushed commit produced no new asset
 because the job that publishes it had failed.
 
-`f00be21` is the build whose log answered the five-round question:
-`21:47:15.242 [BROWSER] POST enquiry.indianrail.gov.in body=302B -> answered 159B in 1086ms`, against
-`webview-get-ntes … got no document in 5000ms` and ~30 identical `IOException: closed` lines from the Java
-client. Transport: settled. What is open is *protocol* — what the 159 bytes say, and which of three now-shipped
-envelopes the endpoint accepts: raw JSON through the engine, the envelope as the `jsonIn` form field that the
-engine's own `application/x-www-form-urlencoded` advertises, and the site visited first so NTES's cookies are
-in the jar. `FeedProbe.browserWorks` switches transport — never belief — for the rest of the process as soon as
-a browser variant gets any HTTP answer, which is what turns a diagnosis into a phone that shows live minutes.
+`f00be21`'s log appeared to answer the five-round question — `POST … answered 159B in 1086ms` — and it took
+the next report from `b367522`/`7f84cd6` to see what those 159 bytes were:
+
+    This page contains the following errors: error on line 1 at column 1: Start tag expected, '<' not found
+    Below is a rendering of the page up to the fir
+
+Android's own message for "the server sent me something that is not markup". **The endpoint never answered at
+all through that path**: a JSON body cannot be rendered, so WebKit's parse error became the document and the
+payload was lost at column 1. Two things follow, and the second one is a lesson about diagnostics generally.
+
+1. What still stands is the *control*: `webview-get-ntes` returned 506 bytes of the real NTES page
+   ("National Train Enquiry System Spot Your Train…") on the same URL where `get-ntes-web` in the same run got
+   `IOException: closed`. Chromium reaches this host from this app's process while `HttpURLConnection` does
+   not. That is a transport difference, measured twice in one file, and it is the reason the app keeps a
+   browser path at all.
+2. The latched `browserWorks` flag was set by that 159-byte artifact, so the next refresh asked *everything*
+   through the renderer and the traveller's sentence became "The live feed answered with an empty body" —
+   a worse lie than the one it replaced. A diagnostic that can change what the user sees is a user-facing
+   feature and needs the same evidence standard: the latch now requires a 2xx *body*, never a document.
+
+So the round-6 change is one of instrumentation, and it is the smallest thing that could actually read the
+answer: load a same-origin page, `fetch()` the API from inside it, read the text back out of a named global.
+That yields what no earlier shape could — the HTTP status and `Content-Type` of `AppServAnd`'s reply, logged on
+the same line — plus the site's cookies and a genuine `Referer` for free, since the request now originates from
+their own origin rather than being dressed to look like it. It also finally *tests* the header questions from
+rounds 1–3: `postUrl` fixed Content-Type at urlencoded and discarded every other header, so "we tried it
+through a browser and it still refused" was never a finding about headers or payloads. Every browser probe now
+declares the content type its body actually is, and a probe variant asserts it.
 
 Two facts to carry forward, because each cost a round trip:
 
@@ -291,3 +311,14 @@ the additions were anchored by line number instead of by prose); and my own memb
 keyword error on the phrase "as a form field. `postUrl`" in a doc comment, which is a false positive worth
 fixing in the tool rather than dodging in the prose — `strip_noise` works line-by-line and cannot see a KDoc's
 interior, so block comments are masked before that rule looks at a file.
+
+## Round 6: the numbers a swallowed body produced, so the next reader does not repeat them
+
+| Line in the 22:03–22:04 report | What it really meant |
+| --- | --- |
+| `[BROWSER] POST … -> answered 159B` | WebKit's error page, not the endpoint's answer. Zero information about the payload; the request *did* complete, which is not nothing. |
+| `[BROWSER] GET … -> answered 506B` + NTES page text | The endpoint answers a mis-called JSON URL with its own HTML page. Genuine, and the transport's proof. |
+| `[PROBE] webview-post-form: TIMEOUT … got no document in 10000ms in 41621ms` | `postUrl` of JSON has no renderable document, so the engine waits on a download decision ~30 s past its own timeout. A renderer is the wrong instrument for an API; that variant is deleted rather than tuned. |
+| `[BROWSER] POST … -> EMPTY browser answered with an empty document in 123ms` | The latched flag doing damage one refresh later: the reused engine had no document to give. Fast now, wrong then. |
+| `[CHAIN] … LIVE · cached: Nothing this device has stored about 20651 is new enough to show` | Working as designed: a >24 h-old snapshot is refused rather than shown as live. The kind label `LIVE` in that line is a provider name, not a claim to the traveller. |
+| `get-egress-trace: IOException: closed` for `one.one.one.one` while `api.railradar.in` answered `HTTP 401` | Not "the whole network blocks TLS". Some hosts close this app's Java handshake, others answer — which is why address-family and DNS theories were abandoned and why per-host reachability has to be measured rather than inferred. |

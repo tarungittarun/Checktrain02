@@ -29,10 +29,11 @@ Reply with three lines:
 2) train number and the pill you saw (LIVE or OFFLINE)
 3) minutes of difference vs NTES, plus the log if it said OFFLINE
 
-ROUND 5 - TWO EXTRA LINES IN YOUR REPLY
-a) Does the sentence under the pill end with "(asked through the browser engine)"?
+ROUND 6 - THREE SHORT LINES IN YOUR REPLY
+a) Does the sentence under the pill end with "(asked from the site's own page, the way its app does)"?
+   You should NOT see that yet - it only appears if the railway really answered.
 b) After the 40 seconds and Refresh, does any stop show a real minute (marked reported/projected)?
 c) With Wi-Fi OFF, does the NTES page in Chrome still show that train's status?
-The app now asks the railway as an app AND as a browser, and keeps whichever your phone allows.
+The app now reads the railway's answer as bytes, and its log line shows the HTTP number and type - the two facts we never had.
 If (b) says yes, that is the whole fix - tell us and stop testing the feed.
 Send the log FILE (lines start [BROWSER] / [PROBE]); a screenshot of the screen is not enough.

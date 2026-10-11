@@ -153,6 +153,42 @@ def usages(path: Path, known: set[str]) -> list[str]:
     return problems
 
 
+def object_inner(files) -> list[str]:
+    """`inner class` needs an outer *instance* to capture, and a standalone `object` has none, so Kotlin
+    rejects the modifier outright: "Modifier 'inner' is not applicable inside 'standalone object'". CI
+    reported exactly that for `BrowserFetch.Call`, which every textual gate passed - the same family of
+    mistake as `companion_nested` above, and invisible for the same reason.
+
+    The enclosing declaration is found by indentation rather than by brace counting: this codebase is
+    consistently formatted, a brace walk has to guess about multi-line signatures, and a rule that
+    occasionally mis-flags is worse than one that occasionally misses.
+    """
+    problems: list[str] = []
+    for f in files:
+        lines = _clean(f.read_text()).splitlines()
+        for no, line in enumerate(lines, 1):
+            if not re.search(r"\binner\s+class\b", line):
+                continue
+            pad = len(line) - len(line.lstrip())
+            for back in range(no - 2, -1, -1):
+                outer = lines[back]
+                if not outer.strip():
+                    continue
+                opad = len(outer) - len(outer.lstrip())
+                if opad >= pad:
+                    continue
+                decl = re.search(r"\b(companion object|object|class|interface)\b\s*(\w+)?", outer)
+                if decl:
+                    kind = decl.group(1)
+                    if kind in ("object", "companion object"):
+                        problems.append(
+                            f"{f.relative_to(ROOT)}:{no}: `inner class` lexically inside "
+                            f"{kind}{' ' + decl.group(2) if decl.group(2) else ''} — no outer instance "
+                            "exists there; drop `inner` and name the singleton where its members are used")
+                    break
+    return problems
+
+
 def backing_field(files) -> list[str]:
     """`field.` inside an accessor body is never legal: there, `field` is the keyword for the property's
     own backing field, so it cannot be dereferenced — Kotlin reports "Property must be initialized" plus a
@@ -247,7 +283,7 @@ def main() -> int:
     known: set[str] = resource_names()
     for f in files:
         known |= declared(f.read_text())
-    problems = [p for f in files for p in usages(f, known)] + backing_field(files) + companion_nested(files)
+    problems = [p for f in files for p in usages(f, known)] + backing_field(files) + companion_nested(files) + object_inner(files)
     for p in problems:
         print(p)
     print(f"checked {len(files)} files against {len(known)} declared names, {len(problems)} problems")

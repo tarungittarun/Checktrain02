@@ -94,6 +94,16 @@ object FeedProbe {
     var browserWorks: Boolean = false
         private set
 
+    /**
+     * The page the accepted request rode on, if the winning variant named one. Empty means "the host root",
+     * which is what [BrowserFetch.originPage] derives - and the reason to remember this at all is that a site
+     * which answers from /ntes/ and not from / is a site whose cookies matter, so the transport cannot be
+     * adopted without the origin that produced it.
+     */
+    @Volatile
+    var browserPage: String = ""
+        private set
+
     /** True once a probe has finished in this process, so a report can say whether to wait for it. */
     val ready: Boolean get() = last.isNotEmpty()
 
@@ -349,7 +359,10 @@ object FeedProbe {
                 }
                 // Logged after the append: a line written before it reports the *previous* variant's verdict
                 // against this variant's clock, which is how one field report came to read "nothing in 1005ms".
-                if (got is Http.Result.Ok && v.browser) browserWorks = true
+                if (got is Http.Result.Ok && v.browser) {
+                    browserWorks = true
+                    browserPage = v.warm
+                }
                 Diary.get()?.log("PROBE") {
                     val r = out.lastOrNull()
                     if (r == null) "nothing in " + ms + "ms"

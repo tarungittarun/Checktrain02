@@ -74,6 +74,15 @@ object BrowserFetch {
     private val main = Handler(Looper.getMainLooper())
     private val creating = Any()
 
+    /**
+     * One call at a time, for the whole engine. The view is shared and a call replaces its `WebViewClient`, so
+     * two requests in flight - a refresh and the diagnostic probe, which run on different threads - would
+     * finish in each other's callbacks. The `EMPTY browser answered with an empty document` line in a device
+     * report is that race, not a server: the second caller found a document the first one had already read.
+     * Browser calls here are rare and few, so serialising costs nothing the traveller can feel.
+     */
+    private val gate = Any()
+
     /** A cold engine, a page load and a request: measured at 3.9 s for a GET on a device, so 5 s was too tight. */
     val defaultTimeout = 13_000
 
@@ -113,15 +122,20 @@ object BrowserFetch {
             Http.Result.Kind.HTTP, "BrowserFetch not initialised (no application context)",
         )
         tried = true
-        val t0 = System.currentTimeMillis()
         val call = Call(url, body, page, headers)
-        runCatching { main.post { call.start(ctx) } }
-            .onFailure { call.note("main-looper unavailable: " + it.javaClass.simpleName) }
-
-        val answered = call.done.await(timeoutMillis.toLong(), TimeUnit.MILLISECONDS)
-        if (!answered) abandon()
-        val ms = System.currentTimeMillis() - t0
-        val verdict = call.verdict(answered, timeoutMillis)
+        val outcome = synchronized(gate) {
+            val t0 = System.currentTimeMillis()
+            runCatching { main.post { call.start(ctx) } }
+                .onFailure { call.note("main-looper unavailable: " + it.javaClass.simpleName) }
+            val answered = call.done.await(timeoutMillis.toLong(), TimeUnit.MILLISECONDS)
+            if (!answered) abandon()
+            // The elapsed time is measured inside the lock on purpose: a call that queued behind another one
+            // was slow for the traveller too, and reporting only its own flight time is how a 41-second
+            // refresh got logged as a 10-second timeout.
+            call.verdict(answered, timeoutMillis) to (System.currentTimeMillis() - t0)
+        }
+        val verdict = outcome.first
+        val ms = outcome.second
         val how = when (verdict) {
             is Http.Result.Ok -> "body=" + verdict.body.length + "B"
             is Http.Result.Failed -> verdict.kind.toString() + " " + verdict.message
@@ -198,7 +212,7 @@ object BrowserFetch {
      * built, and the JSON is decoded again for the fields. Anything else - a page that replaced the global with
      * something unparseable, an error page that threw - ends in [note], never in a splice.
      */
-    private inner class Call(
+    private class Call(
         val url: String,
         val body: String?,
         val page: String,
@@ -215,7 +229,7 @@ object BrowserFetch {
 
         fun start(ctx: Context) {
             runCatching {
-                val w = ensureView(ctx)
+                val w = BrowserFetch.ensureView(ctx)
                 w.webViewClient = object : WebViewClient() {
                     override fun onPageFinished(v: WebView, pageUrl: String) {
                         send(v)
@@ -243,7 +257,7 @@ object BrowserFetch {
             if (!started.compareAndSet(false, true)) return
             runCatching {
                 v.evaluateJavascript(script(), null)
-                main.postDelayed({ read(v) }, POLL_MS)
+                BrowserFetch.main.postDelayed({ read(v) }, BrowserFetch.POLL_MS)
             }.onFailure { note("javascript unavailable: " + it.javaClass.simpleName) }
         }
 
@@ -254,8 +268,8 @@ object BrowserFetch {
                     runCatching {
                         val wrapped = JSONObject("{\"v\":" + (raw ?: "''") + "}").optString("v")
                         if (wrapped.isEmpty()) {
-                            if (tries.incrementAndGet() < MAX_POLLS && !settled.get()) {
-                                main.postDelayed({ read(v) }, POLL_MS)
+                            if (tries.incrementAndGet() < BrowserFetch.MAX_POLLS && !settled.get()) {
+                                BrowserFetch.main.postDelayed({ read(v) }, BrowserFetch.POLL_MS)
                             } else {
                                 note("the page accepted the request and the answer never arrived")
                             }
@@ -288,7 +302,8 @@ object BrowserFetch {
             if (!answered) {
                 return Http.Result.Failed(
                     Http.Result.Kind.TIMEOUT,
-                    "the browser gave no answer in " + timeoutMillis + "ms (page " + hostOf(page) + ")",
+                    "the browser gave no answer in " + timeoutMillis + "ms (page "
+                        + BrowserFetch.hostOf(page) + ")",
                 )
             }
             problem.get()?.let { return Http.Result.Failed(Http.Result.Kind.HTTP, it) }

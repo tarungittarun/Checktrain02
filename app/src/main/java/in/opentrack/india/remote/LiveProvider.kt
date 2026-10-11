@@ -68,7 +68,10 @@ private fun ask(
         else http.post(url, body, headers, timeoutMillis = timeoutMillis, retries = 1)
     }
     Diary.get()?.log("TRANSPORT") { "asking from the site's own page, which this device accepted" }
-    return BrowserFetch.apiCall(url, body, BrowserFetch.originPage(url), headers, BrowserFetch.defaultTimeout)
+    // The page is part of the finding, not a detail of it: if this device's answer came from a request riding
+    // /ntes/, a request riding / will not repeat it.
+    val page = if (FeedProbe.browserPage.isBlank()) BrowserFetch.originPage(url) else FeedProbe.browserPage
+    return BrowserFetch.apiCall(url, body, page, headers, BrowserFetch.defaultTimeout)
 }
 
 private fun transportFailureSentence(failure: Http.Result.Failed): String =
