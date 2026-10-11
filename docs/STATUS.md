@@ -10,7 +10,7 @@ single owner action; at most ONE open question to the owner, answerable in one w
 | D1 | docs/ skeleton (§15.2) | DONE:2026-10-11 | this commit; file list in docs/PLAN.md | complete KICKOFF.md verbatim pass (§10-15) | no | none |
 | P1 | Local JVM toolchain | BLOCKED:no-JDK-route-in-sandbox | docs/LEARNINGS.md#L-2 (4 routes tested, exact errors) | JVM proof moves to CI per §9.6; unblock = none available locally | no | none |
 | M0-1 | Source probe tool, sandbox run (§15.3) | DONE:2026-10-11 | docs/spike-verdicts.md + tools/captures/probe-sandbox-*.json (untracked) | rerun from CI once workflows land; add tools/test_probe.py (PoC-of-PoC, §7.3) | no | none |
-| CI-1 | .github/workflows + minimal Android skeleton + first CI-built APK | DOING | run 38177760988: config fixed, now compileDebugKotlin error; reporter lacked e:-line capture | reporter captures e: lines (6/6 tested); next run names the Kotlin error | no | none |
+| CI-1 | .github/workflows + minimal Android skeleton + first CI-built APK | DOING | run 38177904738: e-line captured - `in` is a Kotlin keyword, package must be backtick-escaped | escape applied (precedent verified in prev session tree); expecting first green APK | no | none |
 | M0-1b | S2 capture from CI (7.4: parser only after a capture) | NEXT | - | add capture mode to probe job once android is green | no | none |
 | P1-fix | .pyc removed from git + __pycache__ ignored (defect of c5cfec1, owned per 14.5) | DONE:2026-10-11 | this commit: git rm --cached + .gitignore line | none | no | none |
 | M1 | Contract types + provenance + known-truths gate (§15.4) | HELD:waits-on-CI-1 | - | - | no | none |

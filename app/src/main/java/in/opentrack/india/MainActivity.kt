@@ -1,4 +1,6 @@
-package in.opentrack.india
+// `in` is a Kotlin keyword; the backtick escape is mandatory (run 38177904738 named it;
+// the previous session used the identical escape - verified before copying).
+package `in`.opentrack.india
 
 import android.app.Activity
 import android.os.Bundle
