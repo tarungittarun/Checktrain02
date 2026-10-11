@@ -29,6 +29,10 @@ RULES = [
     (re.compile(r"\$\{'\$'\}\{"), "template that renders a literal ${...}: concatenate instead"),
     (re.compile(r"\{\{?[A-D]\}\}?\{"), "an f-string marker survived into the source"),
     (re.compile(r"\{[a-zA-Z_][a-zA-Z0-9_.]*\}(?![a-zA-Z0-9_])\}"), "a doubled closing brace in a placeholder"),
+    # A concatenation spliced onto another concatenation operator: `x.size + +` is not a typo a reader
+    # catches in a 200-line diff, and it does not compile. `attempt++` is legitimate, so only the
+    # whitespace-separated form is flagged.
+    (re.compile(r"(?<![+\w])\+\s+\+"), "a doubled concatenation operator (patch damage)"),
 ]
 
 
