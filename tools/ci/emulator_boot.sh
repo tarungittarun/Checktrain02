@@ -120,21 +120,39 @@ for p in "${PKGS[@]}"; do
   fi
 done
 
+# The job log is not reachable from where a red run gets diagnosed (it redirects to blob storage); the
+# annotation on the check run is. Anything the row's failure hinges on therefore goes into an `::error::`
+# or `::warning::` line on one line and capped, not only into the log.
+lastlines() {
+  tail -c 1400 "$1" 2>/dev/null | tr '\r' '\n' | grep -v '^[[:space:]]*$' | tail -5 | tr '\n' ' ' | cut -c1-460
+}
+
 echo "== creating AVD $AVD_NAME (api $API, $IMG/$ABI, device $DEVICE)"
-if [ "$ACCEL" = off ]; then
-  # `avdmanager create avd -d <device>` needs a hardware profile; on a minimal SDK the profile list can be
-  # empty, in which case an unspecified device is the only thing that works.
-  echo no | avdmanager create avd -n "$AVD_NAME" -k "system-images;android-${API};${IMG};${ABI}" -d "$DEVICE" >/tmp/avd.log 2>&1 \
-    || echo no | avdmanager create avd -n "$AVD_NAME" -k "system-images;android-${API};${IMG};${ABI}" >>/tmp/avd.log 2>&1
+AVD_PKG="system-images;android-${API};${IMG};${ABI}"
+[ -d "$SDK/system-images/android-${API}/${IMG}/${ABI}" ] \
+  || echo "::warning::no image directory at $SDK/system-images/android-${API}/${IMG}/${ABI} before create - avdmanager will have nothing to base the AVD on"
+
+AVD_MADE=""
+# `--sdk_root` on both tools, because a cmdline-tools `avdmanager` defaults to its *own* parent directory as
+# the SDK root, which is not necessarily $ANDROID_HOME: when the image was installed into one root and
+# avdmanager looks in another, the answer is a bare "Error: Package path is not valid" and the emulator then
+# dies at 0s with no AVD. `--force` because re-running a row on a warm runner must not fail on an existing AVD.
+if echo no | avdmanager create avd -n "$AVD_NAME" --force -k "$AVD_PKG" --sdk_root="$SDK" -d "$DEVICE" >/tmp/avd.log 2>&1; then
+  AVD_MADE=avdmanager
+elif echo no | avdmanager create avd -n "$AVD_NAME" --force -k "$AVD_PKG" --sdk_root="$SDK" >/tmp/avd.log 2>&1; then
+  # `-d <device>` needs a hardware profile; on a minimal SDK the profile list can be empty, in which case
+  # an unspecified device is the only thing that works.
+  echo "::warning::the '$DEVICE' hardware profile was unusable - created the AVD without a device profile: $(lastlines /tmp/avd.log)"
+  AVD_MADE=avdmanager-nodevice
 else
-  echo no | avdmanager create avd -n "$AVD_NAME" -k "system-images;android-${API};${IMG};${ABI}" -d "$DEVICE" >/tmp/avd.log 2>&1
+  echo "::warning::avdmanager create avd failed twice: $(lastlines /tmp/avd.log)"
 fi
+
 # Where the AVD actually lives is decided by the tools' own precedence: ANDROID_AVD_HOME, then
 # $ANDROID_SDK_HOME/.android/avd (the deprecated variable is still honoured, and CI images set it), then
 # $HOME/.android/avd. Assuming the last one is what turned run 38121489777's four rows red: `avdmanager`
 # created the image and reported nothing, and the check looked in the wrong home. So search instead of
-# guessing, and treat "not found" as a warning rather than a verdict - the emulator resolving `-avd` is the
-# real test of whether an AVD exists, and its failure is already captured by the boot timeout below.
+# guessing.
 AVD_HOME=${ANDROID_AVD_HOME:-}
 [ -z "$AVD_HOME" ] && [ -n "${ANDROID_SDK_HOME:-}" ] && AVD_HOME="$ANDROID_SDK_HOME/.android/avd"
 [ -z "$AVD_HOME" ] && AVD_HOME="$HOME/.android/avd"
@@ -142,12 +160,84 @@ if [ ! -f "$AVD_HOME/$AVD_NAME.avd/config.ini" ]; then
   found=$(find "$SDK" "$HOME/.android" -maxdepth 7 -name config.ini -path "*/$AVD_NAME.avd/*" 2>/dev/null | head -1)
   if [ -n "$found" ]; then
     echo "   AVD found outside the default home: $found"
-  else
-    echo "::warning::no $AVD_NAME.avd/config.ini under $AVD_HOME (or anywhere in the SDK) - continuing, because the emulator's own resolution decides; avdmanager said:"
-    tr '\r' '\n' < /tmp/avd.log | grep -v '^[[:space:]]*$' | tail -12
+    AVD_HOME=$(dirname "$(dirname "$found")")
+    AVD_MADE=found-it
   fi
 fi
-echo "== avd env: HOME=$HOME ANDROID_AVD_HOME=${ANDROID_AVD_HOME:-unset} ANDROID_SDK_HOME=${ANDROID_SDK_HOME:-unset}"
+
+if [ -z "$AVD_MADE" ]; then
+  # Last resort, and the one that has rescued more CI emulators than any amount of avdmanager wrangling: an
+  # AVD is two text files. The emulator reads them directly and does not care who wrote them, so a broken
+  # profile database, a stale devices.xml or a version skew between cmdline-tools and the emulator package
+  # stops being a reason the app went untested.
+  echo "::warning::writing $AVD_NAME.avd/config.ini by hand - avdmanager is not producing an AVD on this image"
+  mkdir -p "$AVD_HOME/$AVD_NAME.avd"
+  cat > "$AVD_HOME/$AVD_NAME.ini" <<INI
+avd.ini.encoding=UTF-8
+path=$AVD_HOME/$AVD_NAME.avd
+path.rel=avd/$AVD_NAME.avd
+target=android-$API
+INI
+  cat > "$AVD_HOME/$AVD_NAME.avd/config.ini" <<INI
+AvdId=$AVD_NAME
+PlayStore.enabled=false
+abi.type=$ABI
+avd.ini.encoding=UTF-8
+device.name=$DEVICE
+hw.device.name=$DEVICE
+hw.device.manufacturer=Google
+hw.arch=x86
+hw.cpu.ncore=$CORES
+hw.ramSize=$MEMORY
+vm.heapSize=256
+hw.sdCard=yes
+sdcard.size=1024M
+hw.gpu.enabled=no
+hw.gpu.mode=off
+hw.keyboard=yes
+hw.audioInput=no
+hw.audioOutput=no
+hw.camera.back=none
+hw.camera.front=none
+hw.gps=yes
+hw.sensors.orientation=yes
+hw.sensors.proximity=yes
+disk.dataPartition.size=6G
+hw.lcd.density=420
+hw.lcd.width=1080
+hw.lcd.height=2400
+skin.name=1080x2400
+skin.dynamic=yes
+image.sysdir.1=system-images/android-${API}/${IMG}/${ABI}/
+tag.id=${IMG}
+tag.ids=${IMG}
+tag.display=CI
+target=android-$API
+API_LEVEL=$API
+IniVersion=2
+INI
+  # hw.arch has to name the *family*, and the three names do not map onto each other by trimming: an
+  # x86_64 image needs hw.arch=x86_64 (writing x86 there is a boot failure, and `${ABI%%_*}` would have done
+  # exactly that), arm64-v8a needs arm64, armeabi-v7a needs arm.
+  case "$ABI" in
+    x86_64) EM_ARCH=x86_64 ;;
+    x86) EM_ARCH=x86 ;;
+    arm64-v8a) EM_ARCH=arm64 ;;
+    armeabi-v7a) EM_ARCH=arm ;;
+    *) EM_ARCH=${ABI%%-*} ;;
+  esac
+  sed -i "s|^hw.arch=.*|hw.arch=$EM_ARCH|" "$AVD_HOME/$AVD_NAME.avd/config.ini"
+  sed -i "s|^abi.type=.*|abi.type=$ABI|" "$AVD_HOME/$AVD_NAME.avd/config.ini"
+  echo "   hand-written AVD: hw.arch=$EM_ARCH abi.type=$ABI image=$SDK/system-images/android-${API}/${IMG}/${ABI}/"
+  AVD_MADE=hand-written
+fi
+
+if [ ! -d "$SDK/system-images/android-${API}/${IMG}/${ABI}" ]; then
+  echo "::error::nothing to boot: $SDK/system-images/android-${API}/${IMG}/${ABI} does not exist (AVD written by $AVD_MADE, so the image install is the problem) - sdkmanager said: $(lastlines /tmp/sdkmanager.log)"
+  exit 3
+fi
+echo "== avd: home=$AVD_HOME made-by=$AVD_MADE accel=$ACCEL (HOME=$HOME ANDROID_AVD_HOME=${ANDROID_AVD_HOME:-unset} ANDROID_SDK_HOME=${ANDROID_SDK_HOME:-unset})"
+[ -f "$AVD_HOME/$AVD_NAME.avd/config.ini" ] || echo "::error::no $AVD_NAME.avd/config.ini in $AVD_HOME even after every fallback - the emulator will not start"
 ls -la "$AVD_HOME" 2>/dev/null | head -6 || echo "   (no $AVD_HOME directory)"
 
 EMFLAGS=(-avd "$AVD_NAME" -no-window -no-audio -no-boot-anim -no-snapshot -no-snapshot-save -read-only
@@ -172,7 +262,7 @@ start=$(date +%s)
 while :; do
   now=$(date +%s)
   if [ $((now - start)) -gt "$BOOT_TIMEOUT" ]; then
-    echo "::error::emulator did not finish booting in ${BOOT_TIMEOUT}s under accel=$ACCEL (api $API, $IMG/$ABI)"
+    echo "::error::emulator did not finish booting in ${BOOT_TIMEOUT}s under accel=$ACCEL (api $API, $IMG/$ABI, AVD by $AVD_MADE). Last lines: $(lastlines /tmp/emulator.log)"
     echo "--- emulator.log (tail) ---"; tail -40 /tmp/emulator.log
     echo "--- ps ---"; ps -o pid,etime,rss,args -p "$EM_PID" 2>&1 | tail -3
     exit 3
@@ -181,7 +271,7 @@ while :; do
     booted=$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)
     [ "$booted" = "1" ] && break
   else
-    echo "::error::the emulator process exited at $((now - start))s - see /tmp/emulator.log"
+    echo "::error::the emulator process exited at $((now - start))s (AVD by $AVD_MADE) - $(lastlines /tmp/emulator.log)"
     tail -30 /tmp/emulator.log
     exit 3
   fi
