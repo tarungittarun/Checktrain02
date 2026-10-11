@@ -143,6 +143,49 @@ def scan(text: str):
     return problems
 
 
+def companion_twins(path: pathlib.Path) -> list[str]:
+    """Two `companion object` blocks in one type: a Kotlin error a scripted patch produces easily.
+
+    Why the checker cares when the compiler already does: this repo's app code is edited by scripts most of the
+    time, and a script that inserts a constant happily creates a second companion object. That cost an APK here
+    (the debug assemble failed and took the release job and the unit tests with it), and a CI compile error whose
+    log a sandbox cannot read is the slowest possible feedback loop.
+
+    Ownership is by indentation rather than by the last `class` line seen: a file with a top-level `class RefDb`
+    and a sibling `fun interface Clock`, each with its own companion, is legal, and grouping by name called that
+    an error on its first run. So a companion belongs to the nearest preceding type declaration that is indented
+    *less* than it, and only two companions claiming the same declaration are a problem.
+    """
+    out: list[str] = []
+    # `fun interface` is Kotlin's SAM declaration and the modifier list alone would miss it, which is how a
+    # legal companion inside a sibling interface once got charged to the class above it.
+    decl_re = re.compile(r"^(\s*)(?:(?:private|internal|public|abstract|open|final|sealed|data|enum|annotation|value|fun)\s+)*"
+                         r"(?:class|interface|object)\s+(\w+)")
+    type_re = re.compile(r"^(\s*)(?:(?:private|internal|public)\s+)?(?:companion\s+object|class|interface|object)\b")
+    stack: list[tuple] = []          # (indent, name, [lines of companions owned])
+    owners: dict = {}
+    for n, raw in enumerate(path.read_text(encoding="utf-8").split("\n"), 1):
+        if not raw.strip() or raw.strip().startswith(("//", "/*", "*")):
+            continue
+        ind = len(raw) - len(raw.lstrip(" "))
+        d = decl_re.match(raw)
+        if d and "companion" not in raw:
+            while stack and stack[-1][0] >= ind:
+                stack.pop()
+            stack.append((ind, d.group(2), []))
+            owners.setdefault(d.group(2), stack[-1][2])
+        if type_re.match(raw) and re.search(r"\bcompanion\s+object\b", raw):
+            while stack and stack[-1][0] >= ind:
+                stack.pop()
+            if stack:
+                stack[-1][2].append(n)
+    for name, lines in owners.items():
+        if len(lines) > 1:
+            out.append(f"{path.name}: {name} has {len(lines)} companion objects (lines {lines[:4]}) - Kotlin "
+                       f"allows one per type; fold the constants into the existing one")
+    return out
+
+
 def main() -> int:
     roots = sys.argv[1:] or ["app/src"]
     bad = 0
@@ -155,6 +198,9 @@ def main() -> int:
             text = f.read_text(encoding="utf-8")
             problems = scan(text)
             for msg in problems:
+                bad += 1
+                print(f"{f}: {msg}")
+            for msg in companion_twins(f):
                 bad += 1
                 print(f"{f}: {msg}")
             if text.endswith("\n\n"):

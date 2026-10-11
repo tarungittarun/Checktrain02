@@ -30,11 +30,6 @@ import `in`.opentrack.india.domain.TrackModel
  */
 class TrainActivity : AppCompatActivity() {
 
-    private companion object {
-        /** The tag the CI rows and a bug report both grep for. */
-        const val TAG_FEED_REPORT = "LiveFeedReport"
-    }
-
     private lateinit var binding: ActivityTrainBinding
     private lateinit var vm: LiveViewModel
     private lateinit var stopAdapter: StopAdapter
@@ -257,8 +252,14 @@ class TrainActivity : AppCompatActivity() {
             append("\n${m.runDateLabel} · ${m.rows.size} stops loaded · ")
             append(if (m.hasDistances) "distances from the offline reference data"
             else "no distance data for this train")
+            // Said here rather than in Settings because this card is where the app admits what it could not
+            // get, and the gesture that turns that admission into a report someone can act on has to be
+            // mentioned exactly once, in the place where the user is already reading about the feed.
+            append("\nLong-press the badge above to copy all of this as a report")
         }
 
+        /** The tag the CI rows and a bug report both grep for. */
+        const val TAG_FEED_REPORT = "LiveFeedReport"
         const val EXTRA_TRAIN_NO = "trainNo"
         const val EXTRA_FROM = "fromCode"
         const val EXTRA_TO = "toCode"
