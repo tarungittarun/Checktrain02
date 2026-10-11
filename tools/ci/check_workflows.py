@@ -95,6 +95,13 @@ def check_action(path: pathlib.Path) -> list[str]:
             for k in ("services", "container", "timeout-minutes"):
                 if k in step:
                     out.append(f"{path}: step {i} uses '{k}', which composite actions do not allow")
+            cond = step.get("if") or ""
+            for fn in ("always()", "failure(", "success(", "cancelled("):
+                if fn in cond:
+                    out.append(f"{path}: step {i} ('{step.get('name', i)}') uses {fn} in if: - a composite "
+                              f"action's step conditions have no such functions, and Actions refuses to run "
+                              f"the action (use steps.<id>.outcome plus continue-on-error, and decide the "
+                              f"verdict in a final step)")
     return out
 
 
