@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import glob
 import pathlib
+import re
 import sys
 
 KEYS = ("row", "desc", "boot", "variant", "tests", "all", "online", "offline", "coverage")
@@ -30,7 +31,10 @@ def parse(path: pathlib.Path) -> dict[str, str]:
 
 
 # Keys that describe the row rather than one instrumented pass.
-META = {"row", "desc", "boot", "variant", "coverage", "display", "tests", "monkey", "focus"}
+VERDICT = re.compile(r"(ok|failed|skipped|not-run|timeout|crash|no test summary)")
+
+META = {"row", "desc", "boot", "variant", "coverage", "display", "tests", "monkey", "focus",
+        "variant_row", "accel", "kvm", "boot_rc", "boot_seconds", "avd"}
 
 
 def main() -> int:
@@ -45,7 +49,10 @@ def main() -> int:
     # `online=failed (...)`). The roll-up has to read them all: a harness that only knows about a
     # single `all` pass would report a green row for a run that never executed the classes it names.
     def tests_of(r: dict[str, str]) -> str:
-        passes = {k: v for k, v in r.items() if k not in META}
+        # A key only counts as an instrumented pass if its value reads like a verdict. That is the durable
+        # rule: "1/1 passes green" on a row that never had a device came from a metadata key (`variant_row`)
+        # being read as a test, which is exactly the kind of false confidence this file exists to prevent.
+        passes = {k: v for k, v in r.items() if k not in META and VERDICT.match(v.strip())}
         if not passes:
             return r.get("tests", "-")
         bad = sorted(k for k, v in passes.items() if "failed" in v or "not-run" in v)

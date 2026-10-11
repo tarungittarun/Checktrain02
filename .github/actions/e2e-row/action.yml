@@ -326,7 +326,15 @@ runs:
         {
           echo "row=$ROW"
           echo "desc=$ROW_DESC"
-          [ "${{ steps.boot.outcome }}" = success ] && echo "boot=ok $(grep -o 'boot_seconds=[0-9]*' /tmp/diag.env 2>/dev/null | cut -d= -f2)s" || echo "boot=failed (see the boot log above: no usable /dev/kvm, or the image never finished booting)"
+          if [ "${{ steps.boot.outcome }}" = success ]; then
+            echo "boot=ok $(grep -o 'boot_seconds=[0-9]*' /tmp/diag.env 2>/dev/null | cut -d= -f2)s"
+          else
+            # The row's reason, in the status line, so the roll-up table says "the emulator exited at 0s
+            # (CPU Architecture arm)" rather than "see the log above" - the log is not readable from where a
+            # red run gets diagnosed, which is the entire lesson of the last six rows.
+            why=$(tr '\r' '\n' < /tmp/boot.log 2>/dev/null | grep -m1 '::error::' | cut -c10- | cut -c1-160)
+            echo "boot=failed: ${why:-no ::error:: line in the boot log, rc=$(grep -o 'boot_rc=[0-9]*' /tmp/diag.env 2>/dev/null | cut -d= -f2)}"
+          fi
           echo "display=$(adb shell wm size 2>/dev/null | tr -d '\r' || echo none) / $(adb shell wm density 2>/dev/null | tr -d '\r' || echo none) / font=$(adb shell settings get system font_scale 2>/dev/null | tr -d '\r' || echo none)"
           echo "variant_row=$VARIANT location=$LOCATION offline=$OFFLINE monkey=$MONKEY focus=${FOCUS:-none}"
           echo "variant=$VARIANT"
@@ -383,8 +391,8 @@ runs:
           grep -E "FATAL|ANR |E AndroidRuntime" /tmp/logcat.txt 2>/dev/null | tail -25 || echo "(none)"
           echo '```'
         } > /tmp/body.md
-        gh api -X POST "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/comments" -f body="$(cat /tmp/body.md)" \
-          || echo "::warning::could not post the commit comment"
+        err=$(gh api -X POST "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/comments" -f body="$(cat /tmp/body.md)" 2>&1 >/dev/null) \
+          || echo "::error::could not post the row comment ($ROW): $(printf '%s' "$err" | tr '\n' ' ' | cut -c1-200)"
 
     # The row's result, decided last so everything that explains it has already been written.
     # `steps.x.outcome` is the real outcome even when `continue-on-error` turned the *conclusion* green, which

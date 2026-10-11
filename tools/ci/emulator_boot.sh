@@ -137,9 +137,16 @@ AVD_MADE=""
 # the SDK root, which is not necessarily $ANDROID_HOME: when the image was installed into one root and
 # avdmanager looks in another, the answer is a bare "Error: Package path is not valid" and the emulator then
 # dies at 0s with no AVD. `--force` because re-running a row on a warm runner must not fail on an existing AVD.
-if echo no | avdmanager create avd -n "$AVD_NAME" --force -k "$AVD_PKG" --sdk_root="$SDK" -d "$DEVICE" >/tmp/avd.log 2>&1; then
+# `avdmanager [global options] create avd [action options]` - a global option after the subcommand is a
+# usage dump and a non-zero exit, which is precisely what cost run 38127110617 all four rows: the AVD was
+# never created, the emulator exited at 0s, and the "failure" read like a runner-capability problem.
+avd_create() {
+  echo no | avdmanager --sdk_root="$SDK" create avd --name "$AVD_NAME" --package "$AVD_PKG" --force "$@" \
+    >/tmp/avd.log 2>&1
+}
+if avd_create --device "$DEVICE"; then
   AVD_MADE=avdmanager
-elif echo no | avdmanager create avd -n "$AVD_NAME" --force -k "$AVD_PKG" --sdk_root="$SDK" >/tmp/avd.log 2>&1; then
+elif avd_create; then
   # `-d <device>` needs a hardware profile; on a minimal SDK the profile list can be empty, in which case
   # an unspecified device is the only thing that works.
   echo "::warning::the '$DEVICE' hardware profile was unusable - created the AVD without a device profile: $(lastlines /tmp/avd.log)"
@@ -230,12 +237,21 @@ INI
   sed -i "s|^abi.type=.*|abi.type=$ABI|" "$AVD_HOME/$AVD_NAME.avd/config.ini"
   echo "   hand-written AVD: hw.arch=$EM_ARCH abi.type=$ABI image=$SDK/system-images/android-${API}/${IMG}/${ABI}/"
   AVD_MADE=hand-written
+  # "Found AVD target architecture: arm / FATAL CPU Architecture 'arm' is not supported" is how run
+  # 38127110617's hand-written AVD died: the emulator takes the architecture from the config, and a key it
+  # does not read leaves it guessing from the image directory. Name it in every spelling the tools use, and
+  # say what the file ended up containing, because this file is the one thing the reader cannot inspect.
+  for k in hw.arch abi.type Abi image.sysdir.1 tag.id tag.ids target API_LEVEL; do
+    printf '%s=%s\n' "$k" "$(grep -m1 "^$k=" "$AVD_HOME/$AVD_NAME.avd/config.ini" | cut -d= -f2-)"
+  done > /tmp/avd-config-keys.txt
+  grep -q '^image.sysdir.1=' "$AVD_HOME/$AVD_NAME.avd/config.ini" || echo "::error::hand-written config.ini has no image.sysdir.1"
 fi
 
 if [ ! -d "$SDK/system-images/android-${API}/${IMG}/${ABI}" ]; then
   echo "::error::nothing to boot: $SDK/system-images/android-${API}/${IMG}/${ABI} does not exist (AVD written by $AVD_MADE, so the image install is the problem) - sdkmanager said: $(lastlines /tmp/sdkmanager.log)"
   exit 3
 fi
+echo "== avd keys: $(tr '\n' ' ' < /tmp/avd-config-keys.txt 2>/dev/null || echo none)"
 echo "== avd: home=$AVD_HOME made-by=$AVD_MADE accel=$ACCEL (HOME=$HOME ANDROID_AVD_HOME=${ANDROID_AVD_HOME:-unset} ANDROID_SDK_HOME=${ANDROID_SDK_HOME:-unset})"
 [ -f "$AVD_HOME/$AVD_NAME.avd/config.ini" ] || echo "::error::no $AVD_NAME.avd/config.ini in $AVD_HOME even after every fallback - the emulator will not start"
 ls -la "$AVD_HOME" 2>/dev/null | head -6 || echo "   (no $AVD_HOME directory)"

@@ -280,6 +280,11 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # A job-level `permissions` block replaces the workflow-level one rather than adding to it, so the row
+      # jobs have to ask for the comment scope themselves: without this the row's own comment - boot reason,
+      # pass times, coverage, crash tail - silently never appears, which is what happened on run 38127110617.
+      pull-requests: write
+      issues: write
     timeout-minutes: 80
     # The row that must pass is the minSdk one; the modern row may be unavailable on a runner without
     # acceleration, and that is reported in the roll-up rather than hidden.
@@ -360,6 +365,11 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # A job-level `permissions` block replaces the workflow-level one rather than adding to it, so the row
+      # jobs have to ask for the comment scope themselves: without this the row's own comment - boot reason,
+      # pass times, coverage, crash tail - silently never appears, which is what happened on run 38127110617.
+      pull-requests: write
+      issues: write
     timeout-minutes: 80
     env:
       # Identical to the core row's env block by design: two jobs, one action, and the action reads its whole
