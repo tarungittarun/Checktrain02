@@ -28,6 +28,14 @@ MEMORY=${MEMORY:-4096}
 CORES=${CORES:-2}
 
 SDK=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}
+# The preinstalled SDK is root-owned on some images, and sdkmanager's answer to that is a permission error
+# forty lines deep in its log. A writable root of our own is the same install, and the emulator, adb and
+# avdmanager are all invoked through $SDK below, so nothing else has to know.
+if [ ! -w "$SDK" ] && [ ! -e "$SDK/system-images/android-${API:-34}" ]; then
+  SDK="$HOME/android-sdk"
+  mkdir -p "$SDK"
+  echo "::notice::$ANDROID_HOME is not usable for installs - using $SDK instead"
+fi
 export ANDROID_HOME="$SDK"
 export ANDROID_SDK_ROOT="$SDK"
 export PATH="$SDK/cmdline-tools/latest/bin:$SDK/platform-tools:$SDK/emulator:$PATH"
@@ -70,7 +78,10 @@ path_ok() {
     platform-tools) [ -x "$SDK/platform-tools/adb" ] ;;
     emulator) [ -x "$SDK/emulator/emulator" ] ;;
     platforms*) [ -d "$SDK/platforms/android-${API}" ] ;;
-    system-images*) [ -d "$SDK/system-images/android-${API}/${IMG}/${ABI}" ] ;;
+    system-images*)
+      # A directory is not an image: the runner's SDK can carry the path with no build.prop, and trusting the
+      # path is how "already present" ended the install step while the emulator then found nothing to boot.
+      [ -f "$SDK/system-images/android-${API}/${IMG}/${ABI}/build.prop" ] ;;
     *) false ;;
   esac
 }
@@ -212,6 +223,9 @@ hw.lcd.density=420
 hw.lcd.width=1080
 hw.lcd.height=2400
 image.sysdir.1=system-images/android-${API}/${IMG}/${ABI}/
+systemImage.arch=REPLACED_ARCH
+systemImage.tag.id=${IMG}
+hw.cpu.arch=REPLACED_ARCH
 tag.id=${IMG}
 tag.ids=${IMG}
 tag.display=CI
@@ -241,7 +255,13 @@ INI
   # on an x86_64 image is only explicable from the config, and the emulator picks the profile's own default
   # if a device/skin key sends it looking in a database the image may not have. So no device.name, no skin.*
   # - just the display numbers - and every architecture spelling set from $ABI.
-  for k in hw.arch abi.type Abi image.sysdir.1 tag.id tag.ids target API_LEVEL hw.ramSize hw.cpu.ncore; do
+  sed -i "s|^systemImage.arch=.*|systemImage.arch=$EM_ARCH|; s|^hw.cpu.arch=.*|hw.cpu.arch=$EM_ARCH|" "$AVD_HOME/$AVD_NAME.avd/config.ini"
+  # "Found AVD target architecture: arm" was printed against a config whose hw.arch/abi.type/Abi all said
+  # x86_64 (the keys are in the annotation above, verbatim), so the emulator does not take the architecture
+  # from those: avdmanager's own config.ini also carries systemImage.arch, which is what the AVD-info code
+  # calls the *target* architecture. A hand-written file missing only that key defaults to arm, and QEMU2
+  # then refuses - a three-day detour caused by one line. Write both spellings, and print them.
+  for k in hw.arch hw.cpu.arch systemImage.arch abi.type Abi image.sysdir.1 tag.id tag.ids systemImage.tag.id target API_LEVEL hw.ramSize hw.cpu.ncore; do
     printf '%s=%s\n' "$k" "$(grep -m1 "^$k=" "$AVD_HOME/$AVD_NAME.avd/config.ini" | cut -d= -f2-)"
   done > /tmp/avd-config-keys.txt
   grep -q '^image.sysdir.1=' "$AVD_HOME/$AVD_NAME.avd/config.ini" || echo "::error::hand-written config.ini has no image.sysdir.1"
