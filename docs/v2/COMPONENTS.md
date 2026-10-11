@@ -21,7 +21,7 @@ screen that ships. States: `POC ✔` (an executable check proves it works, where
 | C12 | `ui/*` screens | Render, empty/error/stale states, no ANR | CI `tests + screens`, monkey job, flow coverage `--min-lines 45` | PARTIAL | Proven against *fixtures of our own DB*, so "wrong train" could never be red. Stage 4 fixes by asserting known-truths in-app |
 | C13 | Alarm / Coach / Share | The row already carries the data; needs its own PoC on a real device (Doze, exact alarms) | none | MISSING | Stage 6, after correctness |
 | C14 | Live override store | Cache live schedule per train number, TTL, provenance, wins over offline copy | none | MISSING | This is the self-healing piece (Stage 1 schema v4 + Stage 2) |
-| C15 | Station-pair live search | `TrainBtwStnJson` → list of trains between two stations, labelled `· via NTES` | none | **MISSING — highest value item in the repo** | One request per search fixes the owner's complaint at its root: the list becomes what runs today, including the trains we currently drop |
+| C15 | Station-pair live search | `TrainBtwStnJson`/erail pair → list of trains between two stations, labelled `· via <source>` | `PairSourceTest` (JVM: typed 8.2 states) + probe capture pipeline (`probe-capture` artefact + raw-body commit comment) | **PARTIAL** | Orchestration, feature flag and typed failures proven; the erail parser is written ONLY against the captured pair body (4.5) - capture mechanism shipped round 14 (T14.2), parser is T14.6. Erail identity parser bug found + fixed the same round (T14.4): it had never worked on a real payload |
 
 ## The one-line reading of this table
 
