@@ -274,19 +274,43 @@ class RefQueries(private val ref: RefDb) {
     ) { c -> buildList { while (c.moveToNext()) add(c.mapStop()) } }
 
     /**
-     * The status-chip line. `built_at` is the ETL's UTC stamp and is shown converted to IST, because
-     * printing `2026-10-10T20:27:26Z` in a UI asks the traveller to do a timezone sum to find out how
-     * old their timetable is.
+     * The status-chip line: how many trains are on this device, and **how old the schedule really is**.
+     *
+     * This line used to print `built_at` - the moment the ETL repacked the asset - as if it were the
+     * timetable's date, so a phone in October showed "timetable 11 Oct 2026, 22:27 IST" over an upstream
+     * dataset last revised in June. A traveller who believes the chip is the *date of the data* will read a
+     * renumbered train as a wrong train, and will not forgive the app for it; this product's one non-negotiable
+     * rule is that nothing may look fresher than it is. So the chip now carries the upstream vintage - the
+     * commit date of the source dumps, recorded at build time - and says plainly when that is old.
      */
     fun dataVersion(): String = ref.use { db ->
-        val built = db.metaString("built_at")
         val trains = db.rawQuery("SELECT COUNT(*) FROM trains", null).use { c ->
             if (c.moveToNext()) c.getInt(0) else 0
         }
-        val stamp = RailTime.formatStamp(built)
-        "${Text.group(trains)} trains · " +
-            (if (stamp != null) "timetable $stamp" else "timetable as of ${built ?: "unknown"}")
+        "${Text.group(trains)} trains · " + vintageLabel(db.metaString("source_vintage"))
     }
+
+    /**
+     * The chip's second half. [vintage] is an ISO `yyyy-mm-dd` from the upstream clone; a missing or
+     * unparseable one is reported as unknown rather than quietly replaced with today, which is the mistake
+     * this replaces. Older than a quarter is *said*: Indian Railways revises timetables roughly that often,
+     * and a renumbering is exactly what a passenger cannot detect on their own.
+     */
+    internal fun vintageLabel(vintage: String?): String {
+        if (vintage.isNullOrBlank()) return "timetable date unknown - check a live source"
+        val days = daysSince(vintage)
+        return when {
+            days == null -> "timetable data as of $vintage"
+            days > 90 -> "timetable data as of $vintage · $days days old, may have changed"
+            else -> "timetable data as of $vintage"
+        }
+    }
+
+    private fun daysSince(iso: String): Int? = runCatching {
+        val then = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).parse(iso.trim())
+        val ms = System.currentTimeMillis() - (then?.time ?: return null)
+        (ms / 86_400_000L).toInt()
+    }.getOrNull()
 
     // ---------------------------------------------------------------- mapping
 

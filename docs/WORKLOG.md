@@ -370,3 +370,31 @@ the feed, 2.2 s to erail, 2.0 s to Cloudflare, and `UnknownHostException` bursts
 minutes earlier. Asking it to confirm or deny a fingerprint block is asking a question the log does not
 contain. The user's filter is also now exonerated by their own evidence: no filter app exists on that phone,
 which retires my "security app judging the client" theory along with the address-family one before it.
+
+## Round 8 (11 Oct, late) - the data itself, and what the app said about it
+
+User verdict: most trains shown are wrong, even the numbers; the app must show latest + running info.
+Evidence gathered, not theorised:
+
+- `tools/build_refdb.py` owns no data. It clones Spin1234/IndianRailwayOpenReference.github.io (schedules,
+  last commit 2026-06-20) + prasenjit-27/Indian-Railway-Data (run_days, 2026-08-30). Verified by building the
+  asset here: 6,775 trains, and SMET->MYS contains `06228 SHIMOGA MYSORE EXPRESS 22:10->07:00(+1)` and no
+  SMET->MYS row for 16221. So the numbers are not invented; they are four months stale, which is one full IR
+  timetable revision. No amount of UI/transport work could have fixed this - it is a sourcing problem.
+- The chip quoted `meta.built_at` (our ETL stamp, minutes old) as "timetable 11 Oct 2026". That made stale data
+  look current and turned a data complaint into a trust problem. `R.string.data_as_of` was dead code.
+- `TrainFinder` ordered by |now - departure| and that same order drove BOTH dedupe selection and display, so
+  a train that left 41 min ago headed a list where the next one leaves in 9 min.
+
+Fixes in this commit: ETL records `source_vintage` (min over upstream commit dates, so an overlay cannot
+overstate freshness) and logs each source date; the chip reads "N trains . timetable data as of <date> .
+<k> days old, may have changed" (>90 days) or "timetable date unknown - check a live source" for old assets;
+`TrainFinder.runsBetween` keeps proximity for *which instance of a number* to keep and adds a separate
+*display* order (still-catchable first, then the ones already gone, nearest first). The ordering test that
+pinned the old display rule is rewritten with the reason. `python3 tools/build_refdb.py --profile halts --out
+/tmp/refdb.dbgz` here: builds, 5.88 MB, meta source_vintage=2026-06-20. Gates + the new JVM ordering tests
+ride on CI (no Android SDK in this sandbox).
+
+Still open after this round, in order: live per-row running status is the actual ask and the ETL fix only buys
+honesty; a runtime schedule refresh (so the phone is not pinned to whatever HEAD CI saw) is not built; the
+NTES browser transport works on the device but the parse has never been fed a real payload.

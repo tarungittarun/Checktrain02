@@ -97,15 +97,42 @@ class TrainFinderTest {
         assertEquals(0, skips.wrongDate)
     }
 
+    /**
+     * Closeness to the searched instant decides *which run of a train number* the app keeps - the tests above
+     * pin that, and it is why a search at midnight still returns the 23:59 that is already running.
+     *
+     * It must not also decide the order the passenger reads. The version of this test that did was written
+     * before anyone looked at the screen: at 10:00 it put the 09:00 and 08:00 departures above the 20:00 one,
+     * i.e. the only train still catchable at the bottom, and a real device produced exactly that - a train
+     * that had left 41 minutes earlier in the first row, and the one leaving in nine minutes third. So:
+     * upcoming first, nearest departure at the top of that group; the trains already gone below them, most
+     * recently gone first, because "it left 5 minutes ago and you missed it" is still an answer.
+     */
     @Test
-    fun orderedByClosenessToTheSearchedInstantThenByBoardingTime() {
+    fun catchableTrainsComeFirstAndTheOnesAlreadyGoneAreBelowThemNearestFirst() {
         val (hits, _) = find(
-            pair("11111", board = 480, alight = 900),      // 08:00
-            pair("22222", board = 540, alight = 900),      // 09:00
-            pair("33333", board = 1200, alight = 1500),    // 20:00
+            pair("11111", board = 480, alight = 900),      // 08:00, gone 2 h ago
+            pair("22222", board = 540, alight = 900),      // 09:00, gone 1 h ago
+            pair("33333", board = 1200, alight = 1500),    // 20:00, still to come
             minute = 600,                                   // search for 10:00
         )
-        assertEquals(listOf("22222", "11111", "33333"), hits.map { it.trainNo })
+        assertEquals(listOf("33333", "22222", "11111"), hits.map { it.trainNo })
+    }
+
+    /**
+     * The screenshot case, as a test: 22:51 on the clock, a train that left at 22:10 and the next one at
+     * 23:00. The row that matters was being buried by the row that no longer can.
+     */
+    @Test
+    fun aTrainLeavingInNineMinutesOutranksOneThatLeftFortyOneMinutesAgo() {
+        val (hits, _) = find(
+            pair("06228", board = 1330, alight = 1860),    // 22:10
+            pair("16228", board = 1380, alight = 1940),    // 23:00
+            minute = 1371,                                  // 22:51
+        )
+        assertEquals(2, hits.size)
+        assertEquals("16228", hits.first().trainNo)
+        assertEquals(9, hits.first().boardEpochMinute - 1371 - wed * 1440)
     }
 
     @Test

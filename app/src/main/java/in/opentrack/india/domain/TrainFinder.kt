@@ -120,7 +120,18 @@ object TrainFinder {
             if (best.size >= limit) break
             best.putIfAbsent(h.trainNo, h)
         }
-        return best.values.toList() to Skips(skippedWindow, skippedNotRunning, notRunningNames.toList())
+        // Two different questions, and the list above answers only the first. Choosing *which instance of a
+        // train number* to show is proximity - "the run that left a minute ago is still tonight's answer" is
+        // a rule with a test of its own, and it stays. Choosing the *order the passenger reads* is intent:
+        // sorting the display by the same proximity is what put a train that departed 41 minutes ago above
+        // one leaving in nine, in a screenshot, on the screen whose whole job is "what can I still catch".
+        val display = best.values.sortedWith(
+            compareByDescending<TrainHit> { it.boardEpochMinute >= target }
+                .thenBy { kotlin.math.abs(it.boardEpochMinute - target) }
+                .thenBy { it.boardMinute }
+                .thenBy { it.trainNo }
+        )
+        return display to Skips(skippedWindow, skippedNotRunning, notRunningNames.toList())
     }
 
     data class Skips(val outOfWindow: Int, val wrongDate: Int, val wrongDateTrains: List<String>)

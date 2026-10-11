@@ -88,6 +88,19 @@ ASSET_SOFT_LIMIT_MB = 6.0      # warn (not fail) if the gzipped asset would brea
 ENDPOINT_PAT = re.compile(r"^(?P<name>.*?)\s*-\s*(?P<code>[A-Z0-9]{2,6})$")
 
 
+# Filled by the source loader: the commit date at the tip of each upstream clone. Recorded in `meta` as
+# `source_vintage`, because the app has to tell a traveller how old their timetable *is* - and the ETL's own
+# build stamp answers a different question (when we repacked it), which is not the one anyone asks.
+SOURCE_VINTAGES: dict[str, str] = {}
+
+
+def git_head_date(dest: str) -> str:
+    """`yyyy-mm-dd` of the clone's HEAD commit, or "" if git will not say."""
+    r = subprocess.run(["git", "-C", dest, "log", "-1", "--format=%cd", "--date=short"],
+                       capture_output=True, text=True)
+    return (r.stdout or "").strip()
+
+
 def built_at() -> str:
     """Timestamp for the manifest/meta.
 
@@ -382,6 +395,8 @@ def fetch_sources(cache_dir: str, allow_clone: bool) -> dict[str, dict[str, str]
             if still:
                 raise SystemExit(f"[etl] source still missing after clone: {repo} {still}")
         out[repo] = {f: os.path.join(dest, f) for f in want}
+        SOURCE_VINTAGES[repo] = git_head_date(dest)
+        log(f"{repo}: upstream data last revised {SOURCE_VINTAGES[repo] or 'unknown'}")
     return out
 
 
@@ -684,6 +699,11 @@ def write_db(db_path: str, stations: dict[str, dict[str, Any]], models: dict[str
                "WHERE t.station_code = stations.code)")
     for k, v in [("schema_version", SCHEMA_VERSION), ("profile", profile),
                  ("built_at", built_at()),
+                 # The LEAST fresh upstream date, deliberately. The timetable comes from the primary dump; a
+                 # run-days overlay revised two months later does not make the departure times newer, and
+                 # reporting max() here would repeat the overstatement the build stamp was guilty of.
+                 ("source_vintage", min((v for v in SOURCE_VINTAGES.values() if v), default="")),
+                 ("source_vintages", ";".join(f"{k.split('/')[-1]}@{v}" for k, v in sorted(SOURCE_VINTAGES.items()))),
                  ("sources", ";".join(sorted({s["repo"] for s in SOURCES}))),
                  ("station_count", db.execute("SELECT COUNT(*) FROM stations").fetchone()[0]),
                  ("train_count", db.execute("SELECT COUNT(*) FROM trains").fetchone()[0]),
