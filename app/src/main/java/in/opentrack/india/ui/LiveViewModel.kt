@@ -149,7 +149,8 @@ class LiveViewModel(
                 "UI",
                 "erail live identity for $trainNo: ${id.fromCode}->${id.toCode} (${id.name})",
             )
-            lastUi?.let { _ui.value = buildUi(it.route, it.answer, it.tried) }
+            // Re-read our own last emission (the Activity holds its own copy; this class does not see it).
+            _ui.value?.let { u -> _ui.value = buildUi(u.route, u.answer, u.tried) }
         }
     }
 
