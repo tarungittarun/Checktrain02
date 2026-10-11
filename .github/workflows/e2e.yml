@@ -1,0 +1,429 @@
+# End-to-end testing of the **built APK**, driven from outside the process on a real emulator image.
+#
+# Why a second workflow: the `android` workflow proves the app compiles, that its rules hold, and that its
+# screens paint. None of that can answer "does the app a person installs work on a phone" — the fixture data
+# is ours, the framework is Robolectric's, and the live feed is never touched. This workflow installs the
+# artifacts CI builds and taps on them.
+#
+# The constraint to read before editing: GitHub-hosted runners have **no /dev/kvm**, so an emulator runs
+# under software emulation. The matrix therefore has rows that *require* acceleration (the modern API
+# levels, the density row, the release row, monkey at full volume) and one row that does not (the minSdk
+# image, booted with `-gpu off -no-accel`). A row that cannot boot reports `boot=failed` and is loud in the
+# summary; it is not allowed to look like a pass. The `report` job fails the run when *no* row booted, with
+# the reason and the fix (a runner with KVM, or a self-hosted one), because a pipeline that quietly does
+# nothing is what this file exists to replace.
+#
+# The "100 % coverage" claim is two gates, not a vibe:
+#   * `plan` — every flow in docs/E2E_FLOWS.md must be claimed by a device test, and every `Class#method`
+#     the table cites must exist. Runs in ~20 s, on every push, with no emulator.
+#   * `report` — JaCoCo line coverage of the app, measured from the device runs, against a floor.
+name: e2e
+
+on:
+  push:
+    branches: [main, 'arena/**']
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      monkey_events:
+        description: "Random events for the stability row"
+        default: "30000"
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+  actions: read
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  APP_ID: in.opentrack.india
+  TEST_ID: in.opentrack.india.test
+
+jobs:
+  # ------------------------------------------------------------------------------------ the cheap gate
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Flow manifest vs the tests that claim it
+        run: |
+          python3 tools/ci/flow_coverage.py --summary
+          echo "--- the manifest itself ---"
+          sed -n '1,40p' docs/E2E_FLOWS.md
+      - name: Static checks (the same ones the android workflow runs first)
+        run: |
+          python3 tools/ci/check_kotlin_balance.py app/src
+          python3 tools/ci/check_refs.py app/src/main/java
+          python3 tools/ci/check_resources.py
+          python3 tools/ci/check_members.py
+      - name: The boot script must be usable before anything depends on it
+        run: |
+          bash -n tools/ci/emulator_boot.sh tools/ci/monkey_stability.sh tools/ci/jacoco_report.sh
+          python3 -c "import ast,sys; [ast.parse(open(f).read()) for f in ['tools/ci/flow_coverage.py']]"
+      - name: Report on the commit when the gate is red
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          {
+            echo "### e2e flow gate failed"
+            echo '```'
+            python3 tools/ci/flow_coverage.py 2>&1 | tail -25
+            echo '```'
+          } > /tmp/body.md
+          gh api -X POST "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/comments" \
+            -f body="$(cat /tmp/body.md)" || echo "::warning::could not post the commit comment"
+
+  # --------------------------------------------------------------------------------------- the artifacts
+  build:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate the offline timetable asset
+        run: bash tools/ci/prepare_asset.sh
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+      - name: Assemble the debug APK, the instrumented test APK, and the class files for coverage
+        run: |
+          set -o pipefail
+          ./gradlew --no-daemon :app:assembleDebug :app:assembleDebugAndroidTest \
+            :app:compileDebugKotlin --stacktrace 2>&1 | tee /tmp/build.log
+      # The release row has to test the R8 + resource-shrunk artifact, because shrinking breaks exactly the
+      # things no debug build can show. It is signed with the *debug* keystore on purpose: an instrumented
+      # test APK must be signed by the same key as the app it drives, and the package manager refuses the
+      # pair otherwise. A transient CI key would break the install, not the test.
+      - name: Assemble the release APK signed with the debug key (for the release-smoke row)
+        run: |
+          DBG="$HOME/.android/debug.keystore"
+          ./gradlew --no-daemon :app:assembleRelease \
+            -Pandroid.injected.signing.store.file="$DBG" \
+            -Pandroid.injected.signing.store.password=android \
+            -Pandroid.injected.signing.key.alias=androiddebugkey \
+            -Pandroid.injected.signing.key.password=android
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apk-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apk-debug-androidTest
+          path: app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apk-release
+          path: app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+      # JaCoCo needs the class files to turn a .ec into a report; shipping them costs seconds and keeps the
+      # e2e jobs from running Gradle (and downloading an SDK) just to measure.
+      - name: Package the compiled classes for the coverage report
+        run: |
+          set -e
+          mkdir -p /tmp/cls && cp -r app/build/tmp/kotlin-classes/debug/* /tmp/cls/
+          (cd /tmp && zip -qr "$GITHUB_WORKSPACE/e2e-classes.zip" cls)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: e2e-classes
+          path: e2e-classes.zip
+          if-no-files-found: error
+
+  # ----------------------------------------------------------------------------------- the device matrix
+  e2e:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    continue-on-error: ${{ matrix.optional }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: api34
+            desc: "Pixel 6, API 34, Google APIs image — the modern path, radio off for the degrade flows"
+            api: 34
+            img: google_apis
+            abi: x86_64
+            device: pixel_6
+            optional: true
+            location: granted
+            offline: true
+            monkey: 30000
+          - name: min24
+            desc: "Nexus 5, API 24 — the minSdk floor, and the only row that must boot without KVM"
+            api: 24
+            img: default
+            abi: x86_64
+            device: nexus_5
+            optional: false
+            location: denied
+            offline: false
+            monkey: 6000
+            density_reset: true
+          - name: density
+            desc: "Large phone at 440 dpi — the axis Robolectric cannot fake (it ignores fontScale)"
+            api: 34
+            img: google_apis
+            abi: x86_64
+            device: pixel_c
+            optional: true
+            location: denied
+            offline: false
+            wm_size: 1080x2160
+            wm_density: 440
+            monkey: 12000
+          - name: release
+            desc: "The R8 + resource-shrunk release APK — the artifact a user would actually install"
+            api: 34
+            img: google_apis
+            abi: x86_64
+            device: pixel_6
+            optional: true
+            variant: release
+            location: denied
+            offline: false
+            monkey: 8000
+    env:
+      API: ${{ matrix.api }}
+      IMG: ${{ matrix.img }}
+      ABI: ${{ matrix.abi }}
+      DEVICE: ${{ matrix.device }}
+      ROW: ${{ matrix.name }}
+      VARIANT: ${{ matrix.variant || 'debug' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/download-artifact@v4
+        with:
+          name: apk-debug
+          path: /tmp/apk
+      - uses: actions/download-artifact@v4
+        with:
+          name: apk-debug-androidTest
+          path: /tmp/apk
+      - uses: actions/download-artifact@v4
+        with:
+          name: apk-release
+          path: /tmp/apk
+      - uses: actions/download-artifact@v4
+        with:
+          name: e2e-classes
+          path: /tmp/classes
+      - name: Unzip the class files used for coverage
+        run: (cd /tmp && unzip -qo e2e-classes/*.zip && ls cls | head -3)
+      - name: Boot the emulator
+        id: boot
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          bash tools/ci/emulator_boot.sh 2>&1 | tee /tmp/boot.log
+          if [ -n "${{ matrix.wm_size }}" ]; then
+            adb shell wm size "${{ matrix.wm_size }}" && adb shell wm density "${{ matrix.wm_density }}"
+            adb shell settings put system font_scale 1.15 || true
+          fi
+      - name: "Install the built APKs (cold: wiped data, so first-run extraction really happens)"
+        if: steps.boot.outcome == 'success'
+        run: |
+          adb root >/dev/null 2>&1 || true
+          if [ "$VARIANT" = release ]; then apk=/tmp/apk/app-release.apk; else apk=/tmp/apk/app-debug.apk; fi
+          echo "installing $apk"
+          adb install -r -g "$apk"
+          adb install -r "/tmp/apk/app-debug-androidTest.apk"
+          # The permission row of the matrix: granted means `pm grant`, denied means an explicit revoke so
+          # the app is not merely missing a permission it never asked for.
+          case "${{ matrix.location }}" in
+            granted) adb shell pm grant "$APP_ID" android.permission.ACCESS_COARSE_LOCATION ;;
+            denied) adb shell pm revoke "$APP_ID" android.permission.ACCESS_COARSE_LOCATION || true ;;
+          esac
+      - name: Run the flow suite (and, for the rows that ask for it, again with the radio off)
+        if: steps.boot.outcome == 'success'
+        run: |
+          set -o pipefail
+          release_flag=false; [ "$VARIANT" = release ] && release_flag=true
+          run_suite() {
+            local label=$1
+            echo "=== $label ==="
+            adb logcat -c || true
+            local ec="/sdcard/Android/data/$APP_ID/files/cover-$label.ec"
+            adb shell rm -f "$ec" || true
+            local sel=()
+            # An empty `-e class` value is an error from the runner, not a request to run everything, so the
+            # flag is added only when a filter was actually asked for.
+            [ -n "${CLASS_FILTER:-}" ] && sel=(-e class "$CLASS_FILTER")
+            # `coverage true` is what makes the JaCoCo agent that `testCoverageEnabled` installs flush its
+            # data at the end of the run; without the flag there is no coverage file to measure.
+            adb shell am instrument -w -e debug false -e coverage true -e coverageFile "$ec" \
+              -e release "$release_flag" -e offline "${OFFLINE_FLAG:-false}" \
+              "${sel[@]}" \
+              "$TEST_ID/androidx.test.runner.AndroidJUnitRunner" 2>&1 | tee "/tmp/instrument-$label.log"
+            adb pull "$ec" "/tmp/cover-$label.ec" >/dev/null 2>&1 || true
+            grep -E "^Tests run|FAILURES|INSTRUMENTATION_RESULT|Error:" "/tmp/instrument-$label.log" | tail -20 || true
+            if grep -qE "FAILURES!!!|Tests run: [0-9]+,  Failures: [1-9]|INSTRUMENTATION_FAILED|Exception" \
+                 "/tmp/instrument-$label.log"; then
+              echo "$label=failed" >> /tmp/tests.txt
+            elif ! grep -q "Tests run" "/tmp/instrument-$label.log"; then
+              # A run whose summary line is missing did not execute. Counting zero tests as a pass is how a
+              # harness reports green while having tested nothing.
+              echo "$label=failed (no test summary in the runner output)" >> /tmp/tests.txt
+            else
+              echo "$label=passed" >> /tmp/tests.txt
+            fi
+          }
+          # Cold-start and the flow suites in one pass; `pm clear` above is what makes the first-run case real.
+          # Order matters: the live-feed field test needs the network, so it runs before the radio goes off,
+          # and the degradation suite runs with it off. Each pass writes its own coverage file, and the
+          # merge below makes the number the suite's coverage rather than one pass of it.
+          if [ "${{ matrix.offline }}" = true ]; then
+            CLASS_FILTER="in.opentrack.india.realdevice.LiveFeedFieldTest" run_suite online
+          fi
+          CLASS_FILTER="" run_suite all
+          if [ "${{ matrix.offline }}" = true ]; then
+            adb shell svc wifi disable; adb shell svc data disable; sleep 3
+            OFFLINE_FLAG=true CLASS_FILTER="in.opentrack.india.e2e.DegradationFlowTest" run_suite offline
+            adb shell svc wifi enable; adb shell svc data enable; sleep 2
+          fi
+          if [ -s /tmp/tests.txt ] && grep -q failed /tmp/tests.txt; then
+            echo "::error::at least one instrumented pass failed ($(tr '\n' ' ' < /tmp/tests.txt))"
+            for f in /tmp/instrument-*.log; do echo "--- $f"; grep -B2 -A 28 "^in\.opentrack\|Failure\|expected:" "$f" | head -80; done
+            exit 1
+          fi
+      - name: Coverage of the app, from the device runs
+        if: steps.boot.outcome == 'success' && always()
+        run: |
+          set -o pipefail
+          # Merge the per-pass .ec files so the number is the suite's coverage, not one pass of it.
+          mkdir -p /tmp/ec && cp /tmp/cover-*.ec /tmp/ec/ 2>/dev/null || true
+          merged=$(ls /tmp/ec/*.ec 2>/dev/null | head -1)
+          if [ -z "$merged" ]; then
+            echo "::warning::no coverage file came off the device"
+            echo "coverage=none" >> /tmp/status.txt
+            exit 0
+          fi
+          if [ "$(ls /tmp/ec/*.ec | wc -l)" -gt 1 ]; then
+            JAR=/tmp/jacoco/org.jacoco.cli-0.8.12-nodeps.jar
+            [ -f "$JAR" ] || curl -sSfL --create-dirs -o "$JAR" \
+              https://repo1.maven.org/maven2/org/jacoco/org.jacoco.cli/0.8.12/org.jacoco.cli-0.8.12-nodeps.jar
+            java -jar "$JAR" merge $(ls /tmp/ec/*.ec) --destfile /tmp/ec-all.ec && cp /tmp/ec-all.ec "$merged"
+          fi
+          bash tools/ci/jacoco_report.sh "$merged" /tmp/cls app/src/main/java /tmp/cov | tee /tmp/cov.txt
+          cp /tmp/cov/cov.xml /tmp/cov.xml 2>/dev/null || true
+          echo "coverage=$(grep -o 'coverage: [0-9.]*%' /tmp/cov.txt | head -1)" >> /tmp/status.txt
+      - name: Pull the evidence (screenshots and window hierarchies for every assertion path)
+        if: always() && steps.boot.outcome == 'success'
+        run: |
+          mkdir -p /tmp/evidence
+          adb pull "/sdcard/Android/data/$TEST_ID/files/evidence" /tmp/evidence >/dev/null 2>&1 || true
+          adb exec-out "logcat -d -v brief" > /tmp/logcat.txt 2>&1 || true
+          adb shell dumpsys dropbox --print > /tmp/dropbox.txt 2>&1 || true
+          ls -la /tmp/evidence/evidence 2>/dev/null | head -5 || echo "no screenshots pulled"
+      - name: Random-event stability pass on the same image
+        if: steps.boot.outcome == 'success'
+        run: |
+          COUNT="${{ matrix.monkey || 6000 }}" bash tools/ci/monkey_stability.sh 2>&1 | tail -40
+          tail -3 /tmp/monkey-summary.txt >> "$GITHUB_STEP_SUMMARY" || true
+      - name: Record what this row actually achieved
+        if: always()
+        run: |
+          {
+            echo "row=$ROW"
+            echo "desc=${{ matrix.desc }}"
+            [ "${{ steps.boot.outcome }}" = success ] && echo "boot=ok" || echo "boot=failed (see /tmp/boot.log: no /dev/kvm means software emulation, which may not finish)"
+            echo "variant=$VARIANT"
+            cat /tmp/tests.txt 2>/dev/null || echo "tests=not-run"
+            cat /tmp/status.txt 2>/dev/null || true
+          } | tee "/tmp/e2e-status-$ROW.txt"
+          mkdir -p /tmp/out && cp "/tmp/e2e-status-$ROW.txt" /tmp/out/status.txt
+          cp /tmp/cov.xml /tmp/out/cov.xml 2>/dev/null || true
+          cp /tmp/cov.txt /tmp/out/coverage-summary.txt 2>/dev/null || true
+          # Everything a reader needs to explain *why*, without access to the runner afterwards: the raw
+          # per-pass instrument output, the boot log, the crash scan. This is also what makes a red row
+          # legible to someone who cannot open the Actions UI logs, so keep it in the artifact.
+          cp /tmp/instrument-*.log /tmp/out/ 2>/dev/null || true
+          cp /tmp/boot.log /tmp/out/boot.log 2>/dev/null || true
+          cp /tmp/logcat.txt /tmp/out/dropbox.txt /tmp/monkey-summary.txt /tmp/out/ 2>/dev/null || true
+          for f in /tmp/cov/html/*.html; do cp "$f" /tmp/out/ 2>/dev/null || true; done
+          (cd /tmp/evidence/evidence 2>/dev/null && tar czf /tmp/out/screenshots.tgz .) || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-result-${{ matrix.name }}
+          path: /tmp/out
+          if-no-files-found: warn
+      - name: Report the failure on the commit
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          {
+            echo "### e2e/$ROW failed"
+            echo ""
+            echo '```'
+            tail -60 /tmp/instrument-*.log 2>/dev/null | head -80
+            echo '```'
+            echo 'logcat tail:'
+            echo '```'
+            grep -E "FATAL|ANR |E AndroidRuntime" /tmp/logcat.txt 2>/dev/null | tail -25 || echo "(none)"
+            echo '```'
+          } > /tmp/body.md
+          gh api -X POST "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/comments" -f body="$(cat /tmp/body.md)" \
+            || echo "::warning::could not post the commit comment"
+
+  # ---------------------------------------------------------------------------------------- the summary
+  report:
+    needs: [e2e]
+    runs-on: ubuntu-latest
+    if: always()
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: e2e-result-*
+          merge-multiple: false
+          path: /tmp/rows
+      - name: What ran, what did not, and whether that is acceptable
+        run: python3 tools/ci/e2e_rollup.py /tmp/rows
+      - name: Flow gate with the measured coverage floor
+        run: |
+          cov=$(ls /tmp/rows/*/cov.xml 2>/dev/null | head -1 || true)
+          if [ -n "$cov" ]; then
+            cp "$cov" /tmp/cov.xml
+            python3 tools/ci/flow_coverage.py --jacoco /tmp/cov.xml --min-lines 45 --summary
+          else
+            python3 tools/ci/flow_coverage.py --summary
+            echo "::warning::no JaCoCo report reached the summary job (either no row booted or no coverage file was pulled)"
+          fi
+      - name: Post the roll-up onto the commit
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          {
+            echo "### e2e roll-up"
+            echo ""
+            echo "| row | boot | tests | coverage |"
+            echo "| --- | --- | --- | --- |"
+            cat /tmp/rows/table.md 2>/dev/null || echo "| (none) | | | |"
+            echo ""
+            echo "Flows are gated against docs/E2E_FLOWS.md; screenshots and window hierarchies are in the"
+            echo "\`e2e-result-*\` artifacts of this run."
+          } > /tmp/body.md
+          gh api -X POST "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/comments" -f body="$(cat /tmp/body.md)" \
+            || echo "::warning::could not post the roll-up"

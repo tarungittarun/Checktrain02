@@ -52,6 +52,7 @@ class LiveFeedFieldTest {
      * test that decides whether per-stop actual times are reachable without a key, and it is the one
      * claim no fixture in this repo can make.
      */
+    // @flow feed-per-stop-data
     @Test
     fun whatThePublicFeedActuallyPublishes() {
         val trainNo = arg("train", "12627")
@@ -98,6 +99,7 @@ class LiveFeedFieldTest {
      * The rule the traveller's complaint was about, checked on live data: a screen may not present a
      * position as reported when the feed reported nothing, and it may not stay silent about that.
      */
+    // @flow screen-explains-itself
     @Test
     fun theScreenExplainsItselfWhateverTheFeedDidOrDidNotSend() = runBlocking {
         val trainNo = arg("train", "12627")
@@ -151,6 +153,7 @@ class LiveFeedFieldTest {
      * must be refused if it is about another train. Only runs when the device actually has an override set,
      * so it stays silent for a normal `connectedDebugAndroidTest`.
      */
+    // @flow override-endpoint
     @Test
     fun aConfiguredEndpointIsPreferredAndChecked() = runBlocking {
         val prefs = `in`.opentrack.india.data.Prefs(context)

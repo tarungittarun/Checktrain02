@@ -115,19 +115,53 @@ misreading it.
 
 ## Tests
 
-`./gradlew :app:testDebugUnitTest` runs 60-odd JVM tests with no emulator and no network. They cover
-the parts that are silent failures on a train:
+Two suites, and the split is the point.
+
+`./gradlew :app:testDebugUnitTest` runs the JVM suite with no emulator and no network. It covers the
+parts that are silent failures on a train:
 
 * the hand-written calendar maths, against `java.time`, over ~80 years (a one-day error moves every
   search);
 * the ±24 h window rules, including both midnight spillovers and the tie-break;
-* the wire parser: dropped empty fields, error sentinels, a reordered column map, a truncated tail;
+* the wire parser: dropped empty fields, error sentinels, a reordered column map, a truncated tail,
+  and the feed's own generation stamp (`2026-10-11-7-56-55`), which is the only freshness fact this
+  source publishes;
 * the position rules: halt hysteresis, the 0.97 interpolation cap, monotonicity, staleness demotion,
   GPS override and its accuracy floor, "report not on the route" handling;
 * snapshot codec round-tripping (the cache format and the user-supplied endpoint share one codec, so a
-  key-name mismatch is invisible in one direction only).
+  key-name mismatch is invisible in one direction only);
+* the screens themselves, painted: Robolectric inflates the real layouts, lays them out at 360 dp and
+  411 dp and rasterises with Skia, and the assertions are about pixels and rendered text — that the
+  chart drew a polyline, that no label is cut with an ellipsis, that a schedule-only row prints a dash
+  in the live column and not the timetable a second time.
+
+`./gradlew :app:connectedDebugAndroidTest` runs the **device** suite — UiAutomator driving the installed
+APK from outside its process. JVM tests cannot see the things only a device has: a first run that unpacks
+a 14 MB timetable while you type, a keyboard, a network that answers (or doesn't), R8 and resource
+shrinking in the release artifact, a density that does not fit. Every flow it covers is listed in
+**[docs/E2E_FLOWS.md](docs/E2E_FLOWS.md)**, together with the flows that are declared uncoverable and
+why; `.github/workflows/e2e.yml` fails the build if the list and the tests ever disagree, so "we have
+N tests" can never again stand in for "the tracking screen is tested".
+
+```
+# the whole flow suite on a connected phone or a local emulator
+./gradlew :app:connectedDebugAndroidTest
+# one running train, measured against the live feed, with the per-stop facts in logcat
+adb logcat -s opentrack-live &
+adb shell am instrument -w -e class in.opentrack.india.realdevice.LiveFeedFieldTest \
+  -e train 12627 -e from SBC -e to NDLS \
+  in.opentrack.india.test/androidx.test.runner.AndroidJUnitRunner
+```
+
+CI runs the device matrix on `push`: four emulator rows (API 34 with the radio toggled for the offline
+flows, the API 24 minSdk floor, a 440 dpi large phone, and the *signed release* APK), a 30 000-event
+random-event stability pass with a crash/ANR scan of logcat and dropbox, JaCoCo line coverage measured
+from those runs, and a roll-up posted onto the commit. GitHub-hosted runners have no `/dev/kvm`, so the
+rows that need hardware acceleration report `boot=failed` rather than pretending; a run in which *no* row
+boots is red, with the reason. `workflow_dispatch` lets you run it on demand.
 
 ## Known limits, stated plainly
+
 
 * Live status is only as good as the public endpoint; when it is slow, the app shows the last cached
   snapshot with its age rather than a spinner.
@@ -135,6 +169,13 @@ the parts that are silent failures on a train:
   not in it; a live report naming a station the offline route does not contain is shown as unresolved
   instead of being snapped to the nearest plausible stop.
 * No screenshots/brand assets: this is a functional build, not a store listing.
+* The device suite proves the app's *behaviour*, not the upstream feed's honesty: with no live columns
+  in the response there is nothing to check an actual minute against, so those rows assert the app said
+  "this is the timetable" instead. A second runner needs real live minutes, which needs an endpoint (see
+  the note above) — that is the one gap the suite cannot close by itself.
+* CI's emulator rows need KVM. The `min24` row is configured to try without it (`-no-accel`) and is the
+  row that must boot on a standard runner; the modern rows may report `boot=failed`, which the roll-up
+  shows as skipped-with-reason rather than green.
 * Only English; `resConfigs "en"` is deliberate (it removes ~700 kB of AndroidX translations).
 
 ## Privacy

@@ -36,12 +36,16 @@ def lexical_rules(text: str) -> list[str]:
         stripped = line.strip()
         if stripped.startswith(("*", "//", "/*")):
             continue  # KDoc links to [in.opentrack…] are prose, not code
-        if HARD_KEYWORD_SEGMENT.match(line.rstrip()):
+        # String literals are not code. `By.res("in.opentrack.india", "id/fromBox")` and any
+        # `Class.forName("in.opentrack.india.App")` have to name the package in a string, and flagging that
+        # trains people to work around a checker instead of trusting it.
+        code = re.sub('"[^"]*"', '""', line)
+        if HARD_KEYWORD_SEGMENT.match(code.rstrip()):
             out.append(
                 f"line {no}: package/import segment is an unescaped Kotlin keyword "
                 f"— write it as `{line.split()[0]} `in`.…`"
             )
-        elif BARE_FQN.search(line):
+        elif BARE_FQN.search(code):
             out.append(f"line {no}: fully-qualified name starts with the keyword `in` — import the type instead")
     return out
 
