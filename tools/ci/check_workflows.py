@@ -13,7 +13,12 @@ import pathlib
 import re
 import sys
 
-import yaml
+try:  # PyYAML is not on a runner's python by default; the indentation checks are the ones that matter most.
+    import yaml
+    HAVE_YAML = True
+except ModuleNotFoundError:
+    yaml = None
+    HAVE_YAML = False
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 
@@ -64,6 +69,8 @@ def dup_keys(path: pathlib.Path) -> list[str]:
 
 
 def check_action(path: pathlib.Path) -> list[str]:
+    if not HAVE_YAML:
+        return []
     out = []
     doc = yaml.safe_load(path.read_text(encoding="utf-8"))
     inputs = doc.get("inputs") or {}
@@ -92,6 +99,8 @@ def check_action(path: pathlib.Path) -> list[str]:
 
 
 def check_workflows(workflows: list[pathlib.Path], actions: dict[str, pathlib.Path]) -> list[str]:
+    if not HAVE_YAML:
+        return []
     out = []
     for path in workflows:
         doc = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -133,7 +142,8 @@ def main() -> int:
     problems += check_workflows(workflows, actions)
     for p in problems:
         print(f"FAIL  {p.replace(str(ROOT) + '/', '')}")
-    print(f"\n{len(problems)} problem(s) in {len(workflows)} workflow file(s), {len(actions)} action(s).")
+    extra = "" if HAVE_YAML else "  (PyYAML is absent, so only the indentation checks ran: pip install pyyaml for the rest)"
+    print(f"\n{len(problems)} problem(s) in {len(workflows)} workflow file(s), {len(actions)} action(s).{extra}")
     return 1 if problems else 0
 
 

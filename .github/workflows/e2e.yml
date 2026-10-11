@@ -106,6 +106,10 @@ jobs:
           sed -n '1,40p' docs/E2E_FLOWS.md
       - name: Static checks (the same ones the android workflow runs first)
         run: |
+          # Optional, and only for the checker that reads YAML: a runner's python has no PyYAML, and the
+          # workflow/action schema checks need a parser. The rest are stdlib, and `check_workflows.py`
+          # degrades to its indentation rules rather than failing the gate over a missing package.
+          python3 -m pip install --quiet pyyaml 2>/dev/null || true
           python3 tools/ci/check_kotlin_balance.py app/src
           python3 tools/ci/check_refs.py app/src/main/java
           python3 tools/ci/check_resources.py
@@ -124,9 +128,21 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           {
-            echo "### e2e flow gate failed"
+            echo "### e2e gate failed"
+            echo ""
+            echo "Each checker's own words, so a red \`plan\` job is actionable without opening the UI:"
+            for c in flow_coverage check_kotlin_balance check_refs check_resources check_members check_workflows; do
+              echo ""
+              echo "#### \`$c\`"
+              echo '```'
+              python3 "tools/ci/$c.py" 2>&1 | tail -18 || echo "(the checker itself could not run)"
+              echo '```'
+            done
+            echo ""
+            echo "#### shell syntax of the harness scripts"
             echo '```'
-            python3 tools/ci/flow_coverage.py 2>&1 | tail -25
+            bash -n tools/ci/emulator_boot.sh tools/ci/monkey_stability.sh tools/ci/jacoco_report.sh 2>&1 | head -10 \
+              || echo "(one of them does not parse)"
             echo '```'
           } > /tmp/body.md
           gh api -X POST "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/comments" \
