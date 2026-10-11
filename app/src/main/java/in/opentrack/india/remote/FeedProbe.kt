@@ -1,5 +1,6 @@
 package `in`.opentrack.india.remote
 
+import `in`.opentrack.india.core.BrowserFetch
 import `in`.opentrack.india.core.Diary
 import `in`.opentrack.india.core.Http
 import java.text.SimpleDateFormat
@@ -38,6 +39,14 @@ object FeedProbe {
          * every host, and no railway-side explanation survives.
          */
         val pin4: Boolean = false,
+        /**
+         * Ask through the system browser engine ([in.opentrack.india.core.BrowserFetch]) instead of the app's
+         * own HTTP stack. One field rather than a second code path, so the probe and the adopted shape go
+         * through the same dispatcher: on a device where the far end only answers a browser, that variant
+         * becomes the transport without another install - which is the whole point of measuring this on the
+         * phone instead of guessing in a sandbox.
+         */
+        val browser: Boolean = false,
     )
 
     data class Result(val name: String, val outcome: String, val head: String, val millis: Long)
@@ -46,10 +55,10 @@ object FeedProbe {
     // 4s per try, and a total budget, because every request now passes through Http's single socket
     // monitor: a diagnostic that can hold the user's own refresh behind it for half a minute is a
     // diagnostic that costs the app the thing it is trying to measure.
-    private const val PER_TRY_TIMEOUT = 4_000
-    private const val MAX_TRIES = 10   // every variant, controls included - a probe that ran out of tries
+    private const val PER_TRY_TIMEOUT = 5_000
+    private const val MAX_TRIES = 12   // every variant, controls included - a probe that ran out of tries
                                     // before its own control host is a probe that proves nothing
-    private const val TOTAL_BUDGET = 22_000
+    private const val TOTAL_BUDGET = 34_000
 
     @Volatile
     private var last: List<Result> = emptyList()
@@ -75,7 +84,13 @@ object FeedProbe {
     fun execute(http: Http, v: Variant, trainNo: String, journeyEpochDay: Long): Http.Result {
         val rebuilt = rebuild(v, trainNo, journeyEpochDay)
         return try {
-            if (rebuilt.body == null) {
+            if (rebuilt.browser) {
+                if (rebuilt.body == null) {
+                    BrowserFetch.get(rebuilt.url, PER_TRY_TIMEOUT, rebuilt.headers)
+                } else {
+                    BrowserFetch.post(rebuilt.url, rebuilt.body, PER_TRY_TIMEOUT)
+                }
+            } else if (rebuilt.body == null) {
                 http.get(rebuilt.url, PER_TRY_TIMEOUT, 0, rebuilt.headers, rebuilt.pin4)
             } else {
                 http.post(
@@ -216,6 +231,26 @@ object FeedProbe {
                 true,
             ),
             Variant(
+                "webview-post", NtesWire.BASE_URL, envelope, emptyMap(), false,
+                "the shipped request through the system browser engine: same URL, same bytes, different " +
+                    "client - the last variable a phone's own report has not yet ruled out",
+                false, true,
+            ),
+            Variant(
+                "webview-get-ntes",
+                "https://enquiry.indianrail.gov.in/ntes/others/liveStatusJsonNew?trainNo=$trainNo" +
+                    "&journeyDate=$startIso",
+                null,
+                mapOf(
+                    "Referer" to "https://enquiry.indianrail.gov.in/ntes/",
+                    "Accept" to "application/json, text/plain, */*",
+                ),
+                false,
+                "the GET the NTES site itself makes, through the browser engine and with the site's own " +
+                    "Referer - green here means the endpoint wants a browser's context, not our headers",
+                false, true,
+            ),
+            Variant(
                 "get-erail-ipv4", "https://erail.in/rail/getTrains.aspx?TrainNo=$trainNo&DataSource=1&Language=0",
                 null, emptyMap(), false,
                 "the same pin on a host we know answers, which is what proves the pinned route itself works " +
@@ -270,7 +305,10 @@ object FeedProbe {
                 }
                 // Logged after the append: a line written before it reports the *previous* variant's verdict
                 // against this variant's clock, which is how one field report came to read "nothing in 1005ms".
-                Diary.get()?.log("PROBE") { out.lastOrNull()?.let { it.name + ": " + it.outcome } ?: "nothing" }
+                Diary.get()?.log("PROBE") {
+                    val r = out.lastOrNull()
+                    (if (r == null) "nothing" else r.name + ": " + r.outcome) + " in " + ms + "ms"
+                }
                 if (usable) {
                     adoptedName = v.name
                     break

@@ -53,6 +53,9 @@ class Diary(private val file: File) {
     private val io = Executors.newSingleThreadExecutor { r ->
         Thread(r, "opentrack-diary").apply { isDaemon = true; priority = Thread.MIN_PRIORITY }
     }
+    @Volatile
+    private var appContextForDns: Context? = null
+
     private val clockFmt = SimpleDateFormat("MM-dd HH:mm:ss.SSS", Locale.US)
     private val stampFmt = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US)
 
@@ -168,6 +171,7 @@ class Diary(private val file: File) {
      */
     private fun snapshot(context: Context) {
         val app = context.applicationContext
+        appContextForDns = app
         append("ENV", "model=${Build.MANUFACTURER} ${Build.MODEL} android=${Build.VERSION.RELEASE} (sdk ${Build.VERSION.SDK_INT})")
         runCatching {
             val pi = app.packageManager.getPackageInfo(app.packageName, 0)
@@ -229,8 +233,54 @@ class Diary(private val file: File) {
                 }.onFailure {
                 append("DNS", host + " -> UNRESOLVABLE " + it.javaClass.simpleName + ": " + it.message?.take(120))
                 }
+                append("NET", "dnsServers=" + dnsServers())
+                append("NET", "networkHandle=" + networkHandle())
                 }
     }
+
+    /**
+     * The configured nameservers, reduced to [redacted] when they are on-device (a phone's own hotspot or a
+     * VPN's tunnel hands out an address that is the user's business, not ours) and otherwise kept as-is
+     * because a public resolver's address is public infrastructure. This exists for one question: is every
+     * lookup on this device really going through the private-DNS profile the settings line names? "off" with a
+     * resolver that is not the carrier's means a security app is intercepting DNS at the network layer, which
+     * is a different conversation from "the railway refused us" - and the field report that prompted this had a
+     * filtering resolver configured, five hosts failing to resolve within 70 ms of each other, and every one of
+     * them having resolved fine a minute earlier.
+     */
+    private fun dnsServers(): String {
+        val ctx = appContextForDns ?: return "n/a"
+        return runCatching {
+            val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+            val props = cm.activeNetwork?.let { cm.getLinkProperties(it) } ?: return "n/a"
+            val addrs = props.dnsServers
+            if (addrs.isEmpty()) return "none"
+            addrs.joinToString(",") { a ->
+                val s = a.hostAddress.orEmpty()
+                if (isLocalAddress(s)) "[redacted]" else s
+            }
+        }.getOrElse { "unreadable " + it.javaClass.simpleName }
+    }
+
+    /**
+     * Which network the socket is actually bound to. `Vpn` here with `vpn=false` above is the fingerprint of a
+     * security app that takes traffic per-application rather than at the tunnel level; a name like
+     * `WIFI(100)` is the plain case. No identifiers are included - this is the kind, not the network.
+     */
+    private fun networkHandle(): String {
+        val ctx = appContextForDns ?: return "n/a"
+        return runCatching {
+            val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+            val n = cm.activeNetwork ?: return "no active network"
+            n.networkCapabilities?.transportTypes?.joinToString("+") { android.net.ConnectivityManager
+                .getNetworkTypeName(it) } ?: "?"
+        }.getOrElse { "unreadable " + it.javaClass.simpleName }
+    }
+
+    private fun isLocalAddress(host: String): Boolean =
+        host.startsWith("127.") || host.startsWith("10.") || host.startsWith("192.168.") ||
+            host.startsWith("172.16.") || host.startsWith("172.17.") || host.startsWith("fe80") ||
+            host == "::1"
 
     /** One address, one TCP attempt, one word back. "absent" is a fact about DNS, not about the network. */
     private fun reach(addr: InetAddress?): String =

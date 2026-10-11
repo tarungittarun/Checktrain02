@@ -2,6 +2,7 @@ package `in`.opentrack.india.data
 
 import android.content.Context
 import `in`.opentrack.india.core.Diary
+import `in`.opentrack.india.core.BrowserFetch
 import `in`.opentrack.india.core.Http
 import `in`.opentrack.india.core.RailTime
 import `in`.opentrack.india.domain.PositionEngine
@@ -124,8 +125,14 @@ class RailRepository private constructor(
 
     fun dataVersion(): String = queries.dataVersion()
 
+    /**
+     * Everything this app can fetch again. The browser engine's cookie jar is included because it is now part
+     * of the live-feed path: a session the far end handed out can be the reason a request is refused, and a
+     * user clearing the cache is asking for a clean slate, not for the app to keep one in another directory.
+     */
     fun clearCaches() {
         store.clear()
+        BrowserFetch.clearCookies()
         http.clearCache()
         prefs.clearCaches()
     }

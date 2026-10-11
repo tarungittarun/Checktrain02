@@ -7,6 +7,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import `in`.opentrack.india.core.BrowserFetch
 import `in`.opentrack.india.core.Diary
 import `in`.opentrack.india.data.Prefs
 
@@ -31,6 +32,7 @@ class App : Application() {
      */
     override fun onCreate() {
         super.onCreate()
+        BrowserFetch.init(this)
         val diary = Diary.install(this)
         if (Prefs(this).diaryEnabled) diary.resume(this)
     }

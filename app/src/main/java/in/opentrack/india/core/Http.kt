@@ -97,6 +97,18 @@ class Http(context: Context) {
                 else -> last = if (verdict(last).length >= verdict(pinned).length) last else pinned
             }
         }
+        if (resolverBlip(last)) {
+            // Not "offline": the name service blinked. A phone's log showed five hosts failing to resolve
+            // within 70 ms of each other, after every one of them had resolved cleanly a minute earlier - what
+            // a filtering private-DNS resolver does when a burst outruns it. One pause and one retry costs
+            // 600 ms on the rare bad minute and hides the class of failure from the traveller entirely. If the
+            // name is genuinely gone, the retry fails identically and the message the user reads is unchanged.
+            sleep(600L)
+            val again = tryOnce(url, timeoutMillis, headers)
+            Diary.get()?.log("HTTP", "GET " + hostOf(url) + " after a resolver blip -> " + verdict(again))
+            if (again is Result.Ok) return again
+            last = again
+        }
         if (last is Result.Failed) {
             Diary.get()?.log("HTTP", "GET " + hostOf(url) + " served the response cache instead: " + verdict(last))
             cached(url)?.let { (body, age) ->
@@ -133,6 +145,13 @@ class Http(context: Context) {
             if (last is Result.Ok) return last
             if (last is Result.Failed && last.kind == Result.Kind.HTTP) break
             if (attempt <= retries) sleep(400L * attempt)
+        }
+        if (resolverBlip(last)) {
+            sleep(600L)
+            val again = tryPost(url, body, headers, timeoutMillis, tls12)
+            Diary.get()?.log("HTTP", "POST " + hostOf(url) + " after a resolver blip -> " + verdict(again))
+            if (again is Result.Ok) return again
+            last = again
         }
         if (last is Result.Failed && !pinIpv4 && last.kind != Result.Kind.OFFLINE) {
             val pinned = tryPost(url, body, headers, timeoutMillis, tls12, true)
@@ -259,6 +278,11 @@ class Http(context: Context) {
      */
     private fun failText(e: Throwable, fallback: String): String =
         e.javaClass.simpleName + ": " + (e.message ?: fallback)
+
+    /** The one failure that is a blink rather than a verdict: a name that resolved a minute ago. */
+    private fun resolverBlip(r: Result): Boolean =
+        r is Result.Failed && r.kind == Result.Kind.OFFLINE &&
+            (r.message.contains("Unable to resolve host") || r.message.contains("UnknownHost"))
 
     private fun verdict(r: Result): String = when (r) {
         is Result.Ok -> "answered " + r.body.length + "B" +
