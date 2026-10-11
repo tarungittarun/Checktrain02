@@ -274,16 +274,19 @@ jobs:
           name: apk-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+          retention-days: 3
       - uses: actions/upload-artifact@v4
         with:
           name: apk-debug-androidTest
           path: app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
           if-no-files-found: error
+          retention-days: 3
       - uses: actions/upload-artifact@v4
         with:
           name: apk-release
           path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
+          retention-days: 3
       # The Actions UI is the only place these logs live for most readers, and a red "build" job with no
       # message is the least actionable thing CI can produce, so the compiler's own words go on the commit.
       - name: Put the compile errors on the commit
@@ -315,6 +318,7 @@ jobs:
           name: e2e-classes
           path: e2e-classes.zip
           if-no-files-found: error
+          retention-days: 3
 
   # ----------------------------------------------------------------------------------- the device matrix
   #
