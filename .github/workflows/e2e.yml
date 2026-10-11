@@ -234,6 +234,25 @@ jobs:
     timeout-minutes: 80
     # The row that must pass is the minSdk one; the modern row may be unavailable on a runner without
     # acceleration, and that is reported in the roll-up rather than hidden.
+    env:
+      # The row knobs, as env vars rather than `${{ }}` text substitutions: a description or device profile
+      # with a space in it then cannot rewrite a command line, and the composite action the steps live in
+      # reads these the same way (job env is visible to a composite action's steps).
+      API: ${{ matrix.api }}
+      IMG: ${{ matrix.img }}
+      ABI: ${{ matrix.abi }}
+      DEVICE: ${{ matrix.device }}
+      ROW: ${{ matrix.name }}
+      ROW_DESC: ${{ matrix.desc }}
+      VARIANT: ${{ matrix.variant || 'debug' }}
+      LOCATION: ${{ matrix.location || 'denied' }}
+      OFFLINE: ${{ matrix.offline || false }}
+      MONKEY: ${{ needs.plan.outputs.monkey || matrix.monkey || 6000 }}
+      WM_SIZE: ${{ matrix.wm_size || '' }}
+      WM_DENSITY: ${{ matrix.wm_density || '' }}
+      FONT_SCALE: ${{ matrix.font_scale || '' }}
+      FOCUS: ${{ needs.plan.outputs.focus }}
+      BOOT_TIMEOUT: ${{ needs.plan.outputs.boot_timeout }}
     continue-on-error: ${{ matrix.optional }}
     strategy:
       fail-fast: false
@@ -286,6 +305,24 @@ jobs:
     permissions:
       contents: write
     timeout-minutes: 80
+    env:
+      # Identical to the core row's env block by design: two jobs, one action, and the action reads its whole
+      # configuration from here.
+      API: ${{ matrix.api }}
+      IMG: ${{ matrix.img }}
+      ABI: ${{ matrix.abi }}
+      DEVICE: ${{ matrix.device }}
+      ROW: ${{ matrix.name }}
+      ROW_DESC: ${{ matrix.desc }}
+      VARIANT: ${{ matrix.variant || 'debug' }}
+      LOCATION: ${{ matrix.location || 'denied' }}
+      OFFLINE: ${{ matrix.offline || false }}
+      MONKEY: ${{ needs.plan.outputs.monkey || matrix.monkey || 6000 }}
+      WM_SIZE: ${{ matrix.wm_size || '' }}
+      WM_DENSITY: ${{ matrix.wm_density || '' }}
+      FONT_SCALE: ${{ matrix.font_scale || '' }}
+      FOCUS: ${{ needs.plan.outputs.focus }}
+      BOOT_TIMEOUT: ${{ needs.plan.outputs.boot_timeout }}
     continue-on-error: ${{ matrix.optional }}
     strategy:
       fail-fast: false

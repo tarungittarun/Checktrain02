@@ -16,7 +16,6 @@ inputs:
   row:
     description: "matrix row name; used in artifact names and in the commit comment"
     required: true
-    default: ""
   desc:
     description: "one line on what this row is for"
     required: false
@@ -24,23 +23,18 @@ inputs:
   api:
     description: "Android API level of the system image"
     required: true
-    default: ""
   img:
     description: "system-image variant: google_apis or default"
     required: true
-    default: ""
   abi:
     description: "system-image ABI"
     required: true
-    default: ""
   device:
     description: "AVD hardware profile"
     required: true
-    default: ""
   variant:
     description: "which APK to install: debug or release"
     required: true
-    default: ""
   location:
     description: "granted or denied - the runtime-permission row"
     required: false
@@ -75,22 +69,6 @@ inputs:
     default: ""
 runs:
   using: composite
-  env:
-    ROW: ${{ inputs.row }}
-    ROW_DESC: ${{ inputs.desc }}
-    API: ${{ inputs.api }}
-    IMG: ${{ inputs.img }}
-    ABI: ${{ inputs.abi }}
-    DEVICE: ${{ inputs.device }}
-    VARIANT: ${{ inputs.variant }}
-    LOCATION: ${{ inputs.location }}
-    OFFLINE: ${{ inputs.offline }}
-    MONKEY: ${{ inputs.monkey }}
-    WM_SIZE: ${{ inputs.wm_size }}
-    WM_DENSITY: ${{ inputs.wm_density }}
-    FONT_SCALE: ${{ inputs.font_scale }}
-    FOCUS: ${{ inputs.focus }}
-    BOOT_TIMEOUT: ${{ inputs.boot_timeout }}
   steps:
     - uses: actions/checkout@v4
     - uses: actions/setup-java@v4
