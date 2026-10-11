@@ -51,6 +51,13 @@ Also learned the same run: two red jobs racing one report filename lose the push
 reports are now per-job files (tools/ci/report_failure.py); and `bytes.isprintable()`
 does not exist (fixed in probe.py). Enforced by: DATA_SOURCES.md S2 row + probe job.
 
+## L-8 A pipe can launder a red test green (defect, 2026-10-12, run 38177375650)
+`python3 test_x.py 2>&1 | tail` exits with tail's status, so two broken reporter tests
+were locally "verified" and then failed in CI (checks job). Also: renaming a file the
+tests open (ci-failure-report.txt -> per-job) without updating the readers is the same
+class of miss. Prevention now encoded: local verification runs WITHOUT status-masking
+pipes (set -o pipefail + explicit EXIT= checks), and this row names the symptom.
+
 ## L-4 Repo baseline is empty by design (measured 2026-10-11)
 Head 9a0514d "1" contains only a 2-byte file `1`. docs/, CI, code: none pre-exist.
 Nothing to audit beyond this. `gh issue` #2 (open) belongs to the previous session's

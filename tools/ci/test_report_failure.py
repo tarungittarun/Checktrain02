@@ -34,9 +34,9 @@ class ReporterAsksItsQuestion(unittest.TestCase):
         with mock.patch.dict(os.environ, env), \
              mock.patch.object(report_failure.subprocess, "run", return_value=subprocess.CompletedProcess([], 1)):
             rc = report_failure.main()
-        body = open("ci-failure-report.txt").read()
+        body = open("ci-failure-report-android.txt").read()  # per-job filename (L-7)
         self.assertIn("FAILURE: Build failed", body)
-        self.assertEqual(rc, 0)  # push failure must not mask the report itself
+        self.assertEqual(rc, 0)  # commit step "fails" (mock) -> nothing-to-commit path = 0
 
     def test_loop_guard_never_pushes_duplicate_report(self):
         # a second red run on the same commit must not push again (infinite-loop guard);
@@ -64,7 +64,7 @@ class ReporterAsksItsQuestion(unittest.TestCase):
         with mock.patch.dict(os.environ, env), \
              mock.patch.object(report_failure.subprocess, "run", return_value=subprocess.CompletedProcess([], 1)):
             report_failure.main()
-        body = open("ci-failure-report.txt").read()
+        body = open("ci-failure-report-android.txt").read()  # per-job filename (L-7)
         self.assertIn("no gradle report files", body)
 
 
