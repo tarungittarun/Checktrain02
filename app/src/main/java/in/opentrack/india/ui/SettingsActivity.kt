@@ -43,7 +43,9 @@ class SettingsActivity : AppCompatActivity() {
     ) { result ->
         val uri = pendingExport
         pendingExport = null
-        val bytes = Diary.get()?.text()?.toByteArray(Charsets.UTF_8) ?: ByteArray(0)
+        val diary0 = Diary.get()
+        runCatching { diary0?.awaitIdle() }
+        val bytes = diary0?.text()?.toByteArray(Charsets.UTF_8) ?: ByteArray(0)
         // The null check has to be the branch condition itself: assigning it to a `cancelled` boolean reads
         // better and compiles not at all, because the compiler stops tracking `uri` through the indirection.
         when {
@@ -128,6 +130,7 @@ class SettingsActivity : AppCompatActivity() {
             renderDiary(diary)
         }
         binding.diagShare.setOnClickListener {
+            runCatching { diary.awaitIdle() }
             val body = diary.text()
             val collected = diary.file()?.let { it.length() > 0L } == true
             if (body.isBlank() || !collected) {

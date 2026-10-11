@@ -136,6 +136,20 @@ class Diary(private val file: File) {
     }
 
     /**
+     * Blocks until everything logged so far has reached the disk, or the wait runs out.
+     *
+     * The writer is a single FIFO thread, so a marker task queued now runs after every pending append - which
+     * makes "durable up to this instant" a property the class can offer instead of something each caller races
+     * against. The export paths use it, and so does the test that once failed by reading the file a write
+     * early: a log you cannot guarantee the end of is a log that loses the last few lines of a repro.
+     */
+    fun awaitIdle(timeoutMillis: Long = 4_000L): Boolean {
+        val done = java.util.concurrent.CountDownLatch(1)
+        if (runCatching { io.execute { done.countDown() } }.isFailure) return false
+        return done.await(timeoutMillis, java.util.concurrent.TimeUnit.MILLISECONDS)
+    }
+
+    /**
      * The environment, captured once when collection starts.
      *
      * This is the part a report from a phone can tell and no CI run can: whether a Private DNS profile is

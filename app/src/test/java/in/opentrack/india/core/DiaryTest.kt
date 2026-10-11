@@ -37,14 +37,11 @@ class DiaryTest {
         diary.setEnabled(true)
         diary.log("HTTP", "GET enquiry.indianrail.gov.in try#1 -> HTTP IOException: closed")
         diary.log("PROBE", "post-tls12: answered 4021B, usable running data")
-        // First line synchronous, the rest queued: give the executor a moment rather than assert on a race.
-        val deadline = System.currentTimeMillis() + 4_000L
-        var text = ""
-        while (System.currentTimeMillis() < deadline) {
-            text = if (file.exists()) file.readText() else ""
-            if (text.contains("post-tls12")) break
-            Thread.sleep(25L)
-        }
+        // The first line is written inline and the rest on the writer thread. awaitIdle is the durability
+        // barrier the class offers, so this asserts on the contract instead of on how long a sleep is enough
+        // - and the assertion below is the one that failed on CI when this test raced its own writer.
+        assertTrue("queued writes never drained", diary.awaitIdle())
+        val text = if (file.exists()) file.readText() else ""
         assertTrue("the file never received the queued line: '$text'", text.contains("post-tls12"))
         assertTrue(text.contains("IOException: closed"))
         val shared = diary.text()
@@ -52,6 +49,7 @@ class DiaryTest {
         assertTrue(shared.contains("[HTTP]"))
         diary.disable()
         assertFalse(diary.enabled)
+        assertTrue("the footer never drained", diary.awaitIdle())
         val afterDisable = file.readText()
         diary.log("HTTP", "GET hidden.invalid")
         assertEquals("a line written after disable reached the disk", afterDisable, file.readText())
