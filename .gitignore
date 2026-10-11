@@ -1,0 +1,11 @@
+# keep captures, build outputs and logs OUT of git (brief 9.8)
+tools/captures/
+captures/
+build/
+*/build/
+.gradle/
+*.apk
+*.aab
+*.log
+local.properties
+.kotlin/
