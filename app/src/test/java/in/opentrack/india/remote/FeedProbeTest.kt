@@ -34,7 +34,7 @@ class FeedProbeTest {
         // "this device has no route", so at least two distinct hosts must appear in the matrix.
         assertEquals(
             "hosts must actually be extracted (an empty or single-element set would make this vacuous)",
-            3,
+            4,
             vs.map { it.url.substringAfter("://").substringBefore("/") }.distinct().size,
         )
         assertEquals(
@@ -63,6 +63,14 @@ class FeedProbeTest {
             "rebuilt body: ${rebuiltPlain.body}",
             rebuiltPlain.body!!.contains("trainNo=22691") && rebuiltPlain.body!!.contains("startDate=12-Oct-2026"),
         )
+        assertFalse(
+            "a control host that never resolves is not a control",
+            vs.any { it.url.contains("howtherail") },
+        )
+        assertTrue(
+            "the no-key control must exist: it separates 'this app cannot do TLS' from 'the feed refuses us'",
+            vs.any { it.name == "get-railradar-no-key" },
+        )
         val getNtes = vs.first { it.name == "get-ntes-web" }
         assertTrue(
             "a GET variant must carry the new train number",
@@ -90,5 +98,17 @@ class FeedProbeTest {
         // the difference between a fix and a mystery in the report.
         assertTrue(legacy.headers["Referer"]?.contains("enquiry.indianrail.gov.in") == true)
         assertTrue(legacy.headers.containsKey("X-Requested-With"))
+    }
+
+    @Test
+    fun `the egress control never carries an ip address into the report`() {
+        val trace = "ip=103.21.58.11\nts=1760181000\nvisit_scheme=https\nuag=okhttp\ncolo=BOM\n" +
+            "http=http/1.1\nloc=IN\nsloc=in\nsla=\nslop=tls\notxt=1\nproxy=none\nip_version=4\n"
+        val summary = FeedProbe.egressSummary(trace)
+        assertTrue("summary was: $summary", summary.contains("loc=IN"))
+        assertTrue("summary was: $summary", summary.contains("proxy=none"))
+        assertFalse("the device's address must not be copyable", summary.contains("103.21.58.11"))
+        assertFalse(summary.contains("ip="))
+        assertEquals("answered, fields unreadable", FeedProbe.egressSummary("<html>no fields here</html>"))
     }
 }

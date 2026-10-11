@@ -193,7 +193,14 @@ class TrainActivity : AppCompatActivity() {
         val text = buildString {
             append("OpenTrack India live-feed report\n")
             append("train ${m.trainNo} · ${m.runDateLabel} · seen ${RailTime.formatClock(System.currentTimeMillis())} IST\n")
-            append("source ${m.provenanceLabel} · age ${m.ageLabel} · ${m.feedStampLabel}\n")
+            // Filtered rather than concatenated: an empty feed-stamp used to leave "· " hanging at the end of
+            // the line, which is the sort of detail that makes a diagnostic look unfinished in a screenshot.
+            append(listOf(
+                "source ${'$'}{m.provenanceLabel}",
+                "age ${'$'}{m.ageLabel}",
+                m.feedStampLabel,
+            ).filter { it.isNotBlank() }.joinToString(" · "))
+            append("\n")
             append("delay ${m.delayLabel} · next ${m.nextLabel} · progress ${m.progressLabel}\n")
             append("rows ${m.rows.size}: $reported reported / $projected projected / $timetable timetable\n")
             append("providers ${u.tried.joinToString(" ")}\n")

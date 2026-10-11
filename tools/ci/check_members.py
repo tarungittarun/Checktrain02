@@ -75,7 +75,7 @@ getOrPut getOrElse onFailure onSuccess awaitCancellable current isDisposed dispo
 # framework calls the render harness makes to paint a screen at another size: Context.createConfigurationContext,
 # DisplayMetrics.density, Layout.getLineWidth.
 # the live-feed client: javax.crypto, java.security, org.json and the stdlib calls on their results
-init doFinal indices optJSONObject opt optString has keys getJSONArray encodeToString decode nextBytes
+init doFinal indices optJSONObject opt optString has keys getJSONArray encodeToString decode nextBytes lines
 setPrimaryClip
 isNullOrBlank containsKey isNullOrEmpty takeWhile toLongOrNull substringAfter asSequence toList filter
 createConfigurationContext density getLineWidth setTextSize requestRectangleOnScreen idleFor application

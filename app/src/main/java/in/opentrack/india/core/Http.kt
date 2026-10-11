@@ -30,6 +30,26 @@ class Http(context: Context) {
 
     private val cacheRoot = File(context.cacheDir, "http").apply { mkdirs() }
 
+    /**
+     * Every socket operation in the app is serialised on this monitor.
+     *
+     * The reason is a bug this class caused rather than one it observed. Android's HttpURLConnection keeps a
+     * process-wide pool of keep-alive sockets, and `disconnect()` does not merely drop *this* connection - it
+     * closes the pooled socket. With one shared [Http] and several things fetching at once (the startup read in
+     * `App`, the 60-second auto-refresh, a fallback source, a diagnostic probe), thread A could `disconnect()`
+     * while thread B was still mid-handshake on that socket, and B would see `IOException: closed` without
+     * anything having been wrong with its request.
+     *
+     * That is what a live-feed report from a phone in Bengaluru looked like: three unrelated hosts, every one
+     * "closed" in about 400 ms, including a site this app has never failed against. A field that rejects us
+     * answers; a torn connection pool hangs up. Serialising costs the app almost nothing (all of its traffic is
+     * a few small requests per minute, to one public endpoint that deserves that pacing anyway) and buys the
+     * only measurement of the feed that can be trusted.
+     */
+    private val socketLock = Any()
+
+    private inline fun <T> serial(block: () -> T): T = synchronized(socketLock) { block() }
+
     sealed class Result {
         data class Ok(val body: String, val fromCache: Boolean, val ageMillis: Long) : Result()
         data class Failed(val kind: Kind, val message: String) : Result()
@@ -93,9 +113,10 @@ class Http(context: Context) {
 
     private fun tryPost(
         url: String, body: String, headers: Map<String, String>, timeoutMillis: Int, tls12: Boolean = false,
-    ): Result {
+    ): Result = serial {
         var conn: HttpURLConnection? = null
-        return try {
+        var bodyRead = false
+        try {
             conn = (URL(url).openConnection() as HttpURLConnection).apply {
                 connectTimeout = timeoutMillis
                 readTimeout = timeoutMillis
@@ -115,10 +136,11 @@ class Http(context: Context) {
             }
             val text = stream.bufferedReader(Charsets.UTF_8).use(BufferedReader::readText)
             stream.close()
+            bodyRead = true
             if (text.isBlank()) Result.Failed(Result.Kind.EMPTY, "empty body")
             else Result.Ok(text, fromCache = false, ageMillis = 0)
         } catch (e: SocketTimeoutException) {
-            Result.Failed(Result.Kind.TIMEOUT, e.message ?: "timeout")
+            Result.Failed(Result.Kind.TIMEOUT, "${'$'}{e.javaClass.simpleName}: ${'$'}{e.message ?: "timeout"}")
         } catch (e: IOException) {
             val offline = e.message?.let {
                 it.contains("Unable to resolve host") || it.contains("ENETUNREACH") || it.contains("ENONET")
@@ -132,9 +154,9 @@ class Http(context: Context) {
                 "${e.javaClass.simpleName}: ${e.message ?: "io error"}",
             )
         } catch (e: Throwable) {
-            Result.Failed(Result.Kind.PARSE, e.message ?: "unexpected")
+            Result.Failed(Result.Kind.PARSE, "${'$'}{e.javaClass.simpleName}: ${'$'}{e.message ?: "unexpected"}")
         } finally {
-            runCatching { conn?.disconnect() }
+            if (!bodyRead) runCatching { conn?.disconnect() }
         }
     }
 
@@ -149,9 +171,10 @@ class Http(context: Context) {
             init(null, null, null)
         }.socketFactory
 
-    private fun tryOnce(url: String, timeoutMillis: Int, headers: Map<String, String> = emptyMap()): Result {
+    private fun tryOnce(url: String, timeoutMillis: Int, headers: Map<String, String> = emptyMap()): Result = serial {
         var conn: HttpURLConnection? = null
-        return try {
+        var bodyRead = false
+        try {
             conn = (URL(url).openConnection() as HttpURLConnection).apply {
                 connectTimeout = timeoutMillis
                 readTimeout = timeoutMillis
@@ -185,20 +208,25 @@ class Http(context: Context) {
             }
             val body = stream.bufferedReader(Charsets.UTF_8).use(BufferedReader::readText)
             stream.close()
+            bodyRead = true
             if (body.isBlank()) return Result.Failed(Result.Kind.EMPTY, "empty body")
             store(url, body)
             Result.Ok(body, fromCache = false, ageMillis = 0)
         } catch (e: SocketTimeoutException) {
-            Result.Failed(Result.Kind.TIMEOUT, e.message ?: "timeout")
+            Result.Failed(Result.Kind.TIMEOUT, "${'$'}{e.javaClass.simpleName}: ${'$'}{e.message ?: "timeout"}")
         } catch (e: IOException) {
             val offline = e.message?.contains("Unable to resolve host") == true ||
                 e.message?.contains("ENETUNREACH") == true || e.message?.contains("ENONET") == true
-            Result.Failed(if (offline) Result.Kind.OFFLINE else Result.Kind.HTTP,
-                e.message ?: "io error")
+            Result.Failed(
+                if (offline) Result.Kind.OFFLINE else Result.Kind.HTTP,
+                "${'$'}{e.javaClass.simpleName}: ${'$'}{e.message ?: "io error"}",
+            )
         } catch (e: Throwable) {
-            Result.Failed(Result.Kind.HTTP, e.message ?: "unexpected")
+            Result.Failed(Result.Kind.HTTP, "${'$'}{e.javaClass.simpleName}: ${'$'}{e.message ?: "unexpected"}")
         } finally {
-            runCatching { conn?.disconnect() }
+            // Only a request that never finished reading may disconnect. A completed one hands its socket back
+            // to the pool on purpose; pulling the rug out from under the pool is the fault described above.
+            if (!bodyRead) runCatching { conn?.disconnect() }
         }
     }
 

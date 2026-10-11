@@ -34,8 +34,13 @@ object FeedProbe {
     data class Result(val name: String, val outcome: String, val head: String, val millis: Long)
 
     private const val HEAD = 150
-    private const val PER_TRY_TIMEOUT = 7_000
-    private const val MAX_TRIES = 7
+    // 4s per try, and a total budget, because every request now passes through Http's single socket
+    // monitor: a diagnostic that can hold the user's own refresh behind it for half a minute is a
+    // diagnostic that costs the app the thing it is trying to measure.
+    private const val PER_TRY_TIMEOUT = 4_000
+    private const val MAX_TRIES = 8   // every variant, controls included - a probe that ran out of tries
+                                    // before its own control host is a probe that proves nothing
+    private const val TOTAL_BUDGET = 22_000
 
     @Volatile
     private var last: List<Result> = emptyList()
@@ -79,8 +84,8 @@ object FeedProbe {
             v.body == null && v.url.contains("liveStatusJsonNew") ->
                 v.copy(url = "https://enquiry.indianrail.gov.in/ntes/others/liveStatusJsonNew?trainNo=$trainNo" +
                     "&journeyDate=" + isoDate(journeyEpochDay))
-            v.body == null && v.url.contains("howtherail") ->
-                v.copy(url = "https://howtherail.in/railapi/getTrainLiveTrainStatusByStn?train_no=$trainNo")
+            v.body == null && v.url.contains("railradar") ->
+                v.copy(url = "https://api.railradar.in/v1/trains/$trainNo/live")
             v.body == null && v.url.contains("getTrains.aspx") ->
                 v.copy(url = "https://erail.in/rail/getTrains.aspx?TrainNo=$trainNo&DataSource=1&Language=0")
             v.body == null -> v
@@ -165,12 +170,17 @@ object FeedProbe {
                 "the old web JSON endpoint, GET, presenting itself as the NTES site",
             ),
             Variant(
-                "get-howtherail",
-                "https://howtherail.in/railapi/getTrainLiveTrainStatusByStn?train_no=$trainNo",
+                "get-railradar-no-key",
+                "https://api.railradar.in/v1/trains/$trainNo/live",
                 null,
-                mapOf("Accept" to "application/json, text/plain, */*"),
+                mapOf("Accept" to "application/json"),
                 false,
-                "an independent Indian live-status service, as a control for reachability",
+                "a keyed service, asked without a key: any HTTP status at all - including 401 - proves HTTPS " +
+                    "leaves this app fine and that the problem is the feed, not the device",
+            ),
+            Variant(
+                "get-egress-trace", "https://one.one.one.one/cdn-cgi/trace", null, emptyMap(), false,
+                "reachability control that also says which country this traffic appears to leave from",
             ),
             Variant(
                 "get-erail-control", "https://erail.in/rail/getTrains.aspx?TrainNo=$trainNo&DataSource=1&Language=0",
@@ -195,7 +205,12 @@ object FeedProbe {
             // probe would be skipped for the life of the process and the report would quietly stop saying why.
             val out = ArrayList<Result>(tries.size)
             try {
+            val started = System.currentTimeMillis()
             for (v in tries) {
+                if (System.currentTimeMillis() - started > TOTAL_BUDGET) {
+                    out += Result(v.name, "skipped (probe budget reached)", "", 0L)
+                    continue
+                }
                 val t0 = System.currentTimeMillis()
                 val got = execute(http, v, trainNo, journeyEpochDay)
                 val ms = System.currentTimeMillis() - t0
@@ -210,7 +225,11 @@ object FeedProbe {
                     is Http.Result.Ok -> Result(
                         v.name,
                         "answered ${got.body.length}B" + if (usable) ", usable running data" else ", not running data",
-                        head(got.body),
+                        // The egress control is answered with a trace that includes the device's public IP.
+                        // Only the country and the proxy class are reportable: the clipboard is text the user
+                        // pastes into a bug report, and an app with "no analytics" on its own screen must not be
+                        // the thing that puts their IP address into one.
+                        if (v.name == "get-egress-trace") egressSummary(got.body) else head(got.body),
                         ms,
                     )
                     is Http.Result.Failed -> Result(v.name, "${got.kind} ${got.message}".trim(), "", ms)
@@ -227,6 +246,20 @@ object FeedProbe {
                 running = false
             }
         }, "feed-probe").apply { isDaemon = true; start() }
+    }
+
+    /**
+     * The two fields of a Cloudflare trace that say something useful without saying who the device is.
+     * Anything containing the ip line is dropped by construction: this function only ever returns the keys it
+     * names, so a future edit that prints more of the body cannot quietly start shipping an address.
+     */
+    internal fun egressSummary(body: String): String {
+        val keep = listOf("loc", "proxy", "http")
+        val parts = body.lines().map { it.trim() }.filter { it.contains('=') }.mapNotNull { line ->
+            val k = line.substringBefore('=').trim().lowercase()
+            if (k in keep) "$k=${'$'}{line.substringAfter('=').trim()}" else null
+        }
+        return if (parts.isEmpty()) "answered, fields unreadable" else parts.joinToString(" ")
     }
 
     /** The paragraph appended to the copied report. Empty until a probe has run in this process. */
