@@ -158,12 +158,32 @@ def backing_field(files) -> list[str]:
     cascade of unresolved references. This project hit it by naming a private EditText `field`, which is
     fine everywhere except inside a custom getter/setter, where the keyword shadows it.
     """
+    # Comments and strings are blanked first, not just the noise tokens: prose that happens to contain
+    # "a form field. `postUrl`" is not code, and it used to be reported as if it were. `strip_noise` works a
+    # line at a time and cannot see a KDoc's interior, so block comments are masked here before the per-line
+    # pass; newlines are preserved so the number reported is the number in the file.
     problems: list[str] = []
     for f in files:
-        for no, line in enumerate(strip_noise(f.read_text()).splitlines(), 1):
+        src = f.read_text()
+        masked, i = [], 0
+        while i < len(src):
+            start = src.find("/*", i)
+            if start < 0:
+                masked.append(src[i:])
+                break
+            end = src.find("*/", start + 2)
+            end = len(src) - 1 if end < 0 else end + 2
+            masked.append(src[i:start])
+            masked.append("".join(ch if ch == "\n" else " " for ch in src[start:end]))
+            i = end
+        body = "".join(masked)
+        if len(body) < len(src):
+            body += "\n" * (src.count("\n") - body.count("\n"))
+        for no, line in enumerate(_clean(body).splitlines(), 1):
             if re.search(r"(?:^|[=({.\s])field\.", line):
-                problems.append(f"{f.relative_to(ROOT)}:{no}: `field.` in a property accessor — `field` is "
-                                "the backing-field keyword there, not a receiver; rename the member")
+                problems.append(f"{f.relative_to(ROOT)}:{no}: `field.` — `field` is the keyword for a "
+                                "property's own backing value inside an accessor, so a member named `field` "
+                                "cannot be dereferenced there; rename it")
     return problems
 
 

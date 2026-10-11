@@ -67,8 +67,30 @@ object BrowserFetch {
         appContext = context.applicationContext
     }
 
-    fun get(url: String, timeoutMillis: Int, headers: Map<String, String> = emptyMap()): Http.Result =
-        exchange(url, null, headers, timeoutMillis, "GET")
+    /** A cold web view plus a page load is not a socket write: 5 s was too tight, measured on a device. */
+    val defaultTimeout = 9_000
+
+    fun get(url: String, timeoutMillis: Int = defaultTimeout, headers: Map<String, String> = emptyMap()): Http.Result =
+        exchange(url, null, headers, timeoutMillis, "GET", read = true)
+
+    /**
+     * The envelope as a form field. `postUrl` fixes Content-Type at `application/x-www-form-urlencoded`, so a
+     * raw JSON body is a request whose declared shape does not match its contents - which is exactly the kind
+     * of thing an ASP.NET endpoint answers with a short error object. The 159-byte answer this produced is the
+     * reason the variant exists, and the log carries what it said.
+     */
+    fun postForm(url: String, formKey: String, value: String, timeoutMillis: Int = defaultTimeout): Http.Result =
+        exchange(url, formKey + "=" + java.net.URLEncoder.encode(value, "UTF-8"), emptyMap(), timeoutMillis, "POST-form")
+
+    /**
+     * Visit the site, then post - so any cookie the site hands its own scripts is in the jar when the API is
+     * asked. The warm-up document is deliberately not read back: only whether a page finished matters, and a
+     * 400 KB HTML page has no business in a log or a parser.
+     */
+    fun postAfterSession(siteUrl: String, url: String, body: String, timeoutMillis: Int = defaultTimeout): Http.Result {
+        runCatching { exchange(siteUrl, null, emptyMap(), timeoutMillis, "WARM", read = false) }
+        return exchange(url, body, emptyMap(), timeoutMillis, "POST+site-session")
+    }
 
     /**
      * `postUrl` fixes the Content-Type at `application/x-www-form-urlencoded`, so the JSON envelope travels as
@@ -103,6 +125,7 @@ object BrowserFetch {
         headers: Map<String, String>,
         timeoutMillis: Int,
         kind: String,
+        read: Boolean = true,
     ): Http.Result {
         val ctx = appContext ?: return Http.Result.Failed(
             Http.Result.Kind.HTTP, "BrowserFetch not initialised (no application context)",
@@ -122,7 +145,7 @@ object BrowserFetch {
                         override fun onPageFinished(v: WebView, pageUrl: String) {
                             if (!pending) return
                             pending = false
-                            readBack(v, text, done)
+                            if (read) readBack(v, text, done) else done.countDown()
                         }
 
                         override fun onReceivedError(

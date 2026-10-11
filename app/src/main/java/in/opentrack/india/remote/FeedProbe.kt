@@ -47,6 +47,8 @@ object FeedProbe {
          * phone instead of guessing in a sandbox.
          */
         val browser: Boolean = false,
+        /** A page to visit first, so the engine holds the site's own cookies when the API is asked. */
+        val warm: String = "",
     )
 
     data class Result(val name: String, val outcome: String, val head: String, val millis: Long)
@@ -56,9 +58,12 @@ object FeedProbe {
     // monitor: a diagnostic that can hold the user's own refresh behind it for half a minute is a
     // diagnostic that costs the app the thing it is trying to measure.
     private const val PER_TRY_TIMEOUT = 5_000
-    private const val MAX_TRIES = 12   // every variant, controls included - a probe that ran out of tries
+    // A cold web view is not a socket write: the engine answered in ~1.1 s of its own on a device, and a
+    // 5 s cap turned a page load plus a request into a timeout. Generous, because it runs after a failure.
+    private const val BROWSER_TIMEOUT = 10_000
+    private const val MAX_TRIES = 16   // every variant, controls included - a probe that ran out of tries
                                     // before its own control host is a probe that proves nothing
-    private const val TOTAL_BUDGET = 34_000
+    private const val TOTAL_BUDGET = 62_000
 
     @Volatile
     private var last: List<Result> = emptyList()
@@ -77,6 +82,18 @@ object FeedProbe {
     var adoptedName: String? = null
         private set
 
+    /**
+     * True once the browser engine has been *accepted* by a host that hung up on the app's own client - before
+     * any payload proved usable. Transport and protocol are different failures, and this is what separates
+     * them: a device that got a 159-byte answer through the engine is a device where asking again through
+     * HttpURLConnection is known-futile, so the providers switch transport while the payload is still being
+     * argued about. Adoption of a *usable* shape stays gated exactly as before; this flag changes who asks,
+     * never what is believed.
+     */
+    @Volatile
+    var browserWorks: Boolean = false
+        private set
+
     /** True once a probe has finished in this process, so a report can say whether to wait for it. */
     val ready: Boolean get() = last.isNotEmpty()
 
@@ -85,10 +102,13 @@ object FeedProbe {
         val rebuilt = rebuild(v, trainNo, journeyEpochDay)
         return try {
             if (rebuilt.browser) {
-                if (rebuilt.body == null) {
-                    BrowserFetch.get(rebuilt.url, PER_TRY_TIMEOUT, rebuilt.headers)
-                } else {
-                    BrowserFetch.post(rebuilt.url, rebuilt.body, PER_TRY_TIMEOUT)
+                when {
+                    rebuilt.warm.isNotBlank() && rebuilt.body != null ->
+                        BrowserFetch.postAfterSession(rebuilt.warm, rebuilt.url, rebuilt.body, BROWSER_TIMEOUT)
+                    rebuilt.body != null && rebuilt.body.startsWith("jsonIn=") ->
+                        BrowserFetch.postForm(rebuilt.url, "jsonIn", rebuilt.body.substringAfter("="), BROWSER_TIMEOUT)
+                    rebuilt.body != null -> BrowserFetch.post(rebuilt.url, rebuilt.body, BROWSER_TIMEOUT)
+                    else -> BrowserFetch.get(rebuilt.url, BROWSER_TIMEOUT, rebuilt.headers)
                 }
             } else if (rebuilt.body == null) {
                 http.get(rebuilt.url, PER_TRY_TIMEOUT, 0, rebuilt.headers, rebuilt.pin4)
@@ -109,6 +129,10 @@ object FeedProbe {
      */
     fun rebuild(v: Variant, trainNo: String, journeyEpochDay: Long): Variant {
         val plain = NtesWire.plainFor(NtesWire.SUB_LIVE, trainNo, journeyEpochDay)
+        if (v.body != null && v.body.startsWith("jsonIn=")) {
+            // Key and value, not a stored body: the value is this question's wrapped envelope, re-encoded.
+            return v.copy(body = "jsonIn=" + java.net.URLEncoder.encode(NtesWire.wrap(plain), "UTF-8"))
+        }
         return when {
             v.body == null && v.url.contains("liveStatusJsonNew") ->
                 v.copy(url = "https://enquiry.indianrail.gov.in/ntes/others/liveStatusJsonNew?trainNo=$trainNo" +
@@ -251,6 +275,28 @@ object FeedProbe {
                 false, true,
             ),
             Variant(
+                "webview-post-form", NtesWire.BASE_URL,
+                "jsonIn=" + java.net.URLEncoder.encode(NtesWire.wrap(wirePlain), "UTF-8"),
+                emptyMap(), false,
+                "the envelope as the form field the browser's own Content-Type advertises - what an ASP.NET " +
+                    "endpoint reads when it is not handed a raw JSON body",
+                false, true,
+            ),
+            Variant(
+                "webview-post-session", NtesWire.BASE_URL, envelope, emptyMap(), false,
+                "the site first, then the API, so the engine carries whatever cookie NTES hands its own " +
+                    "scripts: the difference between an anonymous POST and the one the page itself makes",
+                false, true, "https://enquiry.indianrail.gov.in/ntes/",
+            ),
+            Variant(
+                "webview-erail",
+                "https://erail.in/rail/getTrains.aspx?TrainNo=$trainNo&DataSource=1&Language=0",
+                null, emptyMap(), false,
+                "the alternate source through the same engine - if it answers here, run data from erail becomes " +
+                    "reachable on exactly the devices where the app's own client was refused",
+                false, true,
+            ),
+            Variant(
                 "get-erail-ipv4", "https://erail.in/rail/getTrains.aspx?TrainNo=$trainNo&DataSource=1&Language=0",
                 null, emptyMap(), false,
                 "the same pin on a host we know answers, which is what proves the pinned route itself works " +
@@ -305,9 +351,15 @@ object FeedProbe {
                 }
                 // Logged after the append: a line written before it reports the *previous* variant's verdict
                 // against this variant's clock, which is how one field report came to read "nothing in 1005ms".
+                if (got is Http.Result.Ok && v.browser) browserWorks = true
                 Diary.get()?.log("PROBE") {
                     val r = out.lastOrNull()
-                    (if (r == null) "nothing" else r.name + ": " + r.outcome) + " in " + ms + "ms"
+                    if (r == null) "nothing in " + ms + "ms"
+                    else r.name + ": " + r.outcome +
+                        // The head used to be dropped here. That is how the first answer this app ever got
+                        // from the railway - 159 bytes, on the line above "not running data" - reached the
+                        // copied report and never the log file, which is the artifact people actually send.
+                        (if (r.head.isBlank()) "" else " | " + r.head) + " in " + ms + "ms"
                 }
                 if (usable) {
                     adoptedName = v.name

@@ -1,6 +1,7 @@
 package `in`.opentrack.india.remote
 
 import android.content.Context
+import `in`.opentrack.india.core.BrowserFetch
 import `in`.opentrack.india.core.Diary
 import `in`.opentrack.india.core.Http
 import `in`.opentrack.india.core.RailTime
@@ -40,6 +41,33 @@ interface LiveProvider {
  * traveller needs — "your device is offline", "the server refused us", "the reply was not data" — is
  * the same whoever made the request, and two copies of it drift the moment one gets reworded.
  */
+/**
+ * One request, sent by whichever client this device will actually let through.
+ *
+ * The order is not a preference. A phone that hung up on `HttpURLConnection` and answered the system browser
+ * engine a second later has told us which transport it permits - and on that phone, asking again with the
+ * refused client is known to be futile, which is exactly what the last five rounds of logs looked like. So:
+ * the JDK client whenever it is not demonstrably blocked, the browser engine on devices where the probe saw
+ * it accepted. `browserWorks` only ever becomes true from a probe that got *any* HTTP answer through that
+ * engine while the same bytes were refused by the other client - it is a transport verdict, never a claim
+ * that a body parsed, so a payload that still does not parse is reported exactly as it would have been.
+ */
+private fun ask(
+    http: Http,
+    url: String,
+    body: String?,
+    headers: Map<String, String>,
+    timeoutMillis: Int = Http.DEFAULT_TIMEOUT,
+): Http.Result {
+    if (!FeedProbe.browserWorks) {
+        return if (body == null) http.get(url, timeoutMillis, 1, headers)
+        else http.post(url, body, headers, timeoutMillis = timeoutMillis, retries = 1)
+    }
+    Diary.get()?.log("TRANSPORT") { "asking through the browser engine, which this device accepted" }
+    return if (body == null) BrowserFetch.get(url, BrowserFetch.defaultTimeout, headers)
+    else BrowserFetch.post(url, body, BrowserFetch.defaultTimeout)
+}
+
 private fun transportFailureSentence(failure: Http.Result.Failed): String =
     when (failure.kind) {
         Http.Result.Kind.OFFLINE -> "This device has no network route to the live feed."
@@ -77,7 +105,7 @@ class ErailProvider(
             append("&DataSource=1&Language=0&Cache=true&Flag=1")
             append("&Date=").append(RailTime.formatIsoDate(journeyEpochDay))
         }
-        val r = when (val got = http.get(url)) {
+        val r = when (val got = ask(http, url, null, emptyMap())) {
             is Http.Result.Ok -> got
             // Every one of these used to be `as? Ok ?: return null`, which collapsed five distinguishable
             // failures into one blank screen. The device state that causes each is different — aeroplane
@@ -154,24 +182,25 @@ class NtesProvider(
         // socket here belongs to the carrier and the server, not to the APK - and a rebuild should never be the
         // price of a header.
         val adopted = FeedProbe.adoptedFor(trainNo, journeyEpochDay)
+        val plain = NtesWire.plainFor(NtesWire.SUB_LIVE, trainNo, journeyEpochDay)
+        val headers = mapOf(
+            "Content-Type" to "application/json",
+            "charset" to "utf-8",
+            // The feed answers the client signature it expects; with anything else some deployments of it
+            // reset the connection, which the traveller would otherwise experience as "no live data".
+            "User-Agent" to NtesWire.USER_AGENT,
+        )
         val got = if (adopted != null) {
             FeedProbe.execute(http, adopted, trainNo, journeyEpochDay)
         } else {
-            val plain = NtesWire.plainFor(NtesWire.SUB_LIVE, trainNo, journeyEpochDay)
-            val headers = mapOf(
-                "Content-Type" to "application/json",
-                "charset" to "utf-8",
-                // The feed answers the client signature it expects; with anything else some deployments of it
-                // reset the connection, which the traveller would otherwise experience as "no live data".
-                "User-Agent" to NtesWire.USER_AGENT,
-            )
-            http.post(baseUrl, NtesWire.envelope(plain), headers, timeoutMillis = TIMEOUT, retries = 1)
+            ask(http, baseUrl, NtesWire.envelope(plain), headers, TIMEOUT)
         }
         val body = when (got) {
             is Http.Result.Ok -> got
             is Http.Result.Failed -> {
                 note = transportFailureSentence(got) +
-                    (if (adopted != null) " (asked with the shape this device adopted: " + adopted.name + ")" else "")
+                    (if (adopted != null) " (asked with the shape this device adopted: " + adopted.name + ")" else "") +
+                    (if (FeedProbe.browserWorks) " (asked through the browser engine)" else "")
                 // Refused is the moment the experiment matters: the device is the only place that can tell a
                 // wrong request from a blocked network, so ask it instead of guessing from a sandbox.
                 Diary.get()?.log("NTES", "refused: " + got.kind + " " + got.message +
@@ -408,7 +437,7 @@ class OverrideProvider(
             .replace("{dateCompact}", RailTime.formatCompactDate(journeyEpochDay))
             .replace("{srcCode}", route.srcCode)
             .replace("{dstCode}", route.dstCode)
-        val r = when (val got = http.get(url)) {
+        val r = when (val got = ask(http, url, null, emptyMap())) {
             is Http.Result.Ok -> got
             is Http.Result.Failed -> {
                 note = "Your endpoint: " + transportFailureSentence(got)

@@ -45,6 +45,28 @@ class FeedProbeTest {
     }
 
     @Test
+    fun `the browser channel probes the transport itself and starts disbelieved`() {
+        val vs = FeedProbe.variants("12627", "2026-10-11", NtesWire.plainFor(NtesWire.SUB_LIVE, "12627", 20737L))
+        val browser = vs.filter { it.browser }
+        assertTrue("the transport must be a probeable variable, and none of ${vs.size} variants used the browser engine",
+            browser.isNotEmpty())
+        assertFalse("nothing may rely on the browser transport before a device proves the engine is accepted",
+            FeedProbe.browserWorks)
+        // The session variant has to visit the site first, otherwise it asks the same question as the plain
+        // browser POST twice and the cookie - the one variable it was added for - goes untested.
+        assertTrue("a warm variant must warm, and a bare one must not",
+            browser.any { it.warm.isNotBlank() } && browser.any { it.warm.isBlank() })
+        // The form variant carries the envelope as a field, so it too must be regenerated per train: a probe
+        // that replays one train's encrypted answer across the matrix would report a false green.
+        val form = vs.first { it.name == "webview-post-form" }
+        val rebuilt = FeedProbe.rebuild(form, "22691", 20738L)
+        assertTrue("the form body must stay a jsonIn field across a rebuild, got ${rebuilt.body}",
+            rebuilt.body!!.startsWith("jsonIn=") && rebuilt.body != form.body)
+        assertTrue("a browser POST declares its own content type, so claiming JSON here would be a lie",
+            form.headers.isEmpty())
+    }
+
+    @Test
     fun `an adopted shape is rebuilt for the train being asked about`() {
         val vs = FeedProbe.variants("12627", "2026-10-11", NtesWire.plainFor(NtesWire.SUB_LIVE, "12627", 20737L))
         val post = vs.first { it.name == "post-dalvik-json" }
