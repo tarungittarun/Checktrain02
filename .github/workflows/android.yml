@@ -77,6 +77,23 @@ jobs:
             = "$(grep -o 'REFDB_SCHEMA_VERSION", "[0-9]*' app/build.gradle | grep -o '[0-9]*')" \
             || { echo "REFDB_SCHEMA_VERSION in app/build.gradle does not match tools/build_refdb.py"; exit 1; }
 
+  # The store janitor: artifacts older than 6 h are deleted and runs wedged in_progress over 4 h are
+  # cancelled, on every push. Why a job and not a human: the sandbox token can list but not write
+  # (403 measured 2026-10-12), and one-off cleanups rot - the policy lives where every push enforces it
+  # (ADR-001). Cheap, read-mostly, and it prints one ::notice:: line with the totals.
+  hygiene:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Delete stale artifacts, cancel wedged runs
+        run: python3 tools/ci/artifact_hygiene.py
+
   ui:
     needs: checks
     runs-on: ubuntu-latest
