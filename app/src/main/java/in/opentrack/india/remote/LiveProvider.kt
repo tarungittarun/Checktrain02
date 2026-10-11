@@ -211,7 +211,8 @@ class NtesProvider(
             Diary.get()?.log("NTES", "rows parsed (" + parsed.rows.size + ") but no station matched the timetable")
             return null
         }
-        Diary.get()?.log("NTES", "accepted: " + snap.rows.size + " stops, live rows " +
+        Diary.get()?.log("NTES", "accepted: " + snap.perStop.size + " stops with reported cells, feed rows " +
+            parsed.rows.size + +
             (if (parsed.hasLiveColumns) "present" else "none yet"))
         // Said out loud so a screenshot explains itself: "live, via a shape learned on this device" is a
         // different support conversation from "live, via the shipped request".

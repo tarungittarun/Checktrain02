@@ -44,10 +44,11 @@ class SettingsActivity : AppCompatActivity() {
         val uri = pendingExport
         pendingExport = null
         val bytes = Diary.get()?.text()?.toByteArray(Charsets.UTF_8) ?: ByteArray(0)
-        val cancelled = uri == null || result.resultCode != RESULT_OK
+        // The null check has to be the branch condition itself: assigning it to a `cancelled` boolean reads
+        // better and compiles not at all, because the compiler stops tracking `uri` through the indirection.
         when {
             bytes.isEmpty() -> toast(R.string.diag_nothing)
-            cancelled -> toast("Not saved — the picker was closed")
+            uri == null || result.resultCode != RESULT_OK -> toast("Not saved - the picker was closed")
             else -> {
                 val outcome = runCatching { contentResolver.openOutputStream(uri)?.use { it.write(bytes) } }
                 if (outcome.isSuccess) toast(R.string.diag_saved) else toast("Could not write that file")
