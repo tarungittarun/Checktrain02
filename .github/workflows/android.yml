@@ -198,6 +198,31 @@ jobs:
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 30
+      - name: Publish the APK on a rolling release so a phone can fetch it directly
+        # Artifacts are CI's own copy of the build: they expire, they want a signed-in browser, and their bytes
+        # live on a blob host that neither this project's sandbox nor some phone browsers can reach. A
+        # prerelease with a fixed tag turns "send me the latest APK" into one URL that works from the device
+        # itself - tap, download, open, install - and it outlives the 30-day retention window, which matters
+        # when a report arrives about a build from last week. Rebuilt on every push, so the link is the
+        # current APK by construction rather than by discipline.
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          apk=app/build/outputs/apk/debug/app-debug.apk
+          tag=latest-apk
+          ver=$(grep -o 'versionName *= *"[^"]*"' app/build.gradle | head -1 | cut -d'"' -f2)
+          notes="Debug APK for testing on a real device. Built from ${GITHUB_SHA:0:7} by android.yml on every push. versionName: ${ver:-unknown}. On the tracking screen, long-press the provenance badge to copy a live-feed report."
+          gh release create "$tag" --title "Rolling debug APK" --notes "$notes" --prerelease 2>/dev/null || true
+          gh release upload "$tag" "$apk" --clobber || echo "::warning::could not publish to the release; the artifact on this run still has the APK"
+          {
+            echo ""
+            echo "### Install on a phone"
+            echo ""
+            echo "- APK (tap on the device): <https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/app-debug.apk>"
+            echo "- Release page: <https://github.com/$GITHUB_REPOSITORY/releases/tag/$tag>"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "direct link: https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/app-debug.apk"
       # The Actions log host is not reachable from every environment that has to debug this build (the
       # agent sandbox that writes most of it, for one). Echoing the failure onto the commit through the
       # REST API — a host that is always reachable — turns "CI is red" into an actual error message,
