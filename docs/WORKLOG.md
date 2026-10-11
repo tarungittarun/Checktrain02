@@ -202,3 +202,26 @@ emulators on four parallel runners** across the 46 flows listed in `docs/E2E_FLO
 gated against `@flow` annotations on every event. `report` fails the run when no row booted or the minSdk
 row's tests failed, and ratchets line coverage (`--min-lines 45`) — to be raised once the first green device
 row produces a JaCoCo number.
+
+## Resume here (state as of this push)
+
+Branch tip `9a1c11d`. CI on that commit: `checks ✓ debug APK ✓ tests + screens ✓` (the `release` job is
+tag-only by design, so `skipped` there is normal). The rolling asset **is** published by the `debug APK` job,
+which is why the download link matters: `latest-apk/app-debug.apk` is now 10 586 801 B (2026-10-11 20:35 IST)
+and is the first build carrying the socket-pool fix, the exception-class failure text, the two working probe
+controls and the diagnostic collector.
+
+Two facts to carry forward, because each cost a round trip:
+
+1. `258a28b` never compiled - unescaped quotes inside a leaked `${'$'}`-style template - so the link silently kept
+   serving `b3a0925`, and the user's "Auto off" re-test ran the old HTTP layer. Verify a paste's build line
+   before interpreting it; verify the asset size before telling anyone to install.
+2. The gate set is textual by design and cannot see types, operators or string contents. Three of this session's
+   build breaks were invisible to all of them. What the project gained instead: `tools/ci/check_literals.py`
+   (leaked escaping, doubled concat operators), `check_members` receiver checks, `companion_twins`, and the
+   practice of reading the failed build's own error list from the commit comment rather than guessing.
+
+Open question the collector exists to answer: does any request shape reach `enquiry.indianrail.gov.in` from
+this phone once sockets stop being torn down? Reading the shared log answers it. If `tcp443=true` for
+`one.one.one.one` and `erail.in` but every railway host hangs up, the answer is upstream policy or a per-app
+network rule, and the honest product behaviour stays "labelled schedule" - not a key baked into an APK.
