@@ -45,14 +45,26 @@ class SuggestFlowTest {
         return (row.findViewById<TextView>(R.id.sugPrimary))?.text?.toString().orEmpty()
     }
 
-    /** Types `text`, waits out the 200 ms debounce, then drains the main looper and the IO coroutines. */
+    /**
+     * Types `text`, then waits — in real time, bounded — for the box to answer.
+     *
+     * The first version of this helper drained Robolectric's *virtual* clock (`idleFor` advances shadow
+     * time and returns immediately), which fires the 200 ms debounce but gives the query itself no wall
+     * clock at all: the lookup sits behind a readiness job on `Dispatchers.IO` that, on a cold process,
+     * unpacks a 14 MB SQLite file before it can answer. So the assertions ran while the job was still
+     * suspended and the box had every right to be empty — a test of scheduling, mistakenly read as a
+     * test of behaviour. Idling the looper inside a real sleep loop is what waits for both clocks.
+     */
     private fun type(box: SuggestBox, text: String) {
         (box.inputView as TextView).setText(text)
         // The focus listener also schedules a query; setting text alone is what a hardware keyboard does, and
         // both paths must land, so no requestFocus() is faked here.
         val looper = shadowOf(android.os.Looper.getMainLooper())
-        looper.idleFor(400, TimeUnit.MILLISECONDS)
-        repeat(40) { looper.idleFor(100, TimeUnit.MILLISECONDS) }
+        repeat(300) {
+            looper.idleFor(400, TimeUnit.MILLISECONDS)
+            if (box.rowCount > 0) return
+            Thread.sleep(40)
+        }
     }
 
     @Test
