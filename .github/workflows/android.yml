@@ -167,6 +167,13 @@ jobs:
       - name: Assemble debug APK
         shell: bash
         run: set -o pipefail && ./gradlew --no-daemon :app:assembleDebug --stacktrace 2>&1 | tee /tmp/build.log
+      # No emulator here (no KVM, no system images), so the instrumented sources cannot be *run* in CI.
+      # They are still compiled, because `connectedDebugAndroidTest` is the only check that can see what
+      # the live feed publishes today, and a field test that does not compile is worse than none: the one
+      # person with a phone finds out on the phone.
+      - name: Compile the instrumented field tests
+        shell: bash
+        run: set -o pipefail && ./gradlew --no-daemon :app:assembleDebugAndroidTest --stacktrace 2>&1 | tee -a /tmp/build.log
       - name: Size report (the ultra-lightweight requirement, measured on every build)
         run: |
           apk=app/build/outputs/apk/debug/app-debug.apk

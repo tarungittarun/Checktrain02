@@ -27,6 +27,11 @@ android {
         versionName "1.0.0"
         // No ABI-specific native code at all -> one universal APK, no splits, no app bundle games.
         resConfigs "en"
+        // Instrumented tests are how this app gets validated against the *live* feed: a JVM test can pin
+        // the rules, only a device can say what the railway published today. There is no emulator in the
+        // build environment, so `:app:assembleDebugAndroidTest` in CI compiles these and a person with a
+        // phone runs them (`./gradlew :app:connectedDebugAndroidTest`).
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField "long", "REFDB_SCHEMA_VERSION", "3"
     }
 
@@ -123,6 +128,13 @@ dependencies {
     implementation "androidx.lifecycle:lifecycle-livedata-ktx:2.8.4"
     implementation "androidx.lifecycle:lifecycle-runtime-ktx:2.8.4"
     implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1"
+
+    // Instrumented only: these add nothing to the APK. `androidx.test:rules` is deliberately absent —
+    // the field test needs a Context and an instrumented run, not an Activity, and every extra test
+    // dependency is one more thing that can break the build for a reason unrelated to the app.
+    androidTestImplementation "androidx.test.ext:junit:1.2.1"
+    androidTestImplementation "androidx.test:runner:1.6.2"
+    androidTestImplementation "junit:junit:4.13.2"
 
     testImplementation "junit:junit:4.13.2"
     testImplementation "org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1"
