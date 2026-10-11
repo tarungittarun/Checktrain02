@@ -48,9 +48,9 @@ jobs:
   plan:
     runs-on: ubuntu-latest
     # Commit comments are how a failure becomes readable without opening the Actions UI, and the default
-    # token cannot post them.
+    # token cannot post them (a 403 on `contents: read` that `|| echo` turns into silence).
     permissions:
-      contents: read
+      contents: write
       pull-requests: write
     timeout-minutes: 6
     steps:
@@ -90,6 +90,8 @@ jobs:
   # --------------------------------------------------------------------------------------- the artifacts
   build:
     needs: plan
+    permissions:
+      contents: write
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
