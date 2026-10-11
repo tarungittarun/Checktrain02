@@ -83,3 +83,12 @@ Scope → contract → **component PoC with an executable pass criterion** → i
 the lowest layer that can give it → device proof only where devices are the only witness → ship with a written
 delta → record in `docs/WORKLOG.md` + `docs/v2/STATUS.md`. A component without a PoC does not enter a shipping
 screen. A claim without a named artifact is not made. Fabricated data is never a fallback: `—` beats a guess.
+
+16. **Two edits to one file do not both land if they run in parallel.** The PairCache TTL fix was applied as
+    two same-message edits; both reported success; the second had read the file before the first wrote, so the
+    caller got two arguments while the definition kept one - committed, pushed, and red again three rounds
+    after the same class of miss (the round-16 hygiene job that never landed). The gate cannot see it: both
+    halves are individually plausible Kotlin. Rule: edits to one file are sequential, and a structural change
+    is verified by reading the file, not by the tool's ok.
+    -> Enforced by this rule and by grep-verifying structure in the same breath as the edit (the hygiene job
+    fix shows the working pattern: insert, `grep -c`, then commit).

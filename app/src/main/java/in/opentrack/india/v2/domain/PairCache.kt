@@ -20,7 +20,9 @@ class PairCache(
 ) {
     data class Entry(val listing: PairListing, val fetchedAtMillis: Long) {
         fun ageMillis(nowMillis: Long): Long = (nowMillis - fetchedAtMillis).coerceAtLeast(0L)
-        fun isFresh(nowMillis: Long): Boolean = ageMillis(nowMillis) <= ttlMillis
+        /** TTL is a parameter, not an outer-scope lookup: a nested class cannot see the cache's
+         *  property, and the compiler - not a local gate - is what catches that (runs 3b7a14d+). */
+        fun isFresh(nowMillis: Long, ttlMillis: Long): Boolean = ageMillis(nowMillis) <= ttlMillis
     }
 
     private val map = LinkedHashMap<String, Entry>(capacity)
