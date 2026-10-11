@@ -68,16 +68,34 @@ class Http(context: Context) {
         timeoutMillis: Int = DEFAULT_TIMEOUT,
         retries: Int = 1,
         headers: Map<String, String> = emptyMap(),
+        pinIpv4: Boolean = false,
     ): Result {
         var last: Result = Result.Failed(Result.Kind.EMPTY, "not attempted")
         var attempt = 0
         while (attempt <= retries) {
             attempt++
-            last = tryOnce(url, timeoutMillis, headers)
-            Diary.get()?.log("HTTP") { "GET " + hostOf(url) + " try#" + attempt + " -> " + verdict(last) }
+            last = tryOnce(url, timeoutMillis, headers, pinIpv4)
+            Diary.get()?.log("HTTP") {
+                "GET " + hostOf(url) + " try#" + attempt + (if (pinIpv4) " pinned-v4" else "") +
+                    " -> " + verdict(last)
+            }
             if (last is Result.Ok || last !is Result.Failed) return last
             if (last.kind == Result.Kind.HTTP) break            // 4xx/5xx will not fix itself
             if (attempt <= retries) sleep(300L * attempt)
+        }
+        if (last is Result.Failed && !pinIpv4 && last.kind != Result.Kind.OFFLINE) {
+            // One unprompted second chance, pinned to an A record. A phone on Wi-Fi whose IPv6 path is
+            // half-alive sees exactly this: the first address returned is AAAA, the handshake dies as
+            // "closed" a few hundred milliseconds in, and a browser on the same network loads the page
+            // because it retries the other family. Chrome's advantage is not magic - it is that it tries
+            // twice. Doing the same here fixes every host the app talks to, not only the feed.
+            when (val pinned = tryOnce(url, timeoutMillis, headers, true)) {
+                is Result.Ok -> {
+                    Diary.get()?.log("HTTP", "GET " + hostOf(url) + " recovered on the pinned IPv4 route")
+                    return pinned
+                }
+                else -> last = if (verdict(last).length >= verdict(pinned).length) last else pinned
+            }
         }
         if (last is Result.Failed) {
             Diary.get()?.log("HTTP", "GET " + hostOf(url) + " served the response cache instead: " + verdict(last))
@@ -101,25 +119,64 @@ class Http(context: Context) {
         timeoutMillis: Int = DEFAULT_TIMEOUT,
         retries: Int = 0,
         tls12: Boolean = false,
+        pinIpv4: Boolean = false,
     ): Result {
         var attempt = 0
         var last: Result = Result.Failed(Result.Kind.EMPTY, "not attempted")
         while (attempt <= retries) {
             attempt++
-            last = tryPost(url, body, headers, timeoutMillis, tls12)
+            last = tryPost(url, body, headers, timeoutMillis, tls12, pinIpv4)
             Diary.get()?.log("HTTP") {
                 "POST " + hostOf(url) + " try#" + attempt + (if (tls12) " tls1.2" else "") +
-                    " body=" + body.length + "B -> " + verdict(last)
+                    (if (pinIpv4) " pinned-v4" else "") + " body=" + body.length + "B -> " + verdict(last)
             }
             if (last is Result.Ok) return last
             if (last is Result.Failed && last.kind == Result.Kind.HTTP) break
             if (attempt <= retries) sleep(400L * attempt)
         }
+        if (last is Result.Failed && !pinIpv4 && last.kind != Result.Kind.OFFLINE) {
+            val pinned = tryPost(url, body, headers, timeoutMillis, tls12, true)
+            Diary.get()?.log("HTTP") {
+                "POST " + hostOf(url) + " pinned-v4 retry -> " + verdict(pinned)
+            }
+            if (pinned is Result.Ok) return pinned
+            last = pinned
+        }
         return last
     }
 
+    /**
+     * The A record for a host, or null. Resolution failures are swallowed here on purpose: the caller has
+     * its own, better-informed error path, and "no IPv4 answer" must not become a second failure message.
+     */
+    private fun firstIpv4(url: String): java.net.InetAddress? = runCatching {
+        java.net.InetAddress.getAllByName(java.net.URL(url).host)
+            .filterIsInstance<java.net.Inet4Address>().firstOrNull()
+    }.getOrNull()
+
+    /**
+     * Ask the connection to use one specific address for the whole route. Android exposes this as
+     * setFixedRouteToAddress (API 20+, hence CHANGE_NETWORK_STATE in the manifest) and refuses loopback and
+     * link-local targets itself, so a poisoned DNS answer cannot point the app at the device.
+     */
+    private fun applyPin(conn: HttpURLConnection, addr: java.net.InetAddress?, tag: String) {
+        if (addr == null) {
+            Diary.get()?.log("HTTP", tag + " no A record to pin - the host has no IPv4 answer")
+            return
+        }
+        runCatching { conn.setFixedRouteToAddress(addr) }
+            .onFailure {
+                Diary.get()?.log("HTTP", tag + " pin refused: " + it.javaClass.simpleName + " " + it.message)
+            }
+    }
+
     private fun tryPost(
-        url: String, body: String, headers: Map<String, String>, timeoutMillis: Int, tls12: Boolean = false,
+        url: String,
+        body: String,
+        headers: Map<String, String>,
+        timeoutMillis: Int,
+        tls12: Boolean = false,
+        pin4: Boolean = false,
     ): Result = serial {
         var conn: HttpURLConnection? = null
         var bodyRead = false
@@ -202,7 +259,12 @@ class Http(context: Context) {
         is Result.Failed -> r.kind.toString() + " " + r.message
     }
 
-    private fun tryOnce(url: String, timeoutMillis: Int, headers: Map<String, String> = emptyMap()): Result = serial {
+    private fun tryOnce(
+        url: String,
+        timeoutMillis: Int,
+        headers: Map<String, String> = emptyMap(),
+        pin4: Boolean = false,
+    ): Result = serial {
         var conn: HttpURLConnection? = null
         var bodyRead = false
         try {

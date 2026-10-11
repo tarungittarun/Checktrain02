@@ -30,6 +30,14 @@ object FeedProbe {
         val headers: Map<String, String>,
         val tls12: Boolean,
         val note: String,
+        /**
+         * Ask through the first A record rather than letting the stack pick an address. One variant of the
+         * matrix exists because a phone on Wi-Fi with a half-alive IPv6 path sees every request die as
+         * "closed" while a browser loads the same page - the browser's only advantage is that it retries the
+         * other family. If a pinned line answers and the unpinned one does not, the fix belongs in [Http] for
+         * every host, and no railway-side explanation survives.
+         */
+        val pin4: Boolean = false,
     )
 
     data class Result(val name: String, val outcome: String, val head: String, val millis: Long)
@@ -39,7 +47,7 @@ object FeedProbe {
     // monitor: a diagnostic that can hold the user's own refresh behind it for half a minute is a
     // diagnostic that costs the app the thing it is trying to measure.
     private const val PER_TRY_TIMEOUT = 4_000
-    private const val MAX_TRIES = 8   // every variant, controls included - a probe that ran out of tries
+    private const val MAX_TRIES = 10   // every variant, controls included - a probe that ran out of tries
                                     // before its own control host is a probe that proves nothing
     private const val TOTAL_BUDGET = 22_000
 
@@ -67,8 +75,13 @@ object FeedProbe {
     fun execute(http: Http, v: Variant, trainNo: String, journeyEpochDay: Long): Http.Result {
         val rebuilt = rebuild(v, trainNo, journeyEpochDay)
         return try {
-            if (rebuilt.body == null) http.get(rebuilt.url, PER_TRY_TIMEOUT, 0, rebuilt.headers)
-            else http.post(rebuilt.url, rebuilt.body, rebuilt.headers, PER_TRY_TIMEOUT, 0, rebuilt.tls12)
+            if (rebuilt.body == null) {
+                http.get(rebuilt.url, PER_TRY_TIMEOUT, 0, rebuilt.headers, rebuilt.pin4)
+            } else {
+                http.post(
+                    rebuilt.url, rebuilt.body, rebuilt.headers, PER_TRY_TIMEOUT, 0, rebuilt.tls12, rebuilt.pin4,
+                )
+            }
         } catch (e: Throwable) {
             Http.Result.Failed(Http.Result.Kind.HTTP, "${e.javaClass.simpleName}: ${e.message}")
         }
@@ -79,12 +92,6 @@ object FeedProbe {
      * are regenerated here rather than stored, so an adopted variant can never be replayed with the probe's
      * original question attached to it.
      */
-    /** The newest probe line, for the log; the whole matrix is in render() when someone copies it. */
-    private fun lastOf(out: List<Result>): String {
-        val r = out.lastOrNull() ?: return "nothing"
-        return r.name + ": " + r.outcome + (if (r.head.isBlank()) "" else " | " + r.head.take(90))
-    }
-
     fun rebuild(v: Variant, trainNo: String, journeyEpochDay: Long): Variant {
         val plain = NtesWire.plainFor(NtesWire.SUB_LIVE, trainNo, journeyEpochDay)
         return when {
@@ -195,6 +202,26 @@ object FeedProbe {
                 "the host this app's timetable source already reaches, so a green result here means the feed " +
                     "rejected us rather than the network failing",
             ),
+            Variant(
+                "post-ipv4-pinned", NtesWire.BASE_URL,
+                NtesWire.envelope(NtesWire.plainFor(NtesWire.SUB_LIVE, trainNo, journeyEpochDay)),
+                mapOf(
+                    "Content-Type" to "application/json",
+                    "charset" to "utf-8",
+                    "User-Agent" to NtesWire.USER_AGENT,
+                ),
+                false,
+                "the shipped request, pinned to the IPv4 answer - the discriminator between a broken v6 path " +
+                    "on this network and a server that is refusing us",
+                true,
+            ),
+            Variant(
+                "get-erail-ipv4", "https://erail.in/rail/getTrains.aspx?TrainNo=$trainNo&DataSource=1&Language=0",
+                null, emptyMap(), false,
+                "the same pin on a host we know answers, which is what proves the pinned route itself works " +
+                    "rather than merely failing differently",
+                true,
+            ),
         )
     }
 
@@ -221,7 +248,6 @@ object FeedProbe {
                 val t0 = System.currentTimeMillis()
                 val got = execute(http, v, trainNo, journeyEpochDay)
                 val ms = System.currentTimeMillis() - t0
-                Diary.get()?.log("PROBE", lastOf(out) + " in " + ms + "ms")
                 var usable = false
                 if (got is Http.Result.Ok) {
                     val doc = NtesWire.unwrapJson(got.body)
@@ -242,6 +268,9 @@ object FeedProbe {
                     )
                     is Http.Result.Failed -> Result(v.name, "${got.kind} ${got.message}".trim(), "", ms)
                 }
+                // Logged after the append: a line written before it reports the *previous* variant's verdict
+                // against this variant's clock, which is how one field report came to read "nothing in 1005ms".
+                Diary.get()?.log("PROBE") { out.lastOrNull()?.let { it.name + ": " + it.outcome } ?: "nothing" }
                 if (usable) {
                     adoptedName = v.name
                     break

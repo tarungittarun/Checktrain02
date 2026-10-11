@@ -61,7 +61,17 @@ class Diary(private val file: File) {
         if (enabled) return
         setEnabled(true)
         append("DIARY", "=== collection enabled ===")
-        snapshot(context)
+        // On the writer thread, never the caller's. The first field report proved why: enabling happens in a
+        // click listener, so every DNS probe ran on the main thread and came back
+        // "NetworkOnMainThreadException: null". A log that cannot look up a hostname is worse than no log, 
+        // because it reads like a result.
+        runCatching {
+            io.execute {
+                runCatching { snapshot(context) }.onFailure { err ->
+                    append("ENV", "snapshot failed on the writer: " + err.javaClass.simpleName)
+                }
+            }
+        }
     }
 
     /** Re-arms collection after a process restart when the switch was left on, without a fresh snapshot. */
@@ -161,7 +171,11 @@ class Diary(private val file: File) {
         append("ENV", "model=${Build.MANUFACTURER} ${Build.MODEL} android=${Build.VERSION.RELEASE} (sdk ${Build.VERSION.SDK_INT})")
         runCatching {
             val pi = app.packageManager.getPackageInfo(app.packageName, 0)
-            append("ENV", "app=${pi.versionName} (code ${pi.lastUpdateTime}) diagSchema=$SCHEMA")
+            append(
+                "ENV",
+                "app=" + pi.versionName + " versionCode=" + pi.versionCode +
+                    " installed=" + pi.firstInstallTime + " diagSchema=" + SCHEMA,
+            )
         }
         runCatching {
             val cm = app.getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
@@ -196,19 +210,37 @@ class Diary(private val file: File) {
             runCatching {
                 val t0 = System.currentTimeMillis()
                 val addrs = InetAddress.getAllByName(host)
-                val ip = addrs.firstOrNull()?.hostAddress ?: "-"
-                val reached = runCatching {
-                    Socket().use { s ->
-                        s.connect(InetSocketAddress(addrs[0], 443), TCP_PROBE_MS)
-                        true
-                    }
-                }.getOrDefault(false)
-                append("DNS", "$host -> ${addrs.size} addr(s) $ip tcp443=$reached in ${System.currentTimeMillis() - t0}ms")
-            }.onFailure {
-                append("DNS", "$host -> UNRESOLVABLE ${it.javaClass.simpleName}: ${it.message?.take(120)}")
-            }
-        }
+                // Both families, tried separately. Reporting only "the first address" hides the exact case this
+                // exists to catch: a host with a healthy A record and a AAAA record that blackholes, where the
+                // stack picks the v6 answer and every request dies while a browser - which retries the other
+                // family - loads the page in front of the same user.
+                val v4 = addrs.filterIsInstance<java.net.Inet4Address>().firstOrNull()
+                val v6 = addrs.filterIsInstance<java.net.Inet6Address>().firstOrNull()
+                append(
+                "DNS",
+                host + ": " + addrs.size + " addr(s) A=" + (v4?.hostAddress ?: "none") +
+                " AAAA=" + (v6?.hostAddress?.substringBefore("%") ?: "none"),
+                )
+                append(
+                "TCP",
+                host + " 443: v4=" + reach(v4) + " v6=" + reach(v6) +
+                " in " + (System.currentTimeMillis() - t0) + "ms",
+                )
+                }.onFailure {
+                append("DNS", host + " -> UNRESOLVABLE " + it.javaClass.simpleName + ": " + it.message?.take(120))
+                }
+                }
     }
+
+    /** One address, one TCP attempt, one word back. "absent" is a fact about DNS, not about the network. */
+    private fun reach(addr: InetAddress?): String =
+        if (addr == null) "absent" else runCatching {
+            Socket().use { s ->
+                s.connect(InetSocketAddress(addr, 443), TCP_PROBE_MS)
+                "ok"
+            }
+        }.getOrElse { "fail:" + it.javaClass.simpleName }
+
 
     /** Last `n` labels of a dotted name - enough to identify a resolver, not enough to identify an account. */
     internal fun tailLabels(host: String, n: Int): String =

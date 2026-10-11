@@ -71,6 +71,21 @@ class FeedProbeTest {
             "the no-key control must exist: it separates 'this app cannot do TLS' from 'the feed refuses us'",
             vs.any { it.name == "get-railradar-no-key" },
         )
+        val pinned = vs.filter { it.pin4 }
+        assertEquals(
+            "exactly the two pinned probes, no more: " + pinned.map { it.name },
+            2, pinned.size,
+        )
+        assertTrue(
+            "one pinned line must be the shipped request and the other a host known to answer, or a green " +
+                "pinned result proves nothing",
+            pinned.any { it.name == "post-ipv4-pinned" && it.body != null } &&
+                pinned.any { it.name == "get-erail-ipv4" && it.body == null },
+        )
+        // The pin has to survive a rebuild: adoption hands the app a shape, and a shape that silently loses
+        // its route on the way to a later refresh would show live data working once and then never again.
+        val rebuiltPinned = FeedProbe.rebuild(pinned.first { it.pin4 && it.body != null }, "12927", 20738L)
+        assertTrue("rebuild dropped the pin", rebuiltPinned.pin4)
         val getNtes = vs.first { it.name == "get-ntes-web" }
         assertTrue(
             "a GET variant must carry the new train number",

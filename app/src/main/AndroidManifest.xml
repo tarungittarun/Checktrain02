@@ -8,6 +8,14 @@
          location is optional, off by default, and used solely to answer "which station am I at". -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!--
+      Not for control of the network - for HttpURLConnection.setFixedRouteToAddress, which requires it and is
+      the only way the app can retry a host on its IPv4 address when the Wi-Fi's IPv6 path is half-alive. That
+      retry is what a phone's own log demanded: three hosts hung up at ~400ms while Chrome on the same device
+      loaded them, and a browser's advantage there is simply that it tries the other address family.
+      Normal-level, granted at install, no dialog, no data leaves the device differently because of it.
+    -->
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
     <application
