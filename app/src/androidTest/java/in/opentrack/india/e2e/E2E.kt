@@ -56,7 +56,7 @@ object E2E {
     fun tap(name: String, timeoutMs: Long = LOCAL_MS): Boolean {
         val o = find(name, timeoutMs) ?: return false
         o.click()
-        ui.wait(Until.idle(), 1_500)
+        ui.waitForIdle()
         return true
     }
 
@@ -64,15 +64,15 @@ object E2E {
     fun type(name: String, value: String, timeoutMs: Long = LOCAL_MS): Boolean {
         val o = find(name, timeoutMs) ?: return false
         o.click()
-        o.setEditText(value)
-        ui.wait(Until.idle(), 1_000)
+        o.setText(value)
+        ui.waitForIdle()
         return true
     }
 
     fun clearField(name: String) {
         val o = find(name) ?: return
         o.click()
-        // Select-all + delete, because `setText("")` is not available on UiObject2 and the field may hold
+        // Select-all + delete rather than `clearText()`, because the field may hold
         // a resolved station name (long) rather than what the last keystroke produced.
         var n = o.text?.length ?: 0
         while (n-- > 0) ui.pressDelete()
@@ -180,31 +180,31 @@ object E2E {
     // like a broken test.
 
     fun boxField(box: String): UiObject2? =
-        ui.findObject(res(box).searchWithin(By.res(PKG, "id/suggestInput")))
+        ui.findObject(res(box))?.findObject(By.res(PKG, "id/suggestInput"))
 
     fun boxText(box: String): String = boxField(box)?.text.orEmpty().trim()
 
     fun typeInBox(box: String, value: String): Boolean {
         val o = boxField(box) ?: return false
         o.click()
-        o.setEditText(value)
-        ui.wait(Until.idle(), 1_500)
+        o.setText(value)
+        ui.waitForIdle()
         return true
     }
 
     /** The "Selected  SBC" chip a picked suggestion leaves behind — the resolved code, from the UI. */
     fun boxChip(box: String): String =
-        ui.findObject(res(box).searchWithin(By.res(PKG, "id/suggestChip")))?.text.orEmpty().trim()
+        ui.findObject(res(box))?.findObject(By.res(PKG, "id/suggestChip"))?.text.orEmpty().trim()
 
     fun suggestionRows(): List<UiObject2> = all(By.res(PKG, "id/sugPrimary"))
 
     /** Taps the nth suggestion row inside a box's own panel, so the two boxes cannot cross wires. */
     fun tapSuggestion(box: String, index: Int = 0): Boolean {
-        val panel = ui.findObject(res(box).searchWithin(res("suggestPanel"))) ?: return false
+        val panel = ui.findObject(res(box))?.findObject(res("suggestPanel")) ?: return false
         val rows = panel.findObjects(By.res(PKG, "id/sugPrimary"))
         val row = rows.getOrNull(index) ?: return false
         row.click()
-        ui.wait(Until.idle(), 1_500)
+        ui.waitForIdle()
         return true
     }
 

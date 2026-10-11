@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # Boot an Android emulator on a CI runner and leave it attached to adb.
 #
-# The constraint that shapes this whole script: GitHub-hosted runners have **no /dev/kvm**, so there is no
-# hardware acceleration, and an x86 image under pure software emulation boots slowly or not at all. This
-# script therefore (a) detects acceleration instead of assuming it, (b) picks flags that give a
-# software-emulated boot a chance (no GPU, no snapshot, small heap, one core pair), and (c) exits **3**
-# when the emulator could not be brought up, which lets a workflow distinguish "the product failed" from
-# "this runner cannot host an emulator" — the difference between an actionable red and a misleading one.
+# The constraint that shapes this script is acceleration. An x86 system image *requires* it - QEMU2 will
+# refuse to start an x86 AVD under pure software emulation on an x86 host - so the useful behaviour is to
+# detect /dev/kvm (present on GitHub's ubuntu runners, absent on many container and self-hosted ones),
+# repair its permissions if the runner user cannot open it, and say "this runner cannot boot this image"
+# in three seconds rather than after a twenty-five minute timeout that cannot succeed.
+#
+# Exit codes: 0 booted and ready; 3 no emulator here (missing acceleration, install failure, boot timeout).
+# A workflow should treat 3 as "untested, with a reason" and never as a pass, and never as a product bug.
 #
 # Env in:  API IMG ABI DEVICE AVD_NAME BOOT_TIMEOUT MEMORY CORES NO_GPU KEEP_LOGCAT
 # Env out: E2E_ACCEL (kvm|off), written to $GITHUB_OUTPUT when present.
@@ -26,12 +28,25 @@ export ANDROID_HOME="$SDK"
 export ANDROID_SDK_ROOT="$SDK"
 export PATH="$SDK/cmdline-tools/latest/bin:$SDK/platform-tools:$SDK/emulator:$PATH"
 
+# Some runner images own /dev/kvm as root:kvm with mode 0660 and do not add the job user to the kvm group.
+# That reads as "no acceleration" and silently costs the whole row, so fix it before deciding.
+if [ ! -w /dev/kvm ] && [ -e /dev/kvm ] && command -v sudo >/dev/null 2>&1; then
+  sudo -n chmod 666 /dev/kvm >/dev/null 2>&1 || true
+fi
 if [ -w /dev/kvm ] && [ -r /dev/kvm ]; then
   ACCEL=kvm
   echo "::notice::/dev/kvm is available - hardware acceleration on"
 else
   ACCEL=off
-  echo "::warning::no usable /dev/kvm on this runner - booting under software emulation, which is slow and may fail; a runner with KVM (or a self-hosted one) removes this whole class of problem"
+  echo "::warning::no usable /dev/kvm on this runner"
+  case "$ABI" in
+    x86*)
+      # An x86 image cannot boot without it, so waiting is not caution, it is wasted CI time. Say which
+      # knob to turn instead: a KVM-capable runner, or an arm64 image on an arm64 host.
+      echo "::error::$ABI needs hardware acceleration; this runner has none, so this row is untested rather than failed. Use a KVM-capable runner (GitHub's ubuntu-latest qualifies) or an arm64 image on arm64 hardware."
+      exit 3
+      ;;
+  esac
 fi
 if [ -n "${GITHUB_OUTPUT:-}" ]; then
   echo "accel=$ACCEL" >> "$GITHUB_OUTPUT"
@@ -42,6 +57,22 @@ PKGS=("platform-tools" "emulator" "platforms;android-${API}" "system-images;andr
 echo "== installing: ${PKGS[*]}"
 for p in "${PKGS[@]}"; do
   if ! yes | sdkmanager --install "$p" > /tmp/sdkmanager.log 2>&1; then
+    case "$p" in
+      system-images*)
+        # Not every API level published an x86_64 google_apis image (android-24 is a common offender), and
+        # a 32-bit system image runs the app just as well for these purposes. Falling back keeps the minSdk
+        # row a real row instead of a packaging accident in the image list.
+        echo "::notice::no $p - falling back to x86"
+        ABI=x86
+        PKGS=("system-images;android-${API};${IMG};x86")
+        if ! yes | sdkmanager --install "${PKGS[0]}" > /tmp/sdkmanager.log 2>&1; then
+          echo "::error::sdkmanager could not install any system image for api ${API} (${IMG})"
+          tail -25 /tmp/sdkmanager.log
+          exit 3
+        fi
+        continue
+        ;;
+    esac
     echo "::error::sdkmanager could not install $p"
     tail -25 /tmp/sdkmanager.log
     exit 3

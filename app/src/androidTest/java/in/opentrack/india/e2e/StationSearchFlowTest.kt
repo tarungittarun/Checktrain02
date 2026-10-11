@@ -27,8 +27,15 @@ class StationSearchFlowTest {
     }
 
     /** Rows appear after a 200 ms debounce and a query on an IO thread; polling is the only honest wait. */
-    private fun awaitAnySuggestion(box: String, ms: Long = E2E.LOCAL_MS): Boolean =
-        E2E.ui.wait(Until.findObject(E2E.res(box).searchWithin(By.res(E2E.PKG, "id/sugPrimary"))), ms) != null
+    private fun awaitAnySuggestion(box: String, ms: Long = E2E.LOCAL_MS): Boolean {
+        val deadline = System.currentTimeMillis() + ms
+        while (System.currentTimeMillis() < deadline) {
+            val boxNode = E2E.ui.findObject(E2E.res(box))
+            if (boxNode?.findObject(By.res(E2E.PKG, "id/sugPrimary")) != null) return true
+            Thread.sleep(120)
+        }
+        return false
+    }
 
     private fun pick(box: String, query: String): Boolean {
         if (!E2E.typeInBox(box, query) || !awaitAnySuggestion(box)) return false

@@ -110,6 +110,14 @@ jobs:
       - name: Assemble the release APK signed with the debug key (for the release-smoke row)
         run: |
           DBG="$HOME/.android/debug.keystore"
+          # `assembleDebug` above creates that keystore as a side effect; creating it here too means this
+          # step does not depend on AGP continuing to do so, and a missing key is a confusing failure.
+          if [ ! -f "$DBG" ]; then
+            mkdir -p "$HOME/.android"
+            keytool -genkeypair -v -keystore "$DBG" -storepass android -keypass android \
+              -alias androiddebugkey -dname "CN=Android Debug,O=Android,C=US" -keyalg RSA -keysize 2048 \
+              -validity 10000 >/dev/null
+          fi
           ./gradlew --no-daemon :app:assembleRelease \
             -Pandroid.injected.signing.store.file="$DBG" \
             -Pandroid.injected.signing.store.password=android \
@@ -130,6 +138,25 @@ jobs:
           name: apk-release
           path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
+      # The Actions UI is the only place these logs live for most readers, and a red "build" job with no
+      # message is the least actionable thing CI can produce, so the compiler's own words go on the commit.
+      - name: Put the compile errors on the commit
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          {
+            echo "### e2e build failed"
+            echo ""
+            echo '```'
+            {
+              grep -E "^e: |^> Task .*FAILED|error: |What went wrong|^Execution failed" /tmp/build.log 2>/dev/null
+              grep -A 6 "What went wrong" /tmp/build.log 2>/dev/null | head -30
+            } | head -80 || tail -60 /tmp/build.log
+            echo '```'
+          } > /tmp/body.md
+          gh api -X POST "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/comments" -f body="$(cat /tmp/body.md)" \
+            || echo "::warning::could not post the build failure"
       # JaCoCo needs the class files to turn a .ec into a report; shipping them costs seconds and keeps the
       # e2e jobs from running Gradle (and downloading an SDK) just to measure.
       - name: Package the compiled classes for the coverage report

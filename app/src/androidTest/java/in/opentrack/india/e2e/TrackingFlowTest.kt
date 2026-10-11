@@ -4,6 +4,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiObject2
 import androidx.test.uiautomator.Until
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -250,7 +251,7 @@ class TrackingFlowTest {
                 if (row.text.isNullOrBlank()) blank++
             }
             E2E.ui.swipe(
-                b.centerX(), b.bottom() - 40, b.centerX(), b.top() + 40, 400,
+                b.centerX(), b.bottom - 40, b.centerX(), b.top + 40, 400,
             )
         }
         assertTrue("scrolling showed no rows at all", seen > 0)

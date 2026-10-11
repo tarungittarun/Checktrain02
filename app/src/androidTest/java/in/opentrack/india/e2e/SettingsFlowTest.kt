@@ -142,8 +142,8 @@ class SettingsFlowTest {
     private fun typeInBoxField(id: String, value: String): Boolean {
         val o = fieldOf(id) ?: return false
         o.click()
-        o.setEditText(value)
-        E2E.ui.wait(Until.idle(), 800)
+        o.setText(value)
+        E2E.ui.waitForIdle()
         return true
     }
 
