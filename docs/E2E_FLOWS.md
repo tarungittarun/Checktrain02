@@ -135,6 +135,21 @@ Two rows run on an ordinary push (`api34`, `min24`); the density and release row
 skip the stability pass. That is a cost decision, not a coverage one: the flows are the same list, and `plan`
 gates them on every event either way.
 
+The same four knobs travel in a commit message, which matters because `workflow_dispatch` is not always
+available to whoever is driving the pipeline (an integration token without `actions: write` gets a 403):
+
+| marker | effect |
+|---|---|
+| `[e2e-full]` | all four device rows on a push |
+| `[e2e-focus: TrackingFlowTest]` | one class on every row - a re-run in about four minutes |
+| `[e2e-boot: 2700]` | raise the boot budget on a slow runner |
+| `[e2e-monkey: 0]` | skip the random-event pass |
+
+`plan` prints which it chose, and a `[e2e-*]` marker you did not write is harmless text. The message reaches
+the step through an env var rather than an interpolation, so quotes or `$(...)` in a commit message cannot
+execute anything. A dispatched run also gets its own concurrency group, so an unrelated push can no longer
+cancel nine minutes of emulator boot - which is how two rows died on run 38126202814.
+
 `report` turns the rows into a table and fails the run when *no* row booted (there is then no evidence
 at all) or when the minSdk row's tests failed (the floor of the supported range is not optional). A modern
 row failing to boot while another row ran the suite is recorded and left red-in-the-table rather than
