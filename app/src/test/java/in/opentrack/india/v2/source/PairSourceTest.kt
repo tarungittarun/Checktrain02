@@ -1,9 +1,9 @@
 package `in`.opentrack.india.v2.source
 
-import `in`.opentrack.india.v2.PairListing
-import `in`.opentrack.india.v2.Provenance
-import `in`.opentrack.india.v2.SourceKind
-import `in`.opentrack.india.v2.TrainIdentity
+import `in`.opentrack.india.v2.contract.PairListing
+import `in`.opentrack.india.v2.contract.Provenance
+import `in`.opentrack.india.v2.contract.SourceKind
+import `in`.opentrack.india.v2.contract.TrainIdentity
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test

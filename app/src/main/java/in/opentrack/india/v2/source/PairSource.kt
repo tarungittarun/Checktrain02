@@ -1,8 +1,8 @@
 package `in`.opentrack.india.v2.source
 
-import `in`.opentrack.india.v2.PairListing
-import `in`.opentrack.india.v2.Provenance
-import `in`.opentrack.india.v2.SourceKind
+import `in`.opentrack.india.v2.contract.PairListing
+import `in`.opentrack.india.v2.contract.Provenance
+import `in`.opentrack.india.v2.contract.SourceKind
 
 /**
  * The question "what runs between these two stations", as the source layer receives it.
