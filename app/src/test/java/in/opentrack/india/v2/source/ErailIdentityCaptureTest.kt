@@ -1,5 +1,6 @@
 package `in`.opentrack.india.v2.source
 
+import `in`.opentrack.india.v2.contract.PairListing
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
