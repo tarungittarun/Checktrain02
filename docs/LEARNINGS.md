@@ -51,6 +51,16 @@ Also learned the same run: two red jobs racing one report filename lose the push
 reports are now per-job files (tools/ci/report_failure.py); and `bytes.isprintable()`
 does not exist (fixed in probe.py). Enforced by: DATA_SOURCES.md S2 row + probe job.
 
+## L-9 The APK pipeline is proven; four named causes burned to get there (2026-10-12)
+Run 38178052660 SUCCESS: checks+probe+android green; app-debug.apk 796,442 B published
+to latest-apk at 21:52:55Z. The four defeats, in order, each named by the failure
+self-reporter (not guessed): (1) probe bytes.isprintable crash; (2) AGP 8.5 Kotlin DSL
+resConfigs is a function -> resourceConfigurations; (3) `in` is a Kotlin keyword ->
+backtick-escaped package (precedent verified in the previous session tree before
+copying); (4) two reporter tests reading a pre-rename filename. Meta-lesson: the
+reporter mechanism (red jobs push their own diagnosis into the branch) turned every
+unreadable-logs dead end into a one-round fix — it is load-bearing infrastructure now.
+
 ## L-8 A pipe can launder a red test green (defect, 2026-10-12, run 38177375650)
 `python3 test_x.py 2>&1 | tail` exits with tail's status, so two broken reporter tests
 were locally "verified" and then failed in CI (checks job). Also: renaming a file the
