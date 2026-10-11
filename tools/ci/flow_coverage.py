@@ -99,6 +99,13 @@ def check_tests_exist(claims: list[str], problems: list[str]) -> None:
         s = SCRIPT_REF.search(ref)
         if s and not (ROOT / s.group(1)).is_file():
             problems.append(f"{ref}: missing script {s.group(1)}")
+        elif s:
+            # A flow "covered by the harness" is only a claim that CI runs the harness. Without this the
+            # Test column could cite any script in the repo and the row would read as covered forever.
+            name = Path(s.group(1)).name
+            runs = list((ROOT / ".github" / "workflows").glob("*.yml"))
+            if not any(name in f.read_text(encoding="utf-8") for f in runs):
+                problems.append(f"{ref}: {s.group(1)} exists but no workflow runs it, so the flow is not covered")
         elif not s:
             problems.append(f"'{ref}': the Test column must cite `Class#method` or `tools/…sh`")
 
