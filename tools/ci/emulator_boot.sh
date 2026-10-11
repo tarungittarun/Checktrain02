@@ -55,17 +55,42 @@ fi
 
 PKGS=("platform-tools" "emulator" "platforms;android-${API}" "system-images;android-${API};${IMG};${ABI}")
 echo "== installing: ${PKGS[*]}"
+
+# What each package has to leave on disk for the run to be able to continue. The list is deliberately
+# checked *after* sdkmanager rather than trusting its exit code: on GitHub's images platform-tools, the
+# emulator and android-34 are already installed, `sdkmanager` then closes its stdin early, and `yes` dies
+# of a broken pipe - which, under `pipefail`, reads as "the install failed" and was what killed every row of
+# run 38120714896. A component that exists is a component that is installed, whatever the tool returned.
+path_ok() {
+  case "$1" in
+    platform-tools) [ -x "$SDK/platform-tools/adb" ] ;;
+    emulator) [ -x "$SDK/emulator/emulator" ] ;;
+    platforms*) [ -d "$SDK/platforms/android-${API}" ] ;;
+    system-images*) [ -d "$SDK/system-images/${API}/${IMG}/${ABI}" ] ;;
+    *) false ;;
+  esac
+}
+
+install_pkg() {
+  local pkg=$1 rc=0
+  path_ok "$pkg" && { echo "   $pkg already present"; return 0; }
+  yes 2>/dev/null | sdkmanager --install "$pkg" > /tmp/sdkmanager.log 2>&1
+  rc=${PIPESTATUS[1]}
+  if path_ok "$pkg"; then return 0; fi
+  echo "sdkmanager exit $rc for $pkg:"; tail -12 /tmp/sdkmanager.log
+  return 1
+}
+
 for p in "${PKGS[@]}"; do
-  if ! yes | sdkmanager --install "$p" > /tmp/sdkmanager.log 2>&1; then
+  if ! install_pkg "$p"; then
     case "$p" in
       system-images*)
         # Not every API level published an x86_64 google_apis image (android-24 is a common offender), and
         # a 32-bit system image runs the app just as well for these purposes. Falling back keeps the minSdk
         # row a real row instead of a packaging accident in the image list.
-        echo "::notice::no $p - falling back to x86"
+        echo "::notice::no system image for $IMG/$ABI at api ${API} - falling back to x86"
         ABI=x86
-        PKGS=("system-images;android-${API};${IMG};x86")
-        if ! yes | sdkmanager --install "${PKGS[0]}" > /tmp/sdkmanager.log 2>&1; then
+        if ! install_pkg "system-images;android-${API};${IMG};x86"; then
           echo "::error::sdkmanager could not install any system image for api ${API} (${IMG})"
           tail -25 /tmp/sdkmanager.log
           exit 3
