@@ -44,6 +44,22 @@ lesson names where it is *enforced*, because a lesson in prose is a wish.
     → Enforced by T9.9 and PLAN.md §6, which states what the emulator *cannot* prove (railway egress) instead
     of implying it can prove everything.
 
+13. **A second push destroys the first push's evidence.** Pushing `52cd940` while `a06ac16` was still running
+    cancelled `52cd940`'s build through the concurrency group, and left `a06ac16`'s e2e `report` job failing on
+    "no results to roll up" - a red row that meant nothing, and a green build we never got to read. The fix is
+    not a config tweak (cancelling stale builds is the right economy on 2 vCPU runners): it is **one push per
+    round**, then read the run, then start the next round.
+    → Enforced by this rule + the CI-state line in `docs/v2/STATUS.md`, which records each round's run id so a
+    later round can tell "cancelled by me" from "failed on its own".
+
+14. **A fallback needs a test in which the thing it falls back from is already dead.** My own CI probe put the
+    erail attempt *below* the primary's `if doc is None: continue`, so when NTES timed out the alternate was
+    never asked and the report looked complete. Caught only because the output was missing a line I expected -
+    not because anything failed. The app's live path failed on the device the same way for rounds: chain logic
+    "worked" in tests where every provider was reachable.
+    → Enforced by `tools/ci/test_probe_live_feed.py` (run by the `checks` job), whose first case is literally
+    "primary dies, alternate must still be asked". Any future fallback ships with that shape of test.
+
 ## Method the next rounds follow (what "actual product development" means here)
 
 Scope → contract → **component PoC with an executable pass criterion** → implementation → automated proof at

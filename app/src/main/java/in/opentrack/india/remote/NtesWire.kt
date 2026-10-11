@@ -96,6 +96,31 @@ object NtesWire {
     }
 
     /** Decrypt-and-parse convenience for callers that only want the JSON object. */
+    /**
+     * A structural description of a decoded reply: key names, nesting, array lengths - and no values.
+     *
+     * This exists because the parser has never been fed a real payload, so "is it `STN` or `StationCode`" has
+     * been answered by guessing twice. The phone already has the answer; the cheap way to get it out of the
+     * phone is a signature rather than the body. Values are deliberately dropped (digits carried train
+     * numbers, minutes and coordinates nobody wants in a shared log), which still distinguishes
+     * `{"S":{"STN":[x120]}}` from `{"result":{"Status":[{"TrainNo":scalar,...}]}}` - the exact thing we need.
+     */
+    internal fun shapeOf(root: Any?, depth: Int = 2): String = when (root) {
+        is org.json.JSONObject -> {
+            val names = root.keys().asSequence().take(10).toList()
+            if (depth <= 0 || names.isEmpty()) "{}"
+            else names.joinToString(",", "{", "}") { n ->
+                val v = root.opt(n)
+                if (depth > 1 && (v is org.json.JSONObject || v is org.json.JSONArray))
+                    "$n=" + shapeOf(v, depth - 1)
+                else n
+            }
+        }
+        is org.json.JSONArray -> if (root.length() == 0) "[]"
+            else "[x" + root.length() + shapeOf(root.opt(0), depth - 1) + "]"
+        else -> "scalar"
+    }
+
     fun unwrapJson(body: String): JSONObject? {
         val plain = runCatching { unwrap(body) }.getOrNull() ?: return null
         return runCatching { JSONObject(plain.trim()) }.getOrNull()

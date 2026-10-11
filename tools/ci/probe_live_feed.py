@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
 """Ask the live-feed endpoints what they actually answer, and report it on the commit.
 
-Why this runs in CI and not in a development sandbox: the endpoint is a POST to
-`enquiry.indianrail.gov.in`, and a sandbox may not be allowed to reach that host at all — while a
-GitHub-hosted runner always can. So the runner is the probe, and the answer is a commit comment rather
-than something only one machine can see.
+Why this runs in CI: it is a network question, and the answer differs per egress path. Measured, not
+assumed: this sandbox gets `TLS/SSL connection has been closed` from `enquiry.indianrail.gov.in`, and so did
+GitHub-hosted runners (the probe comments posted on da0633c and b41c38c) — which is why the script's real
+output is a *reachability verdict*, and why the device stays the only witness for what the feed actually
+sends. Runners do vary by region and by egress pool, so asking costs seconds and an answer is worth having
+in writing; when every path is blocked, that is a finding, and the app must then not promise live data.
+
+The second half of that sentence is why `erail.in` is probed here too: it is a plain GET, keyless, and its
+own header carries the feed stamp, so if any CI path can reach anything, it is probably that one.
 
 The app's own request shape is defined by `NtesWire.kt`; this script mirrors it with the same static key,
 IV and signature secret, because that is the only way to find out whether the Kotlin implementation would
@@ -119,6 +124,198 @@ def first_array(doc):
     return None, None
 
 
+def flat_table(doc):
+    """Parallel-array responses, which is how several NTES sub-services actually answer.
+
+    Some services return `{"TRAINNO":[..], "STN":[..], "ATD":[..]}` - one array per column - instead of an
+    array of row objects. The Kotlin parser has to serve both, and it can only be written that way if we can
+    *see* the difference from here, so this reports it rather than assuming the row-object style.
+    """
+    if not isinstance(doc, dict):
+        return None
+    lists = {k: v for k, v in doc.items() if isinstance(v, list)}
+    if not lists:
+        return None
+    lens = {k: len(v) for k, v in lists.items()}
+    n = max(lens.values()) if lens else 0
+    if n == 0:
+        return {"lengths": lens, "rows": []}
+    if len(set(lens.values())) > 1:
+        # Ragged columns: still informative (it means the feed pads or truncates), and transposing would lie.
+        return {"lengths": lens, "rows": []}
+    cols = [k for k in doc if isinstance(doc[k], list)]
+    rows = [{c: doc[c][i] for c in cols} for i in range(n)]
+    return {"lengths": lens, "rows": rows}
+
+
+def numbers_from(doc):
+    """Every train number a reply mentions, whatever key it hid it under.
+
+    Deliberately a regex over the whole payload: the point of this probe is to find out what the feed says,
+    not to confirm what our parser expects to find.
+    """
+    return sorted(set(__import__("re").findall(r"\b(\d{5})\b", json.dumps(doc, separators=(",", ":")))))
+
+
+def identity_from(doc):
+    """name / origin / terminal from a FindTrainJson-style reply, key-name agnostic."""
+    blob = doc if isinstance(doc, dict) else {}
+    # unwrap one level of list/array-of-one, which is how these flat services often wrap the record
+    for k, v in list(blob.items()):
+        if isinstance(v, list) and len(v) == 1 and isinstance(v[0], dict):
+            blob = v[0]
+            break
+    def pick(*cands):
+        for key, val in blob.items():
+            ku = key.upper()
+            if any(c in ku for c in cands) and isinstance(val, (str, int)):
+                s = str(val).strip()
+                if s:
+                    return s
+        return ""
+    return {"name": pick("NAME"), "from": pick("SRC", "ORIGIN", "FROM"), "to": pick("DST", "TERM")}
+
+
+
+ERAIL_BASE = "https://erail.in/rail/getTrains.aspx"
+
+
+def erail_get(query: str, timeout: int = 20) -> tuple[str, str]:
+    """One GET to erail.in. No key, no account, nothing of ours in the middle."""
+    req = urllib.request.Request(ERAIL_BASE + "?" + query,
+                                 headers={"User-Agent": UA, "Accept": "*/*"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            body = r.read(400_000).decode("utf-8", "replace")
+            return f"HTTP {getattr(r, 'status', 200)} {len(body)}B", body
+    except urllib.error.HTTPError as e:
+        return f"HTTP {e.code}", ""
+    except Exception as e:
+        return f"{type(e).__name__}: {str(e)[:70]}", ""
+
+
+def erail_candidates(src: str, dst: str, date_1: str) -> list[str]:
+    """The pair query in every shape the site is known to accept, best guess first.
+
+    All of them are tried in one run on purpose: the runner is the only machine that can ask, and a round that
+    answers "does erail work from CI" for exactly one URL costs a build and a day. The 404 we already measured
+    stays in the list as a control - the path is /rail/getTrains.aspx, not /getTrains.aspx, and a report that
+    proves the difference is worth more than one that quietly uses the right one.
+    """
+    numeric = date_1
+    for fmt in ("%d-%b-%Y", "%d-%m-%Y", "%d/%m/%Y"):
+        try:
+            numeric = datetime.datetime.strptime(date_1, fmt).strftime("%d-%m-%Y")
+            break
+        except ValueError:
+            continue
+    common = f"Station_From={src}&Station_To={dst}&Trains=BOTH&Sort_Type=PVT&Language=0&DataSource=1"
+    return [
+        f"{common}&Date_1={numeric}&Time_1=23:30&Date_Format=DD-MM-YYYY",
+        f"{common}&Date_1={date_1}&Time_1=23:30&Date_Format=DD-MMM-YYYY",
+        common,
+        f"https://erail.in/getTrains.aspx?{common}".replace("https://erail.in/getTrains.aspx?", ""),
+    ]
+
+
+def erail_pair(src: str, dst: str, date_1: str, get=erail_get) -> tuple[str, str]:
+    """Try the pair query until one answers, and report every attempt either way."""
+    seen: list[str] = []
+    for q in erail_candidates(src, dst, date_1):
+        verdict, body = get(q)
+        seen.append(f"{verdict} [{q[:46]}…]")
+        if verdict.startswith("HTTP 200") and len(body) > 200:
+            tail = "" if not seen[:-1] else f" · after {len(seen)} attempt(s); earlier: " + " ; ".join(seen[:-1])
+            return verdict + tail, body
+    return "no candidate answered · " + " ; ".join(seen), ""
+
+
+def probe_pair(src_code: str, dst_code: str, must: list[str], date_dalvik: str,
+               today: datetime.datetime, capture: str | None = None,
+               fetch=call, alt=erail_pair) -> tuple[list[str], dict | None]:
+    """One station pair, asked of both keyless sources, with the alternate tried no matter what.
+
+    The `fetch=call, alt=erail_pair` injection exists for one reason: a test must be able to say "the primary
+    timed out" and check that the alternate still got asked. The first version of this function put the erail
+    call below the primary's `if doc is None: continue`, so the alternate only ran when the primary worked -
+    a fallback gated on the thing it is a fallback for, which is the same defect the app has been fighting,
+    caught here by its own probe output (an `### pair ... erail.in` line that never appeared).
+    """
+    out: list[str] = []
+    live_entry: dict | None = None
+    plain = (f"service=TrainBtwStnMob&subService=TrainBtwStnJson&stnFrom={src_code}"
+             f"&stnTo={dst_code}&trainType=All")
+    verdict, doc = fetch(plain)
+    out.append(f"\n### pair {src_code}->{dst_code} · live list · {verdict}")
+    found: list[str] = []
+    if doc is None:
+        out.append(f"  primary gave nothing usable, so this pair's truth rests on the alternate alone")
+    else:
+        if capture:
+            with open(os.path.join(capture, f"pair-{src_code}-{dst_code}.json"), "w", encoding="utf-8") as fh:
+                json.dump(doc, fh)
+        out.append("top-level: " + json.dumps(shape(doc), separators=(",", ":"))[:900])
+        found = numbers_from(doc)
+        out.append(f"train numbers mentioned: {len(found)} -> {', '.join(found[:40])}")
+        live_entry = {"from": src_code, "to": dst_code, "must_include": found}
+        for n in must:
+            out.append(f"  our fixture claims {n} on this pair: "
+                       + ("CONFIRMED by the live feed" if n in found else "NOT in what the feed returned"))
+
+    # Second witness, unconditional. Two keyless answers that agree are evidence; one is a hypothesis.
+    e_verdict, e_body = alt(src_code, dst_code, today.strftime("%d-%b-%Y"))
+    out.append(f"### pair {src_code}->{dst_code} · erail.in (alternate) · {e_verdict}")
+    e_nums: list[str] = []
+    if e_body:
+        import re as _re
+        stamp = _re.search(r"(\d{4}-\d{2}-\d{2}-\d{1,2}-\d{1,2}-\d{1,2})", e_body)
+        e_nums = sorted(set(_re.findall(r"\b(\d{5})\b", e_body[:200000])))
+        out.append(f"feed stamp in payload: {stamp.group(1) if stamp else 'not found'}; "
+                   f"train numbers mentioned: {len(e_nums)}")
+        out.append("  " + ", ".join(e_nums[:40]))
+        for n in must:
+            if n not in e_nums:
+                out.append(f"  erail does not list {n} either - the fixture's claim is the odd one out")
+    if e_nums:
+        if live_entry is None:
+            live_entry = {"from": src_code, "to": dst_code, "must_include": sorted(e_nums)}
+        else:
+            live_entry["must_include"] = sorted(set(live_entry["must_include"]) | set(e_nums))
+    return out, live_entry
+
+
+
+def erail_identity_lines(train_no: str, live: dict, get=erail_get) -> list[str]:
+    """"What does this number mean today", asked of the keyless source that CI can actually reach.
+
+    This is the one fact our offline copy got wrong (16228 was a different train), and the one fact a human
+    screenshot can pin but not keep pinned. If this reads OK from a runner, fixtures/known_truths.json stops
+    depending on somebody's phone and becomes refreshable by the pipeline - which is the whole difference
+    between a data bug that lasts four months and one that lasts one night.
+    """
+    out = [f"identity via erail.in · ", ""]
+    verdict, body = get(f"TrainNo={train_no}&DataSource=1&Language=0")
+    out[0] = f"identity of {train_no} via erail.in · {verdict}"
+    out.pop()
+    rec = body.splitlines()[0][:300] if body else ""
+    fields = [f.strip() for f in rec.split("~") if f.strip()]
+    out.append("  first record fields: " + (", ".join(fields[:8]) or "(nothing)"))
+    if len(fields) >= 4:
+        # Only three-letter codes are trusted as stations; anything else is a column we mis-counted, and a
+        # half-parsed identity is worse than none because it looks like a fact.
+        # Codes are 3-5 chars and 4-letter ones are common (SMET, TLGP, SBC), so slicing to 3 would silently
+        # turn SMET into MET. A test caught that here, which is the argument for testing the probe too.
+        import re as _re
+        _code = _re.compile(r"^[A-Z0-9]{3,5}$")
+        src, dst = fields[2].strip().upper(), fields[3].strip().upper()
+        if _code.match(src) and _code.match(dst):
+            live["trains"].append({"train_no": train_no, "name": fields[1][:60], "from": src, "to": dst})
+        else:
+            out.append(f"  not recorded as a truth: station fields parsed as {src!r}/{dst!r}")
+    return out
+
+
+
 def main() -> int:
     out: list[str] = []
     if not crypto_available():
@@ -126,29 +323,79 @@ def main() -> int:
         return 0
     today = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=5, minutes=30)))
     date = today.strftime("%d-%b-%Y")
+    capture = os.environ.get("PROBE_CAPTURE")
+    if capture:
+        os.makedirs(capture, exist_ok=True)
+
+    # The probe plan comes from fixtures/known_truths.json, so the facts the app is gated on are the same
+    # facts we ask the railway about. When the two disagree the report says which one moved; that is the
+    # whole method - it is what a passenger could not get the app to admit for three rounds.
+    truths = {}
+    try:
+        tp = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "fixtures", "known_truths.json")
+        truths = json.load(open(tp, encoding="utf-8"))
+    except Exception as e:  # a missing fixture must not blind the probe
+        out.append(f"(no known-truths fixture to probe against: {e})")
+    trains = [t.get("train_no") for t in truths.get("trains", []) if t.get("train_no")]
+    trains = (trains or []) + [os.environ.get("PROBE_TRAIN", "12627")]
+    pairs = [(p.get("from"), p.get("to"), p.get("must_include", [])) for p in truths.get("pair_lists", [])]
+
     out.append(f"probed {BASE} at {today.isoformat(timespec='seconds')} (IST)")
-    # A mix on purpose: a busy late-running express, a superfast, and a passenger train.
-    for train in (os.environ.get("PROBE_TRAIN", "12627"), "12301", "56213"):
+    out.append(f"plan: {len(set(trains))} train identities + {len(pairs)} station pair(s) from "
+               f"fixtures/known_truths.json (verified {truths.get('verifiedOn', '?')})")
+
+    live = {"verifiedOn": today.strftime("%Y-%m-%d"), "verifiedAgainst": "CI probe " + BASE,
+            "trains": [], "pair_lists": []}
+
+    for train in dict.fromkeys(trains):
         for label, plain in (
+            ("identity", f"service=TrainBtwStnMob&subService=FindTrainJson&trainNo={train}"),
             ("live", f"service=TrainRunningMob&subService=ShowFullRunJson&trainNo={train}&startDate={date}"),
             ("schedule", f"service=TrainRunningMob&subService=GetTrainSchedule&trainNo={train}&startDate={date}"),
         ):
             verdict, doc = call(plain)
             out.append(f"\n### train {train} · {label} · {verdict}")
+            if label == "identity":
+                # Asked whether or not NTES answered: a disagreement between the two is the finding, and a
+                # witness gated on the thing it is a witness for is no witness (lesson 14, applied here
+                # because my first version of this very line sat below `if doc is None: continue`).
+                out += erail_identity_lines(train, live)
             if doc is None:
                 continue
+            if capture:
+                with open(os.path.join(capture, f"{label}-{train}.json"), "w", encoding="utf-8") as fh:
+                    json.dump(doc, fh)
             out.append("top-level: " + json.dumps(shape(doc), separators=(",", ":"))[:900])
+            flat = flat_table(doc)
+            if flat:
+                out.append(f"parallel-array reply: {json.dumps(flat['lengths'], separators=(',', ':'))[:300]}")
+                if flat["rows"]:
+                    out.append("first 2 rows: " + json.dumps(flat["rows"][:2], separators=(",", ":"))[:700])
             key, rows = first_array(doc)
             if rows:
                 filled = [k for k in shape(rows[0]) if any(str(r.get(k, "")).strip() for r in rows if isinstance(r, dict))]
                 out.append(f"stop array '{key}' has {len(rows)} rows; non-empty in at least one row: {filled}")
                 out.append("first 2 rows: " + json.dumps(rows[:2], separators=(",", ":"))[:700])
-            if isinstance(doc, dict):
-                for hk in ("MSG", "CTT", "NEXT", "PREV", "TMNAME", "SDATE", "EDATA", "lastUpdate", "status"):
-                    if hk in doc:
-                        out.append(f"  {hk} = {str(doc[hk])[:90]}")
+            if label == "identity" and isinstance(doc, (dict, list)):
+                ident = identity_from(doc if isinstance(doc, dict) else {"r": doc})
+                out.append("identity read: " + json.dumps(ident, separators=(",", ":")))
+                if ident.get("name") and len(ident.get("from", "")) == 3 and len(ident.get("to", "")) == 3:
+                    live["trains"].append({"train_no": train, "name": ident["name"],
+                                           "from": ident["from"], "to": ident["to"]})
+
+    for src_code, dst_code, must in pairs:
+        probe_lines, entry = probe_pair(src_code, dst_code, must, date, today, capture)
+        out += probe_lines
+        if entry:
+            live["pair_lists"].append(entry)
+
+    # Propose, never apply: an automated edit to the truth fixture would be a second source of "the app
+    # quietly believes itself". A human reads this block and pastes it, and the commit says who checked.
+    out.append("\n### proposed refresh of fixtures/known_truths.json")
+    out.append("```json\n" + json.dumps(live, indent=1)[:3000] + "\n```")
+
     body = "\n".join(out)
-    print(body[:6000])
+    print(body[:9000])
     tok = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
     repo = os.environ.get("GITHUB_REPOSITORY")
     sha = os.environ.get("GITHUB_SHA")
@@ -158,6 +405,9 @@ def main() -> int:
              "-f", f"body=### live-feed probe\n\n```\n{body[:5000]}\n```"],
             check=False, timeout=60,
         )
+    if os.environ.get("GITHUB_STEP_SUMMARY"):
+        with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as fh:
+            fh.write("### live-feed probe\n\n```\n" + body[:4500] + "\n```\n")
     return 0
 
 
