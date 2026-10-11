@@ -119,8 +119,15 @@ def check_workflows(workflows: list[pathlib.Path], actions: dict[str, pathlib.Pa
                     if dep not in (doc.get("jobs") or {}):
                         out.append(f"{path}: job '{job}' needs unknown job '{dep}'")
             for i, step in enumerate(jd.get("steps") or []):
-                uses = step.get("uses", "")
+                uses = str(step.get("uses") or "")
                 if uses.startswith("./"):
+                    # The runner resolves a path-based action from the workspace before the action's own
+                    # steps run, so a checkout inside the action is too late - the job has to do it first.
+                    if not any(str(s.get("uses") or "").startswith("actions/checkout")
+                               for s in (jd.get("steps") or [])[:i]):
+                        out.append(f"{path}: job '{job}' runs the local action '{uses}' at step {i+1} with "
+                                  f"no actions/checkout step before it - add "
+                                  f"'- uses: actions/checkout@v4' to the JOB, above it")
                     rel = uses[2:].lstrip("/")
                     apath = actions.get(rel) or (ROOT / rel / "action.yml")
                     if not pathlib.Path(apath).is_file():

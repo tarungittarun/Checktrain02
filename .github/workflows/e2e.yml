@@ -299,6 +299,13 @@ jobs:
             offline: false
             monkey: 6000
     steps:
+      # A local action is looked up on disk before any of its steps run, so the repo has to be there first:
+      # this checkout belongs to the job, not to the action. Without it the job dies with
+      # "Can't find 'action.yml' ... Did you forget to run actions/checkout before running your local action?"
+      # and no step of the action ever runs - which is what three rows did here.
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/e2e-row
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -373,6 +380,13 @@ jobs:
             offline: false
             monkey: 8000
     steps:
+      # A local action is looked up on disk before any of its steps run, so the repo has to be there first:
+      # this checkout belongs to the job, not to the action. Without it the job dies with
+      # "Can't find 'action.yml' ... Did you forget to run actions/checkout before running your local action?"
+      # and no step of the action ever runs - which is what three rows did here.
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/e2e-row
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
