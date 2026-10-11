@@ -25,7 +25,7 @@ RES = ROOT / "app" / "src" / "main" / "res"
 
 DECL = re.compile(
     r"^\s*(?:(?:private|internal|protected|public|open|override|data|lateinit|const|abstract|inner|"
-    r"sealed|companion|enum|annotation|@\w+)\s+)*(?:val|var|fun|class|object|interface|typealias)\s+"
+    r"sealed|companion|enum|annotation|suspend|@\w+)\s+)*(?:val|var|fun|class|object|interface|typealias)\s+"
     r"(?:<[^>]*>\s*)?(?:(\w+)\s*\.\s*)?(\w+)",
     re.M,
 )
@@ -74,6 +74,11 @@ isSuccess launch
 # v2 live-search slice (2026-10-12): Kotlin Map.getValue, HttpURLConnection.setRequestProperty,
 # URL.protocol - the erail transport and the merge tests call these; framework, not typos.
 getValue setRequestProperty protocol remove addAll
+# v2 identity-overlay slice (2026-10-12): Kotlin stdlib collection lookups. singleOrNull guards the
+# identity parse (exactly one record must carry the number); indexOfLast sat unflagged in
+# LiveViewModel.segmentRange for weeks because no local named `rows` existed - the identity fetch
+# added one, and the checker rightly began scanning the receiver. Both stdlib, not typos.
+singleOrNull indexOfLast
 lastModified openOutputStream toByteArray registerForActivityResult clear text
 packageName contentResolver connect takeLast log
 removeFirst addLast appendText appendBytes readBytes copyOfRange versionName lastUpdateTime getPackageInfo packageManager getLinkProperties hasTransport hasCapability getNetworkCapabilities activeNetwork mkdirs resume install tailLabels exportName rotationPlan getAllByName hostAddress getSharedPreferences putString putInt

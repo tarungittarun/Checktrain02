@@ -21,6 +21,13 @@ class ErailTransport(
     override fun fetch(query: PairQuery): PairWire =
         fetchUrl(pairUrl(query.fromCode, query.toCode), query.budgetMs)
 
+    /**
+     * One GET for one number's identity tile (same record shape as the pair reply - the 2026-10-12
+     * captures). One request per screen open is the etiquette budget (2.5); no retries here either.
+     */
+    fun fetchTrainNo(trainNo: String, budgetMs: Int): PairWire =
+        fetchUrl(trainNoUrl(trainNo), budgetMs)
+
     private fun fetchUrl(url: String, budgetMs: Int): PairWire {
         val started = nowMillis()
         return try {
@@ -83,6 +90,12 @@ class ErailTransport(
         fun pairUrl(fromCode: String, toCode: String): String =
             "${BASE}?Station_From=$fromCode&Station_To=$toCode" +
                 "&Trains=BOTH&Sort_Type=PVT&Language=0&DataSource=1"
+
+        /**
+         * The by-number identity query, exactly as the CI probe fetches it (the capture comment of
+         * 2026-10-12 carries the reply bodies). Same keyless GET, one number in, one tile record out.
+         */
+        fun trainNoUrl(trainNo: String): String = "${BASE}?TrainNo=$trainNo&DataSource=1&Language=0"
 
         private const val MAX_BYTES = 400_000
     }

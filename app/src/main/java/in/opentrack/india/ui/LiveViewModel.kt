@@ -13,10 +13,40 @@ import `in`.opentrack.india.domain.PositionEngine
 import `in`.opentrack.india.domain.Suggestion
 import `in`.opentrack.india.domain.TrackModel
 import `in`.opentrack.india.model.TrainRoute
+import `in`.opentrack.india.v2.contract.TrainIdentity
+import `in`.opentrack.india.v2.source.ErailPairParser
+import `in`.opentrack.india.v2.source.ErailTransport
+import `in`.opentrack.india.v2.source.PairParse
+import `in`.opentrack.india.v2.source.PairWire
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+/**
+ * "What does this number mean today", as the details screen asks it - injected (5.1) so a laptop test
+ * answers with a canned identity and no egress. The production answer comes from erail's keyless
+ * by-number reply (the one source CI proved it can read, captures of 2026-10-12).
+ */
+fun interface IdentityFetch {
+    suspend fun identityOf(trainNo: String): TrainIdentity?
+}
+
+/**
+ * The production fetch: one GET, parsed by the pair parser (the captures show the by-number reply IS
+ * the same tile-record shape). Exactly one record must carry the asked-for number; anything else -
+ * unreachable, unreadable, redirected to a different number - is null, and the screen stays on the
+ * timetable with its honest label instead of guessing.
+ */
+private suspend fun erailIdentityFetch(trainNo: String): TrainIdentity? {
+    val wire = withContext(Dispatchers.IO) { ErailTransport().fetchTrainNo(trainNo, 12_000) }
+    if (wire !is PairWire.Ok) return null
+    val rows = (ErailPairParser().parse(wire.body, wire.fetchedAtMillis) as? PairParse.Rows)
+        ?.listing?.trains ?: return null
+    return rows.singleOrNull { it.identity.number == trainNo.trim() }?.identity
+}
 
 /**
  * State for the live-tracking screen.
@@ -33,7 +63,11 @@ class LiveViewModel(
     private val fromCode: String,
     private val toCode: String,
     private val originEpochDay: Long,
+    private val identityFetch: IdentityFetch = IdentityFetch(::erailIdentityFetch),
 ) : ViewModel() {
+
+    /** The live identity for [trainNo], once one reaches the device; null until then (and stays null on failure). */
+    private var liveIdentity: TrainIdentity? = null
 
     /**
      * @param model the whole screen, already stringified. The Activity binds and styles; it computes
@@ -74,6 +108,7 @@ class LiveViewModel(
     fun start() {
         if (pollJob != null) return
         refresh()
+        fetchLiveIdentity()
         pollJob = viewModelScope.launch {
             while (isActive) {
                 val seconds = repo()?.prefs?.autoRefreshSeconds ?: 60
@@ -94,6 +129,28 @@ class LiveViewModel(
     fun stop() {
         pollJob?.cancel()
         pollJob = null
+    }
+
+    /**
+     * One identity request per screen open (2.5), off the critical path: the timetable renders first,
+     * the live answer relabels it when (and only when) it arrives. Null means "no live identity reached
+     * this device" and the timetable label stays exactly as it was - a failed lookup is never rendered
+     * as a correction.
+     */
+    private fun fetchLiveIdentity() {
+        viewModelScope.launch {
+            val id = runCatching { identityFetch.identityOf(trainNo) }.getOrNull()
+            if (id == null) {
+                Diary.get()?.log("UI", "no erail identity reached the device for $trainNo; the timetable label stays")
+                return@launch
+            }
+            liveIdentity = id
+            Diary.get()?.log(
+                "UI",
+                "erail live identity for $trainNo: ${id.fromCode}->${id.toCode} (${id.name})",
+            )
+            lastUi?.let { _ui.value = buildUi(it.route, it.answer, it.tried) }
+        }
     }
 
     fun setAutoRefresh(enabled: Boolean) {
@@ -175,8 +232,16 @@ class LiveViewModel(
                 else "No live report reached this device — every minute below is the timetable, " +
                     "not the train.",
         )
+        // The label is where the founding bug lived (16228: the timetable said one route, the railway
+        // another). When a live identity reached the device, the label says both readings - the overlay
+        // is a sentence, never a silent swap, because the stop table below is still the timetable's.
+        val labelled = model.copy(
+            routeLabel = identityOverlay(route.srcCode, route.dstCode, liveIdentity)
+                ?.let { "${model.routeLabel} · $it" }
+                ?: model.routeLabel,
+        )
         return Ui(
-            route = route, answer = answer, model = model,
+            route = route, answer = answer, model = labelled,
             boarding = model.rows.firstOrNull { it.isBoarding },
             alighting = model.rows.firstOrNull { it.isAlighting },
             nowRailMinute = nowRail, tried = tried, loading = false,
@@ -211,5 +276,22 @@ class LiveViewModel(
     companion object {
         /** Enough rows to read a real route without a stutter on a five-year-old phone. */
         const val MAX_ROWS = 140
+
+        /**
+         * What the live identity adds to the timetable's route label, as a pure function (the screen
+         * computes nothing, 8.2). Null: no identity reached the device - the label stays. Match: the
+         * confirmation is stated, not implied. Mismatch: BOTH readings in one line, and the table is
+         * named as the timetable's - the label may be corrected but the times below it are not, not
+         * until a real per-stop source exists (T20.1's paste, 17.1's ladder).
+         */
+        internal fun identityOverlay(srcCode: String, dstCode: String, id: TrainIdentity?): String? = when {
+            id == null -> null
+            id.fromCode.equals(srcCode, ignoreCase = true) &&
+                id.toCode.equals(dstCode, ignoreCase = true) ->
+                "identity confirmed live (via erail)"
+            else ->
+                "${id.fromCode} → ${id.toCode} is what the live source says this number runs (via erail) " +
+                    "— the stop table below is this device's timetable"
+        }
     }
 }
