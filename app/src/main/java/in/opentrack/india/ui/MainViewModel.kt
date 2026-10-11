@@ -148,7 +148,7 @@ class MainViewModel(private val app: App) : ViewModel() {
             val now = System.currentTimeMillis()
             val cached = pairCache.get(fromCode, toCode, now)
             if (cached != null) {
-                applyLive(assetReport, PairAnswer.Listing(cached.listing), now)
+                applyLive(assetReport, PairAnswer.Listing(cached.listing), now, fromCache = true)
                 return@launch
             }
             val source = PairSource("erail", ErailTransport(), ErailPairParser())
@@ -166,7 +166,8 @@ class MainViewModel(private val app: App) : ViewModel() {
     }
 
     /** Merge the live answer into the asset report and post it, rows labelled, state line attached. */
-    private fun applyLive(assetReport: TrainFinder.Report, answer: PairAnswer, nowMillis: Long) {
+    private fun applyLive(assetReport: TrainFinder.Report, answer: PairAnswer, nowMillis: Long,
+                          fromCache: Boolean = false) {
         val assetRows = assetReport.hits.map { h ->
             AssetRow(
                 h.trainNo, h.trainName, h.fromCode, h.toCode,
@@ -175,28 +176,18 @@ class MainViewModel(private val app: App) : ViewModel() {
             )
         }
         val merged = PairMerge.merge(assetRows, answer, targetEpochMinute)
-        val renderable = merged.rows.filter { it.boardMin != null }
-        val hidden = merged.rows.size - renderable.size
-        val hits = renderable.map { r ->
-            val board = r.boardMin ?: 0
-            TrainHit(
-                trainNo = r.identity.number,
-                trainName = r.identity.name,
-                trainType = null,
-                originDateEpochDay = pickOrigin(targetEpochMinute, board),
-                boardMinute = board,
-                alightMinute = r.alightMin ?: board,
-                fromCode = r.identity.fromCode,
-                toCode = r.identity.toCode,
-                fromSeq = 0,
-                toSeq = 0,
-                distanceKm = 0, // the row renderer hides km when 0 - no fabricated distance (2.4)
-                runDays = null,
-                sourceTag = if (r.liveOnly || r.confirmedByLive) "via erail" else "timetable",
-            )
+        val (hits, hidden) = PairMerge.toTrainHits(merged.rows, targetEpochMinute) { board ->
+            pickOrigin(targetEpochMinute, board)
         }
-        val line = if (hidden > 0) "${merged.stateLine} · $hidden train(s) listed without a readable time"
-        else merged.stateLine
+        var line = merged.stateLine
+        if (hidden > 0) line += " · $hidden train(s) listed without a readable time"
+        if (fromCache) {
+            // A cache read is never live (7.5): the sentence says so, with the age.
+            val fetchedAt = (answer as? PairAnswer.Listing)?.listing?.provenance?.fetchedAtMillis
+                ?: nowMillis
+            val ageMin = ((nowMillis - fetchedAt) / 60_000L).coerceAtLeast(0L)
+            line += if (ageMin <= 0L) " · served from cache" else " · cached, fetched $ageMin min ago"
+        }
         _results.postValue(assetReport.copy(hits = hits))
         _liveNote.postValue(line)
     }

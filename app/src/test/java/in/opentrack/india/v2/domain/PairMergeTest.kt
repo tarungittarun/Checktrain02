@@ -123,4 +123,42 @@ class PairMergeTest {
         assertEquals(SourceKind.OFFLINE_ASSET, row.identity.provenance.kind)
         assertEquals("timetable is the only honest word for it", 0L, row.identity.provenance.fetchedAtMillis)
     }
+
+    @Test
+    fun anOvernightLiveRowConvertsToCumulativeMinutesTheV1RowsSpeak() {
+        // The symptom this is named after: 16228 boards 23:00, alights 08:20 (+1). Naive minute-of-day
+        // conversion made the duration NEGATIVE (500-1380 = -880) and hid "arrives next day". v1 rows
+        // speak cumulative minutes, so the conversion adds the day.
+        val answer = PairAnswer.Listing(liveListing(Triple("16228", 1380, 500)))
+        val merged = PairMerge.merge(emptyList(), answer, 700)
+        val (hits, hidden) = PairMerge.toTrainHits(merged.rows, 700, originOf = { 20L })
+        val hit = hits.single()
+        assertEquals(1380, hit.boardMinute)
+        assertEquals(500 + 1440, hit.alightMinute)
+        assertEquals("a 9h20 journey, not minus fourteen hours", 560, hit.durationMin)
+        assertEquals("via erail", hit.sourceTag)
+        assertEquals(20L, hit.originDateEpochDay)
+        assertEquals(0, hidden)
+    }
+
+    @Test
+    fun aRowWithoutAReadableTimeIsCountedNotRenderedAsMidnight() {
+        val assetRows = listOf(assetRow("16226", 690, 1030))
+        val answer = PairAnswer.Listing(liveListing(Triple("56209", null, null)))
+        val merged = PairMerge.merge(assetRows, answer, 700)
+        val (hits, hidden) = PairMerge.toTrainHits(merged.rows, 700, originOf = { 0L })
+        assertEquals(listOf("16226"), hits.map { it.trainNo })
+        assertEquals(1, hidden)
+    }
+
+    @Test
+    fun theAssetOnlyRowIsLabelledTimetableTheLiveRowViaErail() {
+        val assetRows = listOf(assetRow("16226", 690, 1030))
+        val answer = PairAnswer.Listing(liveListing(Triple("16221", 475, 930)))
+        val merged = PairMerge.merge(assetRows, answer, 700)
+        val (hits, _) = PairMerge.toTrainHits(merged.rows, 700, originOf = { 0L })
+        val byNo = hits.associateBy { it.trainNo }
+        assertEquals("timetable", byNo.getValue("16226").sourceTag)
+        assertEquals("via erail", byNo.getValue("16221").sourceTag)
+    }
 }

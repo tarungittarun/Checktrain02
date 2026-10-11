@@ -1,5 +1,6 @@
 package `in`.opentrack.india.v2.domain
 
+import `in`.opentrack.india.model.TrainHit
 import `in`.opentrack.india.v2.source.PairAnswer
 import `in`.opentrack.india.v2.contract.PairListing
 import `in`.opentrack.india.v2.contract.TrainIdentity
@@ -100,6 +101,47 @@ object PairMerge {
 
         val stateLine = stateLineFor(live, listing?.note, liveOnlyRows.size, nowMinuteOfTarget)
         return Merged(rows, stateLine, listing != null)
+    }
+
+    /**
+     * The v1 row conversion, pure and tested (the seam that lets the v1 results screen render v2's
+     * merge output). v1's convention is CUMULATIVE rail minutes - a day-2 arrival is minute+1440
+     * (TrainFinder filters `alight <= board`), so an overnight live row (23:00 -> 08:20) converts to
+     * alight 1940, duration 560, and the adapter's "arrives next day" follows. Rows without a readable
+     * board time are NOT rendered as midnight (2.4): they are not in the hits, and the count comes
+     * back as the second element of the pair so the state line can name it.
+     */
+    fun toTrainHits(
+        rows: List<MergedRow>,
+        targetEpochMinute: Long,
+        originOf: (boardMin: Int) -> Long,
+    ): Pair<List<TrainHit>, Int> {
+        val renderable = rows.filter { it.boardMin != null }
+        val hits = renderable.map { r ->
+            val board = r.boardMin ?: 0
+            val alight = when {
+                r.alightMin == null -> board
+                r.alightDayOffset > 0 && r.alightMin < board -> r.alightMin + 1440
+                else -> r.alightMin
+            }
+            TrainHit(
+                trainNo = r.identity.number,
+                trainName = r.identity.name,
+                trainType = null,
+                originDateEpochDay = originOf(board),
+                boardMinute = board,
+                alightMinute = alight,
+                fromCode = r.identity.fromCode,
+                toCode = r.identity.toCode,
+                fromSeq = 0,
+                toSeq = 0,
+                // the row renderer hides km when 0 - no fabricated distance (2.4)
+                distanceKm = 0,
+                runDays = null,
+                sourceTag = if (r.liveOnly || r.confirmedByLive) "via erail" else "timetable",
+            )
+        }
+        return hits to (rows.size - renderable.size)
     }
 
     private fun assetNumbers(assetRows: List<AssetRow>): Set<String> =
