@@ -7,6 +7,7 @@ import java.io.File
 import java.io.IOException
 import java.io.InputStream
 import java.net.HttpURLConnection
+import java.net.HttpsURLConnection
 import java.net.SocketTimeoutException
 import java.net.URL
 import java.util.zip.GZIPInputStream
@@ -41,12 +42,17 @@ class Http(context: Context) {
      * @param retries 1 retry for a GET is free of side effects and covers the single dropped
      *   connection that dominates failures on mobile networks; more would just stack latency.
      */
-    fun get(url: String, timeoutMillis: Int = DEFAULT_TIMEOUT, retries: Int = 1): Result {
+    fun get(
+        url: String,
+        timeoutMillis: Int = DEFAULT_TIMEOUT,
+        retries: Int = 1,
+        headers: Map<String, String> = emptyMap(),
+    ): Result {
         var last: Result = Result.Failed(Result.Kind.EMPTY, "not attempted")
         var attempt = 0
         while (attempt <= retries) {
             attempt++
-            last = tryOnce(url, timeoutMillis)
+            last = tryOnce(url, timeoutMillis, headers)
             if (last is Result.Ok || last !is Result.Failed) return last
             if (last.kind == Result.Kind.HTTP) break            // 4xx/5xx will not fix itself
             if (attempt <= retries) sleep(300L * attempt)
@@ -71,12 +77,13 @@ class Http(context: Context) {
         headers: Map<String, String> = emptyMap(),
         timeoutMillis: Int = DEFAULT_TIMEOUT,
         retries: Int = 0,
+        tls12: Boolean = false,
     ): Result {
         var attempt = 0
         var last: Result = Result.Failed(Result.Kind.EMPTY, "not attempted")
         while (attempt <= retries) {
             attempt++
-            last = tryPost(url, body, headers, timeoutMillis)
+            last = tryPost(url, body, headers, timeoutMillis, tls12)
             if (last is Result.Ok) return last
             if (last is Result.Failed && last.kind == Result.Kind.HTTP) break
             if (attempt <= retries) sleep(400L * attempt)
@@ -84,7 +91,9 @@ class Http(context: Context) {
         return last
     }
 
-    private fun tryPost(url: String, body: String, headers: Map<String, String>, timeoutMillis: Int): Result {
+    private fun tryPost(
+        url: String, body: String, headers: Map<String, String>, timeoutMillis: Int, tls12: Boolean = false,
+    ): Result {
         var conn: HttpURLConnection? = null
         return try {
             conn = (URL(url).openConnection() as HttpURLConnection).apply {
@@ -96,6 +105,7 @@ class Http(context: Context) {
                 setRequestProperty("Accept-Encoding", "gzip")
                 setRequestProperty("Connection", "close")
                 for ((k, v) in headers) setRequestProperty(k, v)
+                if (tls12 && this is HttpsURLConnection) this.sslSocketFactory = tls12Factory()
             }
             conn.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
             val code = conn.responseCode
@@ -113,7 +123,14 @@ class Http(context: Context) {
             val offline = e.message?.let {
                 it.contains("Unable to resolve host") || it.contains("ENETUNREACH") || it.contains("ENONET")
             } == true
-            Result.Failed(if (offline) Result.Kind.OFFLINE else Result.Kind.HTTP, e.message ?: "io error")
+            // The class name travels with the message on purpose. "The live feed refused the request (closed)"
+            // was true and useless: an SSLException closed mid-handshake, a server that answers HTTP 403, and a
+            // carrier middlebox that resets the socket are different bugs with different fixes, and only the
+            // device can tell them apart. Costs 20 characters, saves a round trip measured in days.
+            Result.Failed(
+                if (offline) Result.Kind.OFFLINE else Result.Kind.HTTP,
+                "${e.javaClass.simpleName}: ${e.message ?: "io error"}",
+            )
         } catch (e: Throwable) {
             Result.Failed(Result.Kind.PARSE, e.message ?: "unexpected")
         } finally {
@@ -121,7 +138,18 @@ class Http(context: Context) {
         }
     }
 
-    private fun tryOnce(url: String, timeoutMillis: Int): Result {
+    /**
+     * A TLS 1.2 socket from the platform trust anchors. Not a trust *relaxation* — the default trust manager is
+     * kept — only the protocol choice, which is what a legacy server that refuses modern renegotiation needs.
+     * Built lazily and never cached across failures, because a broken SSLContext must not poison every later
+     * request the app makes.
+     */
+    private fun tls12Factory(): javax.net.ssl.SSLSocketFactory =
+        javax.net.ssl.SSLContext.getInstance("TLSv1.2").apply {
+            init(null, null, null)
+        }.socketFactory
+
+    private fun tryOnce(url: String, timeoutMillis: Int, headers: Map<String, String> = emptyMap()): Result {
         var conn: HttpURLConnection? = null
         return try {
             conn = (URL(url).openConnection() as HttpURLConnection).apply {
@@ -135,6 +163,7 @@ class Http(context: Context) {
                 setRequestProperty("Accept-Encoding", "gzip")
                 setRequestProperty("Accept", "*/*")
                 setRequestProperty("Connection", "close")
+                for ((k, v) in headers) setRequestProperty(k, v)
             }
             val code = conn.responseCode
             if (code in 300..399) {

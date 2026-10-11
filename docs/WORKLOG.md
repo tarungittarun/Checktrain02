@@ -34,6 +34,42 @@ It exists because CI knowledge is worthless if it lives only in the session that
   `x == y` inside a constructor call as a named argument, and `check_members` knows the JDK/org.json calls the
   crypto client makes — both were false positives, fixed in the checkers rather than by bending the app.
 
+## What a real device told us, and what the app now does about it
+
+The first field report from a phone on Indian LTE (train 56227, 18:36 IST) came back as:
+
+```
+providers PROVIDER_OVERRIDE=miss PROVIDER_NTES=miss PROVIDER=miss CACHED=miss
+note LIVE · running status: The live feed refused the request (closed).
+rows 40: 0 reported / 0 projected / 40 timetable
+```
+
+Read it precisely, because two different conclusions are available and only one is supported:
+
+- **what is not wrong**: the parser. No response body ever arrived, so nothing was mis-parsed; and the screen
+  said `OFFLINE · schedule only`, `no live fetch`, `no live feed` — the honesty machinery worked exactly as
+  designed on a train with 40 halts.
+- **what is wrong**: the request. `Http` reported the failure as *closed*, which is a server hanging up on us,
+  and "closed" is all it knew: `e.message` without the exception class cannot separate a TLS handshake refusal,
+  an HTTP 403 from a policy layer, and a carrier middlebox reset. Those need three different fixes.
+- **what this does not prove**: that the device had a working route. The bundled timetable is on-device, so a
+  schedule rendering is not evidence about the network — which is why the probe below includes a control
+  against a host this app is known to reach.
+
+So `remote/FeedProbe.kt` runs the request matrix **on the device** — the only vantage point that can — after a
+refusal: seven shapes (shipped envelope, same over an explicit TLS 1.2 socket, browser agent, unencrypted
+plain body, the legacy `liveStatusJsonNew` GET *with the Referer and X-Requested-With the NTES site has always
+needed*, an independent mirror, and a control host). It is single-flight, 7 s per try, and it *adopts* the first
+variant that yields a usable snapshot: `NtesProvider` asks with that shape from the next refresh, labels the
+answer `via post-tls12` in the report, and stops if the payload ever stops being usable. Adoption is the reason
+this is a fix rather than a telemetry exercise: on a network where only one shape answers, the app starts
+working for that user without waiting for a rebuild.
+
+Standing rule, restated because the pressure to bend it is coming: **no API key ships in this APK**, not even
+a publicly documented sample credential. If the probe shows that only a keyed source answers from India, the
+correct output is an evidence-backed proposal to the user (endpoint, what the key costs, what it means for the
+no-accounts promise), not a quiet exception in the provider chain.
+
 ## What CI can and cannot prove about the live feed
 
 `AppServAnd` at `enquiry.indianrail.gov.in` **refuses connections from GitHub's runner IPs**: two runs, three

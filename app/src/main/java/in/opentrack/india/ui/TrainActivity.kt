@@ -15,6 +15,7 @@ import `in`.opentrack.india.R
 import `in`.opentrack.india.core.RailTime
 import `in`.opentrack.india.databinding.ActivityTrainBinding
 import `in`.opentrack.india.domain.TrackModel
+import `in`.opentrack.india.remote.FeedProbe
 
 /**
  * Screen 2 of 3 — the live view: where the train is against where the timetable says it should be, and
@@ -191,12 +192,16 @@ class TrainActivity : AppCompatActivity() {
         val timetable = m.rows.count { it.source == TrackModel.MinuteSource.SCHEDULE }
         val text = buildString {
             append("OpenTrack India live-feed report\n")
-            append("train ${m.trainNo} · run ${m.runDateLabel} · seen ${RailTime.formatClock(System.currentTimeMillis())} IST\n")
+            append("train ${m.trainNo} · ${m.runDateLabel} · seen ${RailTime.formatClock(System.currentTimeMillis())} IST\n")
             append("source ${m.provenanceLabel} · age ${m.ageLabel} · ${m.feedStampLabel}\n")
             append("delay ${m.delayLabel} · next ${m.nextLabel} · progress ${m.progressLabel}\n")
             append("rows ${m.rows.size}: $reported reported / $projected projected / $timetable timetable\n")
             append("providers ${u.tried.joinToString(" ")}\n")
             m.note?.let { append("note $it\n") }
+            // The device-run request experiment, if it has run. This is the line that turns "it does not work
+            // here" into a fixable report from one paste, so it is printed before the table.
+            val probe = FeedProbe.render()
+            if (probe.isNotEmpty()) append(probe).append("\n")
             append("as shown on screen (up to 8 halts):\n")
             for (r in m.rows.take(8)) {
                 append("  ${r.name} [${r.state}] arr ${hhmm(r.showArr)} dep ${hhmm(r.showDep)}")

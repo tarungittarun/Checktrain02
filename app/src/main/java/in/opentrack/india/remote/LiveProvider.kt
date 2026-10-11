@@ -148,19 +148,34 @@ class NtesProvider(
 
     override fun fetch(trainNo: String, route: TrainRoute, journeyEpochDay: Long): LiveSnapshot? {
         note = null
-        val plain = NtesWire.plainFor(NtesWire.SUB_LIVE, trainNo, journeyEpochDay)
-        val headers = mapOf(
-            "Content-Type" to "application/json",
-            "charset" to "utf-8",
-            // The feed answers the client signature it expects; with anything else some deployments of it
-            // reset the connection, which the traveller would otherwise experience as "no live data".
-            "User-Agent" to NtesWire.USER_AGENT,
-        )
-        val got = http.post(baseUrl, NtesWire.envelope(plain), headers, timeoutMillis = TIMEOUT, retries = 1)
+        // If this device already found a request shape the feed answers, use it. Adoption is per-process and
+        // per-network rather than baked into the build, because the difference between an answer and a closed
+        // socket here belongs to the carrier and the server, not to the APK - and a rebuild should never be the
+        // price of a header.
+        val adopted = FeedProbe.adoptedFor(trainNo, journeyEpochDay)
+        val got = if (adopted != null) {
+            FeedProbe.execute(http, adopted, trainNo, journeyEpochDay)
+        } else {
+            val plain = NtesWire.plainFor(NtesWire.SUB_LIVE, trainNo, journeyEpochDay)
+            val headers = mapOf(
+                "Content-Type" to "application/json",
+                "charset" to "utf-8",
+                // The feed answers the client signature it expects; with anything else some deployments of it
+                // reset the connection, which the traveller would otherwise experience as "no live data".
+                "User-Agent" to NtesWire.USER_AGENT,
+            )
+            http.post(baseUrl, NtesWire.envelope(plain), headers, timeoutMillis = TIMEOUT, retries = 1)
+        }
         val body = when (got) {
             is Http.Result.Ok -> got
             is Http.Result.Failed -> {
-                note = transportFailureSentence(got)
+                note = transportFailureSentence(got) +
+                    (if (adopted != null) " (asked with the shape this device adopted: {D}{adopted.name})" else "")
+                // Refused is the moment the experiment matters: the device is the only place that can tell a
+                // wrong request from a blocked network, so ask it instead of guessing from a sandbox.
+                if (got.kind == Http.Result.Kind.HTTP || got.kind == Http.Result.Kind.TIMEOUT) {
+                    FeedProbe.maybeStart(http, trainNo, journeyEpochDay)
+                }
                 return null
             }
         }
@@ -188,8 +203,12 @@ class NtesProvider(
                 "at any halt yet, so the times below are the timetable until it does."
         }
         val snap = NtesAdapter.toSnapshot(parsed, trainNo, journeyEpochDay) ?: return null
-        store?.save(trainNo, snap)
-        return snap
+        // Said out loud so a screenshot explains itself: "live, via a shape learned on this device" is a
+        // different support conversation from "live, via the shipped request".
+        val shaped = if (adopted == null || snap.rawNote.isNullOrBlank()) snap
+        else snap.copy(rawNote = "{D}{snap.rawNote} · via {D}{adopted.name}")
+        store?.save(trainNo, shaped)
+        return shaped
     }
 
     companion object {
