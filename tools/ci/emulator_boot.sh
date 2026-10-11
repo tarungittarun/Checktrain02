@@ -28,17 +28,57 @@ MEMORY=${MEMORY:-4096}
 CORES=${CORES:-2}
 
 SDK=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}
-# The preinstalled SDK is root-owned on some images, and sdkmanager's answer to that is a permission error
-# forty lines deep in its log. A writable root of our own is the same install, and the emulator, adb and
-# avdmanager are all invoked through $SDK below, so nothing else has to know.
-if [ ! -w "$SDK" ] && [ ! -e "$SDK/system-images/android-${API:-34}" ]; then
-  SDK="$HOME/android-sdk"
-  mkdir -p "$SDK"
-  echo "::notice::$ANDROID_HOME is not usable for installs - using $SDK instead"
+# Where the SDK tools actually are is a property of the runner image, and it has moved: run 696591a died with
+# exit 127 because $SDK/cmdline-tools/latest/bin did not exist on that image, so `sdkmanager` was not found
+# while installing the very system image the image does not ship either. Searching is the only answer that
+# survives the next image refresh.
+find_tool() {
+  local name=$1 cand
+  for cand in "$SDK"/cmdline-tools/latest/bin/"$name" "$SDK"/cmdline-tools/*/bin/"$name" \
+              "$SDK"/tools/bin/"$name" "$HOME"/android-sdk/cmdline-tools/latest/bin/"$name"; do
+    [ -x "$cand" ] && { echo "$cand"; return 0; }
+  done
+  command -v "$name" 2>/dev/null && return 0
+  return 1
+}
+SDKMGR=$(find_tool sdkmanager || true)
+AVDMGR=$(find_tool avdmanager || true)
+if [ -z "$SDKMGR" ]; then
+  # Nothing on the image at all: fetch the command line tools once, into a root the job owns. dl.google.com is
+  # the only host that can serve this, and the URL is overridable because the build number in it ages.
+  CTL_ZIP=${CTL_ZIP:-https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip}
+  echo "::notice::no sdkmanager on this image - bootstrapping command line tools from ${CTL_ZIP##*/}"
+  mkdir -p "$HOME/android-sdk/cmdline-tools"
+  if curl -fsSL --retry 3 -o /tmp/ctl.zip "$CTL_ZIP" && unzip -q -o /tmp/ctl.zip -d /tmp/ctl \
+     && [ -d /tmp/ctl/cmdline-tools ]; then
+    rm -rf "$HOME/android-sdk/cmdline-tools/latest"
+    mv /tmp/ctl/cmdline-tools "$HOME/android-sdk/cmdline-tools/latest"
+    SDK="$HOME/android-sdk"
+    SDKMGR=$(find_tool sdkmanager || true)
+    AVDMGR=$(find_tool avdmanager || true)
+    echo "   bootstrapped: sdkmanager=${SDKMGR:-none} avdmanager=${AVDMGR:-none}"
+  else
+    echo "::error::could not download/unzip $CTL_ZIP - no way to install a system image on this runner"
+  fi
 fi
+# The SDK root has to be writable, or the install has to be done as root: GitHub's runners allow passwordless
+# sudo, which keeps the preinstalled SDK (and its already-downloaded platform) usable as-is.
+SUDO=""
+SDK_ROOT_ARG=""
+if [ ! -w "$SDK" ]; then
+  if command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+    SUDO="sudo -E"
+    echo "::notice::$SDK is not writable by the job user - installing through sudo"
+  else
+    SDK="$HOME/android-sdk"; mkdir -p "$SDK"
+    SDK_ROOT_ARG="--sdk_root=$SDK"
+    echo "::notice::$SDK is not writable and sudo is unavailable - installing into $SDK instead"
+  fi
+fi
+[ -n "$AVDMGR" ] || AVDMGR="$SDKMGR"   # same bin directory; avdmanager may be absent and that is reported below
 export ANDROID_HOME="$SDK"
 export ANDROID_SDK_ROOT="$SDK"
-export PATH="$SDK/cmdline-tools/latest/bin:$SDK/platform-tools:$SDK/emulator:$PATH"
+export PATH="$(dirname "${SDKMGR:-$SDK/cmdline-tools/latest/bin/sdkmanager}"):$SDK/platform-tools:$SDK/emulator:$PATH"
 
 # Some runner images own /dev/kvm as root:kvm with mode 0660 and do not add the job user to the kvm group.
 # That reads as "no acceleration" and silently costs the whole row, so fix it before deciding.
@@ -97,14 +137,21 @@ sdkmanager_says() {
 install_pkg() {
   local pkg=$1 rc=0
   path_ok "$pkg" && { echo "   $pkg already present"; return 0; }
-  yes 2>/dev/null | sdkmanager --install "$pkg" > /tmp/sdkmanager.log 2>&1
+  if [ -z "$SDKMGR" ]; then
+    echo "::error::no sdkmanager anywhere (searched $SDK/cmdline-tools/*/bin, $SDK/tools/bin, PATH) - cannot install $pkg"
+    return 1
+  fi
+  # The found tool, the chosen root, and sudo when the root demands it - the three things that were each
+  # guessed at separately in the runs before 696591a.
+  yes 2>/dev/null | $SUDO "$SDKMGR" $SDK_ROOT_ARG --install "$pkg" > /tmp/sdkmanager.log 2>&1
   rc=${PIPESTATUS[1]}
+  [ "$rc" = 127 ] && echo "::error::sdkmanager could not be executed ($SDKMGR, rc=127)" && return 1
   # sdkmanager's own verdict first. Only if it *says* it failed do we look at the filesystem again, because
   # a path guess that does not match the SDK's real layout must not be able to turn a successful install
   # into "this api level has no image" - which is what cost run 38121167143 the release and density rows.
   [ "$rc" = 0 ] && return 0
   if path_ok "$pkg"; then echo "   $pkg installed (exit $rc, files present)"; return 0; fi
-  echo "sdkmanager exit $rc for $pkg:"; sdkmanager_says
+  echo "sdkmanager ($SDKMGR ${SDK_ROOT_ARG:-root=default}) exit $rc for $pkg:"; sdkmanager_says
   return 1
 }
 
@@ -139,9 +186,11 @@ for c in adb timeout grep sed awk tr find; do
   command -v "$c" >/dev/null 2>&1 || MISSING="$MISSING $c"
 done
 [ -n "$MISSING" ] && echo "::error::not on PATH for this job:$MISSING (SDK=$SDK)"
-for c in "$SDK/emulator/emulator" "$SDK/cmdline-tools/latest/bin/avdmanager" "$SDK/cmdline-tools/latest/bin/sdkmanager"; do
+for c in "$SDK/emulator/emulator" "$SDK/platform-tools/adb"; do
   [ -x "$c" ] || echo "::warning::missing or not executable: $c"
 done
+echo "== tools: sdk=${SDK:-unset} sdkmanager=${SDKMGR:-NONE} avdmanager=${AVDMGR:-NONE} sudo=${SUDO:-not-needed} root_arg=${SDK_ROOT_ARG:-default}"
+[ -f /tmp/env.txt ] && echo "   (probe: $(grep -m1 'writable=' /tmp/env.txt 2>/dev/null | cut -c1-90))"
 
 # The job log is not reachable from where a red run gets diagnosed (it redirects to blob storage); the
 # annotation on the check run is. Anything the row's failure hinges on therefore goes into an `::error::`
@@ -172,10 +221,11 @@ AVD_MADE=""
 AVD_TRIES=""
 for form in global-device global-bare trailing; do
   case "$form" in
-    global-device) cmd=(avdmanager --sdk_root="$SDK" create avd --name "$AVD_NAME" --package "$AVD_PKG" --force --device "$DEVICE") ;;
-    global-bare)   cmd=(avdmanager --sdk_root="$SDK" create avd -n "$AVD_NAME" -k "$AVD_PKG" --force) ;;
-    trailing)      cmd=(avdmanager create avd -n "$AVD_NAME" -k "$AVD_PKG" --force -d "$DEVICE" --sdk_root="$SDK") ;;
+    global-device) cmd=("$AVDMGR" --sdk_root="$SDK" create avd --name "$AVD_NAME" --package "$AVD_PKG" --force --device "$DEVICE") ;;
+    global-bare)   cmd=("$AVDMGR" --sdk_root="$SDK" create avd -n "$AVD_NAME" -k "$AVD_PKG" --force) ;;
+    trailing)      cmd=("$AVDMGR" create avd -n "$AVD_NAME" -k "$AVD_PKG" --force -d "$DEVICE" --sdk_root="$SDK") ;;
   esac
+  [ -x "$AVDMGR" ] || [ -n "$(command -v "${AVDMGR:-}" 2>/dev/null)" ] || { echo "::error::no avdmanager (searched the SDK's cmdline-tools and PATH) - the hand-written AVD below is the only option"; break; }
   { echo "--- try $form"; echo "${cmd[*]}"; } >> /tmp/avd.log
   # `if ...; then` swallows the status: an `if` with no `else` exits 0 when its condition is false, which is
   # how the first version of this loop recorded every rejected form as `=0`. Capture it from the command.
