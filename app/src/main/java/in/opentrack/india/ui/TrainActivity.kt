@@ -1,6 +1,11 @@
 package `in`.opentrack.india.ui
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.os.Bundle
+import android.util.Log
+import android.widget.Toast
 import android.view.View
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.ViewModelProvider
@@ -24,6 +29,11 @@ import `in`.opentrack.india.domain.TrackModel
  * a stale marker without saying so is the specific failure this project exists to avoid.
  */
 class TrainActivity : AppCompatActivity() {
+
+    private companion object {
+        /** The tag the CI rows and a bug report both grep for. */
+        const val TAG_FEED_REPORT = "LiveFeedReport"
+    }
 
     private lateinit var binding: ActivityTrainBinding
     private lateinit var vm: LiveViewModel
@@ -81,6 +91,15 @@ class TrainActivity : AppCompatActivity() {
             )
         }
         binding.back.setOnClickListener { finish() }
+        // Long-press the provenance badge to copy a live-feed report. It lives on that chip rather than in
+        // Settings because the chip is what a traveller looks at when the screen is not telling the truth as
+        // they know it — and the copied text is precisely what turns "it doesn't work" into something fixable
+        // from another continent: which sources were tried, what each said, how many rows carry a reported
+        // minute, and the stop table as displayed. No account, no token and no location history in it.
+        binding.provenance.setOnLongClickListener {
+            copyFeedReport()
+            true
+        }
 
         vm.ui.observe(this) { it?.let { u -> lastUi = u; bind(u) } }
         vm.error.observe(this) { msg ->
@@ -162,6 +181,49 @@ class TrainActivity : AppCompatActivity() {
      */
     private fun bindSource(m: TrackModel.View, ui: LiveViewModel.Ui) {
         binding.sourceText.text = sourceText(m, ui.tried)
+    }
+
+    /** Everything the screen knows about the feed, as text — see the long-press handler above. */
+    private fun copyFeedReport() {
+        val u = lastUi
+        if (u == null) {
+            Toast.makeText(this, R.string.feed_report_empty, Toast.LENGTH_SHORT).show()
+            return
+        }
+        val m = u.model
+        val reported = m.rows.count { it.source == TrackModel.MinuteSource.REPORTED }
+        val projected = m.rows.count { it.source == TrackModel.MinuteSource.PROJECTED }
+        val timetable = m.rows.count { it.source == TrackModel.MinuteSource.SCHEDULE }
+        val text = buildString {
+            append("OpenTrack India live-feed report\n")
+            append("train ${m.trainNo} · run ${m.runDateLabel} · seen ${RailTime.formatClock(System.currentTimeMillis())} IST\n")
+            append("source ${m.provenanceLabel} · age ${m.ageLabel} · ${m.feedStampLabel}\n")
+            append("delay ${m.delayLabel} · next ${m.nextLabel} · progress ${m.progressLabel}\n")
+            append("rows ${m.rows.size}: $reported reported / $projected projected / $timetable timetable\n")
+            append("providers ${u.tried.joinToString(" ")}\n")
+            m.note?.let { append("note $it\n") }
+            append("as shown on screen (up to 8 halts):\n")
+            for (r in m.rows.take(8)) {
+                append("  ${r.name} [${r.state}] arr ${hhmm(r.showArr)} dep ${hhmm(r.showDep)}")
+                append(" ${r.source.name.lowercase()}")
+                r.delay?.let { append(" +$it") }
+                r.platform?.let { append(" plt $it") }
+                append(" km ${r.kmFromBoard}\n")
+            }
+        }
+        runCatching {
+            val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            cm.setPrimaryClip(ClipData.newPlainText("opentrack-feed-report", text))
+        }
+        Log.i(TAG_FEED_REPORT, text)
+        Toast.makeText(this, R.string.feed_report_copied, Toast.LENGTH_SHORT).show()
+    }
+
+    /** Rail minutes to HH:MM, with the same fold the table uses, and a dash where the feed said nothing. */
+    private fun hhmm(min: Int?): String {
+        if (min == null) return "-"
+        val folded = ((min % 1440) + 1440) % 1440
+        return (folded / 60).toString().padStart(2, '0') + ":" + (folded % 60).toString().padStart(2, '0')
     }
 
     override fun onStart() {

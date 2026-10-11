@@ -92,4 +92,6 @@
         <item quantity="one">%d train</item>
         <item quantity="other">%d trains</item>
     </plurals>
+    <string name="feed_report_copied">Live-feed report copied to the clipboard</string>
+    <string name="feed_report_empty">Nothing to report yet — the screen has not finished loading</string>
 </resources>

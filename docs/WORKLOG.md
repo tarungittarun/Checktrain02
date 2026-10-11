@@ -34,6 +34,22 @@ It exists because CI knowledge is worthless if it lives only in the session that
   `x == y` inside a constructor call as a named argument, and `check_members` knows the JDK/org.json calls the
   crypto client makes — both were false positives, fixed in the checkers rather than by bending the app.
 
+## What CI can and cannot prove about the live feed
+
+`AppServAnd` at `enquiry.indianrail.gov.in` **refuses connections from GitHub's runner IPs**: two runs, three
+trains, two sub-services each — six TLS/urllib timeouts in a row, reported by the `probe` job as a commit
+comment. It is a geo/IP policy on the railway's side, not a bug in the framing (the request our client sends
+is byte-identical to the reference client's, which is what `NtesWireTest` pins). Consequences worth knowing:
+
+- a device row will therefore show the *transport failure* sentence and fall back to the labelled timetable,
+  and that is the correct behaviour of a resilient chain — not a passing test of live data;
+- the only instrument that can see the real payload is a device on an Indian network, i.e. the user's phone.
+  Long-pressing the provenance badge on the tracking screen copies a report (sources tried, per-source
+  outcome, how many rows carry a reported minute, the stop table as shown, the feed's own stamp); the same
+  text goes to `logcat -s LiveFeedReport`. Paste it here and the parser gets pinned to reality in one round;
+- so "the CI is green" and "the live feed works on your phone" are two separate claims. Do not accept the
+  first as proof of the second, and do not read the second's absence from CI as a failure of the app.
+
 ## Reading a run from here (the only channels that work)
 
 ```bash

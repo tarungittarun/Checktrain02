@@ -76,6 +76,7 @@ getOrPut getOrElse onFailure onSuccess awaitCancellable current isDisposed dispo
 # DisplayMetrics.density, Layout.getLineWidth.
 # the live-feed client: javax.crypto, java.security, org.json and the stdlib calls on their results
 init doFinal indices optJSONObject opt optString has keys getJSONArray encodeToString decode nextBytes
+setPrimaryClip
 isNullOrBlank containsKey isNullOrEmpty takeWhile toLongOrNull substringAfter asSequence toList filter
 createConfigurationContext density getLineWidth setTextSize requestRectangleOnScreen idleFor application
 addView await childCount contentEncoding countDown disconnect filterIndexed getInt getLastKnownLocation getSystemService hasAccuracy hasSpeed ifEmpty isProviderEnabled lastModified matchEntire maxOrNull minOrNull putIfAbsent rawQuery removeUpdates requestFocus requestLocationUpdates right setOnClickListener setOnEditorActionListener setOnFocusChangeListener setSelection sortedWith subList toByteArray toDouble toDoubleOrNull toLong trimEnd windowToken
