@@ -96,6 +96,24 @@ this workflow cannot reach, and what it would take:
    `airplane-track`, `screen-explains-itself`), because the two bugs that reached a real device in this
    project were both silence: an empty suggestion list, and a live column reprinting the timetable.
 
+## Reading a red run that has no steps
+
+A pipeline that dies before any step of the row runs has one readable channel, and it is not the log (those
+URLs redirect to blob storage). The annotation is on the check run:
+
+```bash
+R=tarungittarun/Checktrain02; SHA=$(git rev-parse HEAD)
+gh api "repos/$R/commits/$SHA/check-runs?per_page=100" \
+  --jq '.check_runs[]|"\(.id) \(.name)"'          # find the row's check-run id
+gh api "repos/$R/check-runs/<id>/annotations" \
+  --jq '.[]|"\(.path) L\(.start_line) :: \(.message)"'
+```
+
+That is how the row jobs that failed in ninety seconds were explained - `Can't find 'action.yml' ... Did you
+forget to run actions/checkout before running your local action?` - a message no amount of YAML parsing
+locally would have produced, and the reason the job now does the checkout itself. `plan` posts its findings
+on the commit for the same reason: a red gate should be readable without opening the UI.
+
 ## Reading a red row
 
 The matrix writes one status line per row and posts it on the commit, so a failure says which of the three
