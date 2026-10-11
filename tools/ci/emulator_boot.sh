@@ -189,6 +189,14 @@ done
 for c in "$SDK/emulator/emulator" "$SDK/platform-tools/adb"; do
   [ -x "$c" ] || echo "::warning::missing or not executable: $c"
 done
+if [ -n "${GITHUB_PATH:-}" ]; then
+  # The steps after this one call `adb` by name, and the PATH export below only lives inside this script.
+  # Run 30b75c1 proved it: the emulator booted, and the install and instrument steps then died with 127 -
+  # "command not found" for a tool this row had just used. Publishing the paths makes them real steps.
+  { echo "$SDK/platform-tools"; echo "$SDK/emulator"; dirname "${SDKMGR:-/dev/null}"; } | while read -r d; do
+    [ -d "$d" ] && echo "$d" >> "$GITHUB_PATH"
+  done
+fi
 echo "== tools: sdk=${SDK:-unset} sdkmanager=${SDKMGR:-NONE} avdmanager=${AVDMGR:-NONE} sudo=${SUDO:-not-needed} root_arg=${SDK_ROOT_ARG:-default}"
 [ -f /tmp/env.txt ] && echo "   (probe: $(grep -m1 'writable=' /tmp/env.txt 2>/dev/null | cut -c1-90))"
 
@@ -221,9 +229,12 @@ AVD_MADE=""
 AVD_TRIES=""
 for form in global-device global-bare trailing; do
   case "$form" in
-    global-device) cmd=("$AVDMGR" --sdk_root="$SDK" create avd --name "$AVD_NAME" --package "$AVD_PKG" --force --device "$DEVICE") ;;
-    global-bare)   cmd=("$AVDMGR" --sdk_root="$SDK" create avd -n "$AVD_NAME" -k "$AVD_PKG" --force) ;;
-    trailing)      cmd=("$AVDMGR" create avd -n "$AVD_NAME" -k "$AVD_PKG" --force -d "$DEVICE" --sdk_root="$SDK") ;;
+    # `-b/--abi` in all three: run 30b75c1's usage dump ended on "-b --abi : The ABI to use for the AVD",
+    # which is this version telling us it will not always infer it, and `--force` so a re-run on a warm
+    # runner is not a failure.
+    global-device) cmd=("$AVDMGR" --sdk_root="$SDK" create avd --name "$AVD_NAME" --package "$AVD_PKG" --abi "$ABI" --force --device "$DEVICE") ;;
+    global-bare)   cmd=("$AVDMGR" --sdk_root="$SDK" create avd -n "$AVD_NAME" -k "$AVD_PKG" -b "$ABI" --force) ;;
+    trailing)      cmd=("$AVDMGR" create avd -n "$AVD_NAME" -k "$AVD_PKG" -b "$ABI" --force -d "$DEVICE" --sdk_root="$SDK") ;;
   esac
   [ -x "$AVDMGR" ] || [ -n "$(command -v "${AVDMGR:-}" 2>/dev/null)" ] || { echo "::error::no avdmanager (searched the SDK's cmdline-tools and PATH) - the hand-written AVD below is the only option"; break; }
   { echo "--- try $form"; echo "${cmd[*]}"; } >> /tmp/avd.log

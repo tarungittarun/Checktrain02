@@ -144,6 +144,10 @@ runs:
         set -o pipefail
         started=$(date +%s)
         set +e
+        # `adb` must resolve for every later step of the row, and this is the one step that knows where the
+        # SDK really is; the boot script also appends it to $GITHUB_PATH, and this export covers the step
+        # that reads the boot log's own verdict.
+        export PATH="${ANDROID_HOME:-/usr/local/lib/android/sdk}/platform-tools:${ANDROID_HOME:-/usr/local/lib/android/sdk}/emulator:$PATH"
         bash tools/ci/emulator_boot.sh 2>&1 | tee /tmp/boot.log
         rc=${PIPESTATUS[0]}
         set -e
