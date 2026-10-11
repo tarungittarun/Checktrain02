@@ -57,3 +57,16 @@ work on an untracked ref would be invisible to the owner's review. What was done
 structural (`docs/v2/` restart + live-first architecture + new gates), and the restart point is tagged
 `v2-restart` so the owner can branch a clean lineage themselves in one command:
 `git checkout -b v2-fresh v2-restart` (or open a PR from the arena branch).
+
+## Round 10 CI verdicts (read from run 38165202? no - from the API, 00:09-00:20 IST)
+
+- `19fb583`: `checks` **success**, `debug APK` **success**, `tests + screens (Robolectric)` **success**,
+  `probe`/`plan`/`build` **success**, emulator rows in progress. So the shape-capture and v2 docs compile into
+  a shippable APK; `latest-apk` now carries the ordering fix, the vintage key and the UNVERIFIED wording.
+- **Stage 0 reachability answer, in the probe's own comment:** from a GitHub runner, `enquiry.indianrail.gov.in`
+  times out on the TLS handshake for all 12 calls (third independent confirmation: da0633c, b41c38c, now this).
+  So CI cannot refresh pair-truth from NTES, and `TrainBtwStnJson` from a phone is the only live route left.
+- **Bug the probe found in itself:** the erail alternate never ran (gated behind the primary's `continue`), so
+  the "second witness" was fictional. Fixed by extracting `probe_pair()` with injected transports +
+  `tools/ci/test_probe_live_feed.py` in the `checks` job. The erail-from-runner answer is therefore still
+  pending - it arrives with the next probe comment, which is the first one that actually asked.

@@ -52,6 +52,14 @@ lesson names where it is *enforced*, because a lesson in prose is a wish.
     → Enforced by this rule + the CI-state line in `docs/v2/STATUS.md`, which records each round's run id so a
     later round can tell "cancelled by me" from "failed on its own".
 
+14. **A fallback needs a test in which the thing it falls back from is already dead.** My own CI probe put the
+    erail attempt *below* the primary's `if doc is None: continue`, so when NTES timed out the alternate was
+    never asked and the report looked complete. Caught only because the output was missing a line I expected -
+    not because anything failed. The app's live path failed on the device the same way for rounds: chain logic
+    "worked" in tests where every provider was reachable.
+    → Enforced by `tools/ci/test_probe_live_feed.py` (run by the `checks` job), whose first case is literally
+    "primary dies, alternate must still be asked". Any future fallback ships with that shape of test.
+
 ## Method the next rounds follow (what "actual product development" means here)
 
 Scope → contract → **component PoC with an executable pass criterion** → implementation → automated proof at

@@ -197,6 +197,61 @@ def erail_pair(src: str, dst: str, date_1: str) -> tuple[str, str]:
         return f"{type(e).__name__}: {str(e)[:90]}", ""
 
 
+def probe_pair(src_code: str, dst_code: str, must: list[str], date_dalvik: str,
+               today: datetime.datetime, capture: str | None = None,
+               fetch=call, alt=erail_pair) -> tuple[list[str], dict | None]:
+    """One station pair, asked of both keyless sources, with the alternate tried no matter what.
+
+    The `fetch=call, alt=erail_pair` injection exists for one reason: a test must be able to say "the primary
+    timed out" and check that the alternate still got asked. The first version of this function put the erail
+    call below the primary's `if doc is None: continue`, so the alternate only ran when the primary worked -
+    a fallback gated on the thing it is a fallback for, which is the same defect the app has been fighting,
+    caught here by its own probe output (an `### pair ... erail.in` line that never appeared).
+    """
+    out: list[str] = []
+    live_entry: dict | None = None
+    plain = (f"service=TrainBtwStnMob&subService=TrainBtwStnJson&stnFrom={src_code}"
+             f"&stnTo={dst_code}&trainType=All")
+    verdict, doc = fetch(plain)
+    out.append(f"\n### pair {src_code}->{dst_code} · live list · {verdict}")
+    found: list[str] = []
+    if doc is None:
+        out.append(f"  primary gave nothing usable, so this pair's truth rests on the alternate alone")
+    else:
+        if capture:
+            with open(os.path.join(capture, f"pair-{src_code}-{dst_code}.json"), "w", encoding="utf-8") as fh:
+                json.dump(doc, fh)
+        out.append("top-level: " + json.dumps(shape(doc), separators=(",", ":"))[:900])
+        found = numbers_from(doc)
+        out.append(f"train numbers mentioned: {len(found)} -> {', '.join(found[:40])}")
+        live_entry = {"from": src_code, "to": dst_code, "must_include": found}
+        for n in must:
+            out.append(f"  our fixture claims {n} on this pair: "
+                       + ("CONFIRMED by the live feed" if n in found else "NOT in what the feed returned"))
+
+    # Second witness, unconditional. Two keyless answers that agree are evidence; one is a hypothesis.
+    e_verdict, e_body = alt(src_code, dst_code, today.strftime("%d-%b-%Y"))
+    out.append(f"### pair {src_code}->{dst_code} · erail.in (alternate) · {e_verdict}")
+    e_nums: list[str] = []
+    if e_body:
+        import re as _re
+        stamp = _re.search(r"(\d{4}-\d{2}-\d{2}-\d{1,2}-\d{1,2}-\d{1,2})", e_body)
+        e_nums = sorted(set(_re.findall(r"\b(\d{5})\b", e_body[:200000])))
+        out.append(f"feed stamp in payload: {stamp.group(1) if stamp else 'not found'}; "
+                   f"train numbers mentioned: {len(e_nums)}")
+        out.append("  " + ", ".join(e_nums[:40]))
+        for n in must:
+            if n not in e_nums:
+                out.append(f"  erail does not list {n} either - the fixture's claim is the odd one out")
+    if e_nums:
+        if live_entry is None:
+            live_entry = {"from": src_code, "to": dst_code, "must_include": sorted(e_nums)}
+        else:
+            live_entry["must_include"] = sorted(set(live_entry["must_include"]) | set(e_nums))
+    return out, live_entry
+
+
+
 def main() -> int:
     out: list[str] = []
     if not crypto_available():
@@ -260,39 +315,10 @@ def main() -> int:
                                            "from": ident["from"], "to": ident["to"]})
 
     for src_code, dst_code, must in pairs:
-        plain = (f"service=TrainBtwStnMob&subService=TrainBtwStnJson&stnFrom={src_code}"
-                 f"&stnTo={dst_code}&trainType=All")
-        verdict, doc = call(plain)
-        out.append(f"\n### pair {src_code}->{dst_code} · live list · {verdict}")
-        if doc is None:
-            continue
-        if capture:
-            with open(os.path.join(capture, f"pair-{src_code}-{dst_code}.json"), "w", encoding="utf-8") as fh:
-                json.dump(doc, fh)
-        out.append("top-level: " + json.dumps(shape(doc), separators=(",", ":"))[:900])
-        found = numbers_from(doc)
-        out.append(f"train numbers mentioned: {len(found)} -> {', '.join(found[:40])}")
-        live["pair_lists"].append({"from": src_code, "to": dst_code, "must_include": found})
-        for n in must:
-            out.append(f"  our fixture claims {n} on this pair: "
-                       + ("CONFIRMED by the live feed" if n in found else "NOT in what the feed returned"))
-        # Same question to the alternate source. Two keyless answers that agree are evidence; one is a
-        # hypothesis, which is the difference between a fixture we can gate on and one we cannot.
-        e_verdict, e_body = erail_pair(src_code, dst_code, today.strftime("%d-%b-%Y"))
-        out.append(f"### pair {src_code}->{dst_code} · erail.in (alternate) · {e_verdict}")
-        e_nums: list[str] = []
-        if e_body:
-            import re as _re
-            stamp = _re.search(r"(\d{4}-\d{2}-\d{2}-\d{1,2}-\d{1,2}-\d{1,2})", e_body)
-            e_nums = sorted(set(_re.findall(r"\b(\d{5})\b", e_body[:200000])))
-            out.append(f"feed stamp in payload: {stamp.group(1) if stamp else 'not found'}; "
-                       f"train numbers mentioned: {len(e_nums)}")
-            out.append("  " + ", ".join(e_nums[:40]))
-            for n in must:
-                if n not in e_nums:
-                    out.append(f"  erail does not list {n} either - the fixture's claim is the odd one out")
-        if e_nums:
-            live["pair_lists"][-1]["must_include"] = sorted(set(e_nums) | set(found))
+        probe_lines, entry = probe_pair(src_code, dst_code, must, date, today, capture)
+        out += probe_lines
+        if entry:
+            live["pair_lists"].append(entry)
 
     # Propose, never apply: an automated edit to the truth fixture would be a second source of "the app
     # quietly believes itself". A human reads this block and pastes it, and the commit says who checked.
