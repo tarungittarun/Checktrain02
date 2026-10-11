@@ -5,10 +5,10 @@
 # is ours, the framework is Robolectric's, and the live feed is never touched. This workflow installs the
 # artifacts CI builds and taps on them.
 #
-# The constraint to read before editing: GitHub-hosted runners have **no /dev/kvm**, so an emulator runs
-# under software emulation. The matrix therefore has rows that *require* acceleration (the modern API
-# levels, the density row, the release row, monkey at full volume) and one row that does not (the minSdk
-# image, booted with `-gpu off -no-accel`). A row that cannot boot reports `boot=failed` and is loud in the
+# The constraint to read before editing: an emulator needs /dev/kvm, and a runner either has it or does not
+# (`tools/ci/emulator_boot.sh` detects it rather than assuming, and repairs the group permissions when the
+# device exists but is unreadable). An x86 system image will not boot without acceleration at all, so a row
+# on such a runner reports `boot=failed` after three seconds instead of after a twenty-minute timeout. A row that cannot boot reports `boot=failed` and is loud in the
 # summary; it is not allowed to look like a pass. The `report` job fails the run when *no* row booted, with
 # the reason and the fix (a runner with KVM, or a self-hosted one), because a pipeline that quietly does
 # nothing is what this file exists to replace.
@@ -47,6 +47,11 @@ jobs:
   # ------------------------------------------------------------------------------------ the cheap gate
   plan:
     runs-on: ubuntu-latest
+    # Commit comments are how a failure becomes readable without opening the Actions UI, and the default
+    # token cannot post them.
+    permissions:
+      contents: read
+      pull-requests: write
     timeout-minutes: 6
     steps:
       - uses: actions/checkout@v4
@@ -174,6 +179,8 @@ jobs:
   e2e:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     timeout-minutes: 60
     continue-on-error: ${{ matrix.optional }}
     strategy:
@@ -254,7 +261,16 @@ jobs:
           name: e2e-classes
           path: /tmp/classes
       - name: Unzip the class files used for coverage
-        run: (cd /tmp && unzip -qo e2e-classes/*.zip && ls cls | head -3)
+        # Non-fatal on purpose: a missing coverage input makes the *number* unavailable, not the test run
+        # invalid, and a red row that tested nothing at all is worse than a green row with no percentage.
+        continue-on-error: true
+        run: |
+          if unzip -qo /tmp/classes/e2e-classes.zip -d /tmp && ls /tmp/cls >/dev/null 2>&1; then
+            echo "classes for coverage: $(find /tmp/cls -name '*.class' | wc -l) files"
+          else
+            echo "::warning::the compiled classes did not come out of the artifact; coverage will be unavailable for this row"
+            false
+          fi
       - name: Boot the emulator
         id: boot
         continue-on-error: true
@@ -265,6 +281,13 @@ jobs:
             adb shell wm size "${{ matrix.wm_size }}" && adb shell wm density "${{ matrix.wm_density }}"
             adb shell settings put system font_scale 1.15 || true
           fi
+      - name: "Say so, in one sentence, if this runner cannot host an emulator"
+        if: steps.boot.outcome == 'failure'
+        run: |
+          echo "--- emulator_boot.sh said:"; tail -30 /tmp/boot.log 2>/dev/null || echo "(no boot log)"
+          echo "--- adb sees:"; adb devices || true
+          echo "::error::this row never got a device, so the app is untested on it. That is a runner capability, not a product failure - see docs/E2E_FLOWS.md for what a KVM-capable runner changes."
+          exit 1
       - name: "Install the built APKs (cold: wiped data, so first-run extraction really happens)"
         if: steps.boot.outcome == 'success'
         run: |
@@ -401,7 +424,10 @@ jobs:
           {
             echo "### e2e/$ROW failed"
             echo ""
+            echo "\`$ROW\` status: \`$(cat /tmp/e2e-status-$ROW.txt 2>/dev/null | tr '\n' ' ' || echo none)\`"
+            echo ""
             echo '```'
+            tail -25 /tmp/boot.log 2>/dev/null | head -30 || true
             tail -60 /tmp/instrument-*.log 2>/dev/null | head -80
             echo '```'
             echo 'logcat tail:'
@@ -415,6 +441,8 @@ jobs:
   # ---------------------------------------------------------------------------------------- the summary
   report:
     needs: [e2e]
+    permissions:
+      contents: write
     runs-on: ubuntu-latest
     if: always()
     timeout-minutes: 5
