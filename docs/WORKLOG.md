@@ -225,3 +225,42 @@ Open question the collector exists to answer: does any request shape reach `enqu
 this phone once sockets stop being torn down? Reading the shared log answers it. If `tcp443=true` for
 `one.one.one.one` and `erail.in` but every railway host hangs up, the answer is upstream policy or a per-app
 network rule, and the honest product behaviour stays "labelled schedule" - not a key baked into an APK.
+
+## The phone answered the question, and the answer was "use the browser's client"
+
+Round four of the live-feed problem, settled by one field log instead of another theory. Reading it in order
+matters, because three of my own hypotheses died in it:
+
+| Evidence in the log | What it killed |
+| --- | --- |
+| `enquiry.indianrail.gov.in: 1 addr(s) A=103.110.246.84 AAAA=none` and `TCP … 443: v4=ok v6=absent in 94ms` | The address-family theory. There is no v6 to mispreference, the socket opens in 94 ms, and `post-ipv4-pinned` failing the same way was therefore expected. The pin stays as a fallback, not as the fix. |
+| `api.railradar.in … v4=ok v6=ok` then `HTTP 401 in 222ms` | "The app cannot do TLS" and "the device blocks this app". Java TLS from the app, on that Wi-Fi, gets a real HTTP answer from a modern API. |
+| unchanged `IOException: closed` with the socket-pool fix shipped | My keep-alive race theory. Real hygiene, not the cause. |
+
+What survives is the shape of a client filter: **the connection opens, the TLS handshake is hung up on** -
+~400 ms, eleven times, every request shape, both TLS profiles, while Chrome on the same phone in the same
+minute renders the running status of the same train (`20651`, *Arrived at SAGAR JAMBAGARU at 20:55, Delay
+00:22*). The remaining variable was the client, so the app now has the browser's client: `core/BrowserFetch.kt`
+issues the request through the system web view - present on the device, accepted by this endpoint, no key, no
+proxy of ours, nothing to sign up for. It is never attached to a window, has no `addJavascriptInterface` (so a
+document cannot reach into the process, which is the one real risk of running JS at all), no file/content/
+database/cache access, and reads the API document back through a JSON decode rather than a string splice. It is
+abandoned and torn down if a load stalls, so one stuck page cannot poison the next refresh.
+
+Adoption did not need to change, which is why this was affordable at all: `FeedProbe.Variant` gained one
+boolean, so `webview-post` and `webview-get-ntes` are measured exactly like a header or a TLS profile, and the
+first shape that produces a usable snapshot becomes that device's transport on the next refresh - live data
+with no second install. The provenance line still names how the row was fetched.
+
+Two more findings from the same file were bugs in my own instrument, both fixed: the burst of
+`UnknownHostException` across five hosts within 70 ms, after all five had resolved a minute earlier, is a
+filtering private-DNS profile (`privateDns=opportunistic host=adguard.com`) blinking under load - `Http` now
+treats that as a blink (one 600 ms pause, one retry, message unchanged if the name is truly gone) and the
+collector records the active network's nameservers, `[redacted]` when on-device, plus the network kind, which
+is how "a security app sits between this app and every socket" gets distinguished from "the railway refused us"
+without asking the user to read their own settings.
+
+Standing rule re-confirmed: **CI is the only type checker here.** The `NetworkOnMainThreadException` in the
+previous log, `snap.rows`, `x.size + +`, and `setFixedRouteToAddress` resolving against the JDK's copy of
+`java.net.HttpURLConnection` were all invisible to eight green textual gates. Where an API exists only on the
+platform, reach it the way that survives both classpaths and log why.
