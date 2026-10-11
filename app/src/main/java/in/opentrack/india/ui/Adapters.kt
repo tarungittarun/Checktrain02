@@ -61,6 +61,9 @@ class TrainHitAdapter(private val onClick: (TrainHit) -> Unit) :
             if (RailTime.dayOffsetOf(hit.alightMinute) > RailTime.dayOffsetOf(hit.boardMinute)) {
                 append(" · arrives next day")
             }
+            // The provenance suffix rides the meta line: a row must say whether its time is the
+            // timetable's or a live source's (v2 slice 1 - "offline never looks live").
+            hit.sourceTag?.let { append(" · ").append(it) }
             // Only spell the running days out when they are not every day: "daily" under a daily train
             // is noise, and "Mon/Tue/Thu" is the note that saves somebody a wasted journey.
             hit.runDays?.let { if (it != 0x7F) append(" · ").append(RowText.dayNames(it)) }

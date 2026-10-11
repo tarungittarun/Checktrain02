@@ -10,6 +10,16 @@ import `in`.opentrack.india.data.RailRepository
 import `in`.opentrack.india.domain.TrainFinder
 import `in`.opentrack.india.model.TrainHit
 import `in`.opentrack.india.model.TrainSummary
+import `in`.opentrack.india.v2.contract.Provenance
+import `in`.opentrack.india.v2.contract.SourceKind
+import `in`.opentrack.india.v2.domain.AssetRow
+import `in`.opentrack.india.v2.domain.PairCache
+import `in`.opentrack.india.v2.domain.PairMerge
+import `in`.opentrack.india.v2.source.ErailPairParser
+import `in`.opentrack.india.v2.source.ErailTransport
+import `in`.opentrack.india.v2.source.PairAnswer
+import `in`.opentrack.india.v2.source.PairQuery
+import `in`.opentrack.india.v2.source.PairSource
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -35,6 +45,16 @@ class MainViewModel(private val app: App) : ViewModel() {
 
     private val _trainQuery = MutableLiveData<String>("")
     val trainQuery: LiveData<String> = _trainQuery
+
+    /**
+     * The v2 live-list state line, or null while nothing live has been said this search. Rendered as
+     * the suffix of the results header - the 8.2 sentence the screen owes the passenger.
+     */
+    private val _liveNote = MutableLiveData<String?>(null)
+    val liveNote: LiveData<String?> = _liveNote
+
+    /** TTL cache for live pair listings (v2). A read from here is "cached", never "live". */
+    private val pairCache = PairCache()
 
     var mode = Mode.STATIONS
         private set
@@ -94,6 +114,7 @@ class MainViewModel(private val app: App) : ViewModel() {
     fun search(fromText: String, toText: String) {
         if (_phase.value !is Phase.Ready) return
         _phase.value = Phase.Searching
+        _liveNote.value = null // a new search starts with no live claim at all
         viewModelScope.launch {
             val repo = app.repository() ?: run {
                 _phase.value = Phase.Broken("Timetable is not installed yet.")
@@ -105,7 +126,79 @@ class MainViewModel(private val app: App) : ViewModel() {
             }
             _results.value = report
             _phase.value = Phase.Ready(repo.dataVersion())
+            // v2 slice 1: the asset answer is on screen; the live answer, if the network allows,
+            // upgrades it in place - never blocks it (5.6: render first, upgrade after).
+            if (mode == Mode.STATIONS && fromText.length >= 2 && toText.length >= 2) {
+                fetchLivePair(fromText, toText, report)
+            }
         }
+    }
+
+    /**
+     * One live erail pair attempt, merged over the asset rows, every row labelled.
+     *
+     * This lives in this v1 file under the legacy freeze only because the results screen it upgrades
+     * is v1's (the strangler replaces screens one at a time): merge, cache and typed answers are all
+     * v2 (`in.opentrack.india.v2.*`), and this is the seam that feeds them to the existing adapter.
+     * Cache first (a fresh cached listing renders instantly, honestly aged by the note), then at most
+     * ONE network attempt, typed failure, no retries.
+     */
+    private fun fetchLivePair(fromCode: String, toCode: String, assetReport: TrainFinder.Report) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val now = System.currentTimeMillis()
+            val cached = pairCache.get(fromCode, toCode, now)
+            if (cached != null) {
+                applyLive(assetReport, PairAnswer.Listing(cached.listing), now)
+                return@launch
+            }
+            val source = PairSource("erail", ErailTransport(), ErailPairParser())
+            val answer = try {
+                source.search(PairQuery(fromCode.uppercase(), toCode.uppercase(), budgetMs = 12_000))
+            } catch (e: Exception) {
+                // 5.4: no silent catch - the failure becomes the sentence the passenger reads.
+                PairAnswer.CouldNotLook("unexpected ${e.javaClass.simpleName}")
+            }
+            if (answer is PairAnswer.Listing) {
+                pairCache.put(answer.listing, System.currentTimeMillis())
+            }
+            applyLive(assetReport, answer, System.currentTimeMillis())
+        }
+    }
+
+    /** Merge the live answer into the asset report and post it, rows labelled, state line attached. */
+    private fun applyLive(assetReport: TrainFinder.Report, answer: PairAnswer, nowMillis: Long) {
+        val assetRows = assetReport.hits.map { h ->
+            AssetRow(
+                h.trainNo, h.trainName, h.fromCode, h.toCode,
+                h.boardMinute, h.alightMinute,
+                Provenance(SourceKind.OFFLINE_ASSET, "refdb", 0L),
+            )
+        }
+        val merged = PairMerge.merge(assetRows, answer, targetEpochMinute)
+        val renderable = merged.rows.filter { it.boardMin != null }
+        val hidden = merged.rows.size - renderable.size
+        val hits = renderable.map { r ->
+            val board = r.boardMin ?: 0
+            TrainHit(
+                trainNo = r.identity.number,
+                trainName = r.identity.name,
+                trainType = null,
+                originDateEpochDay = pickOrigin(targetEpochMinute, board),
+                boardMinute = board,
+                alightMinute = r.alightMin ?: board,
+                fromCode = r.identity.fromCode,
+                toCode = r.identity.toCode,
+                fromSeq = 0,
+                toSeq = 0,
+                distanceKm = 0, // the row renderer hides km when 0 - no fabricated distance (2.4)
+                runDays = null,
+                sourceTag = if (r.liveOnly || r.confirmedByLive) "via erail" else "timetable",
+            )
+        }
+        val line = if (hidden > 0) "${merged.stateLine} · $hidden train(s) listed without a readable time"
+        else merged.stateLine
+        _results.postValue(assetReport.copy(hits = hits))
+        _liveNote.postValue(line)
     }
 
     /**

@@ -73,6 +73,7 @@ class MainActivity : AppCompatActivity() {
 
         vm.phase.observe(this) { renderPhase(it) }
         vm.results.observe(this) { it?.let { r -> renderReport(r) } }
+        vm.liveNote.observe(this) { binding.statusLine.text = composeStatus() }
         selectMode(MainViewModel.Mode.STATIONS)
         renderDate()
         restoreLast()
@@ -242,9 +243,20 @@ class MainActivity : AppCompatActivity() {
                 report.notRunningHint ?: getString(R.string.err_wrong_date)
             TrainFinder.Reason.SAME_STATION -> getString(R.string.err_same_station)
         }
+        statusHead = head
         binding.statusLine.visibility = View.VISIBLE
-        binding.statusLine.text = head
+        binding.statusLine.text = composeStatus()
     }
+
+    /**
+     * The header sentence plus the v2 live-state note. The note arrives AFTER the asset render (the
+     * live fetch upgrades in place), so both the results and the note observers re-render through
+     * this one composition - the screen never stitches two writers' output by string surgery.
+     */
+    private var statusHead: String = ""
+
+    private fun composeStatus(): String =
+        statusHead + (vm.liveNote.value?.let { " — $it" } ?: "")
 
     private fun open(hit: TrainHit) {
         startActivity(
