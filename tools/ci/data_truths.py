@@ -88,8 +88,19 @@ def evaluate(db: sqlite3.Connection, truths: dict) -> dict:
         for num in p.get("must_include", []):
             checked += 1
             if num not in have:
+                # The "missing train" complaint, expressed as a fact. A train keyed in the opposite
+                # direction, or one our sources predate, lands here - and no UI test can see it, because
+                # the list is not empty, it is merely shorter than reality.
                 problems.append(f'station pair {p["from"]}->{p["to"]} is missing train {num} '
                                 f'(we list {len(have)} services for it)')
+        for num in p.get("must_not_include", []):
+            checked += 1
+            if num in have:
+                # The mirror case, and the more embarrassing one: a service we show that the railway does
+                # not run on that pair. An extra train gets a passenger to a platform for something that
+                # will not arrive, so it is worth a FAIL even though nothing in the app looks broken.
+                problems.append(f'station pair {p["from"]}->{p["to"]} lists phantom train {num}, '
+                                f'which the live feed does not run on that pair')
 
     numbering = truths.get("numbering") or {}
     total = db.execute("SELECT COUNT(*) FROM trains").fetchone()[0] or 0
