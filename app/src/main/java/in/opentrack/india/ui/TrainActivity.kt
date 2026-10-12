@@ -110,6 +110,15 @@ class TrainActivity : AppCompatActivity() {
             binding.checkingBar.visibility = if (busy == true) View.VISIBLE else View.GONE
             binding.firstLoad.visibility = if (busy == true && lastUi == null) View.VISIBLE else View.GONE
         }
+        // The sources box, top of the screen: fetching while the witnesses work, then who answered with
+        // how many halts - up to three witnesses named, never a silent wait (the owner's ask, round 43).
+        vm.mirrorState.observe(this) { st ->
+            binding.mirrorState.visibility = if (st == null) View.GONE else View.VISIBLE
+            st?.let {
+                binding.mirrorState.text = it
+                Diary.get()?.log("UISTATE") { "sources box: $it" }
+            }
+        }
         vm.error.observe(this) { msg ->
             errorText = msg
             renderNote()

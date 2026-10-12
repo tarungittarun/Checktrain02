@@ -31,6 +31,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -157,8 +158,20 @@ class LiveViewModel(
     private var mirrorLate = 0
     private var mirrorNote: String? = null
     private var mirrorShiftAt = 0L
+    private var mirrorAnchorCode: String? = null
+    private var mirrorHeadline: String? = null
+    private var mirrorNext: String? = null
+    private var mirrorBadge: String? = null
+    private var mirrorSources: String? = null
 
     private fun freshShift(): Boolean = System.currentTimeMillis() - mirrorShiftAt < 1_800_000
+
+    /** The track screen's live "what are the sources doing" line: fetching / answered / honest empty. */
+    private val _mirrorState = MutableLiveData<String?>()
+    val mirrorState: LiveData<String?> = _mirrorState
+
+    /** The direct wire's 403 is a fact for minutes, not for every refresh: skip it while fresh. */
+    private var directDeadUntil = 0L
 
     private var pollJob: Job? = null
     private var lastAnswer: PositionEngine.Answer? = null
@@ -367,14 +380,33 @@ class LiveViewModel(
         if (!force && nowWall - lastMirrorPoll < CROWD_POLL_MIN_MILLIS) return
         lastMirrorPoll = nowWall
         viewModelScope.launch {
-            val got = withContext(Dispatchers.IO) { RunningStatusMirror.fetchOrWhy(trainNo) }
+            val stopRows = _ui.value?.route?.stops ?: return@launch
+            val codes = stopRows.map { it.code }
+            _mirrorState.postValue("Fetching actuals from 2 sources…")
+            // The SECOND source runs in PARALLEL, not after: paste #26 waited out the primary's whole
+            // chain before confirmtkt even started - seconds the traveller pays twice.
+            val ckDeferred = async {
+                ConfirmTktMirror.fetchOrWhy(trainNo, stopRows.map { it.code to it.name })
+            }
+            val directSkipped = System.currentTimeMillis() < directDeadUntil
+            val got = if (directSkipped) {
+                RunningStatusMirror.Fetched(null, "skipped: blocked minutes ago")
+            } else {
+                withContext(Dispatchers.IO) { RunningStatusMirror.fetchOrWhy(trainNo) }
+            }
             var actuals = got.actuals
+            if (actuals == null && got.why.startsWith("HTTP 403")) {
+                // A fresh 403 buys the direct wire ten minutes of silence: an 8 s wait for a refusal
+                // the network already answered is latency the traveller pays for nothing.
+                directDeadUntil = System.currentTimeMillis() + 600_000
+            }
             if (actuals == null) {
                 // The direct wire is filtered or bot-gated on some networks (paste #21: HTTP 403 here
                 // while CI fetched the same url fine) - so ask through the app's browser lane, the
                 // transport this phone demonstrably lets through, before declaring the mirror dead.
                 Diary.get()?.log("MIRROR") {
-                    "${RunningStatusMirror.SOURCE} direct wire: ${got.why}; asking through the app's browser"
+                    "${RunningStatusMirror.SOURCE} direct wire: ${got.why}" +
+                        (if (directSkipped) " (skipped - blocked recently)" else "; asking through the app's browser")
                 }
                 // Paste #21 named the block: Cloudflare. The WebView lands on "Performing security
                 // verification", which AUTO-CLEARS in a real browser in ~5-10 s and then loads the real
@@ -406,18 +438,25 @@ class LiveViewModel(
                         "${RunningStatusMirror.SOURCE} browser lane failed: $laneWhy" +
                             (peek?.let { "; the page began: \"$it\"" } ?: "")
                     }
+                    val ck = ckDeferred.await()
+                    _mirrorState.postValue(
+                        "No actuals yet — the train may not be running today " +
+                            "(runningstatus.in: no halt rows · confirmtkt: " +
+                            if (ck.ok) "${ck.halts} halts)" else "no answer)"
+                    )
                     return@launch
                 }
                 actuals = lane
                 Diary.get()?.log("MIRROR") { "${RunningStatusMirror.SOURCE} answered through the browser lane" }
             }
-            val stopRows = _ui.value?.route?.stops ?: emptyList()
-            val codes = stopRows.map { it.code }
             val mirrorLines = RunningStatusMirror.sentences(actuals, codes)
             if (mirrorLines.isEmpty()) {
                 Diary.get()?.log("MIRROR") {
                     "${RunningStatusMirror.SOURCE} answered for $trainNo but carries no actual minutes yet"
                 }
+                _mirrorState.postValue(
+                    "No actuals yet — the train may not be running today (runningstatus.in: 0 halts)"
+                )
                 return@launch
             }
             val crowd = _ui.value?.reports ?: emptyMap()
@@ -439,13 +478,15 @@ class LiveViewModel(
             // The SECOND witness, fetched on the same refresh: confirmtkt by station name. Its lines
             // fill only the stops the primary lacks, and its answering (or not) is shown in the age
             // line - the owner asked for two sources on screen every refresh, and honesty about which.
-            val ck = withContext(Dispatchers.IO) {
-                ConfirmTktMirror.fetchOrWhy(trainNo, stopRows.map { it.code to it.name })
-            }
+            val ck = ckDeferred.await()
             val ckFilled = ck.lines.filterKeys { it !in merged }
             val display = merged + ckFilled
+            val relayLine = "relay: " + if (_ui.value?.relayOk != false) "answered" else "unreachable"
             val sourcesLine = "${RunningStatusMirror.SOURCE} (${mirrorLines.size} halts) · " +
-                "${ConfirmTktMirror.SOURCE} " + if (ck.ok) "(${ck.halts} halts)" else "did not answer"
+                "${ConfirmTktMirror.SOURCE} " + if (ck.ok) "(${ck.halts} halts)" else "did not answer" +
+                " · " + relayLine
+            mirrorSources = sourcesLine
+            _mirrorState.postValue("Actuals · $sourcesLine")
             Diary.get()?.log("MIRROR") { "sources this refresh: $sourcesLine" }
 
             // Anchor + headline from the ACTUALS: the halt the train is making for, and the sentence
@@ -482,15 +523,14 @@ class LiveViewModel(
                 mirrorLate = late
                 mirrorNote = positionNote
                 mirrorShiftAt = System.currentTimeMillis()
+                mirrorAnchorCode = anchorCode
+                mirrorHeadline = headline
+                mirrorNext = nextLine
+                mirrorBadge = "ACTUALS · ${RunningStatusMirror.SOURCE}"
                 val shifted = buildUi(
                     u.route, u.answer, u.tried, emptyList(),
                     nowRail - late, positionNote,
-                ).copy(
-                    reports = display, relayOk = u.relayOk, anchorCode = anchorCode,
-                    actualsHeadline = headline, actualsNext = nextLine,
-                    actualsBadge = "ACTUALS · ${RunningStatusMirror.SOURCE}", actualsLate = late,
-                    sourcesLine = sourcesLine,
-                )
+                ).copy(reports = display, relayOk = u.relayOk)
                 _ui.postValue(shifted)
                 Diary.get()?.log("MIRROR") {
                     "position from actuals: last confirmed ${last.stationCode} dep ${hm(last.actDep)} " +
@@ -502,16 +542,13 @@ class LiveViewModel(
                     // drop any stale shift instead of dragging the clock back forever.
                     mirrorLate = 0
                     mirrorNote = null
-                    mirrorShiftAt = 0L
+                    mirrorShiftAt = System.currentTimeMillis()
                 }
-                _ui.postValue(
-                    u?.copy(
-                        reports = display, anchorCode = anchorCode,
-                        actualsHeadline = headline, actualsNext = nextLine,
-                        actualsBadge = headline?.let { "ACTUALS · ${RunningStatusMirror.SOURCE}" },
-                        actualsLate = if (late > 0) late else null, sourcesLine = sourcesLine,
-                    )
-                )
+                mirrorAnchorCode = anchorCode
+                mirrorHeadline = headline
+                mirrorNext = nextLine
+                mirrorBadge = headline?.let { "ACTUALS · ${RunningStatusMirror.SOURCE}" }
+                _ui.postValue(buildUi(u.route, u.answer, u.tried, emptyList()).copy(reports = display))
             }
             Diary.get()?.log("MIRROR") {
                 "${RunningStatusMirror.SOURCE} answered: ${mirrorLines.size} stop(s) with actual " +
@@ -635,15 +672,22 @@ class LiveViewModel(
                 ?.let { "${model.routeLabel} · $it" }
                 ?: model.routeLabel,
         )
+        // Refreshes must not wipe what the witnesses wrote (paste #24 wiped the reader lines, paste #26
+        // wiped the actuals headline): everything the mirror said is re-applied from state while fresh.
+        val live = freshShift()
         return Ui(
             route = route, answer = answer, model = labelled,
             boarding = model.rows.firstOrNull { it.isBoarding },
             alighting = model.rows.firstOrNull { it.isAlighting },
             nowRailMinute = nowRail, tried = tried, loading = false,
-            // Refreshes must not wipe what the witnesses wrote: rebuild from the LIVE state, not defaults
-            // (paste #24: every auto-tick erased the reader lines until the next 90 s poll).
             reports = _ui.value?.reports ?: emptyMap(),
             relayOk = _ui.value?.relayOk ?: true,
+            anchorCode = if (live) mirrorAnchorCode else null,
+            actualsHeadline = if (live) mirrorHeadline else null,
+            actualsNext = if (live) mirrorNext else null,
+            actualsBadge = if (live) mirrorBadge else null,
+            actualsLate = if (live && mirrorLate > 0) mirrorLate else null,
+            sourcesLine = if (live) mirrorSources else null,
         )
     }
 
