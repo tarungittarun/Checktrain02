@@ -61,11 +61,11 @@ object FeedProbe {
     // A cold web view is not a socket write: the engine answered in ~1.1 s of its own on a device, and a
     // 5 s cap turned a page load plus a request into a timeout. Generous, because it runs after a failure.
     private const val BROWSER_TIMEOUT = 8_000
-    private const val MAX_TRIES = 11  // every variant, controls included - a probe that ran out of tries
+    private const val MAX_TRIES = 12  // every variant, controls included - a probe that ran out of tries
                                     // before its own control host is a probe that proves nothing
-    private const val TOTAL_BUDGET = 135_000 // three settled page reads lead (rstrain text ~13 s,
-    // rstrain dom ~10 s, the human-sequence read 20 s + 2 taps + 15 s, 48 s cap) plus the researched
-    // gateway POSTs; the rest still skip with reported lines
+    private const val TOTAL_BUDGET = 152_000 // four settled page reads lead (rstrain text ~13 s,
+    // desktop ~10 s, rstrain dom ~10 s, the human-sequence read 20 s + taps + 15 s, 48 s cap) plus
+    // the researched gateway POSTs; the rest still skip with reported lines
 
     @Volatile
     private var last: List<Result> = emptyList()
@@ -153,6 +153,10 @@ object FeedProbe {
                 // page finishes, 16 KB of text. Verdict from the owner's 14:40 paste: the wait was
                 // honoured and the text STILL held only nav + halt names.
                 BrowserFetch.pageText(rebuilt.url, 24_000, settleMillis = 12_000, textCap = 16_000)
+            } else if (rebuilt.name == "webview-erail-rstrain-desktop") {
+                BrowserFetch.pageText(
+                    rebuilt.url, 24_000, settleMillis = 8_000, textCap = 64_000, desktop = true,
+                )
             } else if (rebuilt.name == "webview-erail-rstrain-dom-tap") {
                 // The last in-page lever: if 20 s of patience plus tapping their own tab still ends in
                 // a DOM without times, the data channel is interaction- or gate-kept and no further
@@ -334,6 +338,16 @@ object FeedProbe {
                     "was nav + halt NAMES, never a time (paste 2026-10-12 14:40) - if their SignalR " +
                     "scripts park the running data in the page invisibly, the DOM has it; the app " +
                     "scans its own capture for time-like tokens and the paste carries the verdict",
+                false, true,
+            ),
+            Variant(
+                "webview-erail-rstrain-desktop",
+                "https://erail.in/train-running-status/$trainNo",
+                null, emptyMap(), false,
+                "the SAME deep-link asked as DESKTOP Chrome (UA switched): every prior read hit their " +
+                    "MOBILE layout, and the mobile page's own footer offers a 'Desktop View' - a " +
+                    "different page that may carry the running table server-side or render it without " +
+                    "their phone-only channel. The one page slice never tested; settled 8 s, 64 KB",
                 false, true,
             ),
             Variant(

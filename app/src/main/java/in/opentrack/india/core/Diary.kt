@@ -451,6 +451,9 @@ class Diary(private val file: File) {
         )
         private val DNS_HOSES = arrayOf(
             "enquiry.indianrail.gov.in", "erail.in", "api.railradar.in", "play.googleapis.com",
+            // ADR-006's relay: if a local filter (the owner's AdGuard) blocks ntfy.sh, the traveller
+            // pipe is dead on that device and EVERY paste must say so from the ENV block upward.
+            "ntfy.sh",
         )
 
         @Volatile

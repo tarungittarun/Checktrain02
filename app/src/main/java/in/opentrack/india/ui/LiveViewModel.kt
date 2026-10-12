@@ -309,11 +309,13 @@ class LiveViewModel(
             val codes = _ui.value?.route?.stops?.map { it.code } ?: return@launch
             val poll = withContext(Dispatchers.IO) { relay.pollRecentOrFailure(trainNo) }
             val merged = CrowdMerger.merge(poll.reports, System.currentTimeMillis())
-            val lines = CrowdMerger.lines(merged, codes)
+            // Reader lines ONLY where a fresh actual exists: a 14-halt wall of "no traveller reports
+            // yet" is noise, not honesty - the honest absence is one diary line and an empty column.
+            val lines = CrowdMerger.lines(merged, merged.stops.map { it.stationCode }.distinct())
             _ui.postValue(_ui.value?.copy(reports = lines, relayOk = poll.relayOk))
             Diary.get()?.log("CROWD") {
-                "read ${poll.reports.size} report(s) on ct-$trainNo; ${lines.count { !it.value.startsWith("no traveller") }} " +
-                    "stop(s) with fresh actuals, ${merged.droppedStale} dropped stale; relay " +
+                "read ${poll.reports.size} report(s) on ct-$trainNo; ${lines.size} stop(s) with fresh " +
+                    "actuals, ${merged.droppedStale} dropped stale; relay " +
                     (if (poll.relayOk) "answered" else "unreachable")
             }
         }

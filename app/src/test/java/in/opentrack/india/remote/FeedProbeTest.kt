@@ -34,22 +34,24 @@ class FeedProbeTest {
             "never a time", "webview-erail-rstrain", vs[2].name)
         assertEquals("the SAME page as raw DOM fourth: data their scripts hold invisibly lives there, " +
             "and the scan's verdict rides in every paste", "webview-erail-rstrain-dom", vs[3].name)
-        assertEquals("the tap read fifth: 20 s patience, their own tab clicked, DOM re-read - the last " +
-            "in-page lever (paste #11: DOM at 10 s held only meta text)", "webview-erail-rstrain-dom-tap", vs[4].name)
-        assertEquals("the site's own script capture follows", "get-erail-sitejs", vs[5].name)
+        assertEquals("the DESKTOP read fourth: every prior read hit their mobile layout; the one page " +
+            "slice never tested (their own footer offers 'Desktop View')", "webview-erail-rstrain-desktop", vs[4].name)
+        assertEquals("the human-sequence read fifth: date chip + Show Status + patience + iframes " +
+            "(paste #13 fired the tap; #14's full sequence held zero tokens)", "webview-erail-rstrain-dom-tap", vs[5].name)
+        assertEquals("the site's own script capture follows", "get-erail-sitejs", vs[6].name)
         assertEquals("their own advertised public API is asked after the page reads (runningstatus = actuals)",
-            "get-api-runningstatus", vs[6].name)
-        assertEquals("and the route API next (per-stop schedule)", "get-api-route", vs[7].name)
+            "get-api-runningstatus", vs[7].name)
+        assertEquals("and the route API next (per-stop schedule)", "get-api-route", vs[8].name)
         // The two getRunTrain spellings retired here (404 twice from the owner's phone, pastes #10 and
         // #11) - their slots now carry the owner's researched mobile-gateway shape: unverified claims,
         // but testable on the ONE vantage where this host completes TLS. The probe is the experiment.
         assertEquals("the researched NTES app gateway: POST JSON, queryType 6, dalvik, dd-MMM-yyyy",
-            "post-appservand-json", vs[8].name)
+            "post-appservand-json", vs[9].name)
         assertTrue("gateway body must be the researched query, regenerable per train",
             vs[8].body!!.contains("\"queryType\":\"6\"") && vs[8].body!!.contains("\"trainNo\":\"12627\""))
         assertEquals("the same gateway through the browser engine (the transport axis that separates " +
-            "this phone's two stacks)", "webview-appservand", vs[9].name)
-        assertEquals("the shipped shape follows as the control", "post-dalvik-json", vs[10].name)
+            "this phone's two stacks)", "webview-appservand", vs[10].name)
+        assertEquals("the shipped shape follows as the control", "post-dalvik-json", vs[11].name)
         for (v in vs) {
             assertTrue("${v.name} must not send data in the clear", v.url.startsWith("https://"))
             assertTrue("${v.name} needs an explanation for the report", v.note.length > 8)

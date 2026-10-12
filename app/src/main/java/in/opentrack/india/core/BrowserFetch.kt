@@ -194,6 +194,8 @@ object BrowserFetch {
         tapText: String = "",
         /** How long after the tap to wait before reading. */
         tapSettleMillis: Int = 6_000,
+        /** Present as desktop Chrome: some sites serve a different - and differently populated - page. */
+        desktop: Boolean = false,
     ): Http.Result {
         val ctx = appContext ?: return Http.Result.Failed(
             Http.Result.Kind.HTTP, "BrowserFetch not initialised (no application context)",
@@ -209,6 +211,10 @@ object BrowserFetch {
                 main.post {
                     runCatching {
                         val w = ensureView(ctx)
+                        if (desktop) {
+                            w.settings.userAgentString = DESKTOP_UA
+                            Diary.get()?.log("BROWSER") { "UA switched to desktop for this read" }
+                        }
                         w.webViewClient = object : WebViewClient() {
                             override fun onPageFinished(v: WebView, pageUrl: String) {
                                 if (settled.get()) return
@@ -379,10 +385,13 @@ object BrowserFetch {
                                     }
                                     val label = taps[index]
                                     val lit = JSONObject.quote(label)
-                                    val js = "(function(){var want=[$lit].map(function(s){return s.toLowerCase();});" +
+                                    // normalized equality: "12-Oct", "12 Oct" and "12oct" are one target
+                                    val js = "(function(){var norm=function(s){return s.toLowerCase()" +
+                                        ".replace(/[^a-z0-9]/g,'');};" +
+                                        "var want=[$lit].map(function(s){return norm(s);});" +
                                         "var els=document.querySelectorAll('a,button,div,span,li,td,input');" +
-                                        "for(var i=0;i<els.length;i++){var t=(els[i].value||'')+' '+(els[i].textContent||'');" +
-                                        "if(want.some(function(w){return t.trim().toLowerCase()===w;})){" +
+                                        "for(var i=0;i<els.length;i++){var t=norm((els[i].value||'')+' '+(els[i].textContent||''));" +
+                                        "if(want.some(function(w){return t===w;})){" +
                                         "els[i].click();return 'tapped';}}return 'no-target';})()"
                                     v.evaluateJavascript(js) { res ->
                                         Diary.get()?.log("BROWSER") {
@@ -467,6 +476,10 @@ object BrowserFetch {
             runCatching { dead.destroy() }
         }
     }
+
+    private const val DESKTOP_UA =
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) " +
+            "Chrome/126.0.0.0 Safari/537.36"
 
     private fun ensureView(ctx: Context): WebView {
         view?.let { return it }

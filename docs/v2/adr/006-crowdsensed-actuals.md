@@ -47,3 +47,13 @@ displayed as suspect or dropped); the screen always keeps the timetable column b
 
 (a) **Approve**: implement reporter mode + keyless relay + traveller-report column next.
 (b) **Decline**: the app keeps the honest dash and the measured sentences forever.
+
+
+## Amendment (2026-10-12, evening): reader default flipped to ON
+
+Shipped off-by-default per this ADR; flipped on-by-default the same day on the acceptance
+authority's explicit direction: "Priority is to get actual arrival and departure time. Work
+for that, do anything." Rationale: reading is passive and renders nothing until a REAL report
+exists (the reader column stays empty otherwise — the screen never shows "no reports" noise
+per stop); publishing still sits behind the toggle. The privacy consequence is unchanged:
+reports carry station code + minute, nothing personal, to a public topic.

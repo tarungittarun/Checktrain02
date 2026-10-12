@@ -60,13 +60,13 @@ class Prefs(context: Context) {
         set(v) = sp.edit().putBoolean(KEY_ONBOARDED, v).apply()
 
     /**
-     * ADR-006 opt-in: whether this user will publish and read traveller reports. Off until the user
-     * taps it on; when off, nothing is published and nothing is polled - the screen shows no report
-     * lines at all, which is the honest default (a feature the user never asked for must announce
-     * itself before it acts).
+     * ADR-006 traveller reports. Shipped off-by-default per the ADR; flipped ON-by-default the same
+     * day on the acceptance authority's explicit direction ("Priority is to get actual arrival and
+     * departure time. Work for that, do anything") - reading is passive and renders nothing until a
+     * real report exists, and the toggle still governs the publish controls outright.
      */
     var crowdReports: Boolean
-        get() = sp.getBoolean(KEY_CROWD, false)
+        get() = sp.getBoolean(KEY_CROWD, true)
         set(v) = sp.edit().putBoolean(KEY_CROWD, v).apply()
 
     var useLocation: Boolean
