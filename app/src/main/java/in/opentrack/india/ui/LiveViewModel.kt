@@ -979,14 +979,14 @@ class LiveViewModel(
         ): TrackModel.View {
             val byCode = HashMap<String, RunningStatusMirror.Stop>()
             for (st in stops) byCode[st.stationCode.uppercase()] = st
-            val nowOfDay = ((nowRail % 1440) + 1440) % 1440
             val rows = model.rows.map { r ->
                 val m = byCode[r.code.uppercase()] ?: return@map r
                 fun cell(act: Int?, sched: Int?, mirSch: Int?): OverlayCell? {
                     val shown = RailTime.alignClock(act, sched) ?: return null
-                    val deviates = mirSch != null && shown != ((mirSch % 1440) + 1440) % 1440
-                    val ahead = (shown - nowOfDay + 1440) % 1440
-                    val reported = deviates && ahead !in 0..29
+                    // A DEVIATION is an observation, whatever the clock says - a late train's halt
+                    // minutes sit "ahead" of an on-time clock, and that ahead-ness is the news, not
+                    // a reason to doubt it. Only a schedule-equal copy is unverifiable (the echo).
+                    val reported = mirSch != null && shown != ((mirSch % 1440) + 1440) % 1440
                     val delay = sched?.let { (((shown - it + 720) % 1440) + 1440) % 1440 - 720 }
                     return OverlayCell(shown, delay, reported)
                 }

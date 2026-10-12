@@ -81,9 +81,11 @@ class MirrorOverlayTest {
     }
 
     @Test
-    fun anEchoInsideThe30MinuteSkewZoneStaysEst() {
-        val stops = listOf(RunningStatusMirror.Stop("BBB", 700, 705, 701, 710))
-        val out = LiveViewModel.overlayActuals(model(), stops, nowRail = 730)
+    fun aScheduleCopyStaysEstEvenWhenTheClockIsUponTheHalt() {
+        // The echo rule ignores the clock entirely: a schedule-equal minute is unverifiable as an
+        // observation at any distance, imminent or far.
+        val stops = listOf(RunningStatusMirror.Stop("BBB", 700, 705, 700, 705))
+        val out = LiveViewModel.overlayActuals(model(), stops, nowRail = 690)
         val bbb = out.rows.first { it.code == "BBB" }
         assertEquals(TrackModel.MinuteSource.PROJECTED, bbb.source)
     }
