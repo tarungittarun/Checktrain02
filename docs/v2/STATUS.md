@@ -284,7 +284,9 @@ Owner: "If an approach is not working then find other alternative... change what
 |---|---|---|---|
 | T22.1 | `StopReport` — report schema, hand-rolled JSON, plausibility bounds, junk→null never a half-report | SHIPPED (`ad99759`) | 3 tests |
 | T22.2 | `NtfyRelay` — keyless relay (ntfy.sh `ct-<trainNo>`), publish+poll, typed one-attempt wire, dead→empty ("reports unavailable") | SHIPPED (`ad99759`) | 3 tests |
-| T22.3 | **Reporter UI (opt-in, off by default) + reader column ("reported by travellers (N witnesses, age)" beside the timetable, never as official)** | **NEXT — this round's build** | — |
+| T22.3 | **Reporter UI (opt-in, off by default) + reader column ("reported by travellers (N reports, age)" beside the timetable, never as official)** | **NEXT — this round's build** | — |
+| T22.5 | `CrowdMerger` — median per stop (one liar moves nothing), 15-min freshness window (stale dropped AND counted), tested sentence wording ("no traveller reports yet" / "departed 10:37 — reported by travellers (2 reports, 2 min ago)") | SHIPPED | 4 tests incl. the liar and the staleness edges | — |
+| T22.6 | **Phase plan recorded** (owner's cold-start challenge answered): A = erail-page render (works with ONE user; needs the owner's one `page-text=` paste, decision-complete); B = crowd pipe validated by LOOPBACK (phone publishes → reads its own report over the real relay) + CI fixtures — no agents on trains, ever; C = witnesses only when the APK spreads (WIMT: 2 years of cold start; the screen says "no traveller reports yet" until then, never fake) | DONE (this reply) | the owner's question, in the reply | — |
 
 Honest ledger: live pair list ✓, identity correction ✓, honest labelling ✓, complete server-door evidence map ✓ — but ZERO per-stop actuals yet. T22.3 is where that changes; no owner paste required.
 
