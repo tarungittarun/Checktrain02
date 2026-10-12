@@ -333,5 +333,5 @@ Latest-apk: the owner-installed build (21:26 UTC, 10,667,232 B) already carries 
 
 
 
-Latest-apk: 10,747,663 B @ 2026-10-12T11:26:48Z (6b1d55c, Round 31: the station-loss bug FIXED [a transient live failure no longer swaps the halt table for the endpoints screen], reporter moved above the timetable, page-render door closed with the 5-attempt chain; android SUCCESS, run 38242414112)
+Latest-apk: 10,748,747 B @ 2026-10-12T11:42:23Z (d5792be, Round 32: desktop-UA page read [the last untested page slice], ntfy.sh in the ENV reachability map, crowd reader ON by default per owner direction; android SUCCESS, run 38243968721)
 
