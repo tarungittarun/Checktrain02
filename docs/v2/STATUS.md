@@ -360,7 +360,7 @@ Honest ledger: live pair list ✓, identity correction ✓, honest labelling ✓
 
 
 
-Latest-apk: the owner-installed build (21:26 UTC, 10,667,232 B) already carries M2 slice 1 (live pair list, row labels). The details screen still renders the OFFLINE copy's route — T20.2's parser is its correction path.
+Latest-apk: `8133e37` — Round 45 GREEN — Arrival|Station|Departure columns, Sch-over-Act stack with prefixes, switch not button, source dropdown, auto-off fully stops, instant offline paint
 
 
 
