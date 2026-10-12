@@ -279,11 +279,10 @@ class LiveViewModel(
             while (isActive) {
                 val seconds = repo()?.prefs?.autoRefreshSeconds ?: 60
                 if (seconds <= 0 || !auto) {
-                    Diary.get()?.log("UI", "auto refresh is off; only re-deriving position from the cache")
-                    // Disabled: still keep the screen honest by re-deriving position from the cached
-                    // snapshot once a minute, so the marker does not freeze mid-leg.
-                    delay(60_000)
-                    recomputeFromCache()
+                    // Paste #28: the owner switched auto OFF and watched the network keep retrying.
+                    // Off means OFF - no re-derive, no mirror, no probes; the screen holds what it
+                    // has until the traveller taps Refresh. A phone on a train pays for every byte.
+                    delay(30_000)
                 } else {
                     delay(seconds * 1000L)
                     refresh()
@@ -358,6 +357,27 @@ class LiveViewModel(
             // The 90 s throttle makes the later, post-buildUi calls no-ops.
             maybeMirror()
             maybeCrowd()
+            // And the traveller does NOT stare at a spinner while they run: the offline timetable
+            // paints this second (paste #27's "journey completes before it loads"), the actuals
+            // land on top of it when a witness answers.
+            if (_ui.value == null) {
+                val now0 = System.currentTimeMillis()
+                val cachedRoute = runCatching { repo.queries.route(trainNo) }.getOrNull()
+                if (cachedRoute != null) {
+                    val cached = PositionEngine.locate(
+                        PositionEngine.Request(cachedRoute, null, nowMinute(now0), now0, null),
+                    )
+                    lastAnswer = cached
+                    _ui.value = buildUi(
+                        cachedRoute, cached, emptyList(),
+                        listOf("Timetable shown while the live sources are asked — actuals land on top the moment a source answers."),
+                    )
+                    _error.value = null
+                    Diary.get()?.log("UI") {
+                        "instant offline paint for $trainNo (${cachedRoute.stops.size} halts) - live chain continues underneath"
+                    }
+                }
+            }
             val live = runCatching {
                 repo.live(
                     trainNo = trainNo, fromCode = fromCode, toCode = toCode,

@@ -80,8 +80,10 @@
     <string name="selected_station">Selected</string>
     <string name="suggestions_title">Matches</string>
     <string name="col_station">Station</string>
+    <string name="source_label">Source:</string>
     <string name="col_scheduled">Scheduled</string>
-    <string name="col_live">Actual / expected</string>
+    <string name="col_arrival">Arrival</string>
+    <string name="col_departure">Departure</string>
     <string name="col_distance">km</string>
     <string name="sec_position">Where it is now</string>
     <string name="sec_progress">Journey progress</string>

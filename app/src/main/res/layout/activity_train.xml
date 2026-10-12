@@ -233,9 +233,8 @@
                     android:layout_weight="1.6"
                     android:text="@string/refresh" />
 
-                <Button
-                    android:id="@+id/autoBtn"
-                    style="@style/BtnGhost"
+                <Switch
+                    android:id="@+id/autoSwitch"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_marginStart="8dp"
@@ -244,12 +243,24 @@
             </LinearLayout>
 
             <LinearLayout
-                android:id="@+id/sourceChips"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="6dp"
-                android:gravity="center_horizontal"
-                android:orientation="horizontal" />
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    style="@style/TextMicro"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/source_label" />
+
+                <Spinner
+                    android:id="@+id/sourceSpinner"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1" />
+            </LinearLayout>
 
             <TextView
                 android:id="@+id/mirrorState"
@@ -277,25 +288,33 @@
 
                 <TextView
                     style="@style/TextLabel"
-                    android:layout_width="0dp"
+                    android:layout_width="@dimen/col_sched"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="@dimen/rail_w"
-                    android:layout_weight="1"
-                    android:text="@string/col_station" />
+                    android:gravity="center_horizontal"
+                    android:text="@string/col_arrival" />
 
                 <TextView
                     style="@style/TextLabel"
                     android:layout_width="@dimen/col_sched"
                     android:layout_height="wrap_content"
                     android:gravity="center_horizontal"
-                    android:text="@string/col_scheduled" />
+                    android:text="@string/col_arrival" />
+
+                <TextView
+                    style="@style/TextLabel"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="@dimen/rail_w"
+                    android:layout_weight="1"
+                    android:gravity="center_horizontal"
+                    android:text="@string/col_station" />
 
                 <TextView
                     style="@style/TextLabel"
                     android:layout_width="@dimen/col_live"
                     android:layout_height="wrap_content"
                     android:gravity="center_horizontal"
-                    android:text="@string/col_live" />
+                    android:text="@string/col_departure" />
             </LinearLayout>
 
             <androidx.recyclerview.widget.RecyclerView

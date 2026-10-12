@@ -120,12 +120,10 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         val dot: View = view.findViewById(R.id.stopDot)
         val name: TextView = view.findViewById(R.id.stopName)
         val meta: TextView = view.findViewById(R.id.stopMeta)
-        val reports: TextView = view.findViewById(R.id.stopReports)
         val schedArr: TextView = view.findViewById(R.id.schedArr)
         val schedDep: TextView = view.findViewById(R.id.schedDep)
         val liveArr: TextView = view.findViewById(R.id.liveArr)
         val liveDep: TextView = view.findViewById(R.id.liveDep)
-        val tag: TextView = view.findViewById(R.id.liveTag)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Holder =
@@ -143,35 +141,36 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             else if (s.isAlighting) append(" · ").append(ctx.getString(R.string.tag_alight))
             s.platform?.takeIf { it.isNotBlank() }?.let { append(" · plat ").append(it) }
         }
-        holder.schedArr.text = s.schedArr?.let { RailTime.formatRailMinute(it) } ?: "—"
-        holder.schedDep.text = s.schedDep?.let { RailTime.formatRailMinute(it) } ?: "—"
-        // Amber for a projection, delay colour for a report: the same number means different things and
-        // must not look the same.
+        // The owner's arrangement (round 45): each time column stacks SCHEDULED above ACTUAL/EXPECTED,
+        // every minute prefixed so the two kinds can never be confused. A late actual burns red - and it
+        // sits BELOW the schedule, which is the whole point: the eye compares them at one glance.
+        fun sch(minute: Int?): String = "Sch " + (minute?.let { RailTime.formatRailMinute(it) } ?: "—")
+        holder.schedArr.text = sch(s.schedArr)
+        holder.schedDep.text = sch(s.schedDep)
+        val reported = s.source != TrackModel.MinuteSource.SCHEDULE
+        val late: Boolean = (s.delay ?: 0) >= 3
+        fun act(prefix: String, minute: Int?): String =
+            minute?.let { "$prefix ${RailTime.formatRailMinute(it)}" } ?: "—"
+        holder.liveArr.text = when {
+            !reported -> "—"
+            s.source == TrackModel.MinuteSource.PROJECTED -> act("Est", s.showArr)
+            else -> act("Act", s.showArr)
+        }
+        holder.liveDep.text = when {
+            !reported -> "—"
+            s.source == TrackModel.MinuteSource.PROJECTED -> act("Est", s.showDep)
+            else -> act("Act", s.showDep)
+        }
+        // Late = red (the colour a traveller scans for); on-time actual = green; estimate = amber.
+        // A pure-timetable row stays grey in both - no number pretends to be news.
         val color = when {
-            // Only a projection is amber. The timetable is not a prediction, so it must not borrow the
-            // colour that means "we think this will slip".
+            !reported -> R.color.text2
             s.source == TrackModel.MinuteSource.PROJECTED -> R.color.warn
-            s.delay == null -> R.color.text2
-            s.delay!! >= 2 -> R.color.late
-            s.delay!! <= -2 -> R.color.early
-            else -> R.color.accent
+            late -> R.color.late
+            else -> R.color.live
         }
         holder.liveArr.setTextColor(ctx.getColor(color))
         holder.liveDep.setTextColor(ctx.getColor(color))
-        // A timetable minute printed in the "live / expected" column is the most misleading thing this screen
-        // can do, because it is indistinguishable from a report about the train — and that is precisely what
-        // it is not. The column carries a number only when one was reported, or when a delay carried forward
-        // moved the row off its timetable; a pure-timetable row shows an em dash and says so in its tag.
-        val reported = s.source != TrackModel.MinuteSource.SCHEDULE
-        holder.liveArr.text = s.showArr?.let { if (reported) RailTime.formatRailMinute(it) else "—" } ?: "—"
-        holder.liveDep.text = s.showDep?.let { if (reported) RailTime.formatRailMinute(it) else "—" } ?: "—"
-        holder.tag.text = tagFor(s, ctx)
-        holder.tag.setTextColor(ctx.getColor(tagColorFor(s)))
-        // The reader column, per row: a traveller-sourced sentence or nothing - never blended into the
-        // scheduled or live columns, which is where an unofficial minute would start passing as official.
-        val line = reports[s.code]
-        holder.reports.visibility = if (line == null) View.GONE else View.VISIBLE
-        holder.reports.text = line
         holder.dot.setBackgroundResource(dotFor(s))
         holder.row.setBackgroundColor(
             when {

@@ -72,12 +72,11 @@ class TrainActivity : AppCompatActivity() {
         binding.stops.isNestedScrollingEnabled = false
 
         binding.refresh.setOnClickListener { vm.refresh(manual = true) }
-        binding.autoBtn.setOnClickListener {
-            autoOn = !autoOn
-            vm.setAutoRefresh(autoOn)
-            binding.autoBtn.text = getString(
-                if (autoOn) R.string.auto_on else R.string.auto_off
-            )
+        binding.autoSwitch.setOnCheckedChangeListener(null)
+        binding.autoSwitch.isChecked = autoOn
+        binding.autoSwitch.setOnCheckedChangeListener { _, checked ->
+            autoOn = checked
+            vm.setAutoRefresh(checked)
         }
         binding.sourceToggle.setOnClickListener {
             sourceShown = !sourceShown
@@ -117,7 +116,6 @@ class TrainActivity : AppCompatActivity() {
             errorText = msg
             renderNote()
         }
-        binding.autoBtn.setText(R.string.auto_on)
     }
 
     // LEGACY-FREEZE (5.2b): the live pair list (v2) can know a fresher identity for this number than
@@ -146,24 +144,35 @@ class TrainActivity : AppCompatActivity() {
     }
 
     /**
-     * The source chips, rebuilt only when the witness set changes: the active one is lit, any other
-     * loaded witness is one tap away, and the table re-renders from that witness.
+     * The source DROPDOWN (the owner asked for a dropdown in the top box, round 45): every loaded
+     * witness is an entry; picking one re-renders the table from that witness. Rebuilt only when the
+     * witness set changes, so a re-selection never fights the observer.
      */
     private fun renderSourceChips(ui: LiveViewModel.Ui) {
         val names = ui.sourceLines.keys.toList()
-        if (binding.sourceChips.tag == names) return
-        binding.sourceChips.tag = names
-        binding.sourceChips.removeAllViews()
-        names.take(3).forEach { name ->
-            val chip = TextView(this)
-            chip.text = name
-            chip.setPadding(28, 10, 28, 10)
-            chip.setBackgroundResource(R.drawable.bg_pill)
-            chip.setTextColor(getColor(if (name == ui.activeSource) R.color.accent else R.color.text2))
-            chip.setOnClickListener { vm.setActiveSource(name) }
-            binding.sourceChips.addView(chip)
+        if (binding.sourceSpinner.tag == names || names.isEmpty()) {
+            binding.sourceSpinner.visibility = if (names.isEmpty()) View.GONE else View.VISIBLE
+            return
         }
-        binding.sourceChips.visibility = if (names.isEmpty()) View.GONE else View.VISIBLE
+        binding.sourceSpinner.tag = names
+        binding.sourceSpinner.adapter = ArrayAdapter(
+            this, android.R.layout.simple_spinner_dropdown_item, names,
+        )
+        binding.sourceSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                val name = names.getOrNull(pos) ?: return
+                if (name != ui.activeSource) vm.setActiveSource(name)
+            }
+
+            override fun onNothingSelected(p: AdapterView<*>?) {}
+        }
+        ui.activeSource?.let { src ->
+            val at = names.indexOf(src)
+            if (at >= 0 && binding.sourceSpinner.selectedItemPosition != at) {
+                binding.sourceSpinner.setSelection(at, false)
+            }
+        }
+        binding.sourceSpinner.visibility = View.VISIBLE
     }
 
     private fun bind(ui: LiveViewModel.Ui) {
