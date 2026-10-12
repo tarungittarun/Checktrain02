@@ -64,7 +64,6 @@ class CrowdMergerTest {
             CrowdMerger.sentence(merged.stops.single(), "SMET"),
         )
     }
-}
 
     @Test
     fun the_reader_line_prefers_departed_and_names_the_stop() {
@@ -94,3 +93,4 @@ class CrowdMergerTest {
         assertTrue("got: $line", line.contains("TLGP arrived 05:15"))
         assertTrue("got: $line", line.contains("reported by travellers"))
     }
+}
