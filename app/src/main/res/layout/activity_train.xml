@@ -318,13 +318,22 @@
                     android:text="@string/auto_refresh" />
             </LinearLayout>
 
-                        <Button
+            <Button
                 android:id="@+id/reportToggle"
                 style="@style/BtnGhost"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="@dimen/gap"
                 android:text="@string/report_toggle_on" />
+
+            <TextView
+                android:id="@+id/reportHint"
+                style="@style/TextMicro"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:gravity="center_horizontal"
+                android:visibility="gone" />
 
             <LinearLayout
                 android:id="@+id/reportBox"

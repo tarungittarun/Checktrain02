@@ -178,6 +178,12 @@ class TrainActivity : AppCompatActivity() {
         val on = prefs.crowdReports
         binding.reportToggle.setText(if (on) R.string.report_toggle_off else R.string.report_toggle_on)
         binding.reportBox.visibility = if (on) View.VISIBLE else View.GONE
+        // The pipe is invisible until a report exists - so say it is listening. The relay answered on
+        // the owner's phone (paste #15) with zero reports, because zero travellers exist yet; the
+        // caption names that state honestly and disappears the moment real lines render per row.
+        val hasLines = ui?.reports?.isNotEmpty() == true
+        binding.reportHint.visibility = if (on && !hasLines) View.VISIBLE else View.GONE
+        if (on && !hasLines) binding.reportHint.setText(R.string.report_listening)
         val route = ui?.route ?: return
         if (binding.reportStop.tag != route.trainNo) {
             binding.reportStop.tag = route.trainNo
