@@ -31,7 +31,7 @@ class IdentityOverlayTest {
         assertEquals("SMET", route.stops[1].code)
         assertEquals("the terminus arrival is a clock minute", 845, route.stops[1].arrivalMin)
         assertEquals(0, route.stops[1].journeyDay)
-        assertEquals("SMET INTERCITY", route.trainName)
+        assertEquals("the route carries the live identity's own name", "TLGP-MYS KUVEMPU EXPRESS", route.trainName)
     }
 
     @Test
