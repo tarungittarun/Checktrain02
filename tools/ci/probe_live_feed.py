@@ -641,6 +641,9 @@ def main() -> int:
     identity_captures: list[tuple[str, str]] = []
     route_captures: list[tuple[str, str, str]] = []
     live_status_captures: list[tuple[str, str, str]] = []
+    # Route + live-status ladders are 7+ asks per train; two representative trains (the owner-verified
+    # long-haul and the KUVEMPU) answer the shape question for all four. Identities stay for every train.
+    ladder_trains = [t for t in dict.fromkeys(trains)][:2]
     for train in dict.fromkeys(trains):
         for label, plain in (
             ("identity", f"service=TrainBtwStnMob&subService=FindTrainJson&trainNo={train}"),
@@ -659,12 +662,13 @@ def main() -> int:
                     identity_captures.append((train, id_body))
                 # The route capture rides the same loop: one extra GET per train per probe run, and
                 # the per-stop schedule question (T20.2's sequel) gets its first real body to read.
-                route_lines, route_caps = erail_route_lines(train)
-                out += route_lines
-                route_captures.extend(route_caps)
-                ls_lines, ls_caps = erail_live_status_lines(train, date_num)
-                out += ls_lines
-                live_status_captures.extend(ls_caps)
+                if train in ladder_trains:
+                    route_lines, route_caps = erail_route_lines(train)
+                    out += route_lines
+                    route_captures.extend(route_caps)
+                    ls_lines, ls_caps = erail_live_status_lines(train, date_num)
+                    out += ls_lines
+                    live_status_captures.extend(ls_caps)
             if doc is None:
                 continue
             if capture:

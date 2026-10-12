@@ -73,7 +73,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    timeout-minutes: 6
+    timeout-minutes: 14 # the live-status + route + script ladders for 2 trains need ~9 min (6m0s kills were T21.14)
+
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
