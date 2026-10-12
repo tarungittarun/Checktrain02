@@ -169,6 +169,85 @@ object BrowserFetch {
         return verdict
     }
 
+    /**
+     * Load a real page in the engine and read its rendered text - the one capability left for a site
+     * whose live data arrives over its own websocket (erail/SignalR, measured 2026-10-12): their page
+     * populates itself, and what any browser user reads, this reads. Not the apiCall path (JSON bytes
+     * cannot render - that mistake is documented at the top of this file); here rendering IS the point.
+     * Same safety envelope as every call here: offscreen view, no JS interface, one call at a time.
+     */
+    fun pageText(url: String, timeoutMillis: Int = defaultTimeout): Http.Result {
+        val ctx = appContext ?: return Http.Result.Failed(
+            Http.Result.Kind.HTTP, "BrowserFetch not initialised (no application context)",
+        )
+        tried = true
+        val latch = CountDownLatch(1)
+        val settled = AtomicBoolean(false)
+        val text = AtomicReference<String?>(null)
+        val problem = AtomicReference<String?>(null)
+        synchronized(gate) {
+            val t0 = System.currentTimeMillis()
+            runCatching {
+                main.post {
+                    runCatching {
+                        val w = ensureView(ctx)
+                        w.webViewClient = object : WebViewClient() {
+                            override fun onPageFinished(v: WebView, pageUrl: String) {
+                                if (settled.get()) return
+                                v.evaluateJavascript(
+                                    "(document.body?document.body.innerText:'').substring(0,1200)",
+                                ) { raw ->
+                                    if (settled.compareAndSet(false, true)) {
+                                        runCatching {
+                                            val quoted = raw ?: "''"
+                                            text.set(JSONObject("{\"v\":$quoted}").optString("v"))
+                                        }.onFailure { problem.set("unreadable text: " + it.javaClass.simpleName) }
+                                        latch.countDown()
+                                    }
+                                }
+                            }
+
+                            override fun onReceivedError(
+                                v: WebView,
+                                request: WebResourceRequest,
+                                error: WebResourceError,
+                            ) {
+                                // A 404 page is still a rendered document from the right site; read it
+                                // rather than declaring the site unreachable (the apiCall rule, restated).
+                            }
+                        }
+                        w.loadUrl(url)
+                    }.onFailure {
+                        if (settled.compareAndSet(false, true)) {
+                            problem.set(it.message ?: it.javaClass.simpleName)
+                            latch.countDown()
+                        }
+                    }
+                }
+            }.onFailure {
+                if (settled.compareAndSet(false, true)) {
+                    problem.set(it.message ?: it.javaClass.simpleName)
+                    latch.countDown()
+                }
+            }
+            val answered = latch.await(timeoutMillis.toLong(), TimeUnit.MILLISECONDS)
+            if (!answered) abandon()
+            val ms = System.currentTimeMillis() - t0
+            val body = text.get()
+            Diary.get()?.log("BROWSER") {
+                "PAGE " + hostOf(url) + url.substringAfter(hostOf(url), "") +
+                    " -> " + (if (answered) "text ${body?.length ?: 0}B" else "TIMEOUT") + " in " + ms + "ms"
+            }
+            return when {
+                !answered -> Http.Result.Failed(
+                    Http.Result.Kind.TIMEOUT, "the page gave no text in " + timeoutMillis + "ms",
+                )
+                body != null -> Http.Result.Ok(body, fromCache = false, ageMillis = 0)
+                else -> Http.Result.Failed(Http.Result.Kind.HTTP, problem.get() ?: "unreadable page")
+            }
+        }
+    }
+
     /** Clears the engine's cookie jar; wired to the same button that clears the app's live cache. */
     fun clearCookies() {
         val ctx = appContext ?: return

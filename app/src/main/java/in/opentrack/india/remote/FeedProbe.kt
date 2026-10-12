@@ -63,7 +63,7 @@ object FeedProbe {
     private const val BROWSER_TIMEOUT = 8_000
     private const val MAX_TRIES = 9   // every variant, controls included - a probe that ran out of tries
                                     // before its own control host is a probe that proves nothing
-    private const val TOTAL_BUDGET = 18_000
+    private const val TOTAL_BUDGET = 34_000 // two rendered-page reads at 14s lead; the rest skip with reported lines
 
     @Volatile
     private var last: List<Result> = emptyList()
@@ -124,7 +124,12 @@ object FeedProbe {
     fun execute(http: Http, v: Variant, trainNo: String, journeyEpochDay: Long): Http.Result {
         val rebuilt = rebuild(v, trainNo, journeyEpochDay)
         return try {
-            if (rebuilt.browser) {
+            if (rebuilt.name.startsWith("webview-erail-rs")) {
+                // The rendered-page read: erail's live data arrives over their own SignalR inside their
+                // own page (measured 2026-10-12 - no fetchable endpoint exists), so we load the page
+                // they serve to every browser and read the text their own scripts render into it.
+                BrowserFetch.pageText(rebuilt.url, 14_000)
+            } else if (rebuilt.browser) {
                 // One path for everything browser-side, and it carries the headers - which the renderer it
                 // replaced could not: `postUrl` fixes Content-Type and drops everything else, so every header
                 // question this app asked "through a browser" was actually asked with no headers at all.
@@ -221,6 +226,23 @@ object FeedProbe {
                 null, emptyMap(), false,
                 "load erail's own page and record what its own scripts call (bounded list, diary only): " +
                     "the site's live-status XHR announces its real endpoint - no third spelling gets invented",
+                false, true,
+            ),
+            Variant(
+                "webview-erail-rspage",
+                "https://erail.in/train-running-status",
+                null, emptyMap(), false,
+                "erail's own running-status PAGE (URL from their own menu, captured verbatim - no API " +
+                    "guessing): loaded in the engine, THEIR SignalR populates it, and the rendered text " +
+                    "is read back - what any browser user sees, no invented endpoint",
+                false, true,
+            ),
+            Variant(
+                "webview-erail-rstrain",
+                "https://erail.in/train-running-status/$trainNo",
+                null, emptyMap(), false,
+                "the same page deep-linked with the number (a PAGE guess, honestly labelled: a miss " +
+                    "renders their 404 page and the text says so - no bytes can be mistaken for data)",
                 false, true,
             ),
             Variant(
@@ -492,6 +514,8 @@ object FeedProbe {
                         (if (got is Http.Result.Ok && v.url.contains("getRunTrain"))
                             " body=" + got.body.take(800) else "") +
                         // The observation run's whole product: what erail's own scripts called.
+                        (if (v.name.startsWith("webview-erail-rs") && got is Http.Result.Ok)
+                            " page-text=" + got.body.replace('\n', ' ').take(900) else "") +
                         (if (v.name == "webview-erail-observe") {
                             val obs = BrowserFetch.observedRequestsSnapshot()
                             if (obs.isEmpty()) " site-called=(none recorded)"

@@ -28,7 +28,11 @@ class FeedProbeTest {
         // erail asks lead, in erail's own date format, and the shipped shape is the control.
         assertEquals("the observation run leads (the guessing era ended with two 404s from the phone)",
             "webview-erail-observe", vs.first().name)
-        assertEquals("the site's own script capture is second", "get-erail-sitejs", vs[1].name)
+        assertEquals("their own running-status PAGE is asked second (SignalR renders it; we read text)",
+            "webview-erail-rspage", vs[1].name)
+        assertEquals("the deep-linked page third (a labelled guess that cannot masquerade as data)",
+            "webview-erail-rstrain", vs[2].name)
+        assertEquals("the site's own script capture follows", "get-erail-sitejs", vs[3].name)
         assertEquals("their own advertised public API is asked third (runningstatus = per-stop actuals)",
             "get-api-runningstatus", vs[2].name)
         assertEquals("and the route API fourth (per-stop schedule)", "get-api-route", vs[3].name)
