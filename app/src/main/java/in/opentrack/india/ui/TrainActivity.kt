@@ -103,10 +103,12 @@ class TrainActivity : AppCompatActivity() {
             binding.checkingBar.visibility = if (busy == true) View.VISIBLE else View.GONE
             binding.firstLoad.visibility = if (busy == true && lastUi == null) View.VISIBLE else View.GONE
         }
-        // The sources box, top of the screen: fetching while the witnesses work, then who answered with
-        // how many halts - up to three witnesses named, never a silent wait (the owner's ask, round 43).
+        // The sources box: fetching while the witnesses work. Once actuals exist, the line goes quiet -
+        // the top card then carries the same sentence (badge + source row + refreshed stamp), and one
+        // copy on screen is the owner's round-47 point: everything read at once, nothing said twice.
         vm.mirrorState.observe(this) { st ->
-            binding.mirrorState.visibility = if (st == null) View.GONE else View.VISIBLE
+            val duplicate = st != null && st.startsWith("Actuals ·")
+            binding.mirrorState.visibility = if (st == null || duplicate) View.GONE else View.VISIBLE
             st?.let {
                 binding.mirrorState.text = it
                 Diary.get()?.log("UISTATE") { "sources box: $it" }

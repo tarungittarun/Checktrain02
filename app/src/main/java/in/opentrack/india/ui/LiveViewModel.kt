@@ -22,6 +22,7 @@ import `in`.opentrack.india.v2.crowd.StopReport
 import `in`.opentrack.india.core.BrowserFetch
 import `in`.opentrack.india.core.Http
 import `in`.opentrack.india.v2.mirror.ConfirmTktMirror
+import `in`.opentrack.india.v2.mirror.ErailRouteMirror
 import `in`.opentrack.india.v2.mirror.RunningStatusMirror
 import `in`.opentrack.india.v2.source.ErailPairParser
 import `in`.opentrack.india.v2.source.ErailTransport
@@ -169,6 +170,14 @@ class LiveViewModel(
     private var mirrorNext: String? = null
     private var mirrorBadge: String? = null
     private var mirrorSources: String? = null
+    /**
+     * The FULL route (round 47): erail's page lists halts the device timetable lacks (16228: 27
+     * TLGP→MYS vs the on-device 11 SMET→SBC). Merged ONCE per screen open, cached for a day; the
+     * device halts keep their seqs, so the position answer stays valid on the grown route.
+     */
+    private var extentRoute: TrainRoute? = null
+    private var extentAt = 0L
+    private var extentAttemptAt = 0L
     private var mirrorSourceLines: Map<String, Map<String, String>> = emptyMap()
     /** Per-witness STRUCTURED minutes (code -> act arr/dep) - what the table's Act/Est columns carry. */
     private var mirrorStops: Map<String, List<RunningStatusMirror.Stop>> = emptyMap()
@@ -381,14 +390,10 @@ class LiveViewModel(
                 return
             }
             crowdOn = repo.prefs.crowdReports
-            // The witnesses start NOW, in parallel with the erail chain - not after it. Paste #27: on a
-            // fluctuating network the chain held the screen for minutes while the mirror needed 14 s.
-            // The 90 s throttle makes the later, post-buildUi calls no-ops.
-            maybeMirror()
-            maybeCrowd()
-            // And the traveller does NOT stare at a spinner while they run: the offline timetable
-            // paints this second (paste #27's "journey completes before it loads"), the actuals
-            // land on top of it when a witness answers.
+            // The traveller does NOT stare at a spinner: the offline timetable paints FIRST - station,
+            // distance and schedule are on screen before any network is waited on (the owner's round-47
+            // complaint: the table must appear at once; actuals land on top when a witness answers).
+            val paintT0 = System.currentTimeMillis()
             if (_ui.value == null) {
                 val now0 = System.currentTimeMillis()
                 val cachedRoute = runCatching { repo.queries.route(trainNo) }.getOrNull()
@@ -403,10 +408,19 @@ class LiveViewModel(
                     )
                     _error.value = null
                     Diary.get()?.log("UI") {
-                        "instant offline paint for $trainNo (${cachedRoute.stops.size} halts) - live chain continues underneath"
+                        "instant offline paint for $trainNo (${cachedRoute.stops.size} halts) in " +
+                            "${System.currentTimeMillis() - paintT0}ms - live chain continues underneath"
                     }
                 }
             }
+            // The witnesses start NOW, in parallel with the erail chain - not after it. Paste #27: on a
+            // fluctuating network the chain held the screen for minutes while the mirror needed 14 s.
+            // The 90 s throttle makes the later, post-buildUi calls no-ops.
+            maybeMirror()
+            maybeCrowd()
+            // And the route grows to the journey's real span once erail's page names the halts the
+            // device timetable lacks (throttled + day-cached; never blocks the paint above).
+            maybeRouteExtent()
             val live = runCatching {
                 repo.live(
                     trainNo = trainNo, fromCode = fromCode, toCode = toCode,
@@ -501,6 +515,94 @@ class LiveViewModel(
                     "actuals, ${merged.droppedStale} dropped stale; relay " +
                     (if (poll.relayOk) "answered" else "unreachable")
             }
+        }
+    }
+
+    /** One route-page attempt per 10 minutes; the answer itself is cached for a day in prefs. */
+    private fun maybeRouteExtent(force: Boolean = false) {
+        val nowWall = System.currentTimeMillis()
+        if (!force && nowWall - extentAttemptAt < 600_000) return
+        extentAttemptAt = nowWall
+        viewModelScope.launch {
+            val repo = repo() ?: return@launch
+            if (extentRoute == null && !loadExtentCache()) {
+                val got = withContext(Dispatchers.IO) { ErailRouteMirror.fetchOrWhy(trainNo) }
+                if (got.halts.isEmpty()) {
+                    Diary.get()?.log("ROUTE") { "full route not available: ${got.why}" }
+                    return@launch
+                }
+                val base = _ui.value?.route
+                    ?: runCatching { repo.queries.route(trainNo) }.getOrNull()
+                    ?: return@launch
+                val merged = mergeRouteExtents(base, got.halts)
+                if (merged == null) {
+                    Diary.get()?.log("ROUTE") {
+                        "erail's halt list does not contain the device route in order - keeping the device table"
+                    }
+                    return@launch
+                }
+                extentRoute = merged
+                extentAt = System.currentTimeMillis()
+                saveExtentCache(got.halts)
+            }
+            val u = _ui.value ?: return@launch
+            val grown = extentRoute ?: return@launch
+            _ui.postValue(buildUi(grown, u.answer, u.tried).copy(relayOk = u.relayOk))
+            Diary.get()?.log("ROUTE") {
+                "full route on screen: ${grown.stops.size} halts " +
+                    "${grown.srcCode}->${grown.dstCode} (device timetable carries " +
+                    "${u.route.stops.size}; the rest render an em-dash schedule until a timetable names their minutes)"
+            }
+        }
+    }
+
+    /** Day-fresh route cache, same SWR discipline (and JSON house style) as the mirror's. */
+    private fun loadExtentCache(): Boolean {
+        if (extentRoute != null) return true
+        val raw = runCatching {
+            org.json.JSONObject(runCatching { repo()?.prefs?.erailRouteCache }.getOrNull() ?: "{}")
+        }.getOrNull() ?: return false
+        val obj = raw.optJSONObject(trainNo) ?: return false
+        val at = obj.optLong("at", 0L)
+        if (at == 0L || System.currentTimeMillis() - at > 86_400_000L) return false
+        val arr = obj.optJSONArray("halts") ?: return false
+        val halts = mutableListOf<ErailRouteMirror.Halt>()
+        for (i in 0 until arr.length()) {
+            val h = arr.optJSONObject(i) ?: continue
+            halts += ErailRouteMirror.Halt(h.optString("n"), h.optString("c"))
+        }
+        if (halts.size < 2) return false
+        val base = runCatching { repo()?.queries?.route(trainNo) }.getOrNull() ?: return false
+        val merged = mergeRouteExtents(base, halts) ?: return false
+        extentRoute = merged
+        extentAt = at
+        return true
+    }
+
+    private fun saveExtentCache(halts: List<ErailRouteMirror.Halt>) {
+        val raw = runCatching {
+            org.json.JSONObject(runCatching { repo()?.prefs?.erailRouteCache }.getOrNull() ?: "{}")
+        }.getOrNull() ?: return
+        val obj = org.json.JSONObject().put("at", extentAt)
+        val arr = org.json.JSONArray()
+        for (h in halts) arr.put(org.json.JSONObject().put("n", h.name).put("c", h.code))
+        obj.put("halts", arr)
+        raw.put(trainNo, obj)
+        // Keep the freshest twelve trains' routes; the same trim discipline as the mirror cache.
+        val trimmed = org.json.JSONObject()
+        val keysWithAt = mutableListOf<Pair<Long, String>>()
+        for (key in raw.keys()) {
+            val o = raw.optJSONObject(key) ?: continue
+            keysWithAt += o.optLong("at", 0L) to key
+        }
+        var kept = 0
+        for (entry in keysWithAt.sortedByDescending { it.first }) {
+            if (kept++ >= 12) continue
+            trimmed.put(entry.second, raw.optJSONObject(entry.second) ?: continue)
+        }
+        runCatching {
+            val r = repo() ?: return
+            r.prefs.erailRouteCache = trimmed.toString()
         }
     }
 
@@ -1026,6 +1128,46 @@ class LiveViewModel(
             return "Running — last reported ${last.code} at $hm — $word (vs this timetable)" to d
         }
 
+        /**
+         * The device halts must appear in the page's list, IN ORDER, or the merge is refused - a
+         * route is never guessed. Device rows keep their seqs (the position answer stays valid);
+         * added rows take seqs outside the device band, no minutes, no km.
+         */
+        internal fun mergeRouteExtents(base: TrainRoute, halts: List<ErailRouteMirror.Halt>): TrainRoute? {
+            val baseCodes = base.stops.map { it.code.uppercase() }
+            val pageCodes = halts.map { it.code.uppercase() }
+            var at = -1
+            loop@ for (off in 0..pageCodes.size - baseCodes.size) {
+                for (i in baseCodes.indices) {
+                    if (pageCodes[off + i] != baseCodes[i]) continue@loop
+                }
+                at = off
+                break
+            }
+            if (at < 0) return null
+            val before = halts.subList(0, at)
+            val after = halts.subList(at + baseCodes.size, halts.size)
+            val pre = before.mapIndexed { i, h ->
+                StopRow(
+                    seq = i - before.size, code = h.code, name = h.name, state = null,
+                    lat = null, lon = null, arrivalMin = null, departureMin = null,
+                    journeyDay = 0, schedKm = -1, isHalt = true,
+                )
+            }
+            val post = after.mapIndexed { i, h ->
+                StopRow(
+                    seq = base.stops.last().seq + 1 + i, code = h.code, name = h.name, state = null,
+                    lat = null, lon = null, arrivalMin = null, departureMin = null,
+                    journeyDay = 0, schedKm = -1, isHalt = true,
+                )
+            }
+            val stops = pre + base.stops + post
+            return base.copy(
+                stops = stops,
+                srcCode = stops.first().code, srcName = stops.first().name,
+                dstCode = stops.last().code, dstName = stops.last().name,
+            )
+        }
         /** The sentence under the dead-end's replacement: what we know, and exactly what we do not. */
         internal fun fallbackNote(live: ErailLiveIdentity, searchedFrom: String, searchedTo: String): String {
             val base = "This train is not in the device's offline timetable — the two times are the live " +

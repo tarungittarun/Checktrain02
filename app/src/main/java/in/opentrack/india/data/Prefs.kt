@@ -46,6 +46,11 @@ class Prefs(context: Context) {
         get() = sp.getString(KEY_MIRROR_CACHE, "{}").orEmpty().ifBlank { "{}" }
         set(v) = sp.edit().putString(KEY_MIRROR_CACHE, v).apply()
 
+    /** The full-route halt list per train (erail's page), cached for a day - same SWR discipline. */
+    var erailRouteCache: String
+        get() = sp.getString(KEY_ERAIL_ROUTE_CACHE, "{}").orEmpty().ifBlank { "{}" }
+        set(v) = sp.edit().putString(KEY_ERAIL_ROUTE_CACHE, v).apply()
+
     var lastFromCode: String
         get() = sp.getString(KEY_LAST_FROM, "").orEmpty()
         set(v) = sp.edit().putString(KEY_LAST_FROM, v).apply()

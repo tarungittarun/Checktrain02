@@ -135,7 +135,9 @@ object TrackModel {
     ): View {
         val live = pos.provenance.live
         val board = route.stops.firstOrNull { it.seq == boardSeq }
-        val boardKm = board?.schedKm ?: 0
+        // The full-route extension (round 47) adds halts the device timetable carries no km for
+        // (schedKm -1); the ladder floors at the first KNOWN km so the known rows stay true.
+        val boardKm = board?.schedKm?.takeIf { it >= 0 } ?: 0
         val hasAnchor = pos.anchorSeq > 0
         val overlay = PositionEngine.delayProfile(route, perStop, pos.anchorSeq, pos.delayMinutes)
         // The first stop still ahead of the clock, found once. Inside the row loop this would be a
@@ -191,7 +193,7 @@ object TrackModel {
         // Once the dataset is known to carry distances, *every* row prints one — including the first, whose
         // "0 km" is the bottom rung of the ladder the reader is measuring the rest against. Gating the
         // column on `kmFromOrigin > 0` instead made the origin look like a stop with no distance.
-        val rows = if (hasDistances) stops.map { it.copy(showKm = true) } else stops
+        val rows = stops.map { it.copy(showKm = hasDistances && it.kmFromOrigin >= 0) }
         // Distance travelled within the passenger's own segment. The engine's `kmAlong` is measured
         // from the train's first station and is only trustworthy when a live (or schedule-interpolated)
         // position put it there; otherwise interpolate the anchor->next leg by the same fraction the
@@ -442,7 +444,7 @@ object TrackModel {
     }
 
     private fun alightKm(route: TrainRoute, alightSeq: Int): Int =
-        route.stops.firstOrNull { it.seq == alightSeq }?.schedKm
-            ?: route.stops.lastOrNull()?.schedKm ?: 0
+        route.stops.firstOrNull { it.seq == alightSeq }?.schedKm?.takeIf { it >= 0 }
+            ?: route.stops.lastOrNull { it.schedKm >= 0 }?.schedKm ?: 0
 
 }

@@ -73,7 +73,7 @@ setFixedRouteToAddress getAllByName hostAddress filterIsInstance
 isSuccess launch
 # v2 live-search slice (2026-10-12): Kotlin Map.getValue, HttpURLConnection.setRequestProperty,
 # URL.protocol - the erail transport and the merge tests call these; framework, not typos.
-getValue setRequestProperty protocol remove addAll
+getValue setRequestProperty protocol remove addAll removeSuffix
 # v2 identity-overlay slice (2026-10-12): Kotlin stdlib collection lookups. singleOrNull guards the
 # identity parse (exactly one record must carry the number); indexOfLast sat unflagged in
 # LiveViewModel.segmentRange for weeks because no local named `rows` existed - the identity fetch
