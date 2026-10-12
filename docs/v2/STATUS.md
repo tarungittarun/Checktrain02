@@ -356,5 +356,5 @@ Latest-apk: the owner-installed build (21:26 UTC, 10,667,232 B) already carries 
 
 
 
-Latest-apk: 10,771,199 B @ 2026-10-12T14:06:55Z (2c962c1, Round 40 GREEN — THE ACTUALS MILESTONE confirmed on the owner device; position/next-stop now follow the mirror actuals)
+Latest-apk: 10,772,727 B @ 2026-10-12T14:34:44Z (e25b956, Round 41 GREEN — population verified on device; echo-proof position anchor + refresh-proof shift/lines)
 
