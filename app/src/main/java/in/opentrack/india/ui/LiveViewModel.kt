@@ -348,29 +348,45 @@ class LiveViewModel(
             val got = withContext(Dispatchers.IO) { RunningStatusMirror.fetchOrWhy(trainNo) }
             var actuals = got.actuals
             if (actuals == null) {
-                // The direct wire is filtered on some networks (paste #17: "no answer" here while the
-                // SAME device's WebView loaded erail pages) - so ask through the app's browser lane,
-                // the transport this phone demonstrably lets through, before declaring the mirror dead.
+                // The direct wire is filtered or bot-gated on some networks (paste #21: HTTP 403 here
+                // while CI fetched the same url fine) - so ask through the app's browser lane, the
+                // transport this phone demonstrably lets through, before declaring the mirror dead.
                 Diary.get()?.log("MIRROR") {
                     "${RunningStatusMirror.SOURCE} direct wire: ${got.why}; asking through the app's browser"
                 }
-                val page = withContext(Dispatchers.IO) {
-                    BrowserFetch.pageText(
-                        "https://runningstatus.in/status/$trainNo", 24_000,
-                        settleMillis = 2_000, textCap = 16_000,
-                    )
+                // Paste #21 named the block: Cloudflare. The WebView lands on "Performing security
+                // verification", which AUTO-CLEARS in a real browser in ~5-10 s and then loads the real
+                // page - the first build read at 2 s and caught the challenge itself. Two reads, each
+                // waiting 12 s inside the clear window; the mirror is declared dead only if BOTH still
+                // sit behind the check.
+                var laneBody: String? = null
+                var laneWhy = "no answer"
+                for (read in 1..2) {
+                    val page = withContext(Dispatchers.IO) {
+                        BrowserFetch.pageText(
+                            "https://runningstatus.in/status/$trainNo", 30_000,
+                            settleMillis = 12_000, textCap = 16_000,
+                        )
+                    }
+                    val body = (page as? Http.Result.Ok)?.body
+                    when {
+                        body == null -> laneWhy = (page as Http.Result.Failed).message
+                        body.contains("security verification") ->
+                            laneWhy = "the bot check was still up at read $read"
+                        else -> laneBody = body
+                    }
+                    if (laneBody != null) break
                 }
-                actuals = (page as? Http.Result.Ok)
-                    ?.let { RunningStatusMirror.parse(RunningStatusMirror.stripTags(it.body)) }
-                if (actuals == null) {
-                    val peek = (page as? Http.Result.Ok)?.body?.replace('\n', ' ')?.take(150)
-                    val why = (page as? Http.Result.Failed)?.message
-                        ?: ("no halt rows in the rendered page" + (peek?.let { "; the page began: \"$it\"" } ?: ""))
+                val lane = laneBody?.let { RunningStatusMirror.parse(RunningStatusMirror.stripTags(it)) }
+                if (lane == null) {
+                    val peek = laneBody?.replace('\n', ' ')?.take(150)
                     Diary.get()?.log("MIRROR") {
-                        "${RunningStatusMirror.SOURCE} browser lane also failed: $why"
+                        "${RunningStatusMirror.SOURCE} browser lane failed: $laneWhy" +
+                            (peek?.let { "; the page began: \"$it\"" } ?: "")
                     }
                     return@launch
                 }
+                actuals = lane
                 Diary.get()?.log("MIRROR") { "${RunningStatusMirror.SOURCE} answered through the browser lane" }
             }
             val mirrorLines = RunningStatusMirror.sentences(actuals, codes)
