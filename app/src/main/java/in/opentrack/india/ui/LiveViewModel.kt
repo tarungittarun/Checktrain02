@@ -544,11 +544,13 @@ class LiveViewModel(
                     mirrorNote = null
                     mirrorShiftAt = System.currentTimeMillis()
                 }
-                mirrorAnchorCode = anchorCode
-                mirrorHeadline = headline
-                mirrorNext = nextLine
-                mirrorBadge = headline?.let { "ACTUALS · ${RunningStatusMirror.SOURCE}" }
-                _ui.postValue(buildUi(u.route, u.answer, u.tried, emptyList()).copy(reports = display))
+                if (u != null) {
+                    mirrorAnchorCode = anchorCode
+                    mirrorHeadline = headline
+                    mirrorNext = nextLine
+                    mirrorBadge = headline?.let { "ACTUALS · ${RunningStatusMirror.SOURCE}" }
+                    _ui.postValue(buildUi(u.route, u.answer, u.tried, emptyList()).copy(reports = display))
+                }
             }
             Diary.get()?.log("MIRROR") {
                 "${RunningStatusMirror.SOURCE} answered: ${mirrorLines.size} stop(s) with actual " +
