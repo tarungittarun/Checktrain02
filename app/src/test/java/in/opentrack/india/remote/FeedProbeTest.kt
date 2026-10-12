@@ -33,10 +33,10 @@ class FeedProbeTest {
         assertEquals("the deep-linked page third (a labelled guess that cannot masquerade as data)",
             "webview-erail-rstrain", vs[2].name)
         assertEquals("the site's own script capture follows", "get-erail-sitejs", vs[3].name)
-        assertEquals("their own advertised public API is asked third (runningstatus = per-stop actuals)",
-            "get-api-runningstatus", vs[2].name)
-        assertEquals("and the route API fourth (per-stop schedule)", "get-api-route", vs[3].name)
-        assertEquals("the shipped shape follows as the control", "post-dalvik-json", vs[6].name)
+        assertEquals("their own advertised public API is asked after the page reads (runningstatus = actuals)",
+            "get-api-runningstatus", vs[4].name)
+        assertEquals("and the route API next (per-stop schedule)", "get-api-route", vs[5].name)
+        assertEquals("the shipped shape follows as the control", "post-dalvik-json", vs[8].name)
         for (v in vs) {
             assertTrue("${v.name} must not send data in the clear", v.url.startsWith("https://"))
             assertTrue("${v.name} needs an explanation for the report", v.note.length > 8)
