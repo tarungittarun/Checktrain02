@@ -327,5 +327,5 @@ Latest-apk: the owner-installed build (21:26 UTC, 10,667,232 B) already carries 
 
 
 
-Latest-apk: 10,740,983 B @ 2026-10-12T10:58:50Z (f3d911a, Round 29: AppServAnd gateway measured dead both transports on the phone [paste #12]; the in-page tap retargeted to the page's own 'Show Status' button; android SUCCESS, run 38239335947)
+Latest-apk: 10,747,391 B @ 2026-10-12T11:10:23Z (7cf291e, Round 30: probe v14 pageInteract - the human sequence [date chip -> Show Status -> 15 s -> parent + iframe text] after paste #13's fired-but-empty tap; android SUCCESS, run 38240615058)
 
