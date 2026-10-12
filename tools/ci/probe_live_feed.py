@@ -29,6 +29,7 @@ import os
 import subprocess
 import sys
 import urllib.error
+import http.cookiejar
 import urllib.request
 
 BASE = "https://enquiry.indianrail.gov.in/crisns/AppServAnd"
@@ -389,8 +390,31 @@ def erail_route_lines(train_no: str,
     return out, caps
 
 
+def erail_session_get(query: str, timeout: int = 20, base: str = ERAIL_BASE,
+                      headers: dict | None = None) -> tuple[str, str]:
+    """The website's own sequence, not just its headers: GET the origin first so the opener HOLDS the
+    site's cookies, then ask the live endpoint through the same cookie-aware opener. Static headers
+    measured 403 three ways (a339ab6); the one thing they lack is a session the site set itself.
+    """
+    cj = http.cookiejar.CookieJar()
+    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cj))
+    h = {"User-Agent": BROWSER_UA, "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
+         "Referer": "https://erail.in/"} if headers is None else headers
+    try:
+        opener.open("https://erail.in/", timeout=timeout).read(50_000)
+        req = urllib.request.Request(base + ("?" + query if query else ""), headers=h)
+        with opener.open(req, timeout=timeout) as r:
+            body = r.read(400_000).decode("utf-8", "replace")
+            return f"HTTP {getattr(r, 'status', 200)} {len(body)}B cookies={len(cj)}", body
+    except urllib.error.HTTPError as e:
+        return f"HTTP {e.code} cookies={len(cj)}", ""
+    except Exception as e:
+        return f"{type(e).__name__}: {str(e)[:70]}", ""
+
+
 def erail_live_status_lines(train_no: str, date_ddmm: str,
-                            get=erail_get) -> tuple[list[str], list[tuple[str, str, str]]]:
+                            get=erail_get,
+                            session_get=None) -> tuple[list[str], list[tuple[str, str, str]]]:
     """The ACTUAL arrival/departure question (the elephant), asked of erail's live-status surface.
 
     The owner's phone is the only machine NTES answers to, but erail advertises live running status
@@ -415,12 +439,17 @@ def erail_live_status_lines(train_no: str, date_ddmm: str,
          "browser-UA+XHR"),
         (f"{train_no}/", "https://erail.in/running-status/", None, "page"),
         ("", f"https://api.railradar.in/v1/trains/{train_no}/live", rr, "railradar-no-key"),
+        (f"getRunTrain.aspx?trainno={train_no}&startDate={date_ddmm}", "https://erail.in/rail/", "SESSION",
+         "cookie-session"),
     ]
     out: list[str] = []
     caps: list[tuple[str, str, str]] = []
     for q, base, hdr, tag in cands:
-        verdict, body = (get(q, base=base, headers=hdr) if hdr
-                         else get(q, base=base))
+        if hdr == "SESSION":
+            verdict, body = (session_get or erail_session_get)(q, base=base)
+        else:
+            verdict, body = (get(q, base=base, headers=hdr) if hdr
+                             else get(q, base=base))
         out.append(f"live status of {train_no} via {base}{q.split('?')[0]} ({tag}) · {verdict}")
         if body:
             out.append(f"  body {len(body)}B · {body.count(chr(10)) + 1} line(s)")

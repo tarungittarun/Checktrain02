@@ -200,14 +200,38 @@ object FeedProbe {
             "User-Agent" to NtesWire.USER_AGENT,
         )
         return listOf(
-            // The shipped shape stays first - a control that is not the thing under test - and the browser
-            // questions come second rather than last. They are the only ones never answered: a device's report
-            // spent 162 s on a Java shape and the probe's budget ran out before a single browser variant ran,
-             // which is the difference between a round that decides something and a round that re-measures
-            // `IOException: closed` for the ninth time.
+            // ORDER IS A BUDGET DECISION (18 s): the first variants below are the only questions never
+            // answered anywhere - erail's live endpoint via erail's own browser engine (cookies and all).
+            // Everything about NTES has been measured dead nine times over on every transport; those
+            // variants run after, and the budget-skips are reported lines, not silences.
+            Variant(
+                "webview-erail-runtrain",
+                "https://erail.in/rail/getRunTrain.aspx?trainno=$trainNo&startDate=$startIso",
+                null, emptyMap(), false,
+                "erail's live-status endpoint asked from erail's OWN engine, erail.in warmed first: CI measured " +
+                    "403 to every header identity (run a339ab6) and the owner's phone 'closed' on the Dalvik " +
+                    "path - but erail's own live page must fetch this data somehow, and whatever it uses, this " +
+                    "engine holds its cookies. A 200 here is the per-stop actuals door on the phone",
+                false, true, "https://erail.in/",
+            ),
+            Variant(
+                "get-erail-runtrain-xhr",
+                "https://erail.in/rail/getRunTrain.aspx?trainno=$trainNo&startDate=$startIso",
+                null,
+                mapOf(
+                    "User-Agent" to
+                        "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Mobile Safari/537.36",
+                    "Referer" to "https://erail.in/",
+                    "X-Requested-With" to "XMLHttpRequest",
+                    "Accept" to "application/json, text/javascript, */*; q=0.01",
+                ),
+                false,
+                "the same live endpoint, the app's own stack, browser identity headers: the discriminator " +
+                    "between a header-based refusal (fixable in Http for everyone) and an IP-class refusal (not ours to fix)",
+            ),
             Variant(
                 "post-dalvik-json", NtesWire.BASE_URL, envelope, dalvik, false,
-                "the shape this build ships",
+                "the shape this build ships - the control that is not the thing under test",
             ),
             Variant(
                 "webview-post", NtesWire.BASE_URL, envelope,
@@ -251,31 +275,6 @@ object FeedProbe {
                 "the alternate source through the same engine - if it answers here, run data from erail becomes " +
                     "reachable on exactly the devices where the app's own client was refused",
                 false, true,
-            ),
-            Variant(
-                "webview-erail-runtrain",
-                "https://erail.in/rail/getRunTrain.aspx?trainno=$trainNo&startDate=$startIso",
-                null, emptyMap(), false,
-                "erail's live-status endpoint asked from erail's OWN engine, erail.in warmed first: CI measured " +
-                    "403 (run 548a5db) and the owner's phone measured 'closed' on the Dalvik path (diag log " +
-                    "09:50:48) - but erail's own live page must fetch this data somehow, and whatever it uses, " +
-                    "this engine holds its cookies. A 200 here is the per-stop actuals door on the phone",
-                false, true, "https://erail.in/",
-            ),
-            Variant(
-                "get-erail-runtrain-xhr",
-                "https://erail.in/rail/getRunTrain.aspx?trainno=$trainNo&startDate=$startIso",
-                null,
-                mapOf(
-                    "User-Agent" to
-                        "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Mobile Safari/537.36",
-                    "Referer" to "https://erail.in/",
-                    "X-Requested-With" to "XMLHttpRequest",
-                    "Accept" to "application/json, text/javascript, */*; q=0.01",
-                ),
-                false,
-                "the same live endpoint, the app's own stack, browser identity headers: the discriminator " +
-                    "between a header-based refusal (fixable in Http for everyone) and an IP-class refusal (not ours to fix)",
             ),
             Variant(
                 "post-tls12", NtesWire.BASE_URL, envelope, dalvik, true,

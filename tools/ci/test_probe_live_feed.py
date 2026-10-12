@@ -247,9 +247,10 @@ class ErailLiveStatusProbe(unittest.TestCase):
              ("https://api.railradar.in/v1/trains/16221/live", True)],
             asked, "dalvik, browser-UA, browser-UA+XHR, page, railradar-no-key - each once",
         )
+        self.assertTrue(any("cookie-session" in l for l in lines), "the cookie-session ask is reported")
         self.assertTrue(any("browser-UA+XHR" in l and "HTTP 200" in l for l in lines))
         self.assertTrue(any("railradar-no-key" in l and "HTTP 200" in l for l in lines))
-        self.assertEqual(5, len(caps))
+        self.assertEqual(5, len(caps), "the faked transports answer 5; the session ask is exercised in its own test")
         self.assertEqual("16221", caps[0][0])
         self.assertTrue(caps[0][1].startswith("https://erail.in/rail/"))
         self.assertEqual("16221~actual~rows~here", caps[0][2])
@@ -261,6 +262,21 @@ class ErailLiveStatusProbe(unittest.TestCase):
         )
         self.assertEqual(5, len([l for l in lines if "HTTP 404" in l]))
         self.assertEqual([], caps, "nothing came back, so nothing is captured")
+
+    def test_the_cookie_session_candidate_uses_the_session_fetcher(self):
+        calls = []
+
+        def fake_session(q, timeout=20, base=plf.ERAIL_BASE, headers=None):
+            calls.append((q, base))
+            return ("HTTP 200 1200B cookies=3", "16221~actual~per~stop")
+
+        lines, caps = plf.erail_live_status_lines(
+            "16221", "12-10-2026", get=lambda q, timeout=20, base=plf.ERAIL_BASE, headers=None: ("HTTP 403", ""),
+            session_get=fake_session)
+        self.assertEqual(1, len(calls), "session fetcher used exactly once, for the session candidate")
+        self.assertIn("getRunTrain.aspx", calls[0][0])
+        self.assertTrue(any("cookie-session" in l and "HTTP 200" in l for l in lines))
+        self.assertIn("16221~actual~per~stop", caps[-1][2])
 
     def test_the_capture_comment_carries_live_status_bodies_with_url_and_truncates(self):
         md = plf.erail_capture_comment([], "2026-10-12T04:00:00+05:30",
