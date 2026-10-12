@@ -63,9 +63,9 @@ object FeedProbe {
     private const val BROWSER_TIMEOUT = 8_000
     private const val MAX_TRIES = 11  // every variant, controls included - a probe that ran out of tries
                                     // before its own control host is a probe that proves nothing
-    private const val TOTAL_BUDGET = 115_000 // three settled page reads now lead (rstrain text ~13 s,
-    // rstrain dom ~10 s, and the tap read 20 s settle + tap + 6 s, 34 s cap) because the instant read
-    // measured only navigation; the rest still skip with reported lines
+    private const val TOTAL_BUDGET = 121_000 // three settled page reads lead (rstrain text ~13 s,
+    // rstrain dom ~10 s, the tap read 20 s + tap + 6 s, 34 s cap) plus the researched gateway POSTs;
+    // the rest still skip with reported lines
 
     @Volatile
     private var last: List<Result> = emptyList()
@@ -147,35 +147,27 @@ object FeedProbe {
     /** Run one variant. Shared with [NtesProvider] so an adopted shape is requested exactly as it was found. */
     fun execute(http: Http, v: Variant, trainNo: String, journeyEpochDay: Long): Http.Result {
         val rebuilt = rebuild(v, trainNo, journeyEpochDay)
-        return try {
+        val r = try {
             if (rebuilt.name == "webview-erail-rstrain") {
                 // THE decisive read: their own page for THIS number, read SETTLED - 12 s after the
                 // page finishes, 16 KB of text. Verdict from the owner's 14:40 paste: the wait was
-                // honoured and the text STILL held only nav + halt names - so this read now also
-                // reports how many time-like tokens it caught (scanForTimes), making every paste
-                // self-answering.
-                val r = BrowserFetch.pageText(rebuilt.url, 24_000, settleMillis = 12_000, textCap = 16_000)
-                scanForTimes(rebuilt.name, r)
-                r
+                // honoured and the text STILL held only nav + halt names.
+                BrowserFetch.pageText(rebuilt.url, 24_000, settleMillis = 12_000, textCap = 16_000)
             } else if (rebuilt.name == "webview-erail-rstrain-dom-tap") {
                 // The last in-page lever: if 20 s of patience plus tapping their own tab still ends in
                 // a DOM without times, the data channel is interaction- or gate-kept and no further
                 // read variant of THIS page can succeed - the paste will have said so.
-                val r = BrowserFetch.pageText(
+                BrowserFetch.pageText(
                     rebuilt.url, 34_000, settleMillis = 20_000, textCap = 64_000, dom = true,
                     tapText = "Running status",
                 )
-                scanForTimes(rebuilt.name, r)
-                r
             } else if (rebuilt.name == "webview-erail-rstrain-dom") {
                 // The 14:40 paste's second verdict: the visible text never gains a table. Their own
                 // scripts talk SignalR - the data can sit in the DOM invisibly - so this reads the
                 // page as HTML (64 KB), scans it for time-like tokens and logs the verdict. Tokens
                 // here means a parser follows; no tokens means their page fetches on interaction
                 // and the click is next. Either way the next paste says which, no screenshots.
-                val r = BrowserFetch.pageText(rebuilt.url, 24_000, settleMillis = 10_000, textCap = 64_000, dom = true)
-                scanForTimes(rebuilt.name, r)
-                r
+                BrowserFetch.pageText(rebuilt.url, 24_000, settleMillis = 10_000, textCap = 64_000, dom = true)
             } else if (rebuilt.name.startsWith("webview-erail-rs")) {
                 BrowserFetch.pageText(rebuilt.url, 14_000)
                 // The rendered-page read: erail's live data arrives over their own SignalR inside their
@@ -200,6 +192,12 @@ object FeedProbe {
         } catch (e: Throwable) {
             Http.Result.Failed(Http.Result.Kind.HTTP, "${e.javaClass.simpleName}: ${e.message}")
         }
+        // One verdict line for every read that could plausibly carry times - the settled page reads
+        // and the researched mobile gateway alike - so the paste answers itself, no screenshots.
+        if (rebuilt.name.startsWith("webview-erail-rstrain") || rebuilt.name.contains("appservand")) {
+            scanForTimes(rebuilt.name, r)
+        }
+        r
     }
 
     /**
@@ -209,6 +207,9 @@ object FeedProbe {
      */
     fun rebuild(v: Variant, trainNo: String, journeyEpochDay: Long): Variant {
         val plain = NtesWire.plainFor(NtesWire.SUB_LIVE, trainNo, journeyEpochDay)
+        if (v.body != null && v.body.startsWith("{\"queryType\"")) {
+            return v.copy(body = appservandBody(trainNo, journeyEpochDay))
+        }
         if (v.body != null && v.body.startsWith("jsonIn=")) {
             // Key and value, not a stored body: the value is this question's wrapped envelope, re-encoded.
             return v.copy(body = "jsonIn=" + java.net.URLEncoder.encode(NtesWire.wrap(plain), "UTF-8"))
@@ -247,6 +248,25 @@ object FeedProbe {
         SimpleDateFormat("dd-MM-yyyy", Locale.ENGLISH).also {
             it.timeZone = TimeZone.getTimeZone("Asia/Kolkata")
         }.format(java.util.Date(epochDay * 86_400_000L))
+
+    /** The researched NTES mobile-gateway format: dd-MMM-yyyy ("12-Oct-2026"). Same lesson as erail's
+        404 - the date STRING is part of the request's fingerprint, so it is generated, never guessed. */
+    private fun mmmDate(epochDay: Long): String =
+        SimpleDateFormat("dd-MMM-yyyy", Locale.ENGLISH).also {
+            it.timeZone = TimeZone.getTimeZone("Asia/Kolkata")
+        }.format(java.util.Date(epochDay * 86_400_000L))
+
+    /** The researched AppServAnd payload: queryType 6 = live running status. Rebuilt per ask in [rebuild]. */
+    private fun appservandBody(trainNo: String, epochDay: Long): String =
+        org.json.JSONObject(
+            mapOf(
+                "queryType" to "6",
+                "trainNo" to trainNo,
+                "startDate" to mmmDate(epochDay),
+                "stationCode" to "",
+                "lang" to "en",
+            ),
+        ).toString()
 
     /**
      * The variants worth trying. Two axes matter for a server that hangs up: **what the request looks like**
@@ -358,35 +378,27 @@ object FeedProbe {
                     "keylessly, the details screen's stale route/times (T20.2's sequel) get their live fix",
             ),
             Variant(
-                "get-erail-runtrain-xhr",
-                "https://erail.in/rail/getRunTrain.aspx?trainno=$trainNo&startDate=$ddmm",
-                null,
+                "post-appservand-json",
+                "https://enquiry.indianrail.gov.in/crisns/AppServAnd",
+                appservandBody(trainNo, ddmm),
                 mapOf(
-                    "User-Agent" to
-                        "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Mobile Safari/537.36",
-                    "Referer" to "https://erail.in/",
-                    "X-Requested-With" to "XMLHttpRequest",
-                    "Accept" to "application/json, text/javascript, */*; q=0.01",
+                    "Content-Type" to "application/json; charset=utf-8",
+                    "User-Agent" to "dalvik/2.1.0 (linux; u; android 13; build/tq3a.230805.001)",
+                    "Connection" to "Keep-Alive",
                 ),
                 false,
-                "erail's live-status endpoint, the app's stack wearing the site's own headers, erail's own " +
-                    "date format (dd-MM-yyyy): the phone measurably passes the WAF here (404 was the app's " +
-                    "answer to a malformed date, not a block) - a 200 is the per-stop actuals door",
+                "the researched NTES ANDROID APP gateway (owner's research, 2026-10-12): POST JSON, " +
+                    "queryType 6, dalvik signature, dd-MMM-yyyy date. UNVERIFIED claims - path, payload " +
+                    "and response schema all come from a write-up, and this project's method says: probe " +
+                    "it. The phone is the ONE vantage where this host completes TLS (ENV: handshake ok), " +
+                    "and this PATH is genuinely untested; the scan line in the same paste reports tokens",
             ),
             Variant(
-                "get-erail-runtrain-nodate",
-                "https://erail.in/rail/getRunTrain.aspx?trainno=$trainNo",
-                null,
-                mapOf(
-                    "User-Agent" to
-                        "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Mobile Safari/537.36",
-                    "Referer" to "https://erail.in/",
-                    "X-Requested-With" to "XMLHttpRequest",
-                    "Accept" to "application/json, text/javascript, */*; q=0.01",
-                ),
-                false,
-                "the same endpoint without a date: if the endpoint serves the CURRENT run by default, the " +
-                    "date parameter was the whole 404 story",
+                "webview-appservand",
+                "https://enquiry.indianrail.gov.in/crisns/AppServAnd",
+                appservandBody(trainNo, ddmm),
+                mapOf("Content-Type" to "application/json; charset=utf-8"),
+                false, true, "https://enquiry.indianrail.gov.in/ntes/",
             ),
             Variant(
                 "post-dalvik-json", NtesWire.BASE_URL, envelope, dalvik, false,
