@@ -268,5 +268,25 @@ Owner: "test those functionalities for which you have made changes first; priori
 
 | T20.4 | **Details-screen identity conflict, displayed**: the live pair list knows a fresher number→route identity than the device's offline timetable (16228 was literally two different trains — the founding bug; owner's "not all correct" smells of exactly this). When the tapped row's codes disagree with the loaded route, the details screen now says so in one line instead of silently rendering the wrong train's times (TrainActivity, single note-writer; conflict outranks transient error text) | **DOING — Robolectric verdict on this push** | gates green locally | if green: owner's "somewhat correct" gets at least an honest flag where it is wrong; the full schedule correction still rides T20.2 | no |
 
+
+## Round 21 (late rows, reconstructed after the sandbox tree regression — remote is the source of truth)
+
+| id | micro-task | state |
+|---|---|---|
+| T21.13–14 | Script/API captures both sides; probe job's own 6m0s cap found to be the "canceller" (3 kills) — raised to 14 min, ladders trimmed to 2 trains; api.erail.in (their homepage's own advertised API, found in the full homepage capture) = **DNS-dead from CI AND from the owner's phone (12:31 log)** | DONE — negative map closed |
+| T21.15 | Rendered-page read shipped (`3dbeca0`): BrowserFetch.pageText loads erail's own running-status page (menu URL), their SignalR populates it, we read the text. BONUS path, not a blocker | SHIPPED |
+
+## Round 22 — the architecture change, executed (owner's standing authorization invoked)
+
+Owner: "If an approach is not working then find other alternative... change whatever you want, architecture, source or anything." → **ADR-006 ACCEPTED**: crowdsourced per-stop actuals (the WIMT-proven model) is the PRIMARY path.
+
+| id | micro-task | state | verified-by |
+|---|---|---|---|
+| T22.1 | `StopReport` — report schema, hand-rolled JSON, plausibility bounds, junk→null never a half-report | SHIPPED (`ad99759`) | 3 tests |
+| T22.2 | `NtfyRelay` — keyless relay (ntfy.sh `ct-<trainNo>`), publish+poll, typed one-attempt wire, dead→empty ("reports unavailable") | SHIPPED (`ad99759`) | 3 tests |
+| T22.3 | **Reporter UI (opt-in, off by default) + reader column ("reported by travellers (N witnesses, age)" beside the timetable, never as official)** | **NEXT — this round's build** | — |
+
+Honest ledger: live pair list ✓, identity correction ✓, honest labelling ✓, complete server-door evidence map ✓ — but ZERO per-stop actuals yet. T22.3 is where that changes; no owner paste required.
+
 Latest-apk: the owner-installed build (21:26 UTC, 10,667,232 B) already carries M2 slice 1 (live pair list, row labels). The details screen still renders the OFFLINE copy's route — T20.2's parser is its correction path.
 
