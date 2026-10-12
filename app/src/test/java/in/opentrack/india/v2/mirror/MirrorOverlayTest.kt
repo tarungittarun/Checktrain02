@@ -40,10 +40,10 @@ class MirrorOverlayTest {
     )
 
     private fun pos() = TrainPosition(
-        anchorSeq = 0, nextSeq = 0, fraction = 0f, kmAlong = 0f, status = StopStatus.RUNNING,
+        anchorSeq = 0, nextSeq = 0, fraction = 0f, kmAlong = 0f, status = StopStatus.UPCOMING,
         etaNextMinute = null, delayMinutes = null, remainingMin = null,
         provenance = SourceKind.OFFLINE_SCHEDULE,
-        confidence = TrainPosition.Confidence.LOW, ageSeconds = null,
+        confidence = TrainPosition.Confidence.LOW, ageSeconds = 0L,
     )
 
     private fun model(per: Map<String, LiveStopFields> = emptyMap()) = TrackModel.build(
