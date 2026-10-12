@@ -169,7 +169,6 @@ object FeedProbe {
                 // and the click is next. Either way the next paste says which, no screenshots.
                 BrowserFetch.pageText(rebuilt.url, 24_000, settleMillis = 10_000, textCap = 64_000, dom = true)
             } else if (rebuilt.name.startsWith("webview-erail-rs")) {
-                BrowserFetch.pageText(rebuilt.url, 14_000)
                 // The rendered-page read: erail's live data arrives over their own SignalR inside their
                 // own page (measured 2026-10-12 - no fetchable endpoint exists), so we load the page
                 // they serve to every browser and read the text their own scripts render into it.
@@ -197,7 +196,7 @@ object FeedProbe {
         if (rebuilt.name.startsWith("webview-erail-rstrain") || rebuilt.name.contains("appservand")) {
             scanForTimes(rebuilt.name, r)
         }
-        r
+        return r
     }
 
     /**
@@ -405,7 +404,7 @@ object FeedProbe {
                 false,
                 "the same researched gateway through the browser engine, warm on the NTES page: the " +
                     "transport axis that has separated this phone's two stacks in every paste so far",
-                true, "https://enquiry.indianrail.gov.in/ntes/",
+                false, true, "https://enquiry.indianrail.gov.in/ntes/",
             ),
             Variant(
                 "post-dalvik-json", NtesWire.BASE_URL, envelope, dalvik, false,
