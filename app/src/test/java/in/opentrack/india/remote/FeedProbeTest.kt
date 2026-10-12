@@ -30,13 +30,15 @@ class FeedProbeTest {
             "webview-erail-observe", vs.first().name)
         assertEquals("their own running-status PAGE is asked second (SignalR renders it; we read text)",
             "webview-erail-rspage", vs[1].name)
-        assertEquals("the deep-linked page third (a labelled guess that cannot masquerade as data)",
-            "webview-erail-rstrain", vs[2].name)
-        assertEquals("the site's own script capture follows", "get-erail-sitejs", vs[3].name)
+        assertEquals("the deep-linked page third, settled: its 14:40 verdict was nav + halt names, " +
+            "never a time", "webview-erail-rstrain", vs[2].name)
+        assertEquals("the SAME page as raw DOM fourth: data their scripts hold invisibly lives there, " +
+            "and the scan's verdict rides in every paste", "webview-erail-rstrain-dom", vs[3].name)
+        assertEquals("the site's own script capture follows", "get-erail-sitejs", vs[4].name)
         assertEquals("their own advertised public API is asked after the page reads (runningstatus = actuals)",
-            "get-api-runningstatus", vs[4].name)
-        assertEquals("and the route API next (per-stop schedule)", "get-api-route", vs[5].name)
-        assertEquals("the shipped shape follows as the control", "post-dalvik-json", vs[8].name)
+            "get-api-runningstatus", vs[5].name)
+        assertEquals("and the route API next (per-stop schedule)", "get-api-route", vs[6].name)
+        assertEquals("the shipped shape follows as the control", "post-dalvik-json", vs[9].name)
         for (v in vs) {
             assertTrue("${v.name} must not send data in the clear", v.url.startsWith("https://"))
             assertTrue("${v.name} needs an explanation for the report", v.note.length > 8)

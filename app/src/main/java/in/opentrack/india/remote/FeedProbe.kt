@@ -61,10 +61,11 @@ object FeedProbe {
     // A cold web view is not a socket write: the engine answered in ~1.1 s of its own on a device, and a
     // 5 s cap turned a page load plus a request into a timeout. Generous, because it runs after a failure.
     private const val BROWSER_TIMEOUT = 8_000
-    private const val MAX_TRIES = 9   // every variant, controls included - a probe that ran out of tries
+    private const val MAX_TRIES = 10  // every variant, controls included - a probe that ran out of tries
                                     // before its own control host is a probe that proves nothing
-    private const val TOTAL_BUDGET = 52_000 // the rstrain read is now settled (12 s wait, 16 KB) because the
-    // instant read measured only navigation; the rest still skip with reported lines
+    private const val TOTAL_BUDGET = 72_000 // two settled page reads now lead (rstrain text ~13 s, rstrain
+    // dom ~10 s typical, 24 s caps) because the instant read measured only navigation; the rest still skip
+    // with reported lines
 
     @Volatile
     private var last: List<Result> = emptyList()
@@ -121,16 +122,50 @@ object FeedProbe {
     /** True once a probe has finished in this process, so a report can say whether to wait for it. */
     val ready: Boolean get() = last.isNotEmpty()
 
+    /**
+     * The verdict line that makes a paste self-answering: how many time-like tokens the captured
+     * page carries, with three examples in context. The owner's 14:40 capture rendered 513 B of
+     * nav and halt NAMES with the table never painted - the scan is what says whether times exist
+     * anywhere in what we captured, without anyone pasting kilobytes into a chat.
+     */
+    private val TIME_LIKE = Regex("""\d{1,2}[:.]\d{2}""")
+
+    private fun scanForTimes(name: String, r: Http.Result) {
+        val body = (r as? Http.Result.Ok)?.body ?: return
+        val hits = TIME_LIKE.findAll(body).toList()
+        val samples = hits.take(3).joinToString(" ; ") { m ->
+            val a = (m.range.first - 24).coerceAtLeast(0)
+            val b = (m.range.last + 12).coerceAtMost(body.length)
+            "'" + body.substring(a, b).replace('\n', ' ') + "'"
+        }
+        Diary.get()?.log("PROBE") {
+            "$name scan: ${hits.size} time-like token(s) in ${body.length}B" +
+                (if (hits.isEmpty()) " - the capture holds no times" else "; first: $samples")
+        }
+    }
+
     /** Run one variant. Shared with [NtesProvider] so an adopted shape is requested exactly as it was found. */
     fun execute(http: Http, v: Variant, trainNo: String, journeyEpochDay: Long): Http.Result {
         val rebuilt = rebuild(v, trainNo, journeyEpochDay)
         return try {
             if (rebuilt.name == "webview-erail-rstrain") {
                 // THE decisive read: their own page for THIS number, read SETTLED - 12 s after the
-                // page finishes, 16 KB of text - because the instant read (the owner's paste of
-                // 2026-10-12) caught 426 B of navigation while their own scripts were still filling
-                // the running table. If that table carries per-stop actuals, this is where they land.
-                BrowserFetch.pageText(rebuilt.url, 24_000, settleMillis = 12_000, textCap = 16_000)
+                // page finishes, 16 KB of text. Verdict from the owner's 14:40 paste: the wait was
+                // honoured and the text STILL held only nav + halt names - so this read now also
+                // reports how many time-like tokens it caught (scanForTimes), making every paste
+                // self-answering.
+                val r = BrowserFetch.pageText(rebuilt.url, 24_000, settleMillis = 12_000, textCap = 16_000)
+                scanForTimes(rebuilt.name, r)
+                r
+            } else if (rebuilt.name == "webview-erail-rstrain-dom") {
+                // The 14:40 paste's second verdict: the visible text never gains a table. Their own
+                // scripts talk SignalR - the data can sit in the DOM invisibly - so this reads the
+                // page as HTML (64 KB), scans it for time-like tokens and logs the verdict. Tokens
+                // here means a parser follows; no tokens means their page fetches on interaction
+                // and the click is next. Either way the next paste says which, no screenshots.
+                val r = BrowserFetch.pageText(rebuilt.url, 24_000, settleMillis = 10_000, textCap = 64_000, dom = true)
+                scanForTimes(rebuilt.name, r)
+                r
             } else if (rebuilt.name.startsWith("webview-erail-rs")) {
                 BrowserFetch.pageText(rebuilt.url, 14_000)
                 // The rendered-page read: erail's live data arrives over their own SignalR inside their
@@ -253,6 +288,16 @@ object FeedProbe {
                     "finishes, 16 KB - the instant read caught only 426 B of navigation while their " +
                     "scripts filled the running table (paste 2026-10-12); a miss renders their 404 " +
                     "page and the text says so - no bytes can be mistaken for data",
+                false, true,
+            ),
+            Variant(
+                "webview-erail-rstrain-dom",
+                "https://erail.in/train-running-status/$trainNo",
+                null, emptyMap(), false,
+                "the SAME page read as raw DOM (64 KB), not visible text: the settled text verdict " +
+                    "was nav + halt NAMES, never a time (paste 2026-10-12 14:40) - if their SignalR " +
+                    "scripts park the running data in the page invisibly, the DOM has it; the app " +
+                    "scans its own capture for time-like tokens and the paste carries the verdict",
                 false, true,
             ),
             Variant(

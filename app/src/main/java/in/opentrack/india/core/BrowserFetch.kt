@@ -188,6 +188,8 @@ object BrowserFetch {
         settleMillis: Int = 0,
         /** innerText cap; 1200 was a navigation-menu read, the running table needs room. */
         textCap: Int = 1200,
+        /** Read the page as raw HTML (outerHTML) instead of rendered text - data can sit in the DOM invisibly. */
+        dom: Boolean = false,
     ): Http.Result {
         val ctx = appContext ?: return Http.Result.Failed(
             Http.Result.Kind.HTTP, "BrowserFetch not initialised (no application context)",
@@ -207,9 +209,12 @@ object BrowserFetch {
                             override fun onPageFinished(v: WebView, pageUrl: String) {
                                 if (settled.get()) return
                                 fun readNow() {
+                                    val expr = (if (dom) "document.documentElement.outerHTML"
+                                        else "(document.body?document.body.innerText:'')") +
+                                        ".substring(0,$textCap)"
                                     runCatching {
                                         v.evaluateJavascript(
-                                            "(document.body?document.body.innerText:'').substring(0,$textCap)",
+                                            expr,
                                         ) { raw ->
                                             if (settled.compareAndSet(false, true)) {
                                                 runCatching {
@@ -261,7 +266,7 @@ object BrowserFetch {
             val ms = System.currentTimeMillis() - t0
             val body = text.get()
             Diary.get()?.log("BROWSER") {
-                "PAGE " + hostOf(url) + url.substringAfter(hostOf(url), "") +
+                (if (dom) "DOM " else "PAGE ") + hostOf(url) + url.substringAfter(hostOf(url), "") +
                     " -> " + (if (answered) "text ${body?.length ?: 0}B" else "TIMEOUT") + " in " + ms + "ms"
             }
             return when {

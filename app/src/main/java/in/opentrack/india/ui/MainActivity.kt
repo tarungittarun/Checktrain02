@@ -9,6 +9,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.LinearLayoutManager
 import `in`.opentrack.india.App
 import `in`.opentrack.india.R
+import `in`.opentrack.india.core.Diary
 import `in`.opentrack.india.core.RailTime
 import `in`.opentrack.india.databinding.ActivityMainBinding
 import `in`.opentrack.india.domain.Suggestion
@@ -73,7 +74,17 @@ class MainActivity : AppCompatActivity() {
 
         vm.phase.observe(this) { renderPhase(it) }
         vm.results.observe(this) { it?.let { r -> renderReport(r) } }
-        vm.liveNote.observe(this) { binding.statusLine.text = composeStatus() }
+        vm.liveNote.observe(this) {
+            binding.statusLine.text = composeStatus()
+            // the merged screen, re-stated once the live answer lands: the upgrade is part of the record
+            vm.results.value?.let { r ->
+                Diary.get()?.log("UISTATE") {
+                    UiState.list(
+                        r.from?.code ?: "?", r.to?.code ?: "?", r.hits.size, vm.liveNote.value, r.hits,
+                    )
+                }
+            }
+        }
         selectMode(MainViewModel.Mode.STATIONS)
         renderDate()
         restoreLast()
@@ -246,6 +257,16 @@ class MainActivity : AppCompatActivity() {
         statusHead = head
         binding.statusLine.visibility = View.VISIBLE
         binding.statusLine.text = composeStatus()
+
+        // The frontend captures itself (the owner's ask, 2026-10-12): the list states its rows and
+        // its state line into the diary, and the window photographs itself - no screenshots.
+        Diary.get()?.log("UISTATE") {
+            UiState.list(
+                report.from?.code ?: "?", report.to?.code ?: "?", report.hits.size,
+                vm.liveNote.value ?: head, report.hits,
+            )
+        }
+        UiShot.snap(this, "list")
     }
 
     /**

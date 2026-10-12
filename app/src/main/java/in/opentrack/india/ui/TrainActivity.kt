@@ -200,6 +200,17 @@ class TrainActivity : AppCompatActivity() {
         }
 
         bindSource(m, ui)
+
+        // The frontend captures itself (the owner's ask, 2026-10-12): what this screen shows goes
+        // into the diary as elements, and the window photographs itself to the app's own private
+        // files dir - a paste then carries the screens with zero screenshots taken by hand.
+        Diary.get()?.log("UISTATE") {
+            UiState.track(
+                m.trainNo, m.headline, m.provenanceLabel, m.ageLabel, m.delayLabel,
+                m.nextLabel, m.progressLabel, m.note, m.rows,
+            )
+        }
+        UiShot.snap(this, "track")
     }
 
     /**

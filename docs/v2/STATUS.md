@@ -296,5 +296,20 @@ Owner: "If an approach is not working then find other alternative... change what
 
 Honest ledger: live pair list ✓, identity correction ✓, honest labelling ✓, complete server-door evidence map ✓ — but ZERO per-stop actuals yet. T22.3 is where that changes; no owner paste required.
 
+## Round 24 — the app captures its own frontend; the settled read's verdict; probe v10 (DOM)
+
+| Task | What was built/learned | State | Evidence | Next | Device |
+|---|---|---|---|---|---|
+| T24.1 | **FRONTEND SELF-CAPTURE (the owner's ask: "capture frontend data as well with elements or screenshot. I cannot take screenshot again and again")**: every screen now states what it shows into the diary — `UiState.track` (headline, provenance chip, age, delay, next, progress, note, rows with arr/dep + board/alight markers, capped at 8 with a "+N more halts" count) and `UiState.list` (query, count, live-state line, rows with their timetable/via-erail labels); the list re-states itself when the live merge lands. Plus `UiShot`: the window photographs ITSELF to the app's private files dir (no permission, 45 s throttle per screen, newest 6 kept, never uploaded; the diary line names the file). Pure builders, 4 JVM tests | **SHIPPED — this push** | gates green | one paste now carries the screens | phone |
+| T24.2 | **PASTE #10 VERDICTS**: (1) the settled read RAN — page finished, 12 s honoured, total 12.4 s — and STILL only 513 B: menu + halt NAMES (Talguppa, Sagar Jambagaru, Anandapuram…), ZERO times → erail's mobile running-status page never paints the table as visible text; (2) `get-erail-runtrain-xhr/-nodate`: clean HTTP 404s from the phone at last — that endpoint spelling is dead, permanently; (3) NTES via the browser POST: accepted, answer never arrives (12.7 s); (4) api.erail.in: still DNS-dead from the phone; (5) ENV `host=adguard.com` — local filtering consistent with erail killing the app's direct sockets mid-session, while their pages render in the browser engine untouched (why the browser read is the transport) | RECORDED | paste #10 14:39–14:41 | — | phone |
+| T24.3 | **PROBE v10 — THE DOM READ**: new variant `webview-erail-rstrain-dom` right after the settled text read: same deep-linked page read as raw outerHTML, 64 KB, 10 s settle — because data their own SignalR scripts receive can sit in the DOM invisibly; and BOTH settled reads now run an in-app time-token scan (`rstrain scan: N time-like token(s) in NB; first: '…'`) so the verdict rides in every paste with nobody pasting kilobytes. Ladder v10: observe, rspage, rstrain, rstrain-dom, sitejs, api-rs, api-route, runtrain-xhr, runtrain-nodate, post-dalvik (MAX_TRIES 10, budget 72 s) | **SHIPPED — this push** | paste #10 as the design brief; gates green | the scan line decides: tokens in DOM → parser next; none → their page fetches on interaction → the click is next | phone |
+| T24.4 | Second train validated by the owner (20652 TLGP→SBC): live identity resolved clean at 14:39:52; both trains' sessions show the same refusal pattern, no new defect | OBSERVED | paste #10 | — | phone |
+
+
+
+Latest-apk: 10,712,003 B @ 2026-10-12T08:54:55Z (cc92234, Round 23: renumber dedupe + loading states + endpoint-screen copy + probe v9 settled read; android SUCCESS, 216 tests, run 38226251945)
+
+
+
 Latest-apk: 10,712,003 B @ 2026-10-12T08:54:55Z (cc92234, Round 23: renumber dedupe + loading states + endpoint-screen copy + probe v9 settled read; android SUCCESS, 216 tests, run 38226251945)
 
