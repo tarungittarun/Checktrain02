@@ -140,8 +140,12 @@ class ScreenRenderTest {
             listOf(R.id.schedArr, R.id.schedDep, R.id.liveArr, R.id.liveDep).forEach { id ->
                 assertTrue("row $i is missing a time column", text(row, id).isNotBlank())
             }
-            // The word under the live column is what says whether that minute was reported or projected.
-            assertTrue("row $i does not name what its live column holds", text(row, R.id.liveTag).isNotBlank())
+            // Round 45: the stacked time columns NAME their kind - "Sch" above, "Act"/"Est" below - so a
+            // traveller can never mistake a timetable minute for a report.
+            listOf(R.id.schedArr, R.id.schedDep).forEach { id ->
+                assertTrue("row $i scheduled minute not prefixed in ${name(shot, id)}",
+                    text(row, id).startsWith("Sch "))
+            }
             // The complaint this pins: an offline screen printed the schedule twice, and the right-hand copy
             // read like a report about the train. A row nothing moved must show a dash, not a second "05:52".
             if (m.rows[i].source == TrackModel.MinuteSource.SCHEDULE) {
