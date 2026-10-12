@@ -458,6 +458,10 @@ class Diary(private val file: File) {
             // (owner's link, 2026-10-12) - absent from the working OSS client and from every capture
             // so far. Reachability first; paths are invented nowhere.
             "gw.crisapis.indianrail.gov.in",
+            // The mirror witness (2026-10-12): it answered every halt's actual minutes from the CI
+            // sandbox and "no answer" from the owner's phone on the direct wire - the ENV block must
+            // show DNS/TCP/TLS for it so the next paste names the block instead of guessing it.
+            "runningstatus.in",
         )
 
         @Volatile

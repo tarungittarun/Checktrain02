@@ -19,6 +19,8 @@ import `in`.opentrack.india.v2.contract.TrainIdentity
 import `in`.opentrack.india.v2.crowd.CrowdMerger
 import `in`.opentrack.india.v2.crowd.NtfyRelay
 import `in`.opentrack.india.v2.crowd.StopReport
+import `in`.opentrack.india.core.BrowserFetch
+import `in`.opentrack.india.core.Http
 import `in`.opentrack.india.v2.mirror.RunningStatusMirror
 import `in`.opentrack.india.v2.source.ErailPairParser
 import `in`.opentrack.india.v2.source.ErailTransport
@@ -344,12 +346,30 @@ class LiveViewModel(
         viewModelScope.launch {
             val codes = _ui.value?.route?.stops?.map { it.code } ?: return@launch
             val got = withContext(Dispatchers.IO) { RunningStatusMirror.fetchOrWhy(trainNo) }
-            val actuals = got.actuals
+            var actuals = got.actuals
             if (actuals == null) {
+                // The direct wire is filtered on some networks (paste #17: "no answer" here while the
+                // SAME device's WebView loaded erail pages) - so ask through the app's browser lane,
+                // the transport this phone demonstrably lets through, before declaring the mirror dead.
                 Diary.get()?.log("MIRROR") {
-                    "${RunningStatusMirror.SOURCE} did not answer for $trainNo: ${got.why}"
+                    "${RunningStatusMirror.SOURCE} direct wire: ${got.why}; asking through the app's browser"
                 }
-                return@launch
+                val page = withContext(Dispatchers.IO) {
+                    BrowserFetch.pageText(
+                        "https://runningstatus.in/status/$trainNo", 24_000,
+                        settleMillis = 2_000, textCap = 16_000,
+                    )
+                }
+                actuals = (page as? Http.Result.Ok)
+                    ?.let { RunningStatusMirror.parse(RunningStatusMirror.stripTags(it.body)) }
+                if (actuals == null) {
+                    val why = (page as? Http.Result.Failed)?.message ?: "no halt rows in the rendered page"
+                    Diary.get()?.log("MIRROR") {
+                        "${RunningStatusMirror.SOURCE} browser lane also failed: $why"
+                    }
+                    return@launch
+                }
+                Diary.get()?.log("MIRROR") { "${RunningStatusMirror.SOURCE} answered through the browser lane" }
             }
             val mirrorLines = RunningStatusMirror.sentences(actuals, codes)
             if (mirrorLines.isEmpty()) {
