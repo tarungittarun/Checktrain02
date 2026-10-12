@@ -107,7 +107,7 @@ object RunningStatusMirror {
         val want = routeCodes.map { it.uppercase() }.toSet()
         val out = LinkedHashMap<String, String>()
         for (s in actuals.stops) {
-            if (s.code !in want) continue
+            if (s.stationCode !in want) continue
             val parts = mutableListOf<String>()
             s.actArr?.let { parts += "arr ${fmt(it)}" }
             s.actDep?.let { parts += "dep ${fmt(it)}" }
@@ -118,7 +118,7 @@ object RunningStatusMirror {
                 else -> null
             }
             val tail = if (delayWord == null) SOURCE else "$SOURCE ($delayWord)"
-            out[s.code] = parts.joinToString(" · ") + " — via $tail"
+            out[s.stationCode] = parts.joinToString(" · ") + " — via $tail"
         }
         return out
     }
