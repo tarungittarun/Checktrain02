@@ -18,6 +18,39 @@ import org.junit.Test
  */
 class IdentityOverlayTest {
 
+    private fun live(from: String, to: String, dep: Int?, arr: Int?, wrap: Int) = ErailLiveIdentity(
+        id(from, to), dep, arr, wrap,
+    )
+
+    @Test
+    fun the_live_only_train_gets_a_two_stop_route_not_a_dead_end() {
+        val route = LiveViewModel.syntheticRoute(live("YPR", "SMET", 555, 845, 0))
+        assertEquals(2, route.stops.size)
+        assertEquals("YPR", route.stops[0].code)
+        assertEquals(555, route.stops[0].departureMin)
+        assertEquals("SMET", route.stops[1].code)
+        assertEquals(845, route.stops[1].arrivalMin)
+        assertEquals(0, route.stops[1].journeyDay)
+        assertEquals("SMET INTERCITY", route.trainName)
+    }
+
+    @Test
+    fun the_day_wrap_folds_into_the_terminus_stop_s_journey_day() {
+        val route = LiveViewModel.syntheticRoute(live("TLGP", "MYS", 1255, 500, 1))
+        assertEquals(1, route.stops[1].journeyDay)
+        assertEquals(500, route.stops[1].arrivalMin, "arrival stays a clock minute; the day is the offset")
+    }
+
+    @Test
+    fun the_fallback_note_names_what_is_missing_and_any_pair_mismatch() {
+        val note = LiveViewModel.fallbackNote(live("YPR", "SMET", 555, 845, 0), "YPR", "SMET")
+        assertTrue(note.contains("not in the device's offline timetable"))
+        assertTrue(note.contains("per-stop halts are not available"))
+        val mismatch = LiveViewModel.fallbackNote(live("TLGP", "MYS", 330, 930, 0), "SMET", "MYS")
+        assertTrue("got: $mismatch", mismatch.contains("TLGP → MYS"))
+        assertTrue("got: $mismatch", mismatch.contains("not SMET → MYS"))
+    }
+
     private fun id(from: String, to: String) = TrainIdentity(
         number = "16221",
         name = "TLGP-MYS KUVEMPU EXPRESS",

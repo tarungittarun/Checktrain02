@@ -12,6 +12,7 @@ import `in`.opentrack.india.remote.FeedProbe
 import `in`.opentrack.india.domain.PositionEngine
 import `in`.opentrack.india.domain.Suggestion
 import `in`.opentrack.india.domain.TrackModel
+import `in`.opentrack.india.model.StopRow
 import `in`.opentrack.india.model.TrainRoute
 import `in`.opentrack.india.v2.contract.TrainIdentity
 import `in`.opentrack.india.v2.source.ErailPairParser
@@ -30,8 +31,16 @@ import kotlinx.coroutines.withContext
  * answers with a canned identity and no egress. The production answer comes from erail's keyless
  * by-number reply (the one source CI proved it can read, captures of 2026-10-12).
  */
+/** The live tile's full payload for one number: identity PLUS its endpoint times. */
+data class ErailLiveIdentity(
+    val identity: TrainIdentity,
+    val depMinute: Int?,
+    val arrMinute: Int?,
+    val alightDayOffset: Int,
+)
+
 fun interface IdentityFetch {
-    suspend fun identityOf(trainNo: String): TrainIdentity?
+    suspend fun identityOf(trainNo: String): ErailLiveIdentity?
 }
 
 /**
@@ -40,12 +49,13 @@ fun interface IdentityFetch {
  * unreachable, unreadable, redirected to a different number - is null, and the screen stays on the
  * timetable with its honest label instead of guessing.
  */
-private suspend fun erailIdentityFetch(trainNo: String): TrainIdentity? {
+private suspend fun erailIdentityFetch(trainNo: String): ErailLiveIdentity? {
     val wire = withContext(Dispatchers.IO) { ErailTransport().fetchTrainNo(trainNo, 12_000) }
     if (wire !is PairWire.Ok) return null
     val rows = (ErailPairParser().parse(wire.body, wire.fetchedAtMillis) as? PairParse.Rows)
         ?.listing?.trains ?: return null
-    return rows.singleOrNull { it.identity.number == trainNo.trim() }?.identity
+    val row = rows.singleOrNull { it.identity.number == trainNo.trim() } ?: return null
+    return ErailLiveIdentity(row.identity, row.boardMin, row.alightMin, row.alightDayOffset)
 }
 
 /**
@@ -67,7 +77,7 @@ class LiveViewModel(
 ) : ViewModel() {
 
     /** The live identity for [trainNo], once one reaches the device; null until then (and stays null on failure). */
-    private var liveIdentity: TrainIdentity? = null
+    private var liveIdentity: ErailLiveIdentity? = null
 
     /**
      * @param model the whole screen, already stringified. The Activity binds and styles; it computes
@@ -147,7 +157,7 @@ class LiveViewModel(
             liveIdentity = id
             Diary.get()?.log(
                 "UI",
-                "erail live identity for $trainNo: ${id.fromCode}->${id.toCode} (${id.name})",
+                "erail live identity for $trainNo: ${id.identity.fromCode}->${id.identity.toCode} (${id.identity.name})",
             )
             // Re-read our own last emission (the Activity holds its own copy; this class does not see it).
             _ui.value?.let { u -> _ui.value = buildUi(u.route, u.answer, u.tried) }
@@ -183,7 +193,24 @@ class LiveViewModel(
                 )
             }.getOrNull()
             if (live == null) {
-                _error.value = "No timetable for $trainNo on this device."
+                // The train the list advertised may exist ONLY in the live source (the offline copy
+                // lacks it - 20689 on the owner's device). A dead end here is the worst sentence in
+                // the app: render what we DO know - identity and the two endpoint times the erail
+                // tile carries - and name exactly what is missing. Never silence.
+                val id = liveIdentity ?: runCatching { identityFetch.identityOf(trainNo) }.getOrNull()
+                if (id == null) {
+                    _error.value = "No timetable for $trainNo on this device, and the live source did not answer."
+                    return@launch
+                }
+                liveIdentity = id
+                val route = syntheticRoute(id)
+                val now = System.currentTimeMillis()
+                val answer = PositionEngine.locate(
+                    PositionEngine.Request(route, null, nowMinute(now), now, null),
+                )
+                lastAnswer = answer
+                _ui.value = buildUi(route, answer, emptyList(), listOf(fallbackNote(id, fromCode, toCode)))
+                _error.value = null
                 return@launch
             }
             lastAnswer = live.answer
@@ -237,7 +264,7 @@ class LiveViewModel(
         // another). When a live identity reached the device, the label says both readings - the overlay
         // is a sentence, never a silent swap, because the stop table below is still the timetable's.
         val labelled = model.copy(
-            routeLabel = identityOverlay(route.srcCode, route.dstCode, liveIdentity)
+            routeLabel = identityOverlay(route.srcCode, route.dstCode, liveIdentity?.identity)
                 ?.let { "${model.routeLabel} · $it" }
                 ?: model.routeLabel,
         )
@@ -285,6 +312,50 @@ class LiveViewModel(
          * named as the timetable's - the label may be corrected but the times below it are not, not
          * until a real per-stop source exists (T20.1's paste, 17.1's ladder).
          */
+        /**
+         * The two-stop route a live-only train can honestly render: origin departure and terminus
+         * arrival from the erail tile, the day wrap folded into the terminus stop's journeyDay.
+         * Nothing in it claims per-stop knowledge the source never gave.
+         */
+        internal fun syntheticRoute(live: ErailLiveIdentity): TrainRoute = TrainRoute(
+            trainNo = live.identity.number,
+            trainName = live.identity.name,
+            srcCode = live.identity.fromCode,
+            srcName = live.identity.fromCode,
+            dstCode = live.identity.toCode,
+            dstName = live.identity.toCode,
+            totalKm = 0,
+            totalMin = null,
+            runDays = null,
+            returnNo = null,
+            stops = listOf(
+                StopRow(
+                    seq = 1, code = live.identity.fromCode, name = live.identity.fromCode,
+                    state = null, lat = null, lon = null,
+                    arrivalMin = null, departureMin = live.depMinute,
+                    journeyDay = 0, schedKm = 0, isHalt = true,
+                ),
+                StopRow(
+                    seq = 2, code = live.identity.toCode, name = live.identity.toCode,
+                    state = null, lat = null, lon = null,
+                    arrivalMin = live.arrMinute, departureMin = null,
+                    journeyDay = live.alightDayOffset, schedKm = 0, isHalt = true,
+                ),
+            ),
+            segments = emptyList(),
+        )
+
+        /** The sentence under the dead-end's replacement: what we know, and exactly what we do not. */
+        internal fun fallbackNote(live: ErailLiveIdentity, searchedFrom: String, searchedTo: String): String {
+            val base = "This train is not in the device's offline timetable — the two times are the live " +
+                "source's origin→terminus times (via erail); per-stop halts are not available on this device."
+            val pairMatches = live.identity.fromCode.equals(searchedFrom, true) &&
+                live.identity.toCode.equals(searchedTo, true)
+            return if (pairMatches) base
+            else "the live source says this number runs ${live.identity.fromCode} → ${live.identity.toCode}, " +
+                "not $searchedFrom → $searchedTo. " + base
+        }
+
         internal fun identityOverlay(srcCode: String, dstCode: String, id: TrainIdentity?): String? = when {
             id == null -> null
             id.fromCode.equals(srcCode, ignoreCase = true) &&
