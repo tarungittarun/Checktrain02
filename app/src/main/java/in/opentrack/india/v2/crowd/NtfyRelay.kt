@@ -38,7 +38,12 @@ class NtfyRelay(
      * answer" are different sentences a screen must not conflate - a dead relay is not an empty train.
      */
     fun pollRecentOrFailure(trainNo: String): Poll {
-        val wire = fetch("$base/ct-$trainNo/json?poll=1&since=30m", "GET", null)
+        // The per-poll nonce is not decoration: on the owner's phone every poll of the SAME url reads 0
+        // while publishes return HTTP OK (paste #19) - the signature of a local middlebox serving a
+        // cached empty body. A url never seen before cannot have a cached answer; ntfy ignores unknown
+        // query params, so this costs the real relay nothing and takes the cache out of the equation.
+        val bust = System.currentTimeMillis()
+        val wire = fetch("$base/ct-$trainNo/json?poll=1&since=30m&_=$bust", "GET", null)
         if (wire !is Wire.Ok) return Poll(emptyList(), relayOk = false)
         // rawBody rides along so a caller can verify a publish PARSE-INDEPENDENTLY (a published id is
         // either in the poll's bytes or it is not): paste #19 proved publish-OK + read-zero twice, and
@@ -66,6 +71,7 @@ class NtfyRelay(
                 connectTimeout = 8_000
                 readTimeout = 8_000
                 setRequestProperty("User-Agent", "OpenTrackIndia/1.0 (crowd reports)")
+                setRequestProperty("Cache-Control", "no-cache, no-store")
                 if (body != null) {
                     doOutput = true
                     setRequestProperty("Content-Type", "text/plain; charset=utf-8")

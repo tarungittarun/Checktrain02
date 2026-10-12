@@ -70,3 +70,24 @@ class NtfyRelayTest {
         assertEquals("ct-16579", relay.topicFor("16579"))
     }
 }
+
+    /**
+     * The REAL ntfy.sh poll bytes, captured by CI itself on 2026-10-12 (commit comment, run 38254956503:
+     * CI published id QAjhuL9tktAO and its own poll returned it - relay and parser shape both proven
+     * against reality, not assumption). Every hand-rolled line filter in the parser must survive THESE
+     * bytes; if the owner's phone still reads 0 from a topic that CI can read, the phone's network path
+     * is the broken link, not this file.
+     */
+    @Test
+    fun `the real captured ntfy poll line parses to the canned report`() {
+        val body = javaClass.getResourceAsStream("/captures/ntfy-poll-ct-cap-2026-10-12.txt")!!
+            .readBytes().toString(Charsets.UTF_8)
+        val relay = NtfyRelay(fetch = { _, _, _ -> NtfyRelay.Wire.Ok(200, body) })
+        val poll = relay.pollRecentOrFailure("cap-38254956503")
+        assertTrue("the relay answered", poll.relayOk)
+        assertEquals("exactly one report in the captured line", 1, poll.reports.size)
+        assertEquals("CAP", poll.reports[0].stationCode)
+        assertEquals(StopReport.Kind.DEPARTED, poll.reports[0].kind)
+        assertEquals(1025, poll.reports[0].railMinute)
+        assertTrue("the raw bytes ride along for parse-independent verification", poll.rawBody.contains("QAjhuL9tktAO"))
+    }
