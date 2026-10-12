@@ -340,5 +340,5 @@ Latest-apk: the owner-installed build (21:26 UTC, 10,667,232 B) already carries 
 
 
 
-Latest-apk: 10,752,179 B @ 2026-10-12T12:12:58Z (694a7b1, Round 34: both source links fetched and mined - the official app's API gateway gw.crisapis.indianrail.gov.in [BeVigil-only host] joins the ENV map and the ladder as a root reachability probe; android SUCCESS, run 38247164056)
+Latest-apk: 10,752,675 B @ 2026-10-12T12:21:32Z (6a16a71, Round 35 GREEN — the relay answered from the owner's phone; listening-caption shipped)
 
