@@ -335,5 +335,5 @@ Latest-apk: the owner-installed build (21:26 UTC, 10,667,232 B) already carries 
 
 
 
-Latest-apk: 10,748,747 B @ 2026-10-12T11:42:23Z (d5792be, Round 32: desktop-UA page read [the last untested page slice], ntfy.sh in the ENV reachability map, crowd reader ON by default per owner direction; android SUCCESS, run 38243968721)
+Latest-apk: 10,751,979 B @ 2026-10-12T12:06:26Z (b09ed4f, Round 33: the real ntes-client read in full - legacy static-RSA TLS suites shipped as post-appservand-legacytls, mirror trackers ConfirmTkt/RailMitra shipped in the fresh window; android SUCCESS, run 38246547908)
 
