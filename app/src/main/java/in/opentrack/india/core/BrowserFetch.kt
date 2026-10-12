@@ -5,6 +5,7 @@ import android.os.Handler
 import android.os.Looper
 import android.webkit.CookieManager
 import android.webkit.WebResourceError
+import android.webkit.WebResourceResponse
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
