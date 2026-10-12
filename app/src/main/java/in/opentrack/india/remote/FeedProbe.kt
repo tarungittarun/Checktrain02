@@ -239,6 +239,28 @@ object FeedProbe {
                     "homepage): its text names the SignalR hub and every data path the live page really uses",
             ),
             Variant(
+                "get-api-runningstatus",
+                "https://api.erail.in/runningstatus/?trainno=$trainNo&startDate=$ddmm",
+                null,
+                mapOf("User-Agent" to
+                    "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Mobile Safari/537.36",
+                    "Accept" to "application/json"),
+                false,
+                "api.erail.in runningstatus - the public API erail's own homepage advertises (Data -> API, " +
+                    "captured verbatim on 5ea20a2). Per-stop ACTUALS if the keyless era survives. dd/MM/yyyy",
+            ),
+            Variant(
+                "get-api-route",
+                "https://api.erail.in/route/?trainno=$trainNo",
+                null,
+                mapOf("User-Agent" to
+                    "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Mobile Safari/537.36",
+                    "Accept" to "application/json"),
+                false,
+                "api.erail.in route - the per-stop SCHEDULE from their own public API. If only this answers " +
+                    "keylessly, the details screen's stale route/times (T20.2's sequel) get their live fix",
+            ),
+            Variant(
                 "get-erail-runtrain-xhr",
                 "https://erail.in/rail/getRunTrain.aspx?trainno=$trainNo&startDate=$ddmm",
                 null,
