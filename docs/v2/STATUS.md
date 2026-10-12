@@ -364,7 +364,7 @@ Honest ledger: live pair list ✓, identity correction ✓, honest labelling ✓
 
 
 
-Latest-apk: `834468b` — Round 46 GREEN — the witness feeds the columns: mirror/CK minutes overlay Act/Est whether or not erail answers, SWR cache carries stops, dropdown switches both witnesses
+Latest-apk: `00409b6` — Round 47 GREEN — one header not two, Auto left / Refresh right, source dropdown inside the top card, paint-first with latency in the log, and the full TLGP→MYS route grown from erail's page (day-cached)
 
 
 
