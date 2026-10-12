@@ -63,7 +63,8 @@ object FeedProbe {
     private const val BROWSER_TIMEOUT = 8_000
     private const val MAX_TRIES = 9   // every variant, controls included - a probe that ran out of tries
                                     // before its own control host is a probe that proves nothing
-    private const val TOTAL_BUDGET = 34_000 // two rendered-page reads at 14s lead; the rest skip with reported lines
+    private const val TOTAL_BUDGET = 52_000 // the rstrain read is now settled (12 s wait, 16 KB) because the
+    // instant read measured only navigation; the rest still skip with reported lines
 
     @Volatile
     private var last: List<Result> = emptyList()
@@ -124,7 +125,14 @@ object FeedProbe {
     fun execute(http: Http, v: Variant, trainNo: String, journeyEpochDay: Long): Http.Result {
         val rebuilt = rebuild(v, trainNo, journeyEpochDay)
         return try {
-            if (rebuilt.name.startsWith("webview-erail-rs")) {
+            if (rebuilt.name == "webview-erail-rstrain") {
+                // THE decisive read: their own page for THIS number, read SETTLED - 12 s after the
+                // page finishes, 16 KB of text - because the instant read (the owner's paste of
+                // 2026-10-12) caught 426 B of navigation while their own scripts were still filling
+                // the running table. If that table carries per-stop actuals, this is where they land.
+                BrowserFetch.pageText(rebuilt.url, 24_000, settleMillis = 12_000, textCap = 16_000)
+            } else if (rebuilt.name.startsWith("webview-erail-rs")) {
+                BrowserFetch.pageText(rebuilt.url, 14_000)
                 // The rendered-page read: erail's live data arrives over their own SignalR inside their
                 // own page (measured 2026-10-12 - no fetchable endpoint exists), so we load the page
                 // they serve to every browser and read the text their own scripts render into it.
@@ -241,8 +249,10 @@ object FeedProbe {
                 "webview-erail-rstrain",
                 "https://erail.in/train-running-status/$trainNo",
                 null, emptyMap(), false,
-                "the same page deep-linked with the number (a PAGE guess, honestly labelled: a miss " +
-                    "renders their 404 page and the text says so - no bytes can be mistaken for data)",
+                "the same page deep-linked with the number, read SETTLED: 12 s after the page " +
+                    "finishes, 16 KB - the instant read caught only 426 B of navigation while their " +
+                    "scripts filled the running table (paste 2026-10-12); a miss renders their 404 " +
+                    "page and the text says so - no bytes can be mistaken for data",
                 false, true,
             ),
             Variant(

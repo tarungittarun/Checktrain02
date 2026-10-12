@@ -144,6 +144,39 @@ object PairMerge {
         return hits to (rows.size - renderable.size)
     }
 
+    /**
+     * One live-source proof that an offline-only number is the same physical train as a listed one.
+     * The 16579 case (the owner's paste of 2026-10-12): erail answers "16579" with the name
+     * "SMET INTERCITY" - the same name as 20689 at the same departure minute - i.e. the railway
+     * renumbered the train and the offline dump still carries the old number, so the merged list
+     * showed one physical train twice at 09:15 while every live app showed it once.
+     */
+    data class Renumber(val staleNumber: String, val liveNumber: String, val liveName: String)
+
+    /**
+     * Drop offline-only rows the live source itself resolves into a live-listed train. Guards:
+     * the live twin must still be present (never drop the only copy of a train), and a
+     * live-confirmed row is never dropped (its number was answered as itself). Pure: the evidence
+     * is the caller's bounded fetching; the decision here is the name equality the SOURCE stated,
+     * never a similarity guess.
+     */
+    fun dedupeRenumbered(rows: List<MergedRow>, evidence: List<Renumber>): Pair<List<MergedRow>, List<Renumber>> {
+        if (evidence.isEmpty()) return rows to emptyList()
+        val applied = evidence.filter { e ->
+            e.staleNumber != e.liveNumber &&
+                rows.any { it.liveOnly && it.identity.number == e.liveNumber }
+        }
+        if (applied.isEmpty()) return rows to emptyList()
+        val stale = applied.map { it.staleNumber }.toSet()
+        return rows.filter { it.liveOnly || it.confirmedByLive || it.identity.number !in stale } to applied
+    }
+
+    /** The sentence under the list: the merge is named, with the source's own answer as the reason. */
+    fun renumberNote(applied: List<Renumber>): String = applied.joinToString(" · ") { e ->
+        "${e.staleNumber} is the old number of ${e.liveNumber} (${e.liveName}) — the live source " +
+            "answers both numbers with one train; the offline row is merged"
+    }
+
     private fun assetNumbers(assetRows: List<AssetRow>): Set<String> =
         assetRows.map { it.trainNo }.toSet()
 

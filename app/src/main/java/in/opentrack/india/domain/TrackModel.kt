@@ -210,12 +210,23 @@ object TrackModel {
             progressLabel = "$covered of $totalKm km" +
                 (if (pos.fraction > 0f && pos.kmAlong > 0f) " · ${(totalKm - covered).coerceAtLeast(0)} km left" else "")
         } else {
-            // Without credible distances the honest denominator is stops travelled, and it must say so.
-            val done = passedCount(stops)
-            val span = (route.stops.indexOfLast { it.seq == alightSeq } -
-                (route.stops.indexOfFirst { it.seq == boardSeq }).coerceAtLeast(0)).coerceAtLeast(1)
-            progressPct = ((done * 100) / span).coerceIn(0, 100)
-            progressLabel = "$done of $span stops covered · distances unavailable offline"
+            if (route.totalKm == 0) {
+                // The endpoint route: "1 of 1 stops covered" measured nothing. The honest dial is the
+                // elapsed share of the journey between the two times we DO have.
+                val dep = route.stops.firstOrNull()?.departureMin
+                val arr = route.stops.lastOrNull()?.arrivalMin
+                progressPct = if (dep != null && arr != null && arr > dep) {
+                    (((nowRailMinute - dep) * 100) / (arr - dep)).coerceIn(0, 100)
+                } else 0
+                progressLabel = "endpoint times only · per-stop halts unavailable on this device"
+            } else {
+                // Without credible distances the honest denominator is stops travelled, and it must say so.
+                val done = passedCount(stops)
+                val span = (route.stops.indexOfLast { it.seq == alightSeq } -
+                    (route.stops.indexOfFirst { it.seq == boardSeq }).coerceAtLeast(0)).coerceAtLeast(1)
+                progressPct = ((done * 100) / span).coerceIn(0, 100)
+                progressLabel = "$done of $span stops covered · distances unavailable offline"
+            }
         }
 
         // The tick's denominator must be the *passenger's* segment, like the fill's, or the two marks
@@ -313,6 +324,17 @@ object TrackModel {
     ): String {
         if (anchor == null) {
             return if (pos.status == StopStatus.UPCOMING) "Not departed yet" else "Position not available yet"
+        }
+        // The live-only endpoint route (the offline copy lacks the train): a position sentence
+        // measured against a two-stop phantom read as "4h 49m into the 0 km leg" - a malfunction to
+        // the one person reading it. Say what the two endpoints know, and nothing more.
+        if (route.totalKm == 0) {
+            val first = route.stops.firstOrNull()
+            val last = route.stops.lastOrNull()
+            val dep = first?.departureMin?.let { RailTime.formatClock(it) } ?: "—"
+            val arr = last?.arrivalMin?.let { RailTime.formatClock(it) } ?: "—"
+            return "Endpoints only: leaves ${TitleCase.of(first?.name ?: route.srcName)} $dep, reaches " +
+                "${TitleCase.of(route.dstName)} $arr — this device has no halts for this train"
         }
         // The station names inside a *sentence* are title-cased, because the table below renders them that
         // way and a screen that writes "KSR Bengaluru" in one place and "YESVANTPUR JN" in another reads

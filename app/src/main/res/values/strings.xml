@@ -41,6 +41,7 @@
     <string name="auto_off">Auto off</string>
 
     <string name="searching">Searching on-device timetable…</string>
+    <string name="first_load">Fetching this train\'s screen — the live sources are being asked…</string>
     <string name="installing_data">Installing offline timetable… %1$d%%</string>
     <string name="err_need_two_stations">Enter both stations (name or 3–4 letter code).</string>
     <string name="err_need_train_query">Enter at least 3 characters of the train number or name.</string>

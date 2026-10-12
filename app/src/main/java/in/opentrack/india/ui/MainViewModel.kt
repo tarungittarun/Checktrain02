@@ -166,8 +166,8 @@ class MainViewModel(private val app: App) : ViewModel() {
     }
 
     /** Merge the live answer into the asset report and post it, rows labelled, state line attached. */
-    private fun applyLive(assetReport: TrainFinder.Report, answer: PairAnswer, nowMillis: Long,
-                          fromCache: Boolean = false) {
+    private suspend fun applyLive(assetReport: TrainFinder.Report, answer: PairAnswer, nowMillis: Long,
+                                  fromCache: Boolean = false) {
         val assetRows = assetReport.hits.map { h ->
             AssetRow(
                 h.trainNo, h.trainName, h.fromCode, h.toCode,
@@ -175,12 +175,43 @@ class MainViewModel(private val app: App) : ViewModel() {
                 Provenance(SourceKind.OFFLINE_ASSET, "refdb", 0L),
             )
         }
-        val merged = PairMerge.merge(assetRows, answer, targetEpochMinute)
+        val merged0 = PairMerge.merge(assetRows, answer, targetEpochMinute)
+        // One train shown twice at the same minute (16579 beside 20689 at 09:15, the owner's
+        // screenshots of 2026-10-12) is a renumber the offline copy never learned. Ask the live
+        // source about collision candidates - at most two asks, only on the fresh path, only when an
+        // offline-only row departs at a live-only row's exact minute - and merge on the source's OWN
+        // name answer, never a similarity guess (the decision lives in PairMerge.dedupeRenumbered).
+        var appliedRenumbers: List<PairMerge.Renumber> = emptyList()
+        val merged = if (answer is PairAnswer.Listing && !fromCache) {
+            val offlineOnly = merged0.rows.filter { !it.confirmedByLive && !it.liveOnly }
+            val liveOnly = merged0.rows.filter { it.liveOnly }
+            val evidence = ArrayList<PairMerge.Renumber>(1)
+            for (a in offlineOnly) {
+                if (evidence.size >= 2) break
+                val board = a.boardMin ?: continue
+                val twin = liveOnly.firstOrNull {
+                    it.boardMin == board && it.identity.number != a.identity.number
+                } ?: continue
+                val id = runCatching { erailIdentityFetch(a.identity.number) }.getOrNull() ?: continue
+                if (id.identity.name.equals(twin.identity.name, true) &&
+                    id.identity.fromCode.equals(twin.identity.fromCode, true) &&
+                    id.identity.toCode.equals(twin.identity.toCode, true)
+                ) {
+                    evidence.add(PairMerge.Renumber(a.identity.number, twin.identity.number, twin.identity.name))
+                }
+            }
+            val (rows, ap) = PairMerge.dedupeRenumbered(merged0.rows, evidence)
+            appliedRenumbers = ap
+            merged0.copy(rows = rows)
+        } else {
+            merged0
+        }
         val (hits, hidden) = PairMerge.toTrainHits(merged.rows, targetEpochMinute) { board ->
             pickOrigin(targetEpochMinute, board)
         }
         var line = merged.stateLine
         if (hidden > 0) line += " · $hidden train(s) listed without a readable time"
+        if (appliedRenumbers.isNotEmpty()) line += " · " + PairMerge.renumberNote(appliedRenumbers)
         if (fromCache) {
             // A cache read is never live (7.5): the sentence says so, with the age.
             val fetchedAt = (answer as? PairAnswer.Listing)?.listing?.provenance?.fetchedAtMillis

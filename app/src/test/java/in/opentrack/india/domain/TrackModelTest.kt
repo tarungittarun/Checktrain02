@@ -73,6 +73,32 @@ class TrackModelTest {
         board: Int = 1, alight: Int = 3, note: String? = null,
     ) = TrackModel.build(route, pos, perStop, now, board, alight, 19949L, note)
 
+    @Test
+    fun theEndpointOnlyRouteIsNeverShownAsAZeroKmLeg() {
+        // 20689 on the owner's device (2026-10-12): the offline copy lacks the train, the screen
+        // renders the live source's two endpoints - and the old headline read "4h 49m into the
+        // 0 km leg", "1 of 1 stops covered". Neither sentence may exist for this shape.
+        val synthetic = TrainRoute(
+            trainNo = "20689", trainName = "SMET INTERCITY", srcCode = "YPR", srcName = "YPR",
+            dstCode = "SMET", dstName = "SMET", totalKm = 0, totalMin = null, runDays = null,
+            returnNo = null,
+            stops = listOf(
+                stop(1, "YPR", null, 555, 0),
+                stop(2, "SMET", 845, null, 0),
+            ),
+            segments = emptyList(),
+        )
+        val m = model(
+            route = synthetic,
+            pos = pos(1, 2, StopStatus.DEPARTED, fraction = 0.5f, kind = SourceKind.OFFLINE_SCHEDULE),
+            now = 844, board = 1, alight = 2,
+        )
+        assertTrue("got: ${m.headline}", m.headline.startsWith("Endpoints only"))
+        assertFalse("got: ${m.headline}", m.headline.contains("0 km"))
+        assertTrue("got: ${m.progressLabel}", m.progressLabel.contains("endpoint times only"))
+        assertFalse("got: ${m.progressLabel}", m.progressLabel.contains("1 of 1"))
+    }
+
     // ------------------------------------------------------------- reported vs expected vs timetable
 
     @Test

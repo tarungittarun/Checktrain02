@@ -176,7 +176,19 @@ object BrowserFetch {
      * cannot render - that mistake is documented at the top of this file); here rendering IS the point.
      * Same safety envelope as every call here: offscreen view, no JS interface, one call at a time.
      */
-    fun pageText(url: String, timeoutMillis: Int = defaultTimeout): Http.Result {
+    fun pageText(
+        url: String,
+        timeoutMillis: Int = defaultTimeout,
+        /**
+         * Wait this long after the page reports "finished" BEFORE reading its text. erail's running
+         * table is filled by their own scripts seconds after the page settles (the owner's paste of
+         * 2026-10-12: the instant read caught 426 B of navigation while the halt table was still
+         * mid-flight). Zero keeps the old instant read.
+         */
+        settleMillis: Int = 0,
+        /** innerText cap; 1200 was a navigation-menu read, the running table needs room. */
+        textCap: Int = 1200,
+    ): Http.Result {
         val ctx = appContext ?: return Http.Result.Failed(
             Http.Result.Kind.HTTP, "BrowserFetch not initialised (no application context)",
         )
@@ -194,16 +206,30 @@ object BrowserFetch {
                         w.webViewClient = object : WebViewClient() {
                             override fun onPageFinished(v: WebView, pageUrl: String) {
                                 if (settled.get()) return
-                                v.evaluateJavascript(
-                                    "(document.body?document.body.innerText:'').substring(0,1200)",
-                                ) { raw ->
-                                    if (settled.compareAndSet(false, true)) {
-                                        runCatching {
-                                            val quoted = raw ?: "''"
-                                            text.set(JSONObject("{\"v\":$quoted}").optString("v"))
-                                        }.onFailure { problem.set("unreadable text: " + it.javaClass.simpleName) }
-                                        latch.countDown()
+                                fun readNow() {
+                                    runCatching {
+                                        v.evaluateJavascript(
+                                            "(document.body?document.body.innerText:'').substring(0,$textCap)",
+                                        ) { raw ->
+                                            if (settled.compareAndSet(false, true)) {
+                                                runCatching {
+                                                    val quoted = raw ?: "''"
+                                                    text.set(JSONObject("{\"v\":$quoted}").optString("v"))
+                                                }.onFailure { problem.set("unreadable text: " + it.javaClass.simpleName) }
+                                                latch.countDown()
+                                            }
+                                        }
+                                    }.onFailure {
+                                        if (settled.compareAndSet(false, true)) {
+                                            problem.set(it.message ?: it.javaClass.simpleName)
+                                            latch.countDown()
+                                        }
                                     }
+                                }
+                                if (settleMillis > 0) {
+                                    main.postDelayed({ if (!settled.get()) readNow() }, settleMillis.toLong())
+                                } else {
+                                    readNow()
                                 }
                             }
 

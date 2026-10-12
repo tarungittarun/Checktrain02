@@ -49,7 +49,7 @@ fun interface IdentityFetch {
  * unreachable, unreadable, redirected to a different number - is null, and the screen stays on the
  * timetable with its honest label instead of guessing.
  */
-private suspend fun erailIdentityFetch(trainNo: String): ErailLiveIdentity? {
+internal suspend fun erailIdentityFetch(trainNo: String): ErailLiveIdentity? {
     val wire = withContext(Dispatchers.IO) { ErailTransport().fetchTrainNo(trainNo, 12_000) }
     if (wire !is PairWire.Ok) return null
     val rows = (ErailPairParser().parse(wire.body, wire.fetchedAtMillis) as? PairParse.Rows)
@@ -100,6 +100,15 @@ class LiveViewModel(
 
     private val _error = MutableLiveData<String?>()
     val error: LiveData<String?> = _error
+
+    /**
+     * True while a look at the live world is in flight (the first load included). The screen shows a
+     * moving bar for exactly this long: during a 12-second refusal a frozen frame reads as "broken" -
+     * the owner's 1800s complaint - because the wait was invisible. The traveller is owed the sight
+     * of the app working.
+     */
+    private val _checking = MutableLiveData(true)
+    val checking: LiveData<Boolean> = _checking
 
     private var pollJob: Job? = null
     private var lastAnswer: PositionEngine.Answer? = null
@@ -173,6 +182,7 @@ class LiveViewModel(
      * answerable from a file instead of from a guess. */
     fun refresh(manual: Boolean = false) {
         Diary.get()?.log("UI", if (manual) "refresh tapped by the user" else "refresh (auto tick)")
+        _checking.postValue(true)
         if (manual) {
             // The traveller pressed the button. A background experiment that is holding a socket to find out
             // why the last press failed is now the reason this press is slow, so it is told to stop; the
@@ -181,9 +191,19 @@ class LiveViewModel(
         }
         val previous = lastAnswer?.position
         viewModelScope.launch {
+            try {
+                refreshBody(previous)
+            } finally {
+                _checking.postValue(false)
+            }
+        }
+    }
+
+    private suspend fun refreshBody(previous: PositionEngine.TrainPosition?) {
+        run {
             val repo = repo() ?: run {
                 _error.value = "Timetable is not installed on this device yet."
-                return@launch
+                return
             }
             val live = runCatching {
                 repo.live(
@@ -200,7 +220,7 @@ class LiveViewModel(
                 val id = liveIdentity ?: runCatching { identityFetch.identityOf(trainNo) }.getOrNull()
                 if (id == null) {
                     _error.value = "No timetable for $trainNo on this device, and the live source did not answer."
-                    return@launch
+                    return
                 }
                 liveIdentity = id
                 val route = syntheticRoute(id)
@@ -211,7 +231,7 @@ class LiveViewModel(
                 lastAnswer = answer
                 _ui.value = buildUi(route, answer, emptyList(), listOf(fallbackNote(id, fromCode, toCode)))
                 _error.value = null
-                return@launch
+                return
             }
             lastAnswer = live.answer
             _ui.value = buildUi(live.route, live.answer, live.tried, live.notes)

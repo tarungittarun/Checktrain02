@@ -99,6 +99,12 @@ class TrainActivity : AppCompatActivity() {
         }
 
         vm.ui.observe(this) { it?.let { u -> lastUi = u; bind(u); renderNote() } }
+        vm.checking.observe(this) { busy ->
+            // The 1800s complaint, answered: a moving bar for exactly as long as the app is working,
+            // and a captioned spinner while the very first look is still in flight.
+            binding.checkingBar.visibility = if (busy == true) View.VISIBLE else View.GONE
+            binding.firstLoad.visibility = if (busy == true && lastUi == null) View.VISIBLE else View.GONE
+        }
         vm.error.observe(this) { msg ->
             errorText = msg
             renderNote()

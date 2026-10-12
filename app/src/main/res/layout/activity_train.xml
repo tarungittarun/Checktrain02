@@ -63,6 +63,41 @@
             android:gravity="end" />
     </LinearLayout>
 
+    <!-- The wait is the app working, so the wait is visible: a thin moving bar while any live look
+         is in flight, and a captioned spinner while the very first look (the one the traveller is
+         staring at) has not landed yet. Indeterminate on purpose - a refused source's duration is
+         not knowable, and a fake percent would be a lie this app does not tell. -->
+    <ProgressBar
+        android:id="@+id/checkingBar"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginLeft="@dimen/gap"
+        android:layout_marginRight="@dimen/gap"
+        android:indeterminate="true"
+        android:visibility="gone" />
+
+    <LinearLayout
+        android:id="@+id/firstLoad"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:visibility="gone">
+
+        <ProgressBar
+            android:layout_width="48dp"
+            android:layout_height="48dp" />
+
+        <TextView
+            style="@style/TextMicro"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="@string/first_load" />
+    </LinearLayout>
+
     <ScrollView
         android:id="@+id/scroller"
         android:layout_width="match_parent"

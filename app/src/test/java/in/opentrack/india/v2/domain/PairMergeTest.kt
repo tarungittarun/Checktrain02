@@ -39,6 +39,56 @@ class PairMergeTest {
         AssetRow(no, "TRAIN $no", "SMET", "MYS", board, alight, asset)
 
     @Test
+    fun theRenumberedTrainIsNotShownTwiceWhenTheSourceNamesBothNumbers() {
+        // 16579 beside 20689 at 09:15 (the owner's screenshots, 2026-10-12): one physical train,
+        // renumbered; the offline dump still carries the old number. The evidence is the source's
+        // own answer - asked about "16579", erail replied with the name it also answers for 20689.
+        val assetRows = listOf(assetRow("16579", 555, 855))
+        val answer = PairAnswer.Listing(liveListing(Triple("20689", 555, 845)))
+        val merged = PairMerge.merge(assetRows, answer, nowMinuteOfTarget = 600)
+        assertEquals("the duplicate first: offline row + live row for one train", 2, merged.rows.size)
+
+        val (rows, applied) = PairMerge.dedupeRenumbered(
+            merged.rows,
+            listOf(PairMerge.Renumber("16579", "20689", "SMET INTERCITY")),
+        )
+        assertEquals("one physical train, one row", listOf("20689"), rows.map { it.identity.number })
+        assertEquals(1, applied.size)
+    }
+
+    @Test
+    fun withoutEvidenceNothingIsDropped() {
+        val assetRows = listOf(assetRow("16579", 555, 855))
+        val answer = PairAnswer.Listing(liveListing(Triple("20689", 555, 845)))
+        val merged = PairMerge.merge(assetRows, answer, nowMinuteOfTarget = 600)
+        val (rows, applied) = PairMerge.dedupeRenumbered(merged.rows, emptyList())
+        assertEquals("both rows stay when the live source was never asked", 2, rows.size)
+        assertTrue(applied.isEmpty())
+    }
+
+    @Test
+    fun theLiveTwinMustBePresentBeforeAnOfflineRowIsDropped() {
+        val assetRows = listOf(assetRow("16579", 555, 855))
+        val answer = PairAnswer.Listing(liveListing(Triple("20689", 555, 845)))
+        val merged = PairMerge.merge(assetRows, answer, nowMinuteOfTarget = 600)
+        val (rows, applied) = PairMerge.dedupeRenumbered(
+            merged.rows,
+            listOf(PairMerge.Renumber("16579", "20690", "SMET INTERCITY")),
+        )
+        assertEquals("never drop the only copy of a train", 2, rows.size)
+        assertTrue(applied.isEmpty())
+    }
+
+    @Test
+    fun theMergeNoteNamesOldNumberNewNumberAndTheSourceAnswer() {
+        val note = PairMerge.renumberNote(listOf(PairMerge.Renumber("16579", "20689", "SMET INTERCITY")))
+        assertTrue("got: $note", note.contains("16579"))
+        assertTrue("got: $note", note.contains("20689"))
+        assertTrue("got: $note", note.contains("SMET INTERCITY"))
+        assertTrue("got: $note", note.contains("one train"))
+    }
+
+    @Test
     fun aLiveListingUpgradesItsAssetTwinAndAddsLiveOnlyTrains() {
         // The real shape: asset has 16226 (and, wrongly, 06228); the live list carries 16226 and the
         // 16221 our dump has never listed in this direction.
