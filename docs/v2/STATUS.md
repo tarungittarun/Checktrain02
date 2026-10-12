@@ -325,5 +325,5 @@ Latest-apk: the owner-installed build (21:26 UTC, 10,667,232 B) already carries 
 
 
 
-Latest-apk: 10,741,099 B @ 2026-10-12T10:42:49Z (af9392e, Round 28: the owner's researched NTES-app gateway shipped as probe variants [post-appservand-json + webview-appservand], getRunTrain pair retired with evidence; android SUCCESS, run 38237749031)
+Latest-apk: 10,740,983 B @ 2026-10-12T10:58:50Z (f3d911a, Round 29: AppServAnd gateway measured dead both transports on the phone [paste #12]; the in-page tap retargeted to the page's own 'Show Status' button; android SUCCESS, run 38239335947)
 
