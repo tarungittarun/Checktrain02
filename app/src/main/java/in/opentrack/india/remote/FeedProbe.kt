@@ -159,7 +159,7 @@ object FeedProbe {
                 // read variant of THIS page can succeed - the paste will have said so.
                 BrowserFetch.pageText(
                     rebuilt.url, 34_000, settleMillis = 20_000, textCap = 64_000, dom = true,
-                    tapText = "Running status",
+                    tapText = "Show Status",
                 )
             } else if (rebuilt.name == "webview-erail-rstrain-dom") {
                 // The 14:40 paste's second verdict: the visible text never gains a table. Their own
@@ -337,10 +337,11 @@ object FeedProbe {
                 "webview-erail-rstrain-dom-tap",
                 "https://erail.in/train-running-status/$trainNo",
                 null, emptyMap(), false,
-                "the same page given PATIENCE and a TAP: 20 s settle (their SignalR hub may simply " +
-                    "be slow on a phone), then their own 'Running status' tab is clicked and the DOM " +
-                    "read 6 s later - paste #11 proved the DOM holds only meta text at 10 s, so this " +
-                    "is the last in-page lever before their data channel is declared tap-gated",
+                "the same page given PATIENCE and a TAP: 20 s settle, then the button the page's " +
+                    "own text names - 'Show Status' (paste #12: our tap looked for 'Running status' " +
+                    "and hit no-target, while the captured text ends '11-Oct 12-Oct 13-Oct Show " +
+                    "Status') - and the DOM read 6 s later. If their table only paints behind that " +
+                    "button, this read is where the per-stop actuals finally land",
                 false, true,
             ),
             Variant(
