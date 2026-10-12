@@ -242,11 +242,14 @@ class ErailLiveStatusProbe(unittest.TestCase):
         self.assertEqual(
             [("https://erail.in/rail/getRunTrain.aspx", False),
              ("https://erail.in/rail/getRunTrain.aspx", True),
-             ("https://erail.in/running-status/16221/", False)],
-            asked, "dalvik first (as the app ships), browser-UA second (the 403 answerer), page last",
+             ("https://erail.in/rail/getRunTrain.aspx", True),
+             ("https://erail.in/running-status/16221/", False),
+             ("https://api.railradar.in/v1/trains/16221/live", True)],
+            asked, "dalvik, browser-UA, browser-UA+XHR, page, railradar-no-key - each once",
         )
-        self.assertTrue(any("browser-UA" in l and "HTTP 200" in l for l in lines))
-        self.assertEqual(3, len(caps))
+        self.assertTrue(any("browser-UA+XHR" in l and "HTTP 200" in l for l in lines))
+        self.assertTrue(any("railradar-no-key" in l and "HTTP 200" in l for l in lines))
+        self.assertEqual(5, len(caps))
         self.assertEqual("16221", caps[0][0])
         self.assertTrue(caps[0][1].startswith("https://erail.in/rail/"))
         self.assertEqual("16221~actual~rows~here", caps[0][2])
@@ -256,7 +259,7 @@ class ErailLiveStatusProbe(unittest.TestCase):
             "16221", "12-10-2026",
             get=lambda q, timeout=20, base=plf.ERAIL_BASE, headers=None: ("HTTP 404", ""),
         )
-        self.assertEqual(3, len([l for l in lines if "HTTP 404" in l]))
+        self.assertEqual(5, len([l for l in lines if "HTTP 404" in l]))
         self.assertEqual([], caps, "nothing came back, so nothing is captured")
 
     def test_the_capture_comment_carries_live_status_bodies_with_url_and_truncates(self):

@@ -161,6 +161,9 @@ object FeedProbe {
                     "&journeyDate=" + isoDate(journeyEpochDay))
             v.body == null && v.url.contains("railradar") ->
                 v.copy(url = "https://api.railradar.in/v1/trains/$trainNo/live")
+            v.body == null && v.url.contains("getRunTrain") ->
+                v.copy(url = "https://erail.in/rail/getRunTrain.aspx?trainno=$trainNo" +
+                    "&startDate=" + isoDate(journeyEpochDay))
             v.body == null && v.url.contains("getTrains.aspx") ->
                 v.copy(url = "https://erail.in/rail/getTrains.aspx?TrainNo=$trainNo&DataSource=1&Language=0")
             v.body == null -> v
@@ -248,6 +251,31 @@ object FeedProbe {
                 "the alternate source through the same engine - if it answers here, run data from erail becomes " +
                     "reachable on exactly the devices where the app's own client was refused",
                 false, true,
+            ),
+            Variant(
+                "webview-erail-runtrain",
+                "https://erail.in/rail/getRunTrain.aspx?trainno=$trainNo&startDate=$startIso",
+                null, emptyMap(), false,
+                "erail's live-status endpoint asked from erail's OWN engine, erail.in warmed first: CI measured " +
+                    "403 (run 548a5db) and the owner's phone measured 'closed' on the Dalvik path (diag log " +
+                    "09:50:48) - but erail's own live page must fetch this data somehow, and whatever it uses, " +
+                    "this engine holds its cookies. A 200 here is the per-stop actuals door on the phone",
+                false, true, "https://erail.in/",
+            ),
+            Variant(
+                "get-erail-runtrain-xhr",
+                "https://erail.in/rail/getRunTrain.aspx?trainno=$trainNo&startDate=$startIso",
+                null,
+                mapOf(
+                    "User-Agent" to
+                        "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Mobile Safari/537.36",
+                    "Referer" to "https://erail.in/",
+                    "X-Requested-With" to "XMLHttpRequest",
+                    "Accept" to "application/json, text/javascript, */*; q=0.01",
+                ),
+                false,
+                "the same live endpoint, the app's own stack, browser identity headers: the discriminator " +
+                    "between a header-based refusal (fixable in Http for everyone) and an IP-class refusal (not ours to fix)",
             ),
             Variant(
                 "post-tls12", NtesWire.BASE_URL, envelope, dalvik, true,

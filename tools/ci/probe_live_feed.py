@@ -195,7 +195,7 @@ def erail_get(query: str, timeout: int = 20, base: str = ERAIL_BASE,
     expects - a header change is not a new tool, and it is still one attempt per candidate.
     """
     h = {"User-Agent": UA, "Accept": "*/*"} if headers is None else headers
-    req = urllib.request.Request(base + "?" + query, headers=h)
+    req = urllib.request.Request(base + ("?" + query if query else ""), headers=h)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             body = r.read(400_000).decode("utf-8", "replace")
@@ -401,17 +401,26 @@ def erail_live_status_lines(train_no: str, date_ddmm: str,
     """
     browser = {"User-Agent": BROWSER_UA, "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
                "Referer": "https://erail.in/"}
+    xhr = {"User-Agent": BROWSER_UA,
+           "Accept": "application/json, text/javascript, */*; q=0.01",
+           "Referer": "https://erail.in/",
+           "X-Requested-With": "XMLHttpRequest"}
+    rr = {"User-Agent": BROWSER_UA, "Accept": "application/json"}
     cands = [
-        (f"getRunTrain.aspx?trainno={train_no}&startDate={date_ddmm}", "https://erail.in/rail/", None),
-        (f"getRunTrain.aspx?TrainNo={train_no}&startDate={date_ddmm}", "https://erail.in/rail/", browser),
-        (f"{train_no}/", "https://erail.in/running-status/", None),
+        (f"getRunTrain.aspx?trainno={train_no}&startDate={date_ddmm}", "https://erail.in/rail/", None,
+         "dalvik-UA"),
+        (f"getRunTrain.aspx?TrainNo={train_no}&startDate={date_ddmm}", "https://erail.in/rail/", browser,
+         "browser-UA"),
+        (f"getRunTrain.aspx?trainno={train_no}&startDate={date_ddmm}", "https://erail.in/rail/", xhr,
+         "browser-UA+XHR"),
+        (f"{train_no}/", "https://erail.in/running-status/", None, "page"),
+        ("", f"https://api.railradar.in/v1/trains/{train_no}/live", rr, "railradar-no-key"),
     ]
     out: list[str] = []
     caps: list[tuple[str, str, str]] = []
-    for q, base, hdr in cands:
+    for q, base, hdr, tag in cands:
         verdict, body = (get(q, base=base, headers=hdr) if hdr
                          else get(q, base=base))
-        tag = "browser-UA" if hdr else "dalvik-UA"
         out.append(f"live status of {train_no} via {base}{q.split('?')[0]} ({tag}) · {verdict}")
         if body:
             out.append(f"  body {len(body)}B · {body.count(chr(10)) + 1} line(s)")
