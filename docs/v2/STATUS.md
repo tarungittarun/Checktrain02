@@ -343,5 +343,5 @@ Latest-apk: the owner-installed build (21:26 UTC, 10,667,232 B) already carries 
 
 
 
-Latest-apk: 10,752,675 B @ 2026-10-12T12:21:32Z (6a16a71, Round 35 GREEN — the relay answered from the owner's phone; listening-caption shipped)
+Latest-apk: 10,764,267 B @ 2026-10-12T12:55:50Z (adaf07c, Round 36 GREEN — the mirror data path: actual arr/dep per halt via runningstatus.in; loopback retry window)
 
