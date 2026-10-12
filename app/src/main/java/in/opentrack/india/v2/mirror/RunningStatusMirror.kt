@@ -118,7 +118,7 @@ object RunningStatusMirror {
                 else -> null
             }
             val tail = if (delayWord == null) SOURCE else "$SOURCE ($delayWord)"
-            out[s.stationCode] = parts.joinToString(" · ") + " — via $tail"
+            out[s.stationCode] = "${s.stationCode} " + parts.joinToString(" · ") + " — via $tail"
         }
         return out
     }
