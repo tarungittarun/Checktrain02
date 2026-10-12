@@ -237,15 +237,15 @@ class LiveViewModel(
         raw.put(trainNo, obj)
         val trimmed = org.json.JSONObject()
         // Keep the freshest eight trains: a commuter's week is five, with margin.
-        val entries = sortedMapOf<Long, String>()
+        val keysWithAt = mutableListOf<Pair<Long, String>>()
         for (key in raw.keys()) {
             val o = raw.optJSONObject(key) ?: continue
-            entries[o.optLong("at", 0L)] = key
+            keysWithAt += o.optLong("at", 0L) to key
         }
         var kept = 0
-        for ((_, key) in entries.descendingMap()) {
+        for (entry in keysWithAt.sortedByDescending { it.first }) {
             if (kept++ >= 8) continue
-            trimmed.put(key, raw.optJSONObject(key) ?: continue)
+            trimmed.put(entry.second, raw.optJSONObject(entry.second) ?: continue)
         }
         repo.prefs.mirrorCache = trimmed.toString()
     }
