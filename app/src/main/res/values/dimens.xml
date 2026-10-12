@@ -10,8 +10,8 @@
     <dimen name="gap_xs">4dp</dimen>
     <dimen name="radius">16dp</dimen>
     <dimen name="rail_w">22dp</dimen>
-    <dimen name="col_sched">74dp</dimen>
-    <dimen name="col_live">86dp</dimen>
+    <dimen name="col_sched">96dp</dimen>
+    <dimen name="col_live">96dp</dimen>
     <dimen name="col_km">44dp</dimen>
     <dimen name="row_min_h">54dp</dimen>
     <dimen name="chart_h">190dp</dimen>
