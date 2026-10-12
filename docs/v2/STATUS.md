@@ -362,7 +362,7 @@ Honest ledger: live pair list ✓, identity correction ✓, honest labelling ✓
 
 
 
-Latest-apk: `8133e37` — Round 45 GREEN — Arrival|Station|Departure columns, Sch-over-Act stack with prefixes, switch not button, source dropdown, auto-off fully stops, instant offline paint
+Latest-apk: `834468b` — Round 46 GREEN — the witness feeds the columns: mirror/CK minutes overlay Act/Est whether or not erail answers, SWR cache carries stops, dropdown switches both witnesses
 
 
 
