@@ -29,7 +29,7 @@ class IdentityOverlayTest {
         assertEquals("YPR", route.stops[0].code)
         assertEquals(555, route.stops[0].departureMin)
         assertEquals("SMET", route.stops[1].code)
-        assertEquals(845, route.stops[1].arrivalMin)
+        assertEquals("the terminus arrival is a clock minute", 845, route.stops[1].arrivalMin)
         assertEquals(0, route.stops[1].journeyDay)
         assertEquals("SMET INTERCITY", route.trainName)
     }
@@ -38,7 +38,7 @@ class IdentityOverlayTest {
     fun the_day_wrap_folds_into_the_terminus_stop_s_journey_day() {
         val route = LiveViewModel.syntheticRoute(live("TLGP", "MYS", 1255, 500, 1))
         assertEquals(1, route.stops[1].journeyDay)
-        assertEquals(500, route.stops[1].arrivalMin, "arrival stays a clock minute; the day is the offset")
+        assertEquals("arrival stays a clock minute; the day is the offset", 500, route.stops[1].arrivalMin)
     }
 
     @Test
