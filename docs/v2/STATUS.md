@@ -351,5 +351,5 @@ Latest-apk: the owner-installed build (21:26 UTC, 10,667,232 B) already carries 
 
 
 
-Latest-apk: 10,767,983 B @ 2026-10-12T13:32:57Z (ad8c7d8, Round 38 GREEN — ntfy real bytes captured+fixture-tested; cache-buster on every poll; 3-verdict loopback)
+Latest-apk: 10,768,519 B @ 2026-10-12T13:50:34Z (afb74e3, Round 39 GREEN — actuals only: mirror read waits out the Cloudflare check ×2 reads; ConfirmTkt 120 KB captured by CI as the backup source)
 
