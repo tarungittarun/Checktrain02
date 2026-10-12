@@ -59,6 +59,16 @@ class Prefs(context: Context) {
         get() = sp.getBoolean(KEY_ONBOARDED, false)
         set(v) = sp.edit().putBoolean(KEY_ONBOARDED, v).apply()
 
+    /**
+     * ADR-006 opt-in: whether this user will publish and read traveller reports. Off until the user
+     * taps it on; when off, nothing is published and nothing is polled - the screen shows no report
+     * lines at all, which is the honest default (a feature the user never asked for must announce
+     * itself before it acts).
+     */
+    var crowdReports: Boolean
+        get() = sp.getBoolean(KEY_CROWD, false)
+        set(v) = sp.edit().putBoolean(KEY_CROWD, v).apply()
+
     var useLocation: Boolean
         get() = sp.getBoolean(KEY_USE_LOCATION, false)
         set(v) = sp.edit().putBoolean(KEY_USE_LOCATION, v).apply()
@@ -86,5 +96,6 @@ class Prefs(context: Context) {
         private const val KEY_ONBOARDED = "onboarded"
         private const val KEY_USE_LOCATION = "useLocation"
         private const val KEY_RECENT = "recent"
+        private const val KEY_CROWD = "crowdReports"
     }
 }

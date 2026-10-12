@@ -65,3 +65,32 @@ class CrowdMergerTest {
         )
     }
 }
+
+    @Test
+    fun the_reader_line_prefers_departed_and_names_the_stop() {
+        val now = 1_000_000L
+        val merged = CrowdMerger.merge(
+            listOf(
+                StopReport("16579", "SMET", StopReport.Kind.ARRIVED, 630, now - 60_000),
+                StopReport("16579", "SMET", StopReport.Kind.DEPARTED, 637, now - 60_000),
+            ),
+            now,
+        )
+        val lines = CrowdMerger.lines(merged, listOf("TLGP", "SMET"))
+        assertTrue("got: ${lines["SMET"]}", lines.getValue("SMET").contains("SMET departed 10:37"))
+        assertTrue("got: ${lines["TLGP"]}", lines.getValue("TLGP").contains("no traveller reports for TLGP yet"))
+        assertEquals("every asked stop gets a sentence, never a blank", 2, lines.size)
+    }
+
+    @Test
+    fun an_arrival_only_stop_still_states_its_arrival() {
+        val now = 2_000_000L
+        val merged = CrowdMerger.merge(
+            listOf(StopReport("16579", "TLGP", StopReport.Kind.ARRIVED, 315, now - 120_000)),
+            now,
+        )
+        val lines = CrowdMerger.lines(merged, listOf("TLGP"))
+        val line = lines.getValue("TLGP")
+        assertTrue("got: $line", line.contains("TLGP arrived 05:15"))
+        assertTrue("got: $line", line.contains("reported by travellers"))
+    }

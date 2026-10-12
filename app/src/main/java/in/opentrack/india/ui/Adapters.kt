@@ -109,11 +109,15 @@ class TrainHitAdapter(private val onClick: (TrainHit) -> Unit) :
  */
 class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
 
+    /** Per-stop traveller-report sentences (ADR-006). Empty when the user has not opted in. */
+    var reports: Map<String, String> = emptyMap()
+
     class Holder(view: View) : RecyclerView.ViewHolder(view) {
         val row: View = view.findViewById(R.id.stopRow)
         val dot: View = view.findViewById(R.id.stopDot)
         val name: TextView = view.findViewById(R.id.stopName)
         val meta: TextView = view.findViewById(R.id.stopMeta)
+        val reports: TextView = view.findViewById(R.id.stopReports)
         val schedArr: TextView = view.findViewById(R.id.schedArr)
         val schedDep: TextView = view.findViewById(R.id.schedDep)
         val liveArr: TextView = view.findViewById(R.id.liveArr)
@@ -160,6 +164,11 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         holder.liveDep.text = s.showDep?.let { if (reported) RailTime.formatRailMinute(it) else "—" } ?: "—"
         holder.tag.text = tagFor(s, ctx)
         holder.tag.setTextColor(ctx.getColor(tagColorFor(s)))
+        // The reader column, per row: a traveller-sourced sentence or nothing - never blended into the
+        // scheduled or live columns, which is where an unofficial minute would start passing as official.
+        val line = reports[s.code]
+        holder.reports.visibility = if (line == null) View.GONE else View.VISIBLE
+        holder.reports.text = line
         holder.dot.setBackgroundResource(dotFor(s))
         holder.row.setBackgroundColor(
             when {

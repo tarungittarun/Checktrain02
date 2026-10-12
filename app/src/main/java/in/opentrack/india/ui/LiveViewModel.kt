@@ -16,6 +16,9 @@ import `in`.opentrack.india.model.StopRow
 import `in`.opentrack.india.model.TrainPosition
 import `in`.opentrack.india.model.TrainRoute
 import `in`.opentrack.india.v2.contract.TrainIdentity
+import `in`.opentrack.india.v2.crowd.CrowdMerger
+import `in`.opentrack.india.v2.crowd.NtfyRelay
+import `in`.opentrack.india.v2.crowd.StopReport
 import `in`.opentrack.india.v2.source.ErailPairParser
 import `in`.opentrack.india.v2.source.ErailTransport
 import `in`.opentrack.india.v2.source.PairParse
@@ -75,6 +78,7 @@ class LiveViewModel(
     private val toCode: String,
     private val originEpochDay: Long,
     private val identityFetch: IdentityFetch = IdentityFetch(::erailIdentityFetch),
+    private val relay: NtfyRelay = NtfyRelay(),
 ) : ViewModel() {
 
     /** The live identity for [trainNo], once one reaches the device; null until then (and stays null on failure). */
@@ -94,6 +98,11 @@ class LiveViewModel(
         val nowRailMinute: Int,
         val tried: List<String>,
         val loading: Boolean,
+        /** One reader sentence per stop code ("SMET departed 10:37 — reported by travellers…"), when the
+            traveller opted in; empty = the feature is off, and the screen shows no report column at all. */
+        val reports: Map<String, String> = emptyMap(),
+        /** False when the relay itself was unreachable - the reports card must say so, never imply an empty train. */
+        val relayOk: Boolean = true,
     )
 
     private val _ui = MutableLiveData<Ui?>()
@@ -110,6 +119,14 @@ class LiveViewModel(
      */
     private val _checking = MutableLiveData(true)
     val checking: LiveData<Boolean> = _checking
+
+    /** The reporter controls' last outcome, as a sentence ("published: SMET DEPARTED 14:02"). */
+    private val _reportStatus = MutableLiveData<String?>()
+    val reportStatus: LiveData<String?> = _reportStatus
+
+    /** ADR-006 opt-in, read from prefs on every refresh: off means nothing polled, nothing published. */
+    @Volatile
+    private var crowdOn = false
 
     private var pollJob: Job? = null
     private var lastAnswer: PositionEngine.Answer? = null
@@ -170,7 +187,7 @@ class LiveViewModel(
                 "erail live identity for $trainNo: ${id.identity.fromCode}->${id.identity.toCode} (${id.identity.name})",
             )
             // Re-read our own last emission (the Activity holds its own copy; this class does not see it).
-            _ui.value?.let { u -> _ui.value = buildUi(u.route, u.answer, u.tried) }
+            _ui.value?.let { u -> _ui.value = buildUi(u.route, u.answer, u.tried).copy(reports = u.reports, relayOk = u.relayOk) }
         }
     }
 
@@ -206,6 +223,7 @@ class LiveViewModel(
                 _error.value = "Timetable is not installed on this device yet."
                 return
             }
+            crowdOn = repo.prefs.crowdReports
             val live = runCatching {
                 repo.live(
                     trainNo = trainNo, fromCode = fromCode, toCode = toCode,
@@ -232,11 +250,13 @@ class LiveViewModel(
                 lastAnswer = answer
                 _ui.value = buildUi(route, answer, emptyList(), listOf(fallbackNote(id, fromCode, toCode)))
                 _error.value = null
+                maybeCrowd()
                 return
             }
             lastAnswer = live.answer
             _ui.value = buildUi(live.route, live.answer, live.tried, live.notes)
             _error.value = null
+            maybeCrowd()
         }
     }
 
@@ -252,6 +272,76 @@ class LiveViewModel(
         )
         lastAnswer = answer
         _ui.value = buildUi(cached, answer, emptyList(), emptyList())
+    }
+
+    /**
+     * The reader half of ADR-006: poll this train's topic once per refresh, merge, and put one sentence
+     * per stop on the screen. Post-ui on purpose - the timetable renders first and the reports card
+     * fills in when the relay answers, exactly like the live-identity upgrade above it.
+     */
+    private fun maybeCrowd() {
+        if (!crowdOn) return
+        viewModelScope.launch {
+            val codes = _ui.value?.route?.stops?.map { it.code } ?: return@launch
+            val poll = withContext(Dispatchers.IO) { relay.pollRecentOrFailure(trainNo) }
+            val merged = CrowdMerger.merge(poll.reports, System.currentTimeMillis())
+            val lines = CrowdMerger.lines(merged, codes)
+            _ui.postValue(_ui.value?.copy(reports = lines, relayOk = poll.relayOk))
+            Diary.get()?.log("CROWD") {
+                "read ${poll.reports.size} report(s) on ct-$trainNo; ${lines.count { !it.value.startsWith("no traveller") }} " +
+                    "stop(s) with fresh actuals, ${merged.droppedStale} dropped stale; relay " +
+                    (if (poll.relayOk) "answered" else "unreachable")
+            }
+        }
+    }
+
+    /** The traveller's half: publish one observation, then re-read the topic so the report shows. */
+    fun reportAt(stationCode: String, kind: StopReport.Kind) {
+        viewModelScope.launch {
+            val now = System.currentTimeMillis()
+            val rep = StopReport(
+                trainNo = trainNo, stationCode = stationCode.uppercase(), kind = kind,
+                railMinute = RailTime.istMinuteOfDay(now), reportedAtMillis = now,
+            )
+            val w = withContext(Dispatchers.IO) { relay.publish(rep) }
+            val msg = when (w) {
+                is NtfyRelay.Wire.Ok ->
+                    "published: ${rep.stationCode} $kind ${rep.railMinute / 60}:" + "%02d".format(rep.railMinute % 60) +
+                        " — thank you, travellers on this train will see it"
+                is NtfyRelay.Wire.Unreachable -> "could not publish (${w.why}) — nothing was sent"
+            }
+            _reportStatus.postValue(msg)
+            Diary.get()?.log("CROWD") { msg }
+            if (w is NtfyRelay.Wire.Ok) maybeCrowd()
+        }
+    }
+
+    /**
+     * The pipe's proof, with a guardrail the vocabulary forbids us to skip: the test report travels on
+     * ct-test-<nonce>, NEVER on a real train's topic - a loopback that showed up as a traveller report
+     * would be exactly the fabricated witness this project promised never to create.
+     */
+    fun loopbackTest() {
+        viewModelScope.launch {
+            val nonce = java.util.UUID.randomUUID().toString().takeLast(4)
+            val now = System.currentTimeMillis()
+            val rep = StopReport("test-$nonce", "TEST", StopReport.Kind.DEPARTED,
+                RailTime.istMinuteOfDay(now), now)
+            val pub = withContext(Dispatchers.IO) { relay.publish(rep) }
+            if (pub !is NtfyRelay.Wire.Ok) {
+                _reportStatus.postValue("loopback FAILED at publish: ${pub.why}")
+                return@launch
+            }
+            delay(1_500)
+            val back = withContext(Dispatchers.IO) { relay.pollRecentOrFailure("test-$nonce") }
+            val msg = if (back.relayOk && back.reports.any { it.stationCode == "TEST" && it.railMinute == rep.railMinute }) {
+                "loopback OK: published and read back on ct-test-$nonce — the report pipe works on this device"
+            } else {
+                "loopback FAILED at read-back (relayOk=${back.relayOk}, ${back.reports.size} report(s) seen)"
+            }
+            _reportStatus.postValue(msg)
+            Diary.get()?.log("CROWD") { msg }
+        }
     }
 
     private fun nowMinute(now: Long): Int =

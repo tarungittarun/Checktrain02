@@ -5,6 +5,8 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.os.Bundle
 import android.util.Log
+import android.widget.AdapterView
+import android.widget.ArrayAdapter
 import android.widget.Toast
 import android.view.View
 import androidx.appcompat.app.AppCompatActivity
@@ -61,6 +63,7 @@ class TrainActivity : AppCompatActivity() {
         )[LiveViewModel::class.java]
 
         stopAdapter = StopAdapter()
+        wireReporter()
         binding.stops.layoutManager = LinearLayoutManager(this)
         binding.stops.adapter = stopAdapter
         binding.stops.isNestedScrollingEnabled = false
@@ -99,6 +102,10 @@ class TrainActivity : AppCompatActivity() {
         }
 
         vm.ui.observe(this) { it?.let { u -> lastUi = u; bind(u); renderNote() } }
+        vm.reportStatus.observe(this) { msg ->
+            binding.reportStatus.visibility = if (msg == null) View.GONE else View.VISIBLE
+            binding.reportStatus.text = msg
+        }
         vm.checking.observe(this) { busy ->
             // The 1800s complaint, answered: a moving bar for exactly as long as the app is working,
             // and a captioned spinner while the very first look is still in flight.
@@ -138,6 +145,51 @@ class TrainActivity : AppCompatActivity() {
         if (msg != null) binding.note.text = msg
     }
 
+    /**
+     * ADR-006's controls, present but inert until the user asks for them (the pref is off by default):
+     * a toggle reveals the box, the spinner names the stop, one button per fact, and the loopback - the
+     * pipe's proof on a ct-test topic, never a real train's.
+     */
+    private val prefs by lazy { `in`.opentrack.india.data.Prefs(this) }
+
+    private fun wireReporter() {
+        renderReporter(null)
+        binding.reportToggle.setOnClickListener {
+            prefs.crowdReports = !prefs.crowdReports
+            renderReporter(null)
+        }
+        binding.reportStop.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {}
+            override fun onNothingSelected(p: AdapterView<*>?) {}
+        }
+        binding.reportArr.setOnClickListener {
+            val code = binding.reportStop.selectedItem as? String ?: return@setOnClickListener
+            vm.reportAt(code, `in`.opentrack.india.v2.crowd.StopReport.Kind.ARRIVED)
+        }
+        binding.reportDep.setOnClickListener {
+            val code = binding.reportStop.selectedItem as? String ?: return@setOnClickListener
+            vm.reportAt(code, `in`.opentrack.india.v2.crowd.StopReport.Kind.DEPARTED)
+        }
+        binding.reportTest.setOnClickListener { vm.loopbackTest() }
+    }
+
+    /** Box and toggle text follow the pref; the spinner follows the route once per train. */
+    private fun renderReporter(ui: LiveViewModel.Ui?) {
+        val on = prefs.crowdReports
+        binding.reportToggle.setText(if (on) R.string.report_toggle_off else R.string.report_toggle_on)
+        binding.reportBox.visibility = if (on) View.VISIBLE else View.GONE
+        val route = ui?.route ?: return
+        if (binding.reportStop.tag != route.trainNo) {
+            binding.reportStop.tag = route.trainNo
+            val codes = route.stops.map { it.code }
+            binding.reportStop.adapter = ArrayAdapter(
+                this, android.R.layout.simple_spinner_dropdown_item, codes,
+            )
+            val board = ui.model.rows.indexOfFirst { it.isBoarding }
+            if (board >= 0) binding.reportStop.setSelection(board.coerceAtMost(codes.size - 1))
+        }
+    }
+
     private fun bind(ui: LiveViewModel.Ui) {
         val m = ui.model
         binding.trainNo.text = m.trainNo
@@ -174,6 +226,14 @@ class TrainActivity : AppCompatActivity() {
         binding.progressBar.pct = m.progressPct
         binding.progressBar.schedulePct = m.schedulePct
         binding.progressBar.live = m.isLive
+
+        stopAdapter.reports = ui.reports
+        if (ui.reports.isNotEmpty()) {
+            Diary.get()?.log("UISTATE") {
+                "crowd on screen: " + ui.reports.entries.joinToString(" ; ") { it.key + " -> " + it.value }
+            }
+        }
+        renderReporter(ui)
 
         val win = vm.windowFor(m.rows, m.anchorSeq, fullRoute)
         val from = win.first.coerceIn(0, (m.rows.size - 1).coerceAtLeast(0))

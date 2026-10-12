@@ -362,6 +362,79 @@
                 android:background="@drawable/bg_inset"
                 android:nestedScrollingEnabled="false" />
 
+            <Button
+                android:id="@+id/reportToggle"
+                style="@style/BtnGhost"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/gap"
+                android:text="@string/report_toggle_on" />
+
+            <LinearLayout
+                android:id="@+id/reportBox"
+                style="@style/Card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:background="@drawable/bg_card"
+                android:orientation="vertical"
+                android:padding="12dp"
+                android:visibility="gone">
+
+                <TextView
+                    style="@style/TextMicro"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/report_heading" />
+
+                <Spinner
+                    android:id="@+id/reportStop"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:baselineAligned="false"
+                    android:orientation="horizontal">
+
+                    <Button
+                        android:id="@+id/reportArr"
+                        style="@style/BtnGhost"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/report_arrived" />
+
+                    <Button
+                        android:id="@+id/reportDep"
+                        style="@style/BtnGhost"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:layout_weight="1"
+                        android:text="@string/report_departed" />
+                </LinearLayout>
+
+                <Button
+                    android:id="@+id/reportTest"
+                    style="@style/BtnGhost"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="@string/report_loopback" />
+
+                <TextView
+                    android:id="@+id/reportStatus"
+                    style="@style/TextMicro"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:visibility="gone" />
+            </LinearLayout>
+
             <TextView
                 android:id="@+id/rowsNote"
                 style="@style/TextMicro"

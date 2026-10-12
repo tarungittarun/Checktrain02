@@ -60,6 +60,23 @@ object CrowdMerger {
         }
     }
 
+    /**
+     * One line per stop of the route being shown, so the reader column can carry a sentence even where
+     * nobody has reported: "departed" is preferred over "arrived" (the stronger fact), and a stop with
+     * nothing fresh renders [sentence]'s null form - never blank, never the timetable dressed up.
+     */
+    fun lines(merged: Merged, stationCodes: List<String>): Map<String, String> {
+        val byCode = merged.stops.groupBy { it.stationCode }
+        val out = LinkedHashMap<String, String>()
+        for (code in stationCodes) {
+            val actuals = byCode[code.uppercase()].orEmpty()
+            val chosen = actuals.firstOrNull { it.kind == StopReport.Kind.DEPARTED }
+                ?: actuals.firstOrNull { it.kind == StopReport.Kind.ARRIVED }
+            out[code] = sentence(chosen, code)
+        }
+        return out
+    }
+
     /** A report older than this is history, not a live actual. */
     const val WINDOW_MILLIS: Long = 15 * 60_000L
 }

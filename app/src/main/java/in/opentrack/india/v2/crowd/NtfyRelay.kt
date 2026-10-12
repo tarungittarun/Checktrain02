@@ -31,18 +31,28 @@ class NtfyRelay(
     }
 
     /** One GET of everything recent on the train's topic, parsed into reports; junk lines are dropped. */
-    fun pollRecent(trainNo: String): List<StopReport> {
+    fun pollRecent(trainNo: String): List<StopReport> = pollRecentOrFailure(trainNo).reports
+
+    /**
+     * The same poll, honest about WHY it is empty: "no traveller reports yet" and "the relay did not
+     * answer" are different sentences a screen must not conflate - a dead relay is not an empty train.
+     */
+    fun pollRecentOrFailure(trainNo: String): Poll {
         val wire = fetch("$base/ct-$trainNo/json?poll=1&since=30m", "GET", null)
-        if (wire !is Wire.Ok) return emptyList()
-        return wire.body.lineSequence()
-            .filter { it.contains("\"event\":\"message\"") }
-            .mapNotNull { line ->
-                val message = extractJsonField(line, "message") ?: return@mapNotNull null
-                val unescaped = message.replace("\\\"", "\"").replace("\\\\", "\\")
-                StopReport.fromJson(unescaped)
-            }
-            .toList()
+        if (wire !is Wire.Ok) return Poll(emptyList(), relayOk = false)
+        return Poll(parseMessageLines(wire.body), relayOk = true)
     }
+
+    data class Poll(val reports: List<StopReport>, val relayOk: Boolean)
+
+    private fun parseMessageLines(body: String): List<StopReport> = body.lineSequence()
+        .filter { it.contains("\"event\":\"message\"") }
+        .mapNotNull { line ->
+            val message = extractJsonField(line, "message") ?: return@mapNotNull null
+            val unescaped = message.replace("\\\"", "\"").replace("\\\\", "\\")
+            StopReport.fromJson(unescaped)
+        }
+        .toList()
 
     fun topicFor(trainNo: String): String = "ct-$trainNo"
 

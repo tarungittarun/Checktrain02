@@ -70,6 +70,18 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="3dp"
             android:maxLines="2" />
+
+        <!-- The traveller-report sentence (ADR-006), its own line so an unofficial minute can never
+             be mistaken for the schedule or the live estimate beside it. -->
+        <TextView
+            android:id="@+id/stopReports"
+            style="@style/TextMicro"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="3dp"
+            android:maxLines="2"
+            android:textColor="@color/accent"
+            android:visibility="gone" />
     </LinearLayout>
 
     <LinearLayout
