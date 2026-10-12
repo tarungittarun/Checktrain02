@@ -364,6 +364,24 @@ object FeedProbe {
                 false, true,
             ),
             Variant(
+                "webview-confirmtkt",
+                "https://www.confirmtkt.com/train-running-status/$trainNo",
+                null, emptyMap(), false,
+                "the researched MIRROR class - trackers whose own whitelisted servers query the central " +
+                    "cluster and render the answer as plain HTML (owner's research, third piece): read " +
+                    "settled like our erail reads and scanned for time tokens; selectors unverified, " +
+                    "but the method is ours - the page carries times or its own navigation says so",
+                false, true,
+            ),
+            Variant(
+                "webview-railmitra",
+                "https://www.railmitra.com/live-running-status/$trainNo",
+                null, emptyMap(), false,
+                "the second researched mirror; the research gave selectors, not URLs, so the path is " +
+                    "a labelled guess - a miss renders their navigation and no bytes masquerade as data",
+                false, true,
+            ),
+            Variant(
                 "get-erail-sitejs",
                 "https://erail.in/js5/cmp/eRailMobileHTMLEN.js?v=22092026",
                 null,
@@ -564,24 +582,6 @@ object FeedProbe {
                 "the same pin on a host we know answers, which is what proves the pinned route itself works " +
                     "rather than merely failing differently",
                 true,
-            ),
-            Variant(
-                "webview-confirmtkt",
-                "https://www.confirmtkt.com/train-running-status/$trainNo",
-                null, emptyMap(), false,
-                "the researched MIRROR class - trackers whose own whitelisted servers query the central " +
-                    "cluster and render the answer as plain HTML (owner's research, third piece): read " +
-                    "settled like our erail reads and scanned for time tokens; selectors unverified, " +
-                    "but the method is ours - the page carries times or its own navigation says so",
-                false, true,
-            ),
-            Variant(
-                "webview-railmitra",
-                "https://www.railmitra.com/live-running-status/$trainNo",
-                null, emptyMap(), false,
-                "the second researched mirror; the research gave selectors, not URLs, so the path is " +
-                    "a labelled guess - a miss renders their navigation and no bytes masquerade as data",
-                false, true,
             ),
         )
     }
