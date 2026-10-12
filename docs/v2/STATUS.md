@@ -362,5 +362,5 @@ Latest-apk: the owner-installed build (21:26 UTC, 10,667,232 B) already carries 
 
 
 
-Latest-apk: 10,780,743 B @ 2026-10-12T15:46:59Z (e50742f, Round 43 GREEN — sources box + parallel witnesses + refresh-proof actuals headline + non-running-day sentence)
+Latest-apk: 10,789,543 B @ 2026-10-12T17:12:30Z (3409725, Round 44 GREEN — parallel-first witnesses, stale-while-revalidate cache, source chips, status words, full-route anchored table)
 
