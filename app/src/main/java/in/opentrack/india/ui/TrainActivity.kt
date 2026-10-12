@@ -71,13 +71,6 @@ class TrainActivity : AppCompatActivity() {
         binding.stops.isNestedScrollingEnabled = false
 
         binding.refresh.setOnClickListener { vm.refresh(manual = true) }
-        binding.toggle.setOnClickListener {
-            fullRoute = !fullRoute
-            binding.toggle.setText(
-                if (fullRoute) R.string.show_my_segment else R.string.show_full_route
-            )
-            lastUi?.let { bind(it) }
-        }
         binding.autoBtn.setOnClickListener {
             autoOn = !autoOn
             vm.setAutoRefresh(autoOn)
@@ -123,7 +116,6 @@ class TrainActivity : AppCompatActivity() {
             errorText = msg
             renderNote()
         }
-        binding.toggle.setText(R.string.show_full_route)
         binding.autoBtn.setText(R.string.auto_on)
     }
 
@@ -150,6 +142,27 @@ class TrainActivity : AppCompatActivity() {
         val msg = identityConflict() ?: errorText
         binding.note.visibility = if (msg == null) View.GONE else View.VISIBLE
         if (msg != null) binding.note.text = msg
+    }
+
+    /**
+     * The source chips, rebuilt only when the witness set changes: the active one is lit, any other
+     * loaded witness is one tap away, and the table re-renders from that witness.
+     */
+    private fun renderSourceChips(ui: LiveViewModel.Ui) {
+        val names = ui.sourceLines.keys.toList()
+        if (binding.sourceChips.tag == names) return
+        binding.sourceChips.tag = names
+        binding.sourceChips.removeAllViews()
+        names.take(3).forEach { name ->
+            val chip = TextView(this)
+            chip.text = name
+            chip.setPadding(28, 10, 28, 10)
+            chip.setBackgroundResource(R.drawable.bg_pill)
+            chip.setTextColor(getColor(if (name == ui.activeSource) R.color.accent else R.color.text2))
+            chip.setOnClickListener { vm.setActiveSource(name) }
+            binding.sourceChips.addView(chip)
+        }
+        binding.sourceChips.visibility = if (names.isEmpty()) View.GONE else View.VISIBLE
     }
 
     private fun bind(ui: LiveViewModel.Ui) {
@@ -184,6 +197,12 @@ class TrainActivity : AppCompatActivity() {
         // When the mirror's actuals reached this screen, THEY are the headline: the schedule's own
         // sentences ("Should be past Shimoga Town") contradicted the confirmed departure and read as
         // wrong data (paste #25). The badge earns its colour from the measured lateness.
+        if (ui.actualsHeadline == null) {
+            // The static-sounding labels were a fair complaint: a chip that says the same thing in every
+            // state reads as stuck. Name the situation instead - the sources are being asked.
+            binding.provenance.text = "SCHEDULE · sources unreachable"
+            binding.delay.text = "—"
+        }
         if (ui.actualsHeadline != null) {
             binding.headline.text = ui.actualsHeadline
             binding.next.text = ui.actualsNext
@@ -204,7 +223,8 @@ class TrainActivity : AppCompatActivity() {
         binding.note.visibility = if (m.note == null) View.GONE else View.VISIBLE
         m.note?.let { binding.note.text = it }
 
-        stopAdapter.reports = ui.reports
+        stopAdapter.reports = ui.sourceLines[ui.activeSource] ?: ui.reports
+        renderSourceChips(ui)
         stopAdapter.highlightCode = ui.anchorCode
         if (ui.anchorCode != null && ui.anchorCode != lastAnchor) {
             lastAnchor = ui.anchorCode
@@ -230,7 +250,9 @@ class TrainActivity : AppCompatActivity() {
         val anchorSeq = ui.anchorCode
             ?.let { ac -> m.rows.firstOrNull { it.code.equals(ac, true) }?.seq }
             ?: m.anchorSeq
-        val win = vm.windowFor(m.rows, anchorSeq, fullRoute)
+        // Always the FULL route now: the owner removed the segment toggle - the screen points at the
+        // train and the traveller scrolls for the rest, which the anchor scroll already does.
+        val win = vm.windowFor(m.rows, anchorSeq, true)
         val from = win.first.coerceIn(0, (m.rows.size - 1).coerceAtLeast(0))
         val to = win.last.coerceIn(from, (m.rows.size - 1).coerceAtLeast(0))
         stopAdapter.submitList(m.rows.subList(from, to + 1))

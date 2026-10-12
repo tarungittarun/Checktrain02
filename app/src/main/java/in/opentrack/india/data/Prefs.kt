@@ -41,6 +41,11 @@ class Prefs(context: Context) {
         get() = sp.getBoolean(KEY_DIARY, false)
         set(v) = sp.edit().putBoolean(KEY_DIARY, v).apply()
 
+    /** The mirror's last known actuals, one JSON object keyed by train number - stale-while-revalidate. */
+    var mirrorCache: String
+        get() = sp.getString(KEY_MIRROR_CACHE, "{}").orEmpty().ifBlank { "{}" }
+        set(v) = sp.edit().putString(KEY_MIRROR_CACHE, v).apply()
+
     var lastFromCode: String
         get() = sp.getString(KEY_LAST_FROM, "").orEmpty()
         set(v) = sp.edit().putString(KEY_LAST_FROM, v).apply()
@@ -97,5 +102,6 @@ class Prefs(context: Context) {
         private const val KEY_USE_LOCATION = "useLocation"
         private const val KEY_RECENT = "recent"
         private const val KEY_CROWD = "crowdReports"
+        private const val KEY_MIRROR_CACHE = "mirrorCache"
     }
 }

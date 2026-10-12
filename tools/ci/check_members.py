@@ -102,6 +102,8 @@ filterKeys
 ifBlank maxByOrNull
 # pointing the screen at the train (2026-10-12): RecyclerView/LayoutManager positioning
 scrollToPositionWithOffset findViewByPosition smoothScrollTo
+# stale-while-revalidate mirror cache (2026-10-12): org.json reads + sorted-view walk + time format
+optLong optInt descendingMap SimpleDateFormat format Date Locale US put
 isNullOrBlank containsKey isNullOrEmpty takeWhile toLongOrNull substringAfter asSequence toList filter
 createConfigurationContext density getLineWidth setTextSize requestRectangleOnScreen idleFor application
 addView await childCount contentEncoding countDown disconnect filterIndexed getInt getLastKnownLocation getSystemService hasAccuracy hasSpeed ifEmpty isProviderEnabled lastModified matchEntire maxOrNull minOrNull putIfAbsent rawQuery removeUpdates requestFocus requestLocationUpdates right setOnClickListener setOnEditorActionListener setOnFocusChangeListener setSelection sortedWith subList toByteArray toDouble toDoubleOrNull toLong trimEnd windowToken

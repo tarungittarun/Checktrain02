@@ -119,6 +119,10 @@ class LiveViewModel(
         val actualsLate: Int? = null,
         /** Which witnesses answered this refresh, for the age line: honesty about sources. */
         val sourcesLine: String? = null,
+        /** Per-witness reader lines; the chips switch which one the table shows. */
+        val sourceLines: Map<String, Map<String, String>> = emptyMap(),
+        /** The witness the table is currently showing - the highlighted chip. */
+        val activeSource: String? = null,
     )
 
     private val _ui = MutableLiveData<Ui?>()
@@ -163,8 +167,88 @@ class LiveViewModel(
     private var mirrorNext: String? = null
     private var mirrorBadge: String? = null
     private var mirrorSources: String? = null
+    private var mirrorSourceLines: Map<String, Map<String, String>> = emptyMap()
+    private var mirrorActiveSource: String? = null
+    private var mirrorRefreshedAt = 0L
+    private var cacheTrainNo: String? = null
 
-    private fun freshShift(): Boolean = System.currentTimeMillis() - mirrorShiftAt < 1_800_000
+    private fun freshShift(): Boolean =
+        cacheTrainNo == trainNo && System.currentTimeMillis() - mirrorShiftAt < 1_800_000
+
+    /** The table's lines follow the selected chip; the merged view is the fallback. */
+    fun setActiveSource(name: String) {
+        mirrorActiveSource = name
+        val lines = mirrorSourceLines[name]
+        val u = _ui.value ?: return
+        _ui.postValue(u.copy(activeSource = name, reports = lines ?: u.reports))
+    }
+
+    /**
+     * The stale-while-revalidate store: the mirror's last known answer for ANY train, persisted as one
+     * JSON object (org.json - the house way to build JSON). A track screen for a train seen in the last
+     * six hours renders its actuals THE MOMENT it opens, then refreshes underneath; on a fluctuating
+     * network that is the difference between an instant table and a spinner the journey outlives.
+     */
+    private fun loadMirrorCache() {
+        val repo = runCatching { repo() }.getOrNull() ?: return
+        val raw = runCatching { org.json.JSONObject(repo.prefs.mirrorCache) }.getOrNull() ?: return
+        val obj = raw.optJSONObject(trainNo) ?: return
+        val at = obj.optLong("at", 0L)
+        if (at == 0L || System.currentTimeMillis() - at > 6 * 3_600_000L) return
+        val lines = LinkedHashMap<String, String>()
+        val keys = obj.optJSONObject("lines")
+        if (keys != null) for (k in keys.keys()) lines[k] = keys.optString(k)
+        if (lines.isEmpty()) return
+        cacheTrainNo = trainNo
+        mirrorSourceLines = mapOf("last known" to lines)
+        mirrorActiveSource = "last known"
+        mirrorAnchorCode = obj.optString("anchor").ifBlank { null }
+        mirrorHeadline = obj.optString("headline").ifBlank { null }
+        mirrorNext = obj.optString("next").ifBlank { null }
+        mirrorBadge = obj.optString("badge").ifBlank { null }
+        mirrorLate = obj.optInt("late", 0)
+        mirrorSources = "last known · refreshed " + obj.optString("refreshed")
+        mirrorNote = obj.optString("note").ifBlank { null }
+        mirrorShiftAt = at
+        mirrorRefreshedAt = at
+        _mirrorState.postValue("Showing last known actuals (from ${obj.optString("refreshed")}) — refreshing…")
+        Diary.get()?.log("MIRROR") {
+            "cache applied for $trainNo: ${lines.size} stop line(s) from ${obj.optString("refreshed")}"
+        }
+    }
+
+    private fun saveMirrorCache(display: Map<String, String>) {
+        val repo = runCatching { repo() }.getOrNull() ?: return
+        val raw = runCatching { org.json.JSONObject(repo.prefs.mirrorCache) }.getOrNull() ?: return
+        val refreshed = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US)
+            .format(java.util.Date(mirrorRefreshedAt))
+        val obj = org.json.JSONObject()
+            .put("at", mirrorRefreshedAt)
+            .put("refreshed", refreshed)
+            .put("late", mirrorLate)
+        mirrorAnchorCode?.let { obj.put("anchor", it) }
+        mirrorHeadline?.let { obj.put("headline", it) }
+        mirrorNext?.let { obj.put("next", it) }
+        mirrorBadge?.let { obj.put("badge", it) }
+        mirrorNote?.let { obj.put("note", it) }
+        val lines = org.json.JSONObject()
+        for ((k, v) in display) lines.put(k, v)
+        obj.put("lines", lines)
+        raw.put(trainNo, obj)
+        val trimmed = org.json.JSONObject()
+        // Keep the freshest eight trains: a commuter's week is five, with margin.
+        val entries = sortedMapOf<Long, String>()
+        for (key in raw.keys()) {
+            val o = raw.optJSONObject(key) ?: continue
+            entries[o.optLong("at", 0L)] = key
+        }
+        var kept = 0
+        for ((_, key) in entries.descendingMap()) {
+            if (kept++ >= 8) continue
+            trimmed.put(key, raw.optJSONObject(key) ?: continue)
+        }
+        repo.prefs.mirrorCache = trimmed.toString()
+    }
 
     /** The track screen's live "what are the sources doing" line: fetching / answered / honest empty. */
     private val _mirrorState = MutableLiveData<String?>()
@@ -269,6 +353,11 @@ class LiveViewModel(
                 return
             }
             crowdOn = repo.prefs.crowdReports
+            // The witnesses start NOW, in parallel with the erail chain - not after it. Paste #27: on a
+            // fluctuating network the chain held the screen for minutes while the mirror needed 14 s.
+            // The 90 s throttle makes the later, post-buildUi calls no-ops.
+            maybeMirror()
+            maybeCrowd()
             val live = runCatching {
                 repo.live(
                     trainNo = trainNo, fromCode = fromCode, toCode = toCode,
@@ -380,8 +469,13 @@ class LiveViewModel(
         if (!force && nowWall - lastMirrorPoll < CROWD_POLL_MIN_MILLIS) return
         lastMirrorPoll = nowWall
         viewModelScope.launch {
-            val stopRows = _ui.value?.route?.stops ?: return@launch
+            // The route may not be on screen yet (first load fires the mirror in parallel with the
+            // erail chain) - the OFFLINE copy names the halts, and it is on this device.
+            val stopRows = _ui.value?.route?.stops
+                ?: runCatching { repo()?.queries?.route(trainNo)?.stops }.getOrNull()
+                ?: return@launch
             val codes = stopRows.map { it.code }
+            if (!freshShift()) loadMirrorCache()
             _mirrorState.postValue("Fetching actuals from 2 sources…")
             // The SECOND source runs in PARALLEL, not after: paste #26 waited out the primary's whole
             // chain before confirmtkt even started - seconds the traveller pays twice.
@@ -439,10 +533,18 @@ class LiveViewModel(
                             (peek?.let { "; the page began: \"$it\"" } ?: "")
                     }
                     val ck = ckDeferred.await()
+                    val offline = laneWhy.contains("UnknownHost") || laneWhy.contains("imeout")
                     _mirrorState.postValue(
-                        "No actuals yet — the train may not be running today " +
-                            "(runningstatus.in: no halt rows · confirmtkt: " +
-                            if (ck.ok) "${ck.halts} halts)" else "no answer)"
+                        when {
+                            offline && freshShift() ->
+                                "No network right now — showing the last known actuals"
+                            offline ->
+                                "No network right now — the actuals will load when it returns"
+                            else ->
+                                "No actuals yet — the train may not be running today " +
+                                    "(runningstatus.in: no halt rows · confirmtkt: " +
+                                    if (ck.ok) "${ck.halts} halts)" else "no answer)"
+                        }
                     )
                     return@launch
                 }
@@ -481,11 +583,21 @@ class LiveViewModel(
             val ck = ckDeferred.await()
             val ckFilled = ck.lines.filterKeys { it !in merged }
             val display = merged + ckFilled
+            mirrorRefreshedAt = System.currentTimeMillis()
+            val refreshed = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US)
+                .format(java.util.Date(mirrorRefreshedAt))
             val relayLine = "relay: " + if (_ui.value?.relayOk != false) "answered" else "unreachable"
             val sourcesLine = "${RunningStatusMirror.SOURCE} (${mirrorLines.size} halts) · " +
-                "${ConfirmTktMirror.SOURCE} " + if (ck.ok) "(${ck.halts} halts)" else "did not answer" +
-                " · " + relayLine
+                "${ConfirmTktMirror.SOURCE} " + (if (ck.ok) "(${ck.halts} halts)" else "did not answer") +
+                " · " + relayLine + " · refreshed $refreshed"
             mirrorSources = sourcesLine
+            mirrorSourceLines = linkedMapOf(
+                RunningStatusMirror.SOURCE to mirrorLines,
+                ConfirmTktMirror.SOURCE to ck.lines,
+            )
+            mirrorActiveSource = RunningStatusMirror.SOURCE
+            cacheTrainNo = trainNo
+            saveMirrorCache(display)
             _mirrorState.postValue("Actuals · $sourcesLine")
             Diary.get()?.log("MIRROR") { "sources this refresh: $sourcesLine" }
 
@@ -501,13 +613,26 @@ class LiveViewModel(
                 val next = if (li >= 0) stopRows.getOrNull(li + 1) else null
                 anchorCode = next?.code ?: last.stationCode
                 fun hm(m: Int): String = "${m / 60}:" + "%02d".format(m % 60)
-                headline = "Left ${last.stationCode} at ${hm(last.actDep ?: 0)} — " +
+                fun dayTag(minute: Int): String = if (minute >= 1440) " (+1d)" else ""
+                // The station-status word the owner asked for, derived ONLY from what a mirror can prove:
+                // a halt whose departure minute is this exact minute or the next few is being served; a
+                // halt with an arrival but no departure is being sat at; anything else is running.
+                val statusWord = when {
+                    last.stationCode == codes.lastOrNull() && last.actArr != null ->
+                        "Reached ${last.stationCode} — journey complete"
+                    last.actArr != null && last.actDep == null -> "Halted at ${last.stationCode}"
+                    last.actDep != null && nowRail - last.actDep in 0..2 -> "Departing ${last.stationCode} now"
+                    else -> "Running"
+                }
+                headline = statusWord + " — Left ${last.stationCode} at " +
+                    hm((last.actDep ?: 0) % 1440) + dayTag(last.actDep ?: 0) + " — " +
                     (if (late > 2) "$late min late" else "on time") +
                     (if (ck.ok) " · cross-checked" else "")
                 nextLine = when {
                     next != null -> {
-                        val sch = next.arrivalMin ?: next.departureMin
-                        "Next: ${next.name}" + (sch?.let { " · expected ~${hm(it + late)}" } ?: "")
+                        val sch = (next.arrivalMin ?: next.departureMin) ?: 0
+                        val exp = sch + late
+                        "Next: ${next.name} · expected ~${hm(exp % 1440)}" + dayTag(exp)
                     }
                     else -> "Reached ${last.stationCode} — the run's end"
                 }
@@ -682,7 +807,7 @@ class LiveViewModel(
             boarding = model.rows.firstOrNull { it.isBoarding },
             alighting = model.rows.firstOrNull { it.isAlighting },
             nowRailMinute = nowRail, tried = tried, loading = false,
-            reports = _ui.value?.reports ?: emptyMap(),
+            reports = mirrorSourceLines[mirrorActiveSource] ?: _ui.value?.reports ?: emptyMap(),
             relayOk = _ui.value?.relayOk ?: true,
             anchorCode = if (live) mirrorAnchorCode else null,
             actualsHeadline = if (live) mirrorHeadline else null,
@@ -690,6 +815,8 @@ class LiveViewModel(
             actualsBadge = if (live) mirrorBadge else null,
             actualsLate = if (live && mirrorLate > 0) mirrorLate else null,
             sourcesLine = if (live) mirrorSources else null,
+            sourceLines = if (live) mirrorSourceLines else emptyMap(),
+            activeSource = if (live) mirrorActiveSource else null,
         )
     }
 
