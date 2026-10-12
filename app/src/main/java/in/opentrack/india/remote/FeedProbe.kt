@@ -163,7 +163,7 @@ object FeedProbe {
                 v.copy(url = "https://api.railradar.in/v1/trains/$trainNo/live")
             v.body == null && v.url.contains("getRunTrain") ->
                 v.copy(url = "https://erail.in/rail/getRunTrain.aspx?trainno=$trainNo" +
-                    "&startDate=" + isoDate(journeyEpochDay))
+                    if (v.url.contains("startDate=")) "&startDate=" + ddmmDate(journeyEpochDay) else "")
             v.body == null && v.url.contains("getTrains.aspx") ->
                 v.copy(url = "https://erail.in/rail/getTrains.aspx?TrainNo=$trainNo&DataSource=1&Language=0")
             v.body == null -> v
@@ -184,6 +184,12 @@ object FeedProbe {
             it.timeZone = TimeZone.getTimeZone("Asia/Kolkata")
         }.format(java.util.Date(epochDay * 86_400_000L))
 
+    /** erail's own pages ask for dd-MM-yyyy; the 404 on the owner's phone (ISO date) is the evidence. */
+    private fun ddmmDate(epochDay: Long): String =
+        SimpleDateFormat("dd-MM-yyyy", Locale.ENGLISH).also {
+            it.timeZone = TimeZone.getTimeZone("Asia/Kolkata")
+        }.format(java.util.Date(epochDay * 86_400_000L))
+
     /**
      * The variants worth trying. Two axes matter for a server that hangs up: **what the request looks like**
      * (a Dalvik user agent with a JSON body versus a browser agent with none, since some deployments of this
@@ -199,24 +205,18 @@ object FeedProbe {
             "charset" to "utf-8",
             "User-Agent" to NtesWire.USER_AGENT,
         )
+        val ddmm = ddmmDate(java.util.Date(startIso.let {
+            // startIso is yyyy-MM-dd; convert through the epoch the same way isoDate built it.
+            SimpleDateFormat("yyyy-MM-dd", Locale.ENGLISH).also { tz -> tz.timeZone = TimeZone.getTimeZone("Asia/Kolkata") }
+                .parse(it)?.time ?: 0L
+        }))
         return listOf(
-            // ORDER IS A BUDGET DECISION (18 s): the first variants below are the only questions never
-            // answered anywhere - erail's live endpoint via erail's own browser engine (cookies and all).
-            // Everything about NTES has been measured dead nine times over on every transport; those
-            // variants run after, and the budget-skips are reported lines, not silences.
-            Variant(
-                "webview-erail-runtrain",
-                "https://erail.in/rail/getRunTrain.aspx?trainno=$trainNo&startDate=$startIso",
-                null, emptyMap(), false,
-                "erail's live-status endpoint asked from erail's OWN engine, erail.in warmed first: CI measured " +
-                    "403 to every header identity (run a339ab6) and the owner's phone 'closed' on the Dalvik " +
-                    "path - but erail's own live page must fetch this data somehow, and whatever it uses, this " +
-                    "engine holds its cookies. A 200 here is the per-stop actuals door on the phone",
-                false, true, "https://erail.in/",
-            ),
+            // ORDER IS A BUDGET DECISION (18 s), revised on the owner's 10:33 log: the phone REACHED
+            // getRunTrain.aspx (app-level 404 on an ISO-format date) where CI is 403'd at the door - so
+            // the phone is the lab and the erail live endpoint leads, with erail's own date format.
             Variant(
                 "get-erail-runtrain-xhr",
-                "https://erail.in/rail/getRunTrain.aspx?trainno=$trainNo&startDate=$startIso",
+                "https://erail.in/rail/getRunTrain.aspx?trainno=$trainNo&startDate=$ddmm",
                 null,
                 mapOf(
                     "User-Agent" to
@@ -226,8 +226,24 @@ object FeedProbe {
                     "Accept" to "application/json, text/javascript, */*; q=0.01",
                 ),
                 false,
-                "the same live endpoint, the app's own stack, browser identity headers: the discriminator " +
-                    "between a header-based refusal (fixable in Http for everyone) and an IP-class refusal (not ours to fix)",
+                "erail's live-status endpoint, the app's stack wearing the site's own headers, erail's own " +
+                    "date format (dd-MM-yyyy): the phone measurably passes the WAF here (404 was the app's " +
+                    "answer to a malformed date, not a block) - a 200 is the per-stop actuals door",
+            ),
+            Variant(
+                "get-erail-runtrain-nodate",
+                "https://erail.in/rail/getRunTrain.aspx?trainno=$trainNo",
+                null,
+                mapOf(
+                    "User-Agent" to
+                        "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Mobile Safari/537.36",
+                    "Referer" to "https://erail.in/",
+                    "X-Requested-With" to "XMLHttpRequest",
+                    "Accept" to "application/json, text/javascript, */*; q=0.01",
+                ),
+                false,
+                "the same endpoint without a date: if the endpoint serves the CURRENT run by default, the " +
+                    "date parameter was the whole 404 story",
             ),
             Variant(
                 "post-dalvik-json", NtesWire.BASE_URL, envelope, dalvik, false,
@@ -424,7 +440,11 @@ object FeedProbe {
                         // The head used to be dropped here. That is how the first answer this app ever got
                         // from the railway - 159 bytes, on the line above "not running data" - reached the
                         // copied report and never the log file, which is the artifact people actually send.
-                        (if (r.head.isBlank()) "" else " | " + r.head) + " in " + ms + "ms"
+                        (if (r.head.isBlank()) "" else " | " + r.head) + " in " + ms + "ms" +
+                        // A runtrain 200 is the capture the whole hunt is for: bounded body rides the line,
+                        // because the parser (4.5) may only be written against exactly this text.
+                        (if (got is Http.Result.Ok && v.url.contains("getRunTrain"))
+                            " body=" + got.body.take(800) else "")
                 }
                 if (usable) {
                     adoptedName = v.name

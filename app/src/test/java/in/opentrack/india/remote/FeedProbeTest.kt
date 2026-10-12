@@ -23,9 +23,11 @@ class FeedProbeTest {
         val vs = FeedProbe.variants("12627", "2026-10-11", NtesWire.plainFor(NtesWire.SUB_LIVE, "12627", 20737L))
         assertTrue("a probe with ${vs.size} variants cannot distinguish much", vs.size >= 6)
         assertEquals("variant names must be unique", vs.size, vs.map { it.name }.distinct().size)
-        // Order is a budget decision (18s): the never-answered erail door goes first, the shipped
-        // shape is the control that follows it (FeedProbe.variants comment, 2026-10-12).
-        assertEquals("the never-answered erail WebView door is asked first", "webview-erail-runtrain", vs.first().name)
+        // Order is a budget decision (18s), v3 per the owner's 10:33 log: the phone REACHED the erail
+        // live endpoint (404 was the app's answer to a malformed date) while CI is 403'd - so the
+        // erail asks lead, in erail's own date format, and the shipped shape is the control.
+        assertEquals("the erail live endpoint (right date format) is asked first", "get-erail-runtrain-xhr", vs.first().name)
+        assertEquals("the date-less spelling is second", "get-erail-runtrain-nodate", vs[1].name)
         assertEquals("the shipped shape follows as the control", "post-dalvik-json", vs[2].name)
         for (v in vs) {
             assertTrue("${v.name} must not send data in the clear", v.url.startsWith("https://"))
