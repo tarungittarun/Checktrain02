@@ -172,11 +172,14 @@ class RunningStatusMirrorTest {
         // 19:43 device time: BDVT departed 29 minutes ago - the newest REAL observation in the capture
         // (paste #24's exact situation: the tail "actuals" for ANF/SRF/TLGP are schedule echoes lying
         // ahead of the clock, and an echo must never anchor position).
+        // At 19:43 the fixture's tail is all echo or unprovable: ARU (+3 min ahead), ANF (+22) and
+        // SRF (+52 - the one that beat the first cut) are ahead of the clock or on-time copies of it.
+        // The newest PROVABLE deviation is TKE: actual dep 18:43 against a 18:42 schedule.
         val (last, echoes) = RunningStatusMirror.lastConfirmed(actuals, routeCodes, 19 * 60 + 43)!!
-        assertEquals("KMSI dep 19:31 is the newest departure genuinely behind the clock", "KMSI", last.stationCode)
-        assertEquals(1171, last.actDep)
-        assertEquals("ARU, ANF and SRF carry departures ahead of the clock in the capture - echoes", 3, echoes.size)
-        assertEquals("SRF", echoes.last())
+        assertEquals("TKE dep 18:43 (+1) is the newest provable deviation", "TKE", last.stationCode)
+        assertEquals(1123, last.actDep)
+        assertEquals("ARU and ANF sit ahead of the clock - echoes, named for the diary", listOf("ARU", "ANF"), echoes)
+        assertEquals(1, RunningStatusMirror.slipMinutes(last))
     }
 
     @Test
@@ -191,6 +194,17 @@ class RunningStatusMirrorTest {
         val (last, echoes) = RunningStatusMirror.lastConfirmed(actuals, listOf("AAA", "BBB"), 1183)!!
         assertEquals("BBB sits 3 minutes ahead of the clock - an echo, so AAA wins", "AAA", last.stationCode)
         assertEquals(listOf("BBB"), echoes)
+        val dev = RunningStatusMirror.Actuals(
+            "runningstatus.in",
+            listOf(
+                RunningStatusMirror.Stop("AAA", null, 1000, null, 1000),
+                RunningStatusMirror.Stop("BBB", null, 900, null, 940),
+            ),
+        )
+        assertEquals(
+            "an on-time copy of the schedule is not an observation; the deviation behind it is",
+            "BBB", RunningStatusMirror.lastConfirmed(dev, listOf("AAA", "BBB"), 1183)!!.first.stationCode,
+        )
         assertNull("every halt an echo means nothing is confirmed", RunningStatusMirror.lastConfirmed(
             RunningStatusMirror.Actuals("runningstatus.in", listOf(
                 RunningStatusMirror.Stop("BBB", null, 1180, null, 1186),

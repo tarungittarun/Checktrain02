@@ -146,15 +146,22 @@ object RunningStatusMirror {
         val order = routeCodes.map { it.uppercase() }
         val echoes = mutableListOf<String>()
         val confirmed = actuals.stops.filter { stop ->
-            val dep = stop.actDep
-            if (dep == null || stop.stationCode.uppercase() !in order) return@filter false
+            val dep = stop.actDep ?: return@filter false
+            if (stop.stationCode.uppercase() !in order) return@filter false
             val ahead = (dep - nowRailMinute + 1440) % 1440
+            // No observation lives in the future: a departure the clock says is still ahead (inside a
+            // 30-minute skew allowance) is an echo. This zone is deliberately narrow: "ahead" wraps for
+            // past departures too (departed 10 minutes ago reads 1430), and the FRESHEST deviations must
+            // survive. The clause below is what kills the far echoes like SRF's on-time "20:35".
             if (ahead in 0 until 30) {
                 echoes += stop.stationCode
-                false
-            } else {
-                true
+                return@filter false
             }
+            // An "actual" IDENTICAL to the schedule is unprovable either way: the mirror copies the
+            // schedule into halts the train has not reached, so on-time-pattern rows near the frontier
+            // are echoes too - whatever their horizon. Only a DEVIATION from the schedule is an
+            // observation, and only a deviation can anchor a lateness.
+            stop.schDep != null && dep != stop.schDep
         }
         val last = confirmed.maxByOrNull { order.indexOf(it.stationCode.uppercase()) } ?: return null
         return last to echoes
