@@ -283,6 +283,10 @@ object FeedProbe {
             "charset" to "utf-8",
             "User-Agent" to NtesWire.USER_AGENT,
         )
+        val epochDay = startIso.let {
+            SimpleDateFormat("yyyy-MM-dd", Locale.ENGLISH).also { tz -> tz.timeZone = TimeZone.getTimeZone("Asia/Kolkata") }
+                .parse(it)?.time ?: 0L
+        } / 86_400_000L
         val ddmm = ddmmDate(startIso.let {
             // startIso is yyyy-MM-dd; convert through the epoch the same way isoDate built it.
             SimpleDateFormat("yyyy-MM-dd", Locale.ENGLISH).also { tz -> tz.timeZone = TimeZone.getTimeZone("Asia/Kolkata") }
@@ -380,7 +384,7 @@ object FeedProbe {
             Variant(
                 "post-appservand-json",
                 "https://enquiry.indianrail.gov.in/crisns/AppServAnd",
-                appservandBody(trainNo, ddmm),
+                appservandBody(trainNo, epochDay),
                 mapOf(
                     "Content-Type" to "application/json; charset=utf-8",
                     "User-Agent" to "dalvik/2.1.0 (linux; u; android 13; build/tq3a.230805.001)",
@@ -396,9 +400,12 @@ object FeedProbe {
             Variant(
                 "webview-appservand",
                 "https://enquiry.indianrail.gov.in/crisns/AppServAnd",
-                appservandBody(trainNo, ddmm),
+                appservandBody(trainNo, epochDay),
                 mapOf("Content-Type" to "application/json; charset=utf-8"),
-                false, true, "https://enquiry.indianrail.gov.in/ntes/",
+                false,
+                "the same researched gateway through the browser engine, warm on the NTES page: the " +
+                    "transport axis that has separated this phone's two stacks in every paste so far",
+                true, "https://enquiry.indianrail.gov.in/ntes/",
             ),
             Variant(
                 "post-dalvik-json", NtesWire.BASE_URL, envelope, dalvik, false,
