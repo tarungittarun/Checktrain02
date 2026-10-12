@@ -100,6 +100,8 @@ enabledCipherSuites supportedCipherSuites defaultCipherSuites createSocket getOr
 # mirror witness (2026-10-12): stdlib Map merge so traveller lines keep their stop and the mirror fills the rest
 filterKeys
 ifBlank maxByOrNull
+# pointing the screen at the train (2026-10-12): RecyclerView/LayoutManager positioning
+scrollToPositionWithOffset findViewByPosition smoothScrollTo
 isNullOrBlank containsKey isNullOrEmpty takeWhile toLongOrNull substringAfter asSequence toList filter
 createConfigurationContext density getLineWidth setTextSize requestRectangleOnScreen idleFor application
 addView await childCount contentEncoding countDown disconnect filterIndexed getInt getLastKnownLocation getSystemService hasAccuracy hasSpeed ifEmpty isProviderEnabled lastModified matchEntire maxOrNull minOrNull putIfAbsent rawQuery removeUpdates requestFocus requestLocationUpdates right setOnClickListener setOnEditorActionListener setOnFocusChangeListener setSelection sortedWith subList toByteArray toDouble toDoubleOrNull toLong trimEnd windowToken

@@ -27,6 +27,9 @@ import `in`.opentrack.india.model.TrainSummary
  */
 class TrainHitAdapter(private val onClick: (TrainHit) -> Unit) :
     ListAdapter<TrainHit, TrainHitAdapter.Holder>(DIFF) {
+    /** The halt the mirror's actuals say the train is at or making for - tinted, never silent. */
+    var highlightCode: String? = null
+
 
     /** Minute-of-IST-epoch for "now", carried by the ViewModel. UI never reads the wall clock itself. */
     var nowMinute: Long = 0L
@@ -172,6 +175,7 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         holder.dot.setBackgroundResource(dotFor(s))
         holder.row.setBackgroundColor(
             when {
+                s.code.equals(highlightCode, true) -> 0x30FFC107.toInt() // amber: where the train IS
                 s.isAnchor -> 0x2437C978.toInt()
                 s.isBoarding || s.isAlighting -> 0x0AFFFFFF
                 else -> 0x00000000

@@ -21,6 +21,7 @@ import `in`.opentrack.india.v2.crowd.NtfyRelay
 import `in`.opentrack.india.v2.crowd.StopReport
 import `in`.opentrack.india.core.BrowserFetch
 import `in`.opentrack.india.core.Http
+import `in`.opentrack.india.v2.mirror.ConfirmTktMirror
 import `in`.opentrack.india.v2.mirror.RunningStatusMirror
 import `in`.opentrack.india.v2.source.ErailPairParser
 import `in`.opentrack.india.v2.source.ErailTransport
@@ -106,6 +107,17 @@ class LiveViewModel(
         val reports: Map<String, String> = emptyMap(),
         /** False when the relay itself was unreachable - the reports card must say so, never imply an empty train. */
         val relayOk: Boolean = true,
+        /** The halt the mirror's actuals say the train is at/just past - the screen points here. */
+        val anchorCode: String? = null,
+        /** When the mirror speaks, its sentence IS the headline; null = render the schedule's. */
+        val actualsHeadline: String? = null,
+        val actualsNext: String? = null,
+        /** "ACTUALS · runningstatus.in" - the badge the headline earned, never the schedule's. */
+        val actualsBadge: String? = null,
+        /** Measured lateness behind the mirror's own schedule pair; drives the badge colour. */
+        val actualsLate: Int? = null,
+        /** Which witnesses answered this refresh, for the age line: honesty about sources. */
+        val sourcesLine: String? = null,
     )
 
     private val _ui = MutableLiveData<Ui?>()
@@ -355,7 +367,6 @@ class LiveViewModel(
         if (!force && nowWall - lastMirrorPoll < CROWD_POLL_MIN_MILLIS) return
         lastMirrorPoll = nowWall
         viewModelScope.launch {
-            val codes = _ui.value?.route?.stops?.map { it.code } ?: return@launch
             val got = withContext(Dispatchers.IO) { RunningStatusMirror.fetchOrWhy(trainNo) }
             var actuals = got.actuals
             if (actuals == null) {
@@ -415,6 +426,8 @@ class LiveViewModel(
             // by exactly that lateness: "next stop in N min" becomes the train's real remaining time.
             val u = _ui.value
             val nowRail = nowMinute(System.currentTimeMillis())
+            val stopRows = u?.route?.stops ?: emptyList()
+            val codes = stopRows.map { it.code }
             val confirmed = RunningStatusMirror.lastConfirmed(actuals, codes, nowRail)
             if (confirmed != null && confirmed.second.isNotEmpty()) {
                 Diary.get()?.log("MIRROR") {
@@ -423,6 +436,41 @@ class LiveViewModel(
                 }
             }
             val late = confirmed?.let { RunningStatusMirror.slipMinutes(it.first) } ?: 0
+            // The SECOND witness, fetched on the same refresh: confirmtkt by station name. Its lines
+            // fill only the stops the primary lacks, and its answering (or not) is shown in the age
+            // line - the owner asked for two sources on screen every refresh, and honesty about which.
+            val ck = withContext(Dispatchers.IO) {
+                ConfirmTktMirror.fetchOrWhy(trainNo, stopRows.map { it.code to it.name })
+            }
+            val ckFilled = ck.lines.filterKeys { it !in merged }
+            val display = merged + ckFilled
+            val sourcesLine = "${RunningStatusMirror.SOURCE} (${mirrorLines.size} halts) · " +
+                "${ConfirmTktMirror.SOURCE} " + if (ck.ok) "(${ck.halts} halts)" else "did not answer"
+            Diary.get()?.log("MIRROR") { "sources this refresh: $sourcesLine" }
+
+            // Anchor + headline from the ACTUALS: the halt the train is making for, and the sentence
+            // that names what the train really did - the schedule's own headline ("Should be past
+            // Shimoga Town") contradicted the confirmed departure and read as wrong data (paste #25).
+            var anchorCode: String? = null
+            var headline: String? = null
+            var nextLine: String? = null
+            if (confirmed != null) {
+                val last = confirmed.first
+                val li = stopRows.indexOfFirst { it.code.equals(last.stationCode, true) }
+                val next = if (li >= 0) stopRows.getOrNull(li + 1) else null
+                anchorCode = (next ?: last).code
+                fun hm(m: Int): String = "${m / 60}:" + "%02d".format(m % 60)
+                headline = "Left ${last.stationCode} at ${hm(last.actDep ?: 0)} — " +
+                    (if (late > 2) "$late min late" else "on time") +
+                    (if (ck.ok) " · cross-checked" else "")
+                nextLine = when {
+                    next != null -> {
+                        val sch = next.arrivalMin ?: next.departureMin
+                        "Next: ${next.name}" + (sch?.let { " · expected ~${hm(it + late)}" } ?: "")
+                    }
+                    else -> "Reached ${last.stationCode} — the run's end"
+                }
+            }
             if (u != null && confirmed != null && late > 0) {
                 val last = confirmed.first
                 fun hm(m: Int): String = "${m / 60}:" + "%02d".format(m % 60)
@@ -437,7 +485,12 @@ class LiveViewModel(
                 val shifted = buildUi(
                     u.route, u.answer, u.tried, emptyList(),
                     nowRail - late, positionNote,
-                ).copy(reports = merged, relayOk = u.relayOk)
+                ).copy(
+                    reports = display, relayOk = u.relayOk, anchorCode = anchorCode,
+                    actualsHeadline = headline, actualsNext = nextLine,
+                    actualsBadge = "ACTUALS · ${RunningStatusMirror.SOURCE}", actualsLate = late,
+                    sourcesLine = sourcesLine,
+                )
                 _ui.postValue(shifted)
                 Diary.get()?.log("MIRROR") {
                     "position from actuals: last confirmed ${last.stationCode} dep ${hm(last.actDep)} " +
@@ -451,7 +504,14 @@ class LiveViewModel(
                     mirrorNote = null
                     mirrorShiftAt = 0L
                 }
-                _ui.postValue(u?.copy(reports = merged))
+                _ui.postValue(
+                    u?.copy(
+                        reports = display, anchorCode = anchorCode,
+                        actualsHeadline = headline, actualsNext = nextLine,
+                        actualsBadge = headline?.let { "ACTUALS · ${RunningStatusMirror.SOURCE}" },
+                        actualsLate = if (late > 0) late else null, sourcesLine = sourcesLine,
+                    )
+                )
             }
             Diary.get()?.log("MIRROR") {
                 "${RunningStatusMirror.SOURCE} answered: ${mirrorLines.size} stop(s) with actual " +

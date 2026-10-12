@@ -38,6 +38,9 @@ class TrainActivity : AppCompatActivity() {
     private lateinit var vm: LiveViewModel
     private lateinit var stopAdapter: StopAdapter
     private var fullRoute = false
+
+    /** The last anchor the screen pointed at - the scroll fires when it CHANGES, never on every tick. */
+    private var lastAnchor: String? = null
     private var autoOn = true
     private var sourceShown = false
     private var lastUi: LiveViewModel.Ui? = null
@@ -63,7 +66,6 @@ class TrainActivity : AppCompatActivity() {
         )[LiveViewModel::class.java]
 
         stopAdapter = StopAdapter()
-        wireReporter()
         binding.stops.layoutManager = LinearLayoutManager(this)
         binding.stops.adapter = stopAdapter
         binding.stops.isNestedScrollingEnabled = false
@@ -102,10 +104,6 @@ class TrainActivity : AppCompatActivity() {
         }
 
         vm.ui.observe(this) { it?.let { u -> lastUi = u; bind(u); renderNote() } }
-        vm.reportStatus.observe(this) { msg ->
-            binding.reportStatus.visibility = if (msg == null) View.GONE else View.VISIBLE
-            binding.reportStatus.text = msg
-        }
         vm.checking.observe(this) { busy ->
             // The 1800s complaint, answered: a moving bar for exactly as long as the app is working,
             // and a captioned spinner while the very first look is still in flight.
@@ -145,57 +143,6 @@ class TrainActivity : AppCompatActivity() {
         if (msg != null) binding.note.text = msg
     }
 
-    /**
-     * ADR-006's controls, present but inert until the user asks for them (the pref is off by default):
-     * a toggle reveals the box, the spinner names the stop, one button per fact, and the loopback - the
-     * pipe's proof on a ct-test topic, never a real train's.
-     */
-    private val prefs by lazy { `in`.opentrack.india.data.Prefs(this) }
-
-    private fun wireReporter() {
-        renderReporter(null)
-        binding.reportToggle.setOnClickListener {
-            prefs.crowdReports = !prefs.crowdReports
-            renderReporter(null)
-        }
-        binding.reportStop.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {}
-            override fun onNothingSelected(p: AdapterView<*>?) {}
-        }
-        binding.reportArr.setOnClickListener {
-            val code = binding.reportStop.selectedItem as? String ?: return@setOnClickListener
-            vm.reportAt(code, `in`.opentrack.india.v2.crowd.StopReport.Kind.ARRIVED)
-        }
-        binding.reportDep.setOnClickListener {
-            val code = binding.reportStop.selectedItem as? String ?: return@setOnClickListener
-            vm.reportAt(code, `in`.opentrack.india.v2.crowd.StopReport.Kind.DEPARTED)
-        }
-        binding.reportTest.setOnClickListener { vm.loopbackTest() }
-    }
-
-    /** Box and toggle text follow the pref; the spinner follows the route once per train. */
-    private fun renderReporter(ui: LiveViewModel.Ui?) {
-        val on = prefs.crowdReports
-        binding.reportToggle.setText(if (on) R.string.report_toggle_off else R.string.report_toggle_on)
-        binding.reportBox.visibility = if (on) View.VISIBLE else View.GONE
-        // The pipe is invisible until a report exists - so say it is listening. The relay answered on
-        // the owner's phone (paste #15) with zero reports, because zero travellers exist yet; the
-        // caption names that state honestly and disappears the moment real lines render per row.
-        val hasLines = ui?.reports?.isNotEmpty() == true
-        binding.reportHint.visibility = if (on && !hasLines) View.VISIBLE else View.GONE
-        if (on && !hasLines) binding.reportHint.setText(R.string.report_listening)
-        val route = ui?.route ?: return
-        if (binding.reportStop.tag != route.trainNo) {
-            binding.reportStop.tag = route.trainNo
-            val codes = route.stops.map { it.code }
-            binding.reportStop.adapter = ArrayAdapter(
-                this, android.R.layout.simple_spinner_dropdown_item, codes,
-            )
-            val board = ui.model.rows.indexOfFirst { it.isBoarding }
-            if (board >= 0) binding.reportStop.setSelection(board.coerceAtMost(codes.size - 1))
-        }
-    }
-
     private fun bind(ui: LiveViewModel.Ui) {
         val m = ui.model
         binding.trainNo.text = m.trainNo
@@ -225,15 +172,46 @@ class TrainActivity : AppCompatActivity() {
             }
         ))
         binding.next.text = m.nextLabel
+        // When the mirror's actuals reached this screen, THEY are the headline: the schedule's own
+        // sentences ("Should be past Shimoga Town") contradicted the confirmed departure and read as
+        // wrong data (paste #25). The badge earns its colour from the measured lateness.
+        if (ui.actualsHeadline != null) {
+            binding.headline.text = ui.actualsHeadline
+            binding.next.text = ui.actualsNext
+            binding.provenance.text = ui.actualsBadge
+            val late = ui.actualsLate ?: 0
+            binding.provenance.setBackgroundResource(
+                if (late > 2) R.drawable.bg_badge_problem else R.drawable.bg_badge_live,
+            )
+            binding.provenance.setTextColor(getColor(if (late > 2) R.color.late else R.color.live))
+            binding.delay.text = when {
+                late > 2 -> "$late min late"
+                ui.actualsLate != null -> "on time"
+                else -> m.delayLabel
+            }
+            binding.delay.setTextColor(getColor(if (late > 2) R.color.late else R.color.live))
+        }
+        ui.sourcesLine?.let { binding.age.text = it }
         binding.note.visibility = if (m.note == null) View.GONE else View.VISIBLE
         m.note?.let { binding.note.text = it }
 
-        binding.progressLabel.text = m.progressLabel
-        binding.progressBar.pct = m.progressPct
-        binding.progressBar.schedulePct = m.schedulePct
-        binding.progressBar.live = m.isLive
-
         stopAdapter.reports = ui.reports
+        stopAdapter.highlightCode = ui.anchorCode
+        if (ui.anchorCode != null && ui.anchorCode != lastAnchor) {
+            lastAnchor = ui.anchorCode
+            val idx = m.rows.indexOfFirst { it.code.equals(ui.anchorCode!!, true) }
+            if (idx >= 0) {
+                val rv = binding.stops
+                rv.post {
+                    val lm = rv.layoutManager as LinearLayoutManager
+                    lm.scrollToPositionWithOffset(idx, 60)
+                    rv.post {
+                        val v = lm.findViewByPosition(idx) ?: return@post
+                        binding.scroller.smoothScrollTo(0, (rv.top + v.top - 340).coerceAtLeast(0))
+                    }
+                }
+            }
+        }
         if (ui.reports.isNotEmpty()) {
             Diary.get()?.log("UISTATE") {
                 "crowd on screen: " + ui.reports.entries.joinToString(" ; ") { it.key + " -> " + it.value }
@@ -241,7 +219,10 @@ class TrainActivity : AppCompatActivity() {
         }
         renderReporter(ui)
 
-        val win = vm.windowFor(m.rows, m.anchorSeq, fullRoute)
+        val anchorSeq = ui.anchorCode
+            ?.let { ac -> m.rows.firstOrNull { it.code.equals(ac, true) }?.seq }
+            ?: m.anchorSeq
+        val win = vm.windowFor(m.rows, anchorSeq, fullRoute)
         val from = win.first.coerceIn(0, (m.rows.size - 1).coerceAtLeast(0))
         val to = win.last.coerceIn(from, (m.rows.size - 1).coerceAtLeast(0))
         stopAdapter.submitList(m.rows.subList(from, to + 1))
@@ -249,20 +230,6 @@ class TrainActivity : AppCompatActivity() {
         binding.rowsNote.visibility = if (hidden > 0) View.VISIBLE else View.GONE
         if (hidden > 0) {
             binding.rowsNote.text = getString(R.string.rows_window, from + 1, to + 1, m.rows.size)
-        }
-
-        // The plot always shows the passenger's own segment: it answers "is it late on my stretch", and
-        // re-centring it on a route the traveller never rides would make the gap unreadable.
-        val segStart = m.rows.indexOfFirst { it.isBoarding }.coerceAtLeast(0)
-        val segEnd = m.rows.indexOfLast { it.isAlighting }.let { if (it < segStart) m.rows.size - 1 else it }
-        binding.chart.setJourney(
-            m, ui.answer.position, ui.nowRailMinute,
-            segStart..segEnd.coerceAtLeast(segStart + 1),
-        )
-        binding.chartLegend.text = if (m.isLive) {
-            "dashed = timetable · solid = reported position · amber tick on the bar = where the timetable puts it now"
-        } else {
-            "amber dotted = what the timetable implies at this minute, not a report about the train"
         }
 
         bindSource(m, ui)
