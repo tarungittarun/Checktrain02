@@ -318,51 +318,7 @@
                     android:text="@string/auto_refresh" />
             </LinearLayout>
 
-            <!-- route table -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="@dimen/gap"
-                android:background="@drawable/bg_inset"
-                android:baselineAligned="false"
-                android:gravity="center_vertical"
-                android:orientation="horizontal"
-                android:paddingLeft="12dp"
-                android:paddingTop="9dp"
-                android:paddingRight="12dp"
-                android:paddingBottom="9dp">
-
-                <TextView
-                    style="@style/TextLabel"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="@dimen/rail_w"
-                    android:layout_weight="1"
-                    android:text="@string/col_station" />
-
-                <TextView
-                    style="@style/TextLabel"
-                    android:layout_width="@dimen/col_sched"
-                    android:layout_height="wrap_content"
-                    android:gravity="center_horizontal"
-                    android:text="@string/col_scheduled" />
-
-                <TextView
-                    style="@style/TextLabel"
-                    android:layout_width="@dimen/col_live"
-                    android:layout_height="wrap_content"
-                    android:gravity="center_horizontal"
-                    android:text="@string/col_live" />
-            </LinearLayout>
-
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/stops"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:background="@drawable/bg_inset"
-                android:nestedScrollingEnabled="false" />
-
-            <Button
+                        <Button
                 android:id="@+id/reportToggle"
                 style="@style/BtnGhost"
                 android:layout_width="match_parent"
@@ -434,6 +390,50 @@
                     android:layout_marginTop="6dp"
                     android:visibility="gone" />
             </LinearLayout>
+
+<!-- route table -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/gap"
+                android:background="@drawable/bg_inset"
+                android:baselineAligned="false"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingLeft="12dp"
+                android:paddingTop="9dp"
+                android:paddingRight="12dp"
+                android:paddingBottom="9dp">
+
+                <TextView
+                    style="@style/TextLabel"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="@dimen/rail_w"
+                    android:layout_weight="1"
+                    android:text="@string/col_station" />
+
+                <TextView
+                    style="@style/TextLabel"
+                    android:layout_width="@dimen/col_sched"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_horizontal"
+                    android:text="@string/col_scheduled" />
+
+                <TextView
+                    style="@style/TextLabel"
+                    android:layout_width="@dimen/col_live"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_horizontal"
+                    android:text="@string/col_live" />
+            </LinearLayout>
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/stops"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bg_inset"
+                android:nestedScrollingEnabled="false" />
 
             <TextView
                 android:id="@+id/rowsNote"

@@ -85,3 +85,27 @@ Rejected from the same write-up:
 - **The offered Retrofit/Node clients.** Premised on the gateway working. The capture decides
   first; a client is written against a captured payload or not at all.
 - **The 90-second cache** — already adopted last round (relay-reader poll discipline).
+
+
+---
+
+## Final addendum: the erail page-render door is CLOSED (complete chain, owner's device)
+
+Five escalating attempts, each captured and scanned in the owner's own pastes (#10–#14):
+
+1. instant rendered-text read — 426–513 B of navigation, 0 time tokens
+2. settled text read (12 s after finish, 16 KB) — halt NAMES only, 0 time tokens
+3. raw-DOM read (64 KB, 10 s settle) — 3 tokens, all `<meta>` SEO text
+4. in-page click on their own "Show Status" button — `tapped`, DOM byte-identical
+5. the human sequence: settle 20 s → date chip → "Show Status" (fired) → 15 s patience →
+   parent text + same-origin iframes — **0 time tokens**, no navigation
+
+Conclusion: erail's running table renders only inside a full interactive session driven by
+their own scripts and channel. Reading it keylessly from an app's embedded engine is not a
+parsing problem; it is a session problem, and faking the session at scale is the scraper-proxy
+pattern this project rejected on evidence. The page door is closed with measurements — the
+second door closed by this device in one day.
+
+The per-stop-actuals doors that remain: travellers (ADR-006 — shipped: reporter, reader lines,
+loopback) and nothing else within the keyless constraints. The honest screen says exactly this
+per state; it will not fabricate what no reachable source reports.

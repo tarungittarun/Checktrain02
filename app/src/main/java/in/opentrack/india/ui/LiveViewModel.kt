@@ -235,6 +235,26 @@ class LiveViewModel(
                 )
             }.getOrNull()
             if (live == null) {
+                // A failed lookup is not always a missing train: on a network that kills every live
+                // ask, repo.live can fail TRANSIENTLY for a train whose full route sits on this very
+                // device - and the owner's 16:47 paste reported exactly that: "some stations are
+                // also missing after refresh". So before any endpoint-only view, re-read the offline
+                // route; the synthetic two-stop view is ONLY for trains the offline copy truly lacks.
+                val cachedRoute = runCatching { repo.queries.route(trainNo) }.getOrNull()
+                if (cachedRoute != null) {
+                    val now = System.currentTimeMillis()
+                    val answer = PositionEngine.locate(
+                        PositionEngine.Request(cachedRoute, null, nowMinute(now), now, previous),
+                    )
+                    lastAnswer = answer
+                    _ui.value = buildUi(
+                        cachedRoute, answer, emptyList(),
+                        listOf("the live fetch failed this tick — the on-device timetable is shown, unchanged"),
+                    )
+                    _error.value = null
+                    maybeCrowd()
+                    return
+                }
                 // The train the list advertised may exist ONLY in the live source (the offline copy
                 // lacks it - 20689 on the owner's device). A dead end here is the worst sentence in
                 // the app: render what we DO know - identity and the two endpoint times the erail
