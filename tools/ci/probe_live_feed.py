@@ -718,7 +718,7 @@ def main() -> int:
     if tok and repo and sha and os.environ.get("PROBE_POST", "1") == "1":
         subprocess.run(
             ["gh", "api", "-X", "POST", f"repos/{repo}/commits/{sha}/comments",
-             "-f", f"body=### live-feed probe\n\n```\n{body[:5000]}\n```"],
+             "-f", f"body=### live-feed probe\n\n```\n{body[:30000]}\n```"],
             check=False, timeout=60,
         )
         capture_md = erail_capture_comment(pair_captures, today.isoformat(timespec="seconds"),
