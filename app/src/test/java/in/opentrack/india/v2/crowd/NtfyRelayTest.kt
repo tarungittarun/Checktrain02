@@ -69,8 +69,6 @@ class NtfyRelayTest {
         assertTrue(relay.pollRecent("16579").isEmpty())
         assertEquals("ct-16579", relay.topicFor("16579"))
     }
-}
-
     /**
      * The REAL ntfy.sh poll bytes, captured by CI itself on 2026-10-12 (commit comment, run 38254956503:
      * CI published id QAjhuL9tktAO and its own poll returned it - relay and parser shape both proven
@@ -91,3 +89,5 @@ class NtfyRelayTest {
         assertEquals(1025, poll.reports[0].railMinute)
         assertTrue("the raw bytes ride along for parse-independent verification", poll.rawBody.contains("QAjhuL9tktAO"))
     }
+
+}
