@@ -211,9 +211,18 @@ object FeedProbe {
                 .parse(it)?.time ?: 0L
         })
         return listOf(
-            // ORDER IS A BUDGET DECISION (18 s), revised on the owner's 10:33 log: the phone REACHED
-            // getRunTrain.aspx (app-level 404 on an ISO-format date) where CI is 403'd at the door - so
-            // the phone is the lab and the erail live endpoint leads, with erail's own date format.
+            // ORDER IS A BUDGET DECISION (18 s), v4 on the owner's 10:47 log: both folk-lore spellings of
+            // the erail live endpoint measured 404 from a phone that passes the WAF - the guessing era
+            // ends. The probe now OBSERVES: load erail's own site in the engine and record every URL the
+            // site's own scripts call. Their live-status endpoint names itself; the next run asks THAT.
+            Variant(
+                "webview-erail-observe",
+                "https://erail.in/",
+                null, emptyMap(), false,
+                "load erail's own page and record what its own scripts call (bounded list, diary only): " +
+                    "the site's live-status XHR announces its real endpoint - no third spelling gets invented",
+                false, true,
+            ),
             Variant(
                 "get-erail-runtrain-xhr",
                 "https://erail.in/rail/getRunTrain.aspx?trainno=$trainNo&startDate=$ddmm",
@@ -444,7 +453,13 @@ object FeedProbe {
                         // A runtrain 200 is the capture the whole hunt is for: bounded body rides the line,
                         // because the parser (4.5) may only be written against exactly this text.
                         (if (got is Http.Result.Ok && v.url.contains("getRunTrain"))
-                            " body=" + got.body.take(800) else "")
+                            " body=" + got.body.take(800) else "") +
+                        // The observation run's whole product: what erail's own scripts called.
+                        (if (v.name == "webview-erail-observe") {
+                            val obs = BrowserFetch.observedRequestsSnapshot()
+                            if (obs.isEmpty()) " site-called=(none recorded)"
+                            else " site-called=" + obs.take(10).joinToString(" ; ") { u -> u.take(110) }
+                        } else "")
                 }
                 if (usable) {
                     adoptedName = v.name

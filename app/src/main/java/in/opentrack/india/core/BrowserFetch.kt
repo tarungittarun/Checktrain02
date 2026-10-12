@@ -91,6 +91,17 @@ object BrowserFetch {
     var tried: Boolean = false
         private set
 
+    // What the loaded page's own scripts asked for, bounded - the honest way to learn an endpoint:
+    // watch the site, never invent its URLs (two folk-lore spellings already measured 404 from a
+    // phone that passes the WAF; the third spelling will not be guessed here).
+    private val observed = java.util.Collections.synchronizedList(ArrayList<String>())
+
+    fun observedRequestsSnapshot(): List<String> = synchronized(observed) { observed.toList() }
+
+    fun noteObserved(url: String) {
+        if (observed.size < 24) observed.add(url.take(130))
+    }
+
     @Volatile
     var lastError: String? = null
         private set
@@ -122,6 +133,7 @@ object BrowserFetch {
             Http.Result.Kind.HTTP, "BrowserFetch not initialised (no application context)",
         )
         tried = true
+        synchronized(observed) { observed.clear() }
         val call = Call(url, body, page, headers)
         val outcome = synchronized(gate) {
             val t0 = System.currentTimeMillis()
@@ -238,6 +250,14 @@ object BrowserFetch {
                 w.webViewClient = object : WebViewClient() {
                     override fun onPageFinished(v: WebView, pageUrl: String) {
                         send(v)
+                    }
+
+                    override fun shouldInterceptRequest(
+                        v: WebView,
+                        request: WebResourceRequest,
+                    ): WebResourceResponse? {
+                        if (!request.isForMainFrame) BrowserFetch.noteObserved(request.url.toString())
+                        return null
                     }
 
                     override fun onReceivedError(
