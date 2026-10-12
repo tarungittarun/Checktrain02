@@ -205,11 +205,11 @@ object FeedProbe {
             "charset" to "utf-8",
             "User-Agent" to NtesWire.USER_AGENT,
         )
-        val ddmm = ddmmDate(java.util.Date(startIso.let {
+        val ddmm = ddmmDate(startIso.let {
             // startIso is yyyy-MM-dd; convert through the epoch the same way isoDate built it.
             SimpleDateFormat("yyyy-MM-dd", Locale.ENGLISH).also { tz -> tz.timeZone = TimeZone.getTimeZone("Asia/Kolkata") }
                 .parse(it)?.time ?: 0L
-        }))
+        })
         return listOf(
             // ORDER IS A BUDGET DECISION (18 s), revised on the owner's 10:33 log: the phone REACHED
             // getRunTrain.aspx (app-level 404 on an ISO-format date) where CI is 403'd at the door - so
