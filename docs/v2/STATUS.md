@@ -360,5 +360,5 @@ Latest-apk: the owner-installed build (21:26 UTC, 10,667,232 B) already carries 
 
 
 
-Latest-apk: 10,777,659 B @ 2026-10-12T15:17:17Z (73d93f9, Round 42 GREEN — presentation round: actuals headline + amber anchor + auto-scroll + 2nd source + clutter removed)
+Latest-apk: 10,780,743 B @ 2026-10-12T15:46:59Z (e50742f, Round 43 GREEN — sources box + parallel witnesses + refresh-proof actuals headline + non-running-day sentence)
 
