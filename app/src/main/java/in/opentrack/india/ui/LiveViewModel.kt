@@ -411,6 +411,8 @@ class LiveViewModel(
                 actuals = lane
                 Diary.get()?.log("MIRROR") { "${RunningStatusMirror.SOURCE} answered through the browser lane" }
             }
+            val stopRows = _ui.value?.route?.stops ?: emptyList()
+            val codes = stopRows.map { it.code }
             val mirrorLines = RunningStatusMirror.sentences(actuals, codes)
             if (mirrorLines.isEmpty()) {
                 Diary.get()?.log("MIRROR") {
@@ -426,8 +428,6 @@ class LiveViewModel(
             // by exactly that lateness: "next stop in N min" becomes the train's real remaining time.
             val u = _ui.value
             val nowRail = nowMinute(System.currentTimeMillis())
-            val stopRows = u?.route?.stops ?: emptyList()
-            val codes = stopRows.map { it.code }
             val confirmed = RunningStatusMirror.lastConfirmed(actuals, codes, nowRail)
             if (confirmed != null && confirmed.second.isNotEmpty()) {
                 Diary.get()?.log("MIRROR") {
@@ -458,7 +458,7 @@ class LiveViewModel(
                 val last = confirmed.first
                 val li = stopRows.indexOfFirst { it.code.equals(last.stationCode, true) }
                 val next = if (li >= 0) stopRows.getOrNull(li + 1) else null
-                anchorCode = (next ?: last).code
+                anchorCode = next?.code ?: last.stationCode
                 fun hm(m: Int): String = "${m / 60}:" + "%02d".format(m % 60)
                 headline = "Left ${last.stationCode} at ${hm(last.actDep ?: 0)} — " +
                     (if (late > 2) "$late min late" else "on time") +

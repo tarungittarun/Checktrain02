@@ -27,9 +27,6 @@ import `in`.opentrack.india.model.TrainSummary
  */
 class TrainHitAdapter(private val onClick: (TrainHit) -> Unit) :
     ListAdapter<TrainHit, TrainHitAdapter.Holder>(DIFF) {
-    /** The halt the mirror's actuals say the train is at or making for - tinted, never silent. */
-    var highlightCode: String? = null
-
 
     /** Minute-of-IST-epoch for "now", carried by the ViewModel. UI never reads the wall clock itself. */
     var nowMinute: Long = 0L
@@ -111,6 +108,9 @@ class TrainHitAdapter(private val onClick: (TrainHit) -> Unit) :
  * of a timetable PDF.
  */
 class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
+
+    /** The halt the mirror's actuals say the train is at or making for - tinted, never silent. */
+    var highlightCode: String? = null
 
     /** Per-stop traveller-report sentences (ADR-006). Empty when the user has not opted in. */
     var reports: Map<String, String> = emptyMap()

@@ -217,7 +217,6 @@ class TrainActivity : AppCompatActivity() {
                 "crowd on screen: " + ui.reports.entries.joinToString(" ; ") { it.key + " -> " + it.value }
             }
         }
-        renderReporter(ui)
 
         val anchorSeq = ui.anchorCode
             ?.let { ac -> m.rows.firstOrNull { it.code.equals(ac, true) }?.seq }
