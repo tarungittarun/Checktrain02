@@ -63,7 +63,7 @@ object FeedProbe {
     // A cold web view is not a socket write: the engine answered in ~1.1 s of its own on a device, and a
     // 5 s cap turned a page load plus a request into a timeout. Generous, because it runs after a failure.
     private const val BROWSER_TIMEOUT = 8_000
-    private const val MAX_TRIES = 15  // every variant, controls included - a probe that ran out of tries
+    internal const val MAX_TRIES = 15  // every variant, controls included - a probe that ran out of tries
                                     // before its own control host is a probe that proves nothing
     private const val TOTAL_BUDGET = 195_000 // four settled page reads lead (rstrain text ~13 s,
     // desktop ~10 s, rstrain dom ~10 s, the human-sequence read 20 s + taps + 15 s, 48 s cap) plus
