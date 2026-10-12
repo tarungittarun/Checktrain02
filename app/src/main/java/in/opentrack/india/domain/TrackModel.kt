@@ -210,7 +210,7 @@ object TrackModel {
             progressLabel = "$covered of $totalKm km" +
                 (if (pos.fraction > 0f && pos.kmAlong > 0f) " · ${(totalKm - covered).coerceAtLeast(0)} km left" else "")
         } else {
-            if (route.totalKm == 0) {
+            if (route.segments.isEmpty()) {
                 // The endpoint route: "1 of 1 stops covered" measured nothing. The honest dial is the
                 // elapsed share of the journey between the two times we DO have.
                 val dep = route.stops.firstOrNull()?.departureMin
@@ -327,8 +327,10 @@ object TrackModel {
         }
         // The live-only endpoint route (the offline copy lacks the train): a position sentence
         // measured against a two-stop phantom read as "4h 49m into the 0 km leg" - a malfunction to
-        // the one person reading it. Say what the two endpoints know, and nothing more.
-        if (route.totalKm == 0) {
+        // the one person reading it. Say what the two endpoints know, and nothing more. The shape is
+        // named by its segments: a real route with distances missing still earns the leg/stops
+        // language (the kmAllZero fallback), the endpoint pair has no legs at all.
+        if (route.segments.isEmpty()) {
             val first = route.stops.firstOrNull()
             val last = route.stops.lastOrNull()
             val dep = first?.departureMin?.let { RailTime.formatRailMinute(it) } ?: "—"
