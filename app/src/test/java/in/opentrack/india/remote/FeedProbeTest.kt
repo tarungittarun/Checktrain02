@@ -48,7 +48,7 @@ class FeedProbeTest {
         assertEquals("the researched NTES app gateway: POST JSON, queryType 6, dalvik, dd-MMM-yyyy",
             "post-appservand-json", vs[9].name)
         assertTrue("gateway body must be the researched query, regenerable per train",
-            vs[8].body!!.contains("\"queryType\":\"6\"") && vs[8].body!!.contains("\"trainNo\":\"12627\""))
+            vs[9].body!!.contains("\"queryType\":\"6\"") && vs[9].body!!.contains("\"trainNo\":\"12627\""))
         assertEquals("the same gateway through the browser engine (the transport axis that separates " +
             "this phone's two stacks)", "webview-appservand", vs[10].name)
         assertEquals("the shipped shape follows as the control", "post-dalvik-json", vs[11].name)
