@@ -329,7 +329,8 @@ class LiveViewModel(
                 RailTime.istMinuteOfDay(now), now)
             val pub = withContext(Dispatchers.IO) { relay.publish(rep) }
             if (pub !is NtfyRelay.Wire.Ok) {
-                _reportStatus.postValue("loopback FAILED at publish: ${pub.why}")
+                val why = (pub as? NtfyRelay.Wire.Unreachable)?.why ?: "unknown"
+                _reportStatus.postValue("loopback FAILED at publish: $why")
                 return@launch
             }
             delay(1_500)
