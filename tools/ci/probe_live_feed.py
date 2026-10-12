@@ -430,7 +430,15 @@ def erail_live_status_lines(train_no: str, date_ddmm: str,
            "Referer": "https://erail.in/",
            "X-Requested-With": "XMLHttpRequest"}
     rr = {"User-Agent": BROWSER_UA, "Accept": "application/json"}
+    # THE HOMEPAGE ITSELF ADVERTISES api.erail.in ("Data -> API", captured in full on 5ea20a2).
+    # The classic erail public API: /runningstatus/ (per-stop ACTUALS), /route/ (per-stop schedule),
+    # /trains/ (pairs). Asked keylessly first - if their public door still opens without a key, the
+    # elephant closes from CI today.
+    api = "https://api.erail.in"
+    ddmmyy = date_ddmm.replace("-", "/")
     cands = [
+        (f"runningstatus/?trainno={train_no}&startdate={ddmmyy}", api + "/", None, "api-no-key"),
+        (f"route/?trainno={train_no}", api + "/", None, "api-no-key"),
         (f"getRunTrain.aspx?trainno={train_no}&startDate={date_ddmm}", "https://erail.in/rail/", None,
          "dalvik-UA"),
         (f"getRunTrain.aspx?TrainNo={train_no}&startDate={date_ddmm}", "https://erail.in/rail/", browser,
