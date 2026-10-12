@@ -337,5 +337,5 @@ Latest-apk: the owner-installed build (21:26 UTC, 10,667,232 B) already carries 
 
 
 
-Latest-apk: 10,751,979 B @ 2026-10-12T12:06:26Z (b09ed4f, Round 33: the real ntes-client read in full - legacy static-RSA TLS suites shipped as post-appservand-legacytls, mirror trackers ConfirmTkt/RailMitra shipped in the fresh window; android SUCCESS, run 38246547908)
+Latest-apk: 10,752,179 B @ 2026-10-12T12:12:58Z (694a7b1, Round 34: both source links fetched and mined - the official app's API gateway gw.crisapis.indianrail.gov.in [BeVigil-only host] joins the ENV map and the ladder as a root reachability probe; android SUCCESS, run 38247164056)
 
