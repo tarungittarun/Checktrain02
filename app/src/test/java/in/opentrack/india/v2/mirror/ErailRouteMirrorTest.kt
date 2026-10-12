@@ -64,7 +64,8 @@ class ErailRouteMirrorTest {
         assertEquals(listOf("TLGP", "SRF", "ANF", "ARU", "KMSI"), pre.map { it.code })
         assertTrue(pre.all { it.departureMin == null && it.schedKm == -1 })
         assertEquals("MYS", merged.stops.last().code)
-        assertEquals(device.size + 6, merged.stops.last().seq)
+        // 27 page halts = 5 before + 11 device + 11 after; seqs stay contiguous, device band untouched.
+        assertEquals(5 + device.size + 11, merged.stops.last().seq)
     }
 
     @Test
