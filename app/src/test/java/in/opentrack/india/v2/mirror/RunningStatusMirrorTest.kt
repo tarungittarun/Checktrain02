@@ -138,7 +138,8 @@ class RunningStatusMirrorTest {
             listOf(RunningStatusMirror.Stop("SBC", null, 1430, null, 1450)),
         )
         assertEquals(
-            "SBC dep 00:10 — via runningstatus.in (20 min late)",
+            "the house clock pads minutes, never the hour (5:15, not 05:15)",
+            "SBC dep 0:10 — via runningstatus.in (20 min late)",
             RunningStatusMirror.sentences(actuals, listOf("SBC"))["SBC"],
         )
     }
