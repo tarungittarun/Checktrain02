@@ -457,7 +457,8 @@ def erail_live_status_lines(train_no: str, date_ddmm: str,
     return out, caps
 
 
-def erail_site_script_lines(get=erail_get) -> tuple[list[str], list[tuple[str, str, str]]]:
+def erail_site_script_lines(get=erail_get,
+                            session_get=erail_session_get) -> tuple[list[str], list[tuple[str, str, str]]]:
     """erail's own app scripts, asked from CI - the 403 wall was on getRunTrain.aspx specifically
     (getTrains.aspx answers runners all day), and static assets on the same host are worth one ask.
 
@@ -467,26 +468,40 @@ def erail_site_script_lines(get=erail_get) -> tuple[list[str], list[tuple[str, s
     """
     import re as _re
     browser = {"User-Agent": BROWSER_UA, "Accept": "*/*", "Referer": "https://erail.in/"}
-    urls = (
-        "https://erail.in/js5/cmp/eRailMobileHTMLEN.js?v=22092026",
-        "https://erail.in/SignalR/js/requester_min.js",
-    )
     out: list[str] = []
     caps: list[tuple[str, str, str]] = []
-    rx = _re.compile(r"aspx|getrun|signalr|hub|negotiate|ajax|live|running", _re.I)
-    for url in urls:
-        path = url.split("erail.in/", 1)[1] if "erail.in/" in url else url
-        verdict, body = get(path, base="https://erail.in/", headers=browser)
-        out.append(f"site script {url} · {verdict}")
-        if not body:
-            continue
+    rx = _re.compile(r"aspx|getrun|signalr|hub|negotiate|ajax|live|running|connection", _re.I)
+
+    # 1) The homepage IN FULL - the 8af9e73 run proved CI gets 200/27KB here, and its first 4000
+    #    bytes were all meta tags: the script tags and any inline SignalR config live further down.
+    verdict, home = get("", base="https://erail.in/", headers=browser)
+    out.append(f"site script https://erail.in/ (homepage, FULL) · {verdict}")
+    if home:
         hits = []
-        for m in list(rx.finditer(body))[:10]:
+        for m in list(rx.finditer(home))[:12]:
             a = max(0, m.start() - 60)
-            b = min(len(body), m.end() + 90)
-            hits.append(body[a:b].replace("\n", " "))
-        out.append("  endpoint-hits: " + (" || ".join(hits))[:1800])
-        caps.append((url.rsplit("/", 1)[-1].split("?")[0], url, body[:4000]))
+            b = min(len(home), m.end() + 90)
+            hits.append(home[a:b].replace("\n", " "))
+        out.append("  endpoint-hits: " + (" || ".join(hits))[:2600])
+        caps.append(("erail-homepage.html", "https://erail.in/", home[:30000]))
+
+    # 2) The observed JS assets through the cookie-session opener (visit first, carry the site's
+    #    own cookies): the plain fetch got the homepage fallback, so the asset path is gated.
+    for url in (
+        "https://erail.in/js5/cmp/eRailMobileHTMLEN.js?v=22092026",
+        "https://erail.in/SignalR/js/requester_min.js",
+    ):
+        verdict, body = session_get(url.replace("https://erail.in/", ""),
+                                    base="https://erail.in/", headers=browser)
+        out.append(f"site script {url} (cookie-session) · {verdict}")
+        if body:
+            hits = []
+            for m in list(rx.finditer(body))[:10]:
+                a = max(0, m.start() - 60)
+                b = min(len(body), m.end() + 90)
+                hits.append(body[a:b].replace("\n", " "))
+            out.append("  endpoint-hits: " + (" || ".join(hits))[:2000])
+            caps.append((url.rsplit("/", 1)[-1].split("?")[0], url, body[:8000]))
     return out, caps
 
 
@@ -572,9 +587,9 @@ def erail_capture_comment(pairs: list[tuple[str, str, str, str]], probed_at: str
     for name, url, body in scripts_:
         out.append(f"site script {name} ({url}) · {len(body)}B captured")
         out.append("```text")
-        out.append(body[:4000])
-        if len(body) > 4000:
-            out.append(f"...[truncated at 4000 of {len(body)} bytes]")
+        out.append(body[:30000])
+        if len(body) > 30000:
+            out.append(f"...[truncated at 30000 of {len(body)} bytes]")
         out.append("```")
         out.append("")
     return "\n".join(out)

@@ -294,33 +294,35 @@ class ErailSiteScriptCapture(unittest.TestCase):
     the URLs; nothing here is invented). The tests pin the filter's honesty - windows around real
     keywords, verbatim, and a dead asset is a fact, never a crash or a half-parse."""
 
-    def test_the_scripts_are_asked_with_browser_identity_and_filtered(self):
-        bodies = {
-            "js5/cmp/eRailMobileHTMLEN.js?v=22092026":
-                "var x=1;$.connection.hub.url='/SignalR';$.ajax('/rail/getRunTrain.aspx?trainno='",
-            "SignalR/js/requester_min.js":
-                "window.SignalR={hub:'/signalr/negotiate?clientProtocol=1.5'};live",
-        }
+    def test_homepage_in_full_and_js_through_the_session_opener(self):
+        home = "<html>" + ("x" * 500) + "$.connection.hub.url='/signalr';live"
+        js = "window.SignalR={hub:'/signalr/negotiate?clientProtocol=1.5'};getRunTrain.aspx"
+        calls = []
 
-        def fake(q, timeout=20, base=plf.ERAIL_BASE, headers=None):
-            for k, v in bodies.items():
-                if q.startswith(k.split("?")[0]):
-                    return ("HTTP 200 %dB" % len(v), v)
-            return ("HTTP 404", "")
+        def fake_get(q, timeout=20, base=plf.ERAIL_BASE, headers=None):
+            calls.append(("plain", q))
+            return ("HTTP 200 27127B", home)
 
-        lines, caps = plf.erail_site_script_lines(get=fake)
-        self.assertEqual(2, len(caps))
-        self.assertEqual("eRailMobileHTMLEN.js", caps[0][0])
+        def fake_session(q, timeout=20, base=plf.ERAIL_BASE, headers=None):
+            calls.append(("session", q))
+            return ("HTTP 200 900B cookies=2", js)
+
+        lines, caps = plf.erail_site_script_lines(get=fake_get, session_get=fake_session)
+        self.assertEqual(3, len(caps))
+        self.assertEqual("erail-homepage.html", caps[0][0])
+        self.assertIn("home" if False else "eRailMobileHTMLEN.js", caps[1][0])
+        self.assertIn("requester_min.js", caps[2][0])
+        self.assertEqual(1, len([c for c in calls if c[0] == "plain"]), "homepage once, plain")
+        self.assertEqual(2, len([c for c in calls if c[0] == "session"]), "JS assets via the cookie session")
         joined = " ".join(lines)
-        self.assertIn("endpoint-hits:", joined)
-        self.assertIn("hub.url", joined)
-        self.assertIn("getRunTrain.aspx", joined)
+        self.assertIn("hub.url", joined, "the homepage's inline config lands in endpoint-hits")
         self.assertIn("negotiate", joined)
 
     def test_a_dead_asset_is_a_fact_not_a_capture(self):
         lines, caps = plf.erail_site_script_lines(
-            get=lambda q, timeout=20, base=plf.ERAIL_BASE, headers=None: ("HTTP 404", ""))
-        self.assertEqual(2, len([l for l in lines if "HTTP 404" in l]))
+            get=lambda q, timeout=20, base=plf.ERAIL_BASE, headers=None: ("HTTP 404", ""),
+            session_get=lambda q, timeout=20, base=plf.ERAIL_BASE, headers=None: ("HTTP 404", ""))
+        self.assertEqual(3, len([l for l in lines if "HTTP 404" in l]))
         self.assertEqual([], caps)
 
     def test_the_capture_comment_carries_script_bodies(self):
