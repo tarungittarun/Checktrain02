@@ -437,7 +437,10 @@ class Diary(private val file: File) {
         const val SCHEMA = 1
         private const val RING_CAP = 2_000
         private const val MAX_BYTES = 2_000_000L
-        private const val MAX_LINE = 400
+        // 1000: a UISTATE screen line (headline + chips + eight rows) measures ~700 chars; cutting at
+        // 400 left the owner's paste describing half a screen - the capture was working, the file was
+        // the bottleneck. Still bounded; rotation handles the file, this bounds one line.
+        private const val MAX_LINE = 1000
         private const val SHARE_BYTES = 220_000
         private const val TCP_PROBE_MS = 2_500
         /** Two minutes: long enough to cover the refresh that follows the snapshot, short enough that a

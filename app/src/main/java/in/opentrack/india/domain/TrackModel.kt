@@ -351,7 +351,13 @@ object TrackModel {
             val ahead = next?.let { it.kmFromBoard - anchor.kmFromBoard }
             return when {
                 anchor.state == State.HERE -> "Should be at $name now"
-                gap > 90 * 60 -> "Should have finished the run at ${TitleCase.of(route.dstName)}"
+                // `now` and the schedule are RAIL MINUTES - 90 minutes is 90, not 90*60, so the old
+                // comparison asked a run to be ninety HOURS stale before calling it finished, and a
+                // run three hours past its terminus (20652 on the owner's 15:14 paste) fell through
+                // to "Should have left <terminus> by now" - nonsense for a train that ends there.
+                // Finished = a terminus anchor past 90 minutes, or any anchor after 90 hours.
+                gap > 90 * 60 || (next == null && gap > 90) ->
+                    "Should have finished the run at ${TitleCase.of(route.dstName)}"
                 ahead != null && gap > 0 -> "Should be past $name, ${RailTime.formatDuration(gap)} into the " +
                     "$ahead km leg"
                 else -> "Should have left $name by now"

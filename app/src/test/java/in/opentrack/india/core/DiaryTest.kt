@@ -72,8 +72,8 @@ class DiaryTest {
         assertFalse("a log line must not span lines: $noisy", noisy.contains("\n"))
         assertTrue(noisy.contains("<redacted"))
         val long = diary.sanitize("x".repeat(5_000))
-        assertTrue("long lines must be cut, was ${long.length}", long.length < 500)
-        assertTrue(long.contains("…(+" + (5_000 - 400) + "B)"))
+        assertTrue("long lines must be cut, was ${long.length}", long.length < 1100)
+        assertTrue(long.contains("…(+" + (5_000 - 1000) + "B)"))
     }
 
     @Test

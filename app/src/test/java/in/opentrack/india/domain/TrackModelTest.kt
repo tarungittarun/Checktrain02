@@ -99,6 +99,19 @@ class TrackModelTest {
         assertFalse("got: ${m.progressLabel}", m.progressLabel.contains("1 of 1"))
     }
 
+    @Test
+    fun aRunFinishedHoursAgoIsNotToldAsLeavingItsTerminus() {
+        // 20652 at the owner's 15:14 paste: scheduled into SBC at 12:00; at 15:14 the screen said
+        // "Should have left Bangalore City Jn by now" - the >90-minute rule compared RAIL MINUTES
+        // against 90*60 (ninety hours) and could never fire; a terminus cannot be "left" anyway.
+        val m = model(
+            pos = pos(3, 3, StopStatus.DEPARTED, kind = SourceKind.OFFLINE_SCHEDULE),
+            now = 894, board = 1, alight = 3,
+        )
+        assertTrue("got: ${m.headline}", m.headline.startsWith("Should have finished the run"))
+        assertFalse("got: ${m.headline}", m.headline.contains("left"))
+    }
+
     // ------------------------------------------------------------- reported vs expected vs timetable
 
     @Test

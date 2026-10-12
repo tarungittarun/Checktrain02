@@ -34,11 +34,13 @@ class FeedProbeTest {
             "never a time", "webview-erail-rstrain", vs[2].name)
         assertEquals("the SAME page as raw DOM fourth: data their scripts hold invisibly lives there, " +
             "and the scan's verdict rides in every paste", "webview-erail-rstrain-dom", vs[3].name)
-        assertEquals("the site's own script capture follows", "get-erail-sitejs", vs[4].name)
+        assertEquals("the tap read fifth: 20 s patience, their own tab clicked, DOM re-read - the last " +
+            "in-page lever (paste #11: DOM at 10 s held only meta text)", "webview-erail-rstrain-dom-tap", vs[4].name)
+        assertEquals("the site's own script capture follows", "get-erail-sitejs", vs[5].name)
         assertEquals("their own advertised public API is asked after the page reads (runningstatus = actuals)",
-            "get-api-runningstatus", vs[5].name)
-        assertEquals("and the route API next (per-stop schedule)", "get-api-route", vs[6].name)
-        assertEquals("the shipped shape follows as the control", "post-dalvik-json", vs[9].name)
+            "get-api-runningstatus", vs[6].name)
+        assertEquals("and the route API next (per-stop schedule)", "get-api-route", vs[7].name)
+        assertEquals("the shipped shape follows as the control", "post-dalvik-json", vs[10].name)
         for (v in vs) {
             assertTrue("${v.name} must not send data in the clear", v.url.startsWith("https://"))
             assertTrue("${v.name} needs an explanation for the report", v.note.length > 8)

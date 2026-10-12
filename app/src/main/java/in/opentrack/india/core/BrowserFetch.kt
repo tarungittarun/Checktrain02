@@ -190,6 +190,10 @@ object BrowserFetch {
         textCap: Int = 1200,
         /** Read the page as raw HTML (outerHTML) instead of rendered text - data can sit in the DOM invisibly. */
         dom: Boolean = false,
+        /** After the settle wait, click the first element whose text equals this (case-insensitive), then re-wait. */
+        tapText: String = "",
+        /** How long after the tap to wait before reading. */
+        tapSettleMillis: Int = 6_000,
     ): Http.Result {
         val ctx = appContext ?: return Http.Result.Failed(
             Http.Result.Kind.HTTP, "BrowserFetch not initialised (no application context)",
@@ -231,7 +235,28 @@ object BrowserFetch {
                                         }
                                     }
                                 }
-                                if (settleMillis > 0) {
+                                if (tapText.isNotEmpty()) {
+                                    main.postDelayed({
+                                        if (settled.get()) return@postDelayed
+                                        val lit = JSONObject.quote(tapText)
+                                        v.evaluateJavascript(
+                                            "(function(){var w=[$lit].map(function(s){return s.toLowerCase();});" +
+                                                "var els=document.querySelectorAll('a,button,div,span,li,td');" +
+                                                "for(var i=0;i<els.length;i++){var t=(els[i].textContent||'');" +
+                                                "if(w.indexOf(t.trim().toLowerCase())>=0){els[i].click();" +
+                                                "return 'tapped';}}return 'no-target';})()",
+                                        ) { res ->
+                                            Diary.get()?.log("BROWSER") {
+                                                "TAP " + hostOf(url) + " -> " + (res ?: "null") +
+                                                    " (waiting " + tapSettleMillis + "ms, then reading)"
+                                            }
+                                            main.postDelayed(
+                                                { if (!settled.get()) readNow() },
+                                                tapSettleMillis.toLong(),
+                                            )
+                                        }
+                                    }, settleMillis.coerceAtLeast(0).toLong())
+                                } else if (settleMillis > 0) {
                                     main.postDelayed({ if (!settled.get()) readNow() }, settleMillis.toLong())
                                 } else {
                                     readNow()

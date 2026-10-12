@@ -61,11 +61,11 @@ object FeedProbe {
     // A cold web view is not a socket write: the engine answered in ~1.1 s of its own on a device, and a
     // 5 s cap turned a page load plus a request into a timeout. Generous, because it runs after a failure.
     private const val BROWSER_TIMEOUT = 8_000
-    private const val MAX_TRIES = 10  // every variant, controls included - a probe that ran out of tries
+    private const val MAX_TRIES = 11  // every variant, controls included - a probe that ran out of tries
                                     // before its own control host is a probe that proves nothing
-    private const val TOTAL_BUDGET = 72_000 // two settled page reads now lead (rstrain text ~13 s, rstrain
-    // dom ~10 s typical, 24 s caps) because the instant read measured only navigation; the rest still skip
-    // with reported lines
+    private const val TOTAL_BUDGET = 115_000 // three settled page reads now lead (rstrain text ~13 s,
+    // rstrain dom ~10 s, and the tap read 20 s settle + tap + 6 s, 34 s cap) because the instant read
+    // measured only navigation; the rest still skip with reported lines
 
     @Volatile
     private var last: List<Result> = emptyList()
@@ -155,6 +155,16 @@ object FeedProbe {
                 // reports how many time-like tokens it caught (scanForTimes), making every paste
                 // self-answering.
                 val r = BrowserFetch.pageText(rebuilt.url, 24_000, settleMillis = 12_000, textCap = 16_000)
+                scanForTimes(rebuilt.name, r)
+                r
+            } else if (rebuilt.name == "webview-erail-rstrain-dom-tap") {
+                // The last in-page lever: if 20 s of patience plus tapping their own tab still ends in
+                // a DOM without times, the data channel is interaction- or gate-kept and no further
+                // read variant of THIS page can succeed - the paste will have said so.
+                val r = BrowserFetch.pageText(
+                    rebuilt.url, 34_000, settleMillis = 20_000, textCap = 64_000, dom = true,
+                    tapText = "Running status",
+                )
                 scanForTimes(rebuilt.name, r)
                 r
             } else if (rebuilt.name == "webview-erail-rstrain-dom") {
@@ -298,6 +308,16 @@ object FeedProbe {
                     "was nav + halt NAMES, never a time (paste 2026-10-12 14:40) - if their SignalR " +
                     "scripts park the running data in the page invisibly, the DOM has it; the app " +
                     "scans its own capture for time-like tokens and the paste carries the verdict",
+                false, true,
+            ),
+            Variant(
+                "webview-erail-rstrain-dom-tap",
+                "https://erail.in/train-running-status/$trainNo",
+                null, emptyMap(), false,
+                "the same page given PATIENCE and a TAP: 20 s settle (their SignalR hub may simply " +
+                    "be slow on a phone), then their own 'Running status' tab is clicked and the DOM " +
+                    "read 6 s later - paste #11 proved the DOM holds only meta text at 10 s, so this " +
+                    "is the last in-page lever before their data channel is declared tap-gated",
                 false, true,
             ),
             Variant(
