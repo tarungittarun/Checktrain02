@@ -557,7 +557,7 @@ class LiveViewModel(
     }
 
     /** Day-fresh route cache, same SWR discipline (and JSON house style) as the mirror's. */
-    private fun loadExtentCache(): Boolean {
+    private suspend fun loadExtentCache(): Boolean {
         if (extentRoute != null) return true
         val raw = runCatching {
             org.json.JSONObject(runCatching { repo()?.prefs?.erailRouteCache }.getOrNull() ?: "{}")
@@ -579,7 +579,7 @@ class LiveViewModel(
         return true
     }
 
-    private fun saveExtentCache(halts: List<ErailRouteMirror.Halt>) {
+    private suspend fun saveExtentCache(halts: List<ErailRouteMirror.Halt>) {
         val raw = runCatching {
             org.json.JSONObject(runCatching { repo()?.prefs?.erailRouteCache }.getOrNull() ?: "{}")
         }.getOrNull() ?: return

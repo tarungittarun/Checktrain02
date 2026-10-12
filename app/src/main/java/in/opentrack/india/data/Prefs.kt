@@ -108,5 +108,6 @@ class Prefs(context: Context) {
         private const val KEY_RECENT = "recent"
         private const val KEY_CROWD = "crowdReports"
         private const val KEY_MIRROR_CACHE = "mirrorCache"
+        private const val KEY_ERAIL_ROUTE_CACHE = "erailRouteCache"
     }
 }
