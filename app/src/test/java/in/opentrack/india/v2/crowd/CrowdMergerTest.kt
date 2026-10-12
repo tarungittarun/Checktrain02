@@ -90,7 +90,8 @@ class CrowdMergerTest {
         )
         val lines = CrowdMerger.lines(merged, listOf("TLGP"))
         val line = lines.getValue("TLGP")
-        assertTrue("got: $line", line.contains("TLGP arrived 05:15"))
+        // hours are unpadded in the shipped sentence (10:37's own test pins the format)
+        assertTrue("got: $line", line.contains("TLGP arrived 5:15"))
         assertTrue("got: $line", line.contains("reported by travellers"))
     }
 }
