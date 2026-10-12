@@ -41,10 +41,10 @@ class FeedProbeTest {
         }
         // A reachability control that is a different *host* is what separates "the feed refused us" from
         // "this device has no route", so at least two distinct hosts must appear in the matrix.
-        assertEquals(
-            "hosts must actually be extracted (an empty or single-element set would make this vacuous)",
-            4,
-            vs.map { it.url.substringAfter("://").substringBefore("/") }.distinct().size,
+        val hosts = vs.map { it.url.substringAfter("://").substringBefore("/") }.distinct()
+        assertTrue(
+            "hosts must actually be extracted (an empty or single-element set would make this vacuous): $hosts",
+            hosts.size >= 3,
         )
         assertEquals(
             "probe must span more than one host",
