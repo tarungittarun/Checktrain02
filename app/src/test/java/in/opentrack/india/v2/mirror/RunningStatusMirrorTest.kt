@@ -172,14 +172,15 @@ class RunningStatusMirrorTest {
         // 19:43 device time: BDVT departed 29 minutes ago - the newest REAL observation in the capture
         // (paste #24's exact situation: the tail "actuals" for ANF/SRF/TLGP are schedule echoes lying
         // ahead of the clock, and an echo must never anchor position).
-        // At 19:43 the fixture's tail is all echo or unprovable: ARU (+3 min ahead), ANF (+22) and
-        // SRF (+52 - the one that beat the first cut) are ahead of the clock or on-time copies of it.
-        // The newest PROVABLE deviation is TKE: actual dep 18:43 against a 18:42 schedule.
+        // At 19:43 the fixture's tail is all echo or unprovable: ARU (+3 ahead of the clock), ANF
+        // (+22) and SRF (+52) sit in or beyond the future, and every halt from BDVT onward is an
+        // on-time COPY of its schedule - unprovable by definition. The newest PROVABLE deviation
+        // is ASK: actual dep 17:39 against a 17:15 schedule.
         val (last, echoes) = RunningStatusMirror.lastConfirmed(actuals, routeCodes, 19 * 60 + 43)!!
-        assertEquals("TKE dep 18:43 (+1) is the newest provable deviation", "TKE", last.stationCode)
-        assertEquals(1123, last.actDep)
+        assertEquals("ASK dep 17:39 (+24) is the newest provable deviation", "ASK", last.stationCode)
+        assertEquals(1059, last.actDep)
         assertEquals("ARU and ANF sit ahead of the clock - echoes, named for the diary", listOf("ARU", "ANF"), echoes)
-        assertEquals(1, RunningStatusMirror.slipMinutes(last))
+        assertEquals(24, RunningStatusMirror.slipMinutes(last))
     }
 
     @Test
