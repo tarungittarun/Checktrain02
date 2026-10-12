@@ -349,5 +349,5 @@ Latest-apk: the owner-installed build (21:26 UTC, 10,667,232 B) already carries 
 
 
 
-Latest-apk: 10,766,059 B @ 2026-10-12T13:09:35Z (efee1bc, Round 37 GREEN — mirror falls back to the browser lane; runningstatus.in in DNS_HOSES)
+Latest-apk: 10,767,983 B @ 2026-10-12T13:32:57Z (ad8c7d8, Round 38 GREEN — ntfy real bytes captured+fixture-tested; cache-buster on every poll; 3-verdict loopback)
 
