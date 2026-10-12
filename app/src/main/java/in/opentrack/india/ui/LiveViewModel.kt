@@ -189,7 +189,7 @@ class LiveViewModel(
      * six hours renders its actuals THE MOMENT it opens, then refreshes underneath; on a fluctuating
      * network that is the difference between an instant table and a spinner the journey outlives.
      */
-    private fun loadMirrorCache() {
+    private suspend fun loadMirrorCache() {
         val repo = runCatching { repo() }.getOrNull() ?: return
         val raw = runCatching { org.json.JSONObject(repo.prefs.mirrorCache) }.getOrNull() ?: return
         val obj = raw.optJSONObject(trainNo) ?: return
@@ -217,7 +217,7 @@ class LiveViewModel(
         }
     }
 
-    private fun saveMirrorCache(display: Map<String, String>) {
+    private suspend fun saveMirrorCache(display: Map<String, String>) {
         val repo = runCatching { repo() }.getOrNull() ?: return
         val raw = runCatching { org.json.JSONObject(repo.prefs.mirrorCache) }.getOrNull() ?: return
         val refreshed = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US)
