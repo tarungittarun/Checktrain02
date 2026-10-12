@@ -133,11 +133,31 @@ object RunningStatusMirror {
      * PAST here" signal a second witness can give. The position engine had only the schedule clock; a
      * train running 24 late is NOT where that clock says, and paste #22 is the proof on screen.
      */
-    fun lastConfirmed(actuals: Actuals, routeCodes: Collection<String>): Stop? {
+    /**
+     * [nowRailMinute] drives the echo guard: the mirror fills not-yet-reached halts with their
+     * SCHEDULE times dressed as actuals (paste #24: at 19:43 the page carried "actual" departures for
+     * 20:05 and 20:35 - timestamps in the future, which no observation can be). A departure less than
+     * 30 minutes ahead of the device clock is an estimate, and an estimate must never anchor position.
+     * Returns the stop and how far ahead its (rejected) departure was, so the log can name the echoes.
+     */
+    fun lastConfirmed(
+        actuals: Actuals, routeCodes: Collection<String>, nowRailMinute: Int,
+    ): Pair<Stop, List<String>>? {
         val order = routeCodes.map { it.uppercase() }
-        return actuals.stops
-            .filter { it.actDep != null && it.stationCode.uppercase() in order }
-            .maxByOrNull { order.indexOf(it.stationCode.uppercase()) }
+        val echoes = mutableListOf<String>()
+        val confirmed = actuals.stops.filter { stop ->
+            val dep = stop.actDep
+            if (dep == null || stop.stationCode.uppercase() !in order) return@filter false
+            val ahead = (dep - nowRailMinute + 1440) % 1440
+            if (ahead in 0 until 30) {
+                echoes += stop.stationCode
+                false
+            } else {
+                true
+            }
+        }
+        val last = confirmed.maxByOrNull { order.indexOf(it.stationCode.uppercase()) } ?: return null
+        return last to echoes
     }
 
     /** Wrap-safe scheduled-vs-actual slip in minutes from the mirror's own pair; null if either is missing. */

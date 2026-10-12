@@ -169,13 +169,33 @@ class RunningStatusMirrorTest {
     @Test
     fun `the last confirmed departure is the strongest past-here signal`() {
         val actuals = RunningStatusMirror.parse(RunningStatusMirror.stripTags(capture()))!!
-        val last = RunningStatusMirror.lastConfirmed(actuals, routeCodes)
-        assertNotNull(last)
-        assertEquals(
-            "SRF is the last halt with an actual departure in the capture (TLGP only arrives)",
-            "SRF", last!!.stationCode,
+        // 19:43 device time: BDVT departed 29 minutes ago - the newest REAL observation in the capture
+        // (paste #24's exact situation: the tail "actuals" for ANF/SRF/TLGP are schedule echoes lying
+        // ahead of the clock, and an echo must never anchor position).
+        val (last, echoes) = RunningStatusMirror.lastConfirmed(actuals, routeCodes, 19 * 60 + 43)!!
+        assertEquals("KMSI dep 19:31 is the newest departure genuinely behind the clock", "KMSI", last.stationCode)
+        assertEquals(1171, last.actDep)
+        assertEquals("ARU, ANF and SRF carry departures ahead of the clock in the capture - echoes", 3, echoes.size)
+        assertEquals("SRF", echoes.last())
+    }
+
+    @Test
+    fun `a departure minutes ahead of the clock is an echo, not an observation`() {
+        val actuals = RunningStatusMirror.Actuals(
+            "runningstatus.in",
+            listOf(
+                RunningStatusMirror.Stop("AAA", null, 1000, null, 1005),
+                RunningStatusMirror.Stop("BBB", null, 1180, null, 1186),
+            ),
         )
-        assertEquals("8:35 PM is 20:35", 1235, last.actDep)
+        val (last, echoes) = RunningStatusMirror.lastConfirmed(actuals, listOf("AAA", "BBB"), 1183)!!
+        assertEquals("BBB sits 3 minutes ahead of the clock - an echo, so AAA wins", "AAA", last.stationCode)
+        assertEquals(listOf("BBB"), echoes)
+        assertNull("every halt an echo means nothing is confirmed", RunningStatusMirror.lastConfirmed(
+            RunningStatusMirror.Actuals("runningstatus.in", listOf(
+                RunningStatusMirror.Stop("BBB", null, 1180, null, 1186),
+            )), listOf("BBB"), 1183,
+        ))
     }
 
     @Test

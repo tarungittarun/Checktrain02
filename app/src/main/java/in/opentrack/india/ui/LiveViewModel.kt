@@ -137,6 +137,17 @@ class LiveViewModel(
     /** The mirror's own throttle - independent of the relay's, so one slow witness cannot starve the other. */
     private var lastMirrorPoll = 0L
 
+    /**
+     * The mirror's position shift, PERSISTED across refreshes: paste #24 showed the note and the
+     * shifted clock evaporating on the next auto-tick because refreshBody rebuilds from scratch.
+     * Freshness window 30 min - a stale shift is a stale train.
+     */
+    private var mirrorLate = 0
+    private var mirrorNote: String? = null
+    private var mirrorShiftAt = 0L
+
+    private fun freshShift(): Boolean = System.currentTimeMillis() - mirrorShiftAt < 1_800_000
+
     private var pollJob: Job? = null
     private var lastAnswer: PositionEngine.Answer? = null
     private var auto = true
@@ -403,25 +414,43 @@ class LiveViewModel(
             // follows the actuals now. Last confirmed departure, its lateness, and the clock set back
             // by exactly that lateness: "next stop in N min" becomes the train's real remaining time.
             val u = _ui.value
-            val last = RunningStatusMirror.lastConfirmed(actuals, codes)
-            val late = last?.let { RunningStatusMirror.slipMinutes(it) } ?: 0
-            if (u != null && last != null && late > 0) {
+            val nowRail = nowMinute(System.currentTimeMillis())
+            val confirmed = RunningStatusMirror.lastConfirmed(actuals, codes, nowRail)
+            if (confirmed != null && confirmed.second.isNotEmpty()) {
+                Diary.get()?.log("MIRROR") {
+                    "excluded ${confirmed.second.size} future-minute echo halt(s) " +
+                        "(${confirmed.second.joinToString(",")}) - estimates, not observations"
+                }
+            }
+            val late = confirmed?.let { RunningStatusMirror.slipMinutes(it.first) } ?: 0
+            if (u != null && confirmed != null && late > 0) {
+                val last = confirmed.first
                 fun hm(m: Int): String = "${m / 60}:" + "%02d".format(m % 60)
                 val positionNote =
                     "Position from the mirror's actuals: last confirmed ${last.stationCode} dep " +
                         hm(last.actDep!!) + " (${RunningStatusMirror.SOURCE}, $late min late) — the " +
                         "schedule clock is set back by that lateness, so the next-stop estimate is " +
                         "the train's, not the timetable's."
+                mirrorLate = late
+                mirrorNote = positionNote
+                mirrorShiftAt = System.currentTimeMillis()
                 val shifted = buildUi(
                     u.route, u.answer, u.tried, emptyList(),
-                    nowMinute(System.currentTimeMillis()) - late, positionNote,
+                    nowRail - late, positionNote,
                 ).copy(reports = merged, relayOk = u.relayOk)
                 _ui.postValue(shifted)
                 Diary.get()?.log("MIRROR") {
                     "position from actuals: last confirmed ${last.stationCode} dep ${hm(last.actDep)} " +
-                        "($late min late) - schedule clock shifted back $late min"
+                        "($late min late) - schedule clock shifted back $late min (persists across refreshes)"
                 }
             } else {
+                if (confirmed != null && late <= 0) {
+                    // The train caught up with its timetable (or the mirror only has on-time data):
+                    // drop any stale shift instead of dragging the clock back forever.
+                    mirrorLate = 0
+                    mirrorNote = null
+                    mirrorShiftAt = 0L
+                }
                 _ui.postValue(u?.copy(reports = merged))
             }
             Diary.get()?.log("MIRROR") {
@@ -518,7 +547,8 @@ class LiveViewModel(
         positionNote: String? = null,
     ): Ui {
         val now = System.currentTimeMillis()
-        val nowRail = nowRailOverride ?: nowMinute(now)
+        val shift = if (nowRailOverride == null && freshShift()) mirrorLate else 0
+        val nowRail = (nowRailOverride ?: nowMinute(now)) - shift
         val pos = answer.position
         val model = TrackModel.build(
             route = route, pos = pos, perStop = answer.perStop, nowRailMinute = nowRail,
@@ -531,7 +561,8 @@ class LiveViewModel(
             // on — no network, a timeout, a refusal, or the case this endpoint really is: it answered about
             // the train and published no arrival or departure minute at all. "No live report reached this
             // device" is the last resort, for when no source had anything more specific to say.
-            note = positionNote ?: notes.firstOrNull { it.isNotBlank() } ?: answer.note
+            note = positionNote ?: (if (freshShift()) mirrorNote else null)
+                ?: notes.firstOrNull { it.isNotBlank() } ?: answer.note
                 ?: if (pos.provenance.live) null
                 else "No live report reached this device — every minute below is the timetable, " +
                     "not the train.",
@@ -549,6 +580,10 @@ class LiveViewModel(
             boarding = model.rows.firstOrNull { it.isBoarding },
             alighting = model.rows.firstOrNull { it.isAlighting },
             nowRailMinute = nowRail, tried = tried, loading = false,
+            // Refreshes must not wipe what the witnesses wrote: rebuild from the LIVE state, not defaults
+            // (paste #24: every auto-tick erased the reader lines until the next 90 s poll).
+            reports = _ui.value?.reports ?: emptyMap(),
+            relayOk = _ui.value?.relayOk ?: true,
         )
     }
 
