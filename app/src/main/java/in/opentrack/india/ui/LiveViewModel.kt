@@ -128,6 +128,9 @@ class LiveViewModel(
     @Volatile
     private var crowdOn = false
 
+    @Volatile
+    private var lastCrowdPoll = 0L
+
     private var pollJob: Job? = null
     private var lastAnswer: PositionEngine.Answer? = null
     private var auto = true
@@ -274,13 +277,14 @@ class LiveViewModel(
         _ui.value = buildUi(cached, answer, emptyList(), emptyList())
     }
 
-    /**
-     * The reader half of ADR-006: poll this train's topic once per refresh, merge, and put one sentence
-     * per stop on the screen. Post-ui on purpose - the timetable renders first and the reports card
-     * fills in when the relay answers, exactly like the live-identity upgrade above it.
-     */
-    private fun maybeCrowd() {
+    /** Reader poll discipline (adopted from the owner's researched spec, 60-120 s window, 90 s chosen):
+        the relay is free but a poll per auto-tick hammers it for data that changes by the minute, not
+        by the second. The user's own publish bypasses the throttle - they just acted; they read now. */
+    private fun maybeCrowd(force: Boolean = false) {
         if (!crowdOn) return
+        val nowWall = System.currentTimeMillis()
+        if (!force && nowWall - lastCrowdPoll < CROWD_POLL_MIN_MILLIS) return
+        lastCrowdPoll = nowWall
         viewModelScope.launch {
             val codes = _ui.value?.route?.stops?.map { it.code } ?: return@launch
             val poll = withContext(Dispatchers.IO) { relay.pollRecentOrFailure(trainNo) }
@@ -312,7 +316,7 @@ class LiveViewModel(
             }
             _reportStatus.postValue(msg)
             Diary.get()?.log("CROWD") { msg }
-            if (w is NtfyRelay.Wire.Ok) maybeCrowd()
+            if (w is NtfyRelay.Wire.Ok) maybeCrowd(force = true)
         }
     }
 
@@ -416,6 +420,9 @@ class LiveViewModel(
     companion object {
         /** Enough rows to read a real route without a stutter on a five-year-old phone. */
         const val MAX_ROWS = 140
+
+        /** The researched spec's 60-120 s cache window, midpoint adopted for relay reads. */
+        const val CROWD_POLL_MIN_MILLIS = 90_000L
 
         /**
          * What the live identity adds to the timetable's route label, as a pure function (the screen
