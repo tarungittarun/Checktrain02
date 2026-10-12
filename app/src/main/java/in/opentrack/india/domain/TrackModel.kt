@@ -135,7 +135,9 @@ object TrackModel {
     ): View {
         val live = pos.provenance.live
         val board = route.stops.firstOrNull { it.seq == boardSeq }
-        val boardKm = board?.schedKm ?: 0
+        // The full-route extension (round 47) adds halts the device timetable carries no km for
+        // (schedKm -1); the ladder floors at the first KNOWN km so the known rows stay true.
+        val boardKm = board?.schedKm?.takeIf { it >= 0 } ?: 0
         val hasAnchor = pos.anchorSeq > 0
         val overlay = PositionEngine.delayProfile(route, perStop, pos.anchorSeq, pos.delayMinutes)
         // The first stop still ahead of the clock, found once. Inside the row loop this would be a
@@ -191,7 +193,7 @@ object TrackModel {
         // Once the dataset is known to carry distances, *every* row prints one — including the first, whose
         // "0 km" is the bottom rung of the ladder the reader is measuring the rest against. Gating the
         // column on `kmFromOrigin > 0` instead made the origin look like a stop with no distance.
-        val rows = if (hasDistances) stops.map { it.copy(showKm = true) } else stops
+        val rows = stops.map { it.copy(showKm = hasDistances && it.kmFromOrigin >= 0) }
         // Distance travelled within the passenger's own segment. The engine's `kmAlong` is measured
         // from the train's first station and is only trustworthy when a live (or schedule-interpolated)
         // position put it there; otherwise interpolate the anchor->next leg by the same fraction the
@@ -210,12 +212,23 @@ object TrackModel {
             progressLabel = "$covered of $totalKm km" +
                 (if (pos.fraction > 0f && pos.kmAlong > 0f) " · ${(totalKm - covered).coerceAtLeast(0)} km left" else "")
         } else {
-            // Without credible distances the honest denominator is stops travelled, and it must say so.
-            val done = passedCount(stops)
-            val span = (route.stops.indexOfLast { it.seq == alightSeq } -
-                (route.stops.indexOfFirst { it.seq == boardSeq }).coerceAtLeast(0)).coerceAtLeast(1)
-            progressPct = ((done * 100) / span).coerceIn(0, 100)
-            progressLabel = "$done of $span stops covered · distances unavailable offline"
+            if (route.segments.isEmpty()) {
+                // The endpoint route: "1 of 1 stops covered" measured nothing. The honest dial is the
+                // elapsed share of the journey between the two times we DO have.
+                val dep = route.stops.firstOrNull()?.departureMin
+                val arr = route.stops.lastOrNull()?.arrivalMin
+                progressPct = if (dep != null && arr != null && arr > dep) {
+                    (((nowRailMinute - dep) * 100) / (arr - dep)).coerceIn(0, 100)
+                } else 0
+                progressLabel = "endpoint times only · per-stop halts unavailable on this device"
+            } else {
+                // Without credible distances the honest denominator is stops travelled, and it must say so.
+                val done = passedCount(stops)
+                val span = (route.stops.indexOfLast { it.seq == alightSeq } -
+                    (route.stops.indexOfFirst { it.seq == boardSeq }).coerceAtLeast(0)).coerceAtLeast(1)
+                progressPct = ((done * 100) / span).coerceIn(0, 100)
+                progressLabel = "$done of $span stops covered · distances unavailable offline"
+            }
         }
 
         // The tick's denominator must be the *passenger's* segment, like the fill's, or the two marks
@@ -314,6 +327,19 @@ object TrackModel {
         if (anchor == null) {
             return if (pos.status == StopStatus.UPCOMING) "Not departed yet" else "Position not available yet"
         }
+        // The live-only endpoint route (the offline copy lacks the train): a position sentence
+        // measured against a two-stop phantom read as "4h 49m into the 0 km leg" - a malfunction to
+        // the one person reading it. Say what the two endpoints know, and nothing more. The shape is
+        // named by its segments: a real route with distances missing still earns the leg/stops
+        // language (the kmAllZero fallback), the endpoint pair has no legs at all.
+        if (route.segments.isEmpty()) {
+            val first = route.stops.firstOrNull()
+            val last = route.stops.lastOrNull()
+            val dep = first?.departureMin?.let { RailTime.formatRailMinute(it) } ?: "—"
+            val arr = last?.arrivalMin?.let { RailTime.formatRailMinute(it) } ?: "—"
+            return "Endpoints only: leaves ${TitleCase.of(first?.name ?: route.srcName)} $dep, reaches " +
+                "${TitleCase.of(route.dstName)} $arr — this device has no halts for this train"
+        }
         // The station names inside a *sentence* are title-cased, because the table below renders them that
         // way and a screen that writes "KSR Bengaluru" in one place and "YESVANTPUR JN" in another reads
         // like two apps stitched together. The rule is the one the rows already use (`TitleCase`), so the
@@ -327,7 +353,13 @@ object TrackModel {
             val ahead = next?.let { it.kmFromBoard - anchor.kmFromBoard }
             return when {
                 anchor.state == State.HERE -> "Should be at $name now"
-                gap > 90 * 60 -> "Should have finished the run at ${TitleCase.of(route.dstName)}"
+                // `now` and the schedule are RAIL MINUTES - 90 minutes is 90, not 90*60, so the old
+                // comparison asked a run to be ninety HOURS stale before calling it finished, and a
+                // run three hours past its terminus (20652 on the owner's 15:14 paste) fell through
+                // to "Should have left <terminus> by now" - nonsense for a train that ends there.
+                // Finished = a terminus anchor past 90 minutes, or any anchor after 90 hours.
+                gap > 90 * 60 || (next == null && gap > 90) ->
+                    "Should have finished the run at ${TitleCase.of(route.dstName)}"
                 ahead != null && gap > 0 -> "Should be past $name, ${RailTime.formatDuration(gap)} into the " +
                     "$ahead km leg"
                 else -> "Should have left $name by now"
@@ -412,7 +444,7 @@ object TrackModel {
     }
 
     private fun alightKm(route: TrainRoute, alightSeq: Int): Int =
-        route.stops.firstOrNull { it.seq == alightSeq }?.schedKm
-            ?: route.stops.lastOrNull()?.schedKm ?: 0
+        route.stops.firstOrNull { it.seq == alightSeq }?.schedKm?.takeIf { it >= 0 }
+            ?: route.stops.lastOrNull { it.schedKm >= 0 }?.schedKm ?: 0
 
 }

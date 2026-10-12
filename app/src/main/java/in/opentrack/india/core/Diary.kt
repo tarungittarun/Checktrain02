@@ -437,7 +437,10 @@ class Diary(private val file: File) {
         const val SCHEMA = 1
         private const val RING_CAP = 2_000
         private const val MAX_BYTES = 2_000_000L
-        private const val MAX_LINE = 400
+        // 1000: a UISTATE screen line (headline + chips + eight rows) measures ~700 chars; cutting at
+        // 400 left the owner's paste describing half a screen - the capture was working, the file was
+        // the bottleneck. Still bounded; rotation handles the file, this bounds one line.
+        private const val MAX_LINE = 1000
         private const val SHARE_BYTES = 220_000
         private const val TCP_PROBE_MS = 2_500
         /** Two minutes: long enough to cover the refresh that follows the snapshot, short enough that a
@@ -448,6 +451,17 @@ class Diary(private val file: File) {
         )
         private val DNS_HOSES = arrayOf(
             "enquiry.indianrail.gov.in", "erail.in", "api.railradar.in", "play.googleapis.com",
+            // ADR-006's relay: if a local filter (the owner's AdGuard) blocks ntfy.sh, the traveller
+            // pipe is dead on that device and EVERY paste must say so from the ENV block upward.
+            "ntfy.sh",
+            // The official app's API gateway, visible ONLY in BeVigil's static scan of its binary
+            // (owner's link, 2026-10-12) - absent from the working OSS client and from every capture
+            // so far. Reachability first; paths are invented nowhere.
+            "gw.crisapis.indianrail.gov.in",
+            // The mirror witness (2026-10-12): it answered every halt's actual minutes from the CI
+            // sandbox and "no answer" from the owner's phone on the direct wire - the ENV block must
+            // show DNS/TCP/TLS for it so the next paste names the block instead of guessing it.
+            "runningstatus.in",
         )
 
         @Volatile

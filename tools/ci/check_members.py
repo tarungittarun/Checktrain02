@@ -25,7 +25,7 @@ RES = ROOT / "app" / "src" / "main" / "res"
 
 DECL = re.compile(
     r"^\s*(?:(?:private|internal|protected|public|open|override|data|lateinit|const|abstract|inner|"
-    r"sealed|companion|enum|annotation|@\w+)\s+)*(?:val|var|fun|class|object|interface|typealias)\s+"
+    r"sealed|companion|enum|annotation|suspend|@\w+)\s+)*(?:val|var|fun|class|object|interface|typealias)\s+"
     r"(?:<[^>]*>\s*)?(?:(\w+)\s*\.\s*)?(\w+)",
     re.M,
 )
@@ -66,11 +66,19 @@ getLocationInWindow getPixel drawColor mkdirs compress recycle zipWithNext getCh
 ALLOW |= set("""
 isEmpty
 postUrl loadUrl evaluateJavascript isForMainFrame countDown await removeAllCookies flush destroy
-stopLoading compareAndSet incrementAndGet optInt setInstanceFollowRedirects lastPathSegment exceptionOrNull
+stopLoading compareAndSet incrementAndGet optInt setInstanceFollowRedirects optJSONArray length lastPathSegment exceptionOrNull
 javaClass getMethod invoke
 firstInstallTime versionCode substringBeforeLast
 setFixedRouteToAddress getAllByName hostAddress filterIsInstance
 isSuccess launch
+# v2 live-search slice (2026-10-12): Kotlin Map.getValue, HttpURLConnection.setRequestProperty,
+# URL.protocol - the erail transport and the merge tests call these; framework, not typos.
+getValue setRequestProperty protocol remove addAll removeSuffix
+# v2 identity-overlay slice (2026-10-12): Kotlin stdlib collection lookups. singleOrNull guards the
+# identity parse (exactly one record must carry the number); indexOfLast sat unflagged in
+# LiveViewModel.segmentRange for weeks because no local named `rows` existed - the identity fetch
+# added one, and the checker rightly began scanning the receiver. Both stdlib, not typos.
+singleOrNull indexOfLast findAll range
 lastModified openOutputStream toByteArray registerForActivityResult clear text
 packageName contentResolver connect takeLast log
 removeFirst addLast appendText appendBytes readBytes copyOfRange versionName lastUpdateTime getPackageInfo packageManager getLinkProperties hasTransport hasCapability getNetworkCapabilities activeNetwork mkdirs resume install tailLabels exportName rotationPlan getAllByName hostAddress getSharedPreferences putString putInt
@@ -87,6 +95,15 @@ getOrPut getOrElse onFailure onSuccess awaitCancellable current isDisposed dispo
 # the live-feed client: javax.crypto, java.security, org.json and the stdlib calls on their results
 init doFinal indices optJSONObject opt optString has keys getJSONArray encodeToString decode nextBytes lines
 setPrimaryClip
+# legacy-cipher factory (2026-10-12): SSLSocket suite lists and the delegate pattern
+enabledCipherSuites supportedCipherSuites defaultCipherSuites createSocket getOrDefault
+# mirror witness (2026-10-12): stdlib Map merge so traveller lines keep their stop and the mirror fills the rest
+filterKeys
+ifBlank maxByOrNull
+# pointing the screen at the train (2026-10-12): RecyclerView/LayoutManager positioning
+scrollToPositionWithOffset findViewByPosition smoothScrollTo
+# stale-while-revalidate mirror cache (2026-10-12): org.json reads + sorted-view walk + time format
+optLong optInt SimpleDateFormat format Date Locale US put sortedByDescending second
 isNullOrBlank containsKey isNullOrEmpty takeWhile toLongOrNull substringAfter asSequence toList filter
 createConfigurationContext density getLineWidth setTextSize requestRectangleOnScreen idleFor application
 addView await childCount contentEncoding countDown disconnect filterIndexed getInt getLastKnownLocation getSystemService hasAccuracy hasSpeed ifEmpty isProviderEnabled lastModified matchEntire maxOrNull minOrNull putIfAbsent rawQuery removeUpdates requestFocus requestLocationUpdates right setOnClickListener setOnEditorActionListener setOnFocusChangeListener setSelection sortedWith subList toByteArray toDouble toDoubleOrNull toLong trimEnd windowToken

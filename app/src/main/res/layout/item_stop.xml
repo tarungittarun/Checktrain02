@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  One stop. Scheduled pair and live-or-expected pair are stacked in two fixed-width columns so the eye
-  reads down a column and sees the drift; the rail on the left is the same timeline the chart draws, so
-  "passed / here / still to come" is legible without reading a word. Column widths come from dimens.xml
-  and are repeated verbatim in the table header - a header that does not line up with its own table is
-  how a screen starts to look untrustworthy.
+  One stop, the owner's arrangement (round 45): ARRIVAL on the left, STATION in the middle, DEPARTURE
+  on the right. Each time column stacks its SCHEDULED minute above its ACTUAL/EXPECTED minute, every
+  minute prefixed (Sch / Act / Est) so no number can be mistaken for the other kind - the reader line
+  with the source name moved OUT of the rows: the source is named once, in the dropdown above the
+  table, not repeated per halt.
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/stopRow"
@@ -13,15 +13,37 @@
     android:baselineAligned="false"
     android:minHeight="@dimen/row_min_h"
     android:orientation="horizontal"
-    android:paddingLeft="12dp"
-    android:paddingTop="9dp"
-    android:paddingRight="12dp"
-    android:paddingBottom="9dp">
+    android:paddingLeft="8dp"
+    android:paddingTop="8dp"
+    android:paddingRight="8dp"
+    android:paddingBottom="8dp">
+
+    <LinearLayout
+        android:layout_width="@dimen/col_sched"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_vertical"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/schedArr"
+            style="@style/TextClockDim"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_horizontal" />
+
+        <TextView
+            android:id="@+id/liveArr"
+            style="@style/TextClock"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:gravity="center_horizontal" />
+    </LinearLayout>
 
     <FrameLayout
         android:layout_width="@dimen/rail_w"
         android:layout_height="match_parent"
-        android:layout_marginEnd="6dp">
+        android:layout_marginEnd="4dp">
 
         <View
             android:layout_width="2dp"
@@ -47,13 +69,6 @@
         android:layout_weight="1"
         android:orientation="vertical">
 
-        <!--
-            Two lines, not one, for the name and for the "code · km · note" line under it. Both were
-            `singleLine`, which is how the shipping screens ended up reading "SMET · 274 km · you g…" on the
-            last row: the boarding note is the one line a traveller needs to see to trust that the leg is
-            marked, and it was the exact thing the width could not hold. `ellipsize` stays for names long
-            enough to need a third line, so a wrap is the normal outcome and a cut is the exception.
-        -->
         <TextView
             android:id="@+id/stopName"
             style="@style/TextBody"
@@ -73,35 +88,14 @@
     </LinearLayout>
 
     <LinearLayout
-        android:layout_width="@dimen/col_sched"
-        android:layout_height="wrap_content"
-        android:layout_gravity="center_vertical"
-        android:orientation="vertical">
-
-        <TextView
-            android:id="@+id/schedArr"
-            style="@style/TextClockDim"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:gravity="center_horizontal" />
-
-        <TextView
-            android:id="@+id/schedDep"
-            style="@style/TextClockDim"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:gravity="center_horizontal" />
-    </LinearLayout>
-
-    <LinearLayout
         android:layout_width="@dimen/col_live"
         android:layout_height="wrap_content"
         android:layout_gravity="center_vertical"
         android:orientation="vertical">
 
         <TextView
-            android:id="@+id/liveArr"
-            style="@style/TextClock"
+            android:id="@+id/schedDep"
+            style="@style/TextClockDim"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:gravity="center_horizontal" />
@@ -111,15 +105,7 @@
             style="@style/TextClock"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
             android:gravity="center_horizontal" />
-
-        <TextView
-            android:id="@+id/liveTag"
-            style="@style/TextMicro"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="3dp"
-            android:gravity="center_horizontal"
-            android:singleLine="true" />
     </LinearLayout>
 </LinearLayout>

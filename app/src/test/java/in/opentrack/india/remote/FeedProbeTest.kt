@@ -23,7 +23,52 @@ class FeedProbeTest {
         val vs = FeedProbe.variants("12627", "2026-10-11", NtesWire.plainFor(NtesWire.SUB_LIVE, "12627", 20737L))
         assertTrue("a probe with ${vs.size} variants cannot distinguish much", vs.size >= 6)
         assertEquals("variant names must be unique", vs.size, vs.map { it.name }.distinct().size)
-        assertEquals("the shipped shape is tried first", "post-dalvik-json", vs.first().name)
+        // Order is a budget decision (18s), v3 per the owner's 10:33 log: the phone REACHED the erail
+        // live endpoint (404 was the app's answer to a malformed date) while CI is 403'd - so the
+        // erail asks lead, in erail's own date format, and the shipped shape is the control.
+        assertEquals("the observation run leads (the guessing era ended with two 404s from the phone)",
+            "webview-erail-observe", vs.first().name)
+        assertEquals("their own running-status PAGE is asked second (SignalR renders it; we read text)",
+            "webview-erail-rspage", vs[1].name)
+        assertEquals("the deep-linked page third, settled: its 14:40 verdict was nav + halt names, " +
+            "never a time", "webview-erail-rstrain", vs[2].name)
+        assertEquals("the SAME page as raw DOM fourth: data their scripts hold invisibly lives there, " +
+            "and the scan's verdict rides in every paste", "webview-erail-rstrain-dom", vs[3].name)
+        assertEquals("the DESKTOP read fourth: every prior read hit their mobile layout; the one page " +
+            "slice never tested (their own footer offers 'Desktop View')", "webview-erail-rstrain-desktop", vs[4].name)
+        assertEquals("the human-sequence read fifth: date chip + Show Status + patience + iframes " +
+            "(paste #13 fired the tap; #14's full sequence held zero tokens)", "webview-erail-rstrain-dom-tap", vs[5].name)
+        assertEquals("the researched mirrors ride the fresh budget: ConfirmTkt's whitelisted servers " +
+            "render the cluster's data as HTML", "webview-confirmtkt", vs[6].name)
+        assertEquals("the second mirror, its path honestly labelled a guess", "webview-railmitra", vs[7].name)
+        assertEquals("the official app's gateway root: a door BeVigil's scan of the binary named and " +
+            "no client ever knocked on - reachability first, paths invented nowhere",
+            "get-crisapis-gateway", vs[8].name)
+        assertEquals("the site's own script capture follows", "get-erail-sitejs", vs[9].name)
+        assertEquals("their own advertised public API is asked after the page reads (runningstatus = actuals)",
+            "get-api-runningstatus", vs[10].name)
+        assertEquals("and the route API next (per-stop schedule)", "get-api-route", vs[11].name)
+        // The two getRunTrain spellings retired here (404 twice from the owner's phone, pastes #10 and
+        // #11) - their slots now carry the owner's researched mobile-gateway shape: unverified claims,
+        // but testable on the ONE vantage where this host completes TLS. The probe is the experiment.
+        assertEquals("the researched NTES app gateway: POST JSON, queryType 6, dalvik, dd-MMM-yyyy",
+            "post-appservand-json", vs[12].name)
+        assertTrue("gateway body must be the researched query, regenerable per train",
+            vs[12].body!!.contains("\"queryType\":\"6\"") && vs[12].body!!.contains("\"trainNo\":\"12627\""))
+        assertEquals("the same gateway through the browser engine (the transport axis that separates " +
+            "this phone's two stacks)", "webview-appservand", vs[13].name)
+        assertEquals("the shipped shape follows as the control", "post-dalvik-json", vs[14].name)
+        assertEquals("the legacy-cipher ask last-in-window: the SAME correct shape with static-RSA suites " +
+            "offered - the working OSS client widens for exactly this reason",
+            "post-appservand-legacytls", vs[15].name)
+        // The run window is the first MAX_TRIES; everything beyond must be legacy leftovers, never a
+        // settled page read - the reads that need the fresh budget must sit inside the window.
+        assertTrue("beyond the window only legacy controls may live: got " +
+            vs.drop(16).joinToString(",") { it.name },
+            vs.drop(16).none {
+                it.name.startsWith("webview-erail-rstrain") || it.name.contains("confirmtkt") ||
+                    it.name.contains("crisapis")
+            })
         for (v in vs) {
             assertTrue("${v.name} must not send data in the clear", v.url.startsWith("https://"))
             assertTrue("${v.name} needs an explanation for the report", v.note.length > 8)
@@ -32,10 +77,10 @@ class FeedProbeTest {
         }
         // A reachability control that is a different *host* is what separates "the feed refused us" from
         // "this device has no route", so at least two distinct hosts must appear in the matrix.
-        assertEquals(
-            "hosts must actually be extracted (an empty or single-element set would make this vacuous)",
-            4,
-            vs.map { it.url.substringAfter("://").substringBefore("/") }.distinct().size,
+        val hosts = vs.map { it.url.substringAfter("://").substringBefore("/") }.distinct()
+        assertTrue(
+            "hosts must actually be extracted (an empty or single-element set would make this vacuous): $hosts",
+            hosts.size >= 3,
         )
         assertEquals(
             "probe must span more than one host",

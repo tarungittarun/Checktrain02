@@ -5,6 +5,9 @@ build/
 app/build/
 local.properties
 captures/
+# ...except the versioned wire captures a parser is written against (4.5). Those are deliberate,
+# dated, attributed fixtures - the opposite of the throwaway /tmp captures this rule guards.
+!app/src/test/resources/captures/
 .cxx/
 
 # generated data (rebuilt by `python3 tools/build_refdb.py` / CI)

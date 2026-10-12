@@ -1,4 +1,4 @@
-package `in`.opentrack.india.v2
+package `in`.opentrack.india.v2.contract
 
 /**
  * The v2 data contract: every displayed fact is a value plus the answer to "how do you know, and when".

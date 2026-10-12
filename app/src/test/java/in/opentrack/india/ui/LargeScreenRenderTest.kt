@@ -237,7 +237,7 @@ class LargeScreenRenderTest {
     /** Every header cell on the tracking screen, measured rather than eyeballed. */
     private fun assertHeaderIntact(shot: Render.Shot) {
         listOf(R.id.trainNo, R.id.routeLabel, R.id.runDate, R.id.headline, R.id.provenance, R.id.age,
-            R.id.delay, R.id.next, R.id.progressLabel, R.id.chartLegend).forEach {
+            R.id.delay, R.id.next).forEach {
             val value = shot.text(it)
             assertTrue("unfilled or empty label: '${name(shot, it)}' = '$value'",
                 value.isNotBlank() && !value.contains("%"))
@@ -251,8 +251,8 @@ class LargeScreenRenderTest {
         assertNotNull("the stop table did not lay out at ${WIDTH} dp", list)
         for (i in 0 until list!!.childCount) {
             val row = list.getChildAt(i)
-            listOf(R.id.stopName, R.id.stopMeta, R.id.schedArr, R.id.schedDep, R.id.liveArr, R.id.liveDep,
-                R.id.liveTag).forEach {
+            listOf(R.id.stopName, R.id.stopMeta, R.id.schedArr, R.id.schedDep, R.id.liveArr, R.id.liveDep)
+                .forEach {
                 Render.assertNothingCut(row.findViewById(it), "row $i · ${name(shot, it)}")
             }
             assertTrue("row $i has no station name", Render.read(row, R.id.stopName).isNotBlank())

@@ -116,8 +116,8 @@ class ScreenRenderTest {
         val headline = shot.text(R.id.headline)
         val strings = listOf(
             headline, shot.text(R.id.provenance), shot.text(R.id.age), shot.text(R.id.delay),
-            shot.text(R.id.next), shot.text(R.id.progressLabel), shot.text(R.id.trainNo),
-            shot.text(R.id.routeLabel), shot.text(R.id.runDate), shot.text(R.id.chartLegend),
+            shot.text(R.id.next), shot.text(R.id.trainNo),
+            shot.text(R.id.routeLabel), shot.text(R.id.runDate),
         )
         strings.forEach { assertTrue("unfilled or empty label: '$it'", it.isNotBlank() && !it.contains("%")) }
         assertTrue("headline too short to be a sentence: '$headline'", headline.length > 20)
@@ -140,8 +140,12 @@ class ScreenRenderTest {
             listOf(R.id.schedArr, R.id.schedDep, R.id.liveArr, R.id.liveDep).forEach { id ->
                 assertTrue("row $i is missing a time column", text(row, id).isNotBlank())
             }
-            // The word under the live column is what says whether that minute was reported or projected.
-            assertTrue("row $i does not name what its live column holds", text(row, R.id.liveTag).isNotBlank())
+            // Round 45: the stacked time columns NAME their kind - "Sch" above, "Act"/"Est" below - so a
+            // traveller can never mistake a timetable minute for a report.
+            listOf(R.id.schedArr, R.id.schedDep).forEach { id ->
+                assertTrue("row $i scheduled minute not prefixed in ${name(shot, id)}",
+                    text(row, id).startsWith("Sch "))
+            }
             // The complaint this pins: an offline screen printed the schedule twice, and the right-hand copy
             // read like a report about the train. A row nothing moved must show a dash, not a second "05:52".
             if (m.rows[i].source == TrackModel.MinuteSource.SCHEDULE) {
@@ -163,21 +167,7 @@ class ScreenRenderTest {
         assertEquals("every row prints its distance, the 0 km origin included", list.childCount, km.size)
         assertTrue("distances must increase along the route: $km", km.zipWithNext().all { (a, b) -> b > a })
 
-        // The chart has to contain the live polyline: `TrackInsightView` paints the accent colour only
-        // when a position exists, so this fails on an empty frame or a zero-height view.
-        val chart = shot.bounds(R.id.chart)
-        assertTrue("chart has no height: $chart", chart.height() > Render.dp(shot.context, 90f).toInt())
-        // The rect must be *below* the card's header row, or this whole file samples the wrong pixels.
-        assertTrue("the chart's rect starts at the top of the screen ($chart): the offset walk is broken",
-            chart.top > Render.dp(shot.context, 120f).toInt())
-        assertTrue("chart painted ${shot.distinct(chart)} colours", shot.distinct(chart) > 40)
-        // The count goes into the message: "$accentPx accent pixels" distinguishes "the chart never
-        // plotted" from "the whole screen happens to use this colour", and a CI log that cannot tell them
-        // apart costs a round trip.
-        val accentPx = shot.countWith(shot.context.getColor(R.color.accent), chart)
-        assertTrue("live polyline missing: $accentPx accent pixels in $chart", accentPx > 20)
-        assertTrue("progress bar unpainted", shot.distinct(shot.bounds(R.id.progressBar)) > 3)
-        Render.save("02-track-live", shot.bitmap)
+Render.save("02-track-live", shot.bitmap)
     }
 
     @Test
@@ -219,22 +209,7 @@ class ScreenRenderTest {
             Render.read(row, R.id.liveArr) == "—" && Render.read(row, R.id.liveDep) == "—"
         }
         assertEquals("an offline screen must dash both live cells in every row", offline.childCount, dashed)
-        // Without a position the accent polyline is absent; the timetable line is drawn in text2/warn.
-        // The offline chart is `warn` and dashed, so the rule is about the accent *line*: a few accent
-        // pixels can legitimately come from the boarding tick or the "now" marker, and demanding an exact
-        // zero would make this a harness artefact rather than a finding.
-        val chart = shot.bounds(R.id.chart)
-        val accentPx = shot.countWith(shot.context.getColor(R.color.accent), chart)
-        // The bounding box travels with the count: "105 accent pixels" is a mystery, "105 accent pixels in
-        // Rect(36,1104,318,1160)" is a named element at a named place, and this run had one round trip to
-        // spend on the difference.
-        assertTrue("a schedule-only view painted $accentPx accent pixels at " +
-            "${shot.regionOf(shot.context.getColor(R.color.accent), chart)} inside chart $chart",
-            accentPx < 40)
-        val warnPx = shot.countWith(shot.context.getColor(R.color.warn), chart)
-        assertTrue("the offline chart drew no timetable line at all ($warnPx warn pixels in $chart)",
-            warnPx > 10)
-        Render.save("01-track-schedule", shot.bitmap)
+Render.save("01-track-schedule", shot.bitmap)
     }
 
     // ------------------------------------------------------------------ the search screen

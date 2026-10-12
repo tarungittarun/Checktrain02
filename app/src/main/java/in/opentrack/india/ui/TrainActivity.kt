@@ -5,6 +5,9 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.os.Bundle
 import android.util.Log
+import android.widget.AdapterView
+import android.widget.TextView
+import android.widget.ArrayAdapter
 import android.widget.Toast
 import android.view.View
 import androidx.appcompat.app.AppCompatActivity
@@ -36,6 +39,9 @@ class TrainActivity : AppCompatActivity() {
     private lateinit var vm: LiveViewModel
     private lateinit var stopAdapter: StopAdapter
     private var fullRoute = false
+
+    /** The last anchor the screen pointed at - the scroll fires when it CHANGES, never on every tick. */
+    private var lastAnchor: String? = null
     private var autoOn = true
     private var sourceShown = false
     private var lastUi: LiveViewModel.Ui? = null
@@ -66,19 +72,11 @@ class TrainActivity : AppCompatActivity() {
         binding.stops.isNestedScrollingEnabled = false
 
         binding.refresh.setOnClickListener { vm.refresh(manual = true) }
-        binding.toggle.setOnClickListener {
-            fullRoute = !fullRoute
-            binding.toggle.setText(
-                if (fullRoute) R.string.show_my_segment else R.string.show_full_route
-            )
-            lastUi?.let { bind(it) }
-        }
-        binding.autoBtn.setOnClickListener {
-            autoOn = !autoOn
-            vm.setAutoRefresh(autoOn)
-            binding.autoBtn.text = getString(
-                if (autoOn) R.string.auto_on else R.string.auto_off
-            )
+        binding.autoSwitch.setOnCheckedChangeListener(null)
+        binding.autoSwitch.isChecked = autoOn
+        binding.autoSwitch.setOnCheckedChangeListener { _, checked ->
+            autoOn = checked
+            vm.setAutoRefresh(checked)
         }
         binding.sourceToggle.setOnClickListener {
             sourceShown = !sourceShown
@@ -98,13 +96,85 @@ class TrainActivity : AppCompatActivity() {
             true
         }
 
-        vm.ui.observe(this) { it?.let { u -> lastUi = u; bind(u) } }
-        vm.error.observe(this) { msg ->
-            binding.note.visibility = if (msg == null) View.GONE else View.VISIBLE
-            if (msg != null) binding.note.text = msg
+        vm.ui.observe(this) { it?.let { u -> lastUi = u; bind(u); renderNote() } }
+        vm.checking.observe(this) { busy ->
+            // The 1800s complaint, answered: a moving bar for exactly as long as the app is working,
+            // and a captioned spinner while the very first look is still in flight.
+            binding.checkingBar.visibility = if (busy == true) View.VISIBLE else View.GONE
+            binding.firstLoad.visibility = if (busy == true && lastUi == null) View.VISIBLE else View.GONE
         }
-        binding.toggle.setText(R.string.show_full_route)
-        binding.autoBtn.setText(R.string.auto_on)
+        // The sources box: fetching while the witnesses work. Once actuals exist, the line goes quiet -
+        // the top card then carries the same sentence (badge + source row + refreshed stamp), and one
+        // copy on screen is the owner's round-47 point: everything read at once, nothing said twice.
+        vm.mirrorState.observe(this) { st ->
+            val duplicate = st != null && st.startsWith("Actuals ·")
+            binding.mirrorState.visibility = if (st == null || duplicate) View.GONE else View.VISIBLE
+            st?.let {
+                binding.mirrorState.text = it
+                Diary.get()?.log("UISTATE") { "sources box: $it" }
+            }
+        }
+        vm.error.observe(this) { msg ->
+            errorText = msg
+            renderNote()
+        }
+    }
+
+    // LEGACY-FREEZE (5.2b): the live pair list (v2) can know a fresher identity for this number than
+    // the offline route this screen renders (16228 was two different trains wearing one number - the
+    // founding bug). When the tapped row's codes disagree with the loaded route, the screen SAYS so
+    // (TrainIdentity.conflictWith's sentence pattern) instead of silently showing a wrong train's times.
+    private var errorText: String? = null
+
+    private fun identityConflict(): String? {
+        val ui = lastUi ?: return null
+        val liveFrom = intent.getStringExtra(EXTRA_FROM).orEmpty()
+        val liveTo = intent.getStringExtra(EXTRA_TO).orEmpty()
+        if (liveFrom.length < 3 || liveTo.length < 3) return null
+        val label = ui.model.routeLabel
+        if (label.contains(liveFrom) && label.contains(liveTo)) return null
+        return "train ${ui.model.trainNo}: this device's timetable says $label, " +
+            "the live list says $liveFrom → $liveTo — the times below are the timetable's and may " +
+            "belong to the wrong train"
+    }
+
+    /** One writer for the note line: a live-identity conflict outranks a transient error message. */
+    private fun renderNote() {
+        val msg = identityConflict() ?: errorText
+        binding.note.visibility = if (msg == null) View.GONE else View.VISIBLE
+        if (msg != null) binding.note.text = msg
+    }
+
+    /**
+     * The source DROPDOWN (the owner asked for a dropdown in the top box, round 45): every loaded
+     * witness is an entry; picking one re-renders the table from that witness. Rebuilt only when the
+     * witness set changes, so a re-selection never fights the observer.
+     */
+    private fun renderSourceChips(ui: LiveViewModel.Ui) {
+        val names = ui.sourceLines.keys.toList()
+        if (binding.sourceSpinner.tag == names || names.isEmpty()) {
+            binding.sourceSpinner.visibility = if (names.isEmpty()) View.GONE else View.VISIBLE
+            return
+        }
+        binding.sourceSpinner.tag = names
+        binding.sourceSpinner.adapter = ArrayAdapter(
+            this, android.R.layout.simple_spinner_dropdown_item, names,
+        )
+        binding.sourceSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                val name = names.getOrNull(pos) ?: return
+                if (name != ui.activeSource) vm.setActiveSource(name)
+            }
+
+            override fun onNothingSelected(p: AdapterView<*>?) {}
+        }
+        ui.activeSource?.let { src ->
+            val at = names.indexOf(src)
+            if (at >= 0 && binding.sourceSpinner.selectedItemPosition != at) {
+                binding.sourceSpinner.setSelection(at, false)
+            }
+        }
+        binding.sourceSpinner.visibility = View.VISIBLE
     }
 
     private fun bind(ui: LiveViewModel.Ui) {
@@ -136,15 +206,76 @@ class TrainActivity : AppCompatActivity() {
             }
         ))
         binding.next.text = m.nextLabel
+        // When the mirror's actuals reached this screen, THEY are the headline: the schedule's own
+        // sentences ("Should be past Shimoga Town") contradicted the confirmed departure and read as
+        // wrong data (paste #25). The badge earns its colour from the measured lateness.
+        if (ui.actualsHeadline == null) {
+            val src = ui.actualsSource
+            if (src != null) {
+                // A witness answered with minutes but none is an observation yet: say so, name it,
+                // never fall back to "sources unreachable" - that would deny data on the screen.
+                binding.provenance.text = "ACTUALS · $src"
+                binding.provenance.setBackgroundResource(R.drawable.bg_badge_live)
+                binding.provenance.setTextColor(getColor(R.color.live))
+                binding.delay.text = "no halt reported yet"
+                binding.delay.setTextColor(getColor(R.color.accent))
+            } else {
+                // The static-sounding labels were a fair complaint: a chip that says the same thing in
+                // every state reads as stuck. Name the situation instead - the sources are being asked.
+                binding.provenance.text = "SCHEDULE · sources unreachable"
+                binding.delay.text = "—"
+            }
+        }
+        if (ui.actualsHeadline != null) {
+            binding.headline.text = ui.actualsHeadline
+            binding.next.text = ui.actualsNext
+            binding.provenance.text = ui.actualsBadge
+            val late = ui.actualsLate ?: 0
+            binding.provenance.setBackgroundResource(
+                if (late > 2) R.drawable.bg_badge_problem else R.drawable.bg_badge_live,
+            )
+            binding.provenance.setTextColor(getColor(if (late > 2) R.color.late else R.color.live))
+            binding.delay.text = when {
+                late > 2 -> "$late min late"
+                ui.actualsLate != null -> "on time"
+                else -> m.delayLabel
+            }
+            binding.delay.setTextColor(getColor(if (late > 2) R.color.late else R.color.live))
+        }
+        ui.sourcesLine?.let { binding.age.text = it }
         binding.note.visibility = if (m.note == null) View.GONE else View.VISIBLE
         m.note?.let { binding.note.text = it }
 
-        binding.progressLabel.text = m.progressLabel
-        binding.progressBar.pct = m.progressPct
-        binding.progressBar.schedulePct = m.schedulePct
-        binding.progressBar.live = m.isLive
+        stopAdapter.reports = ui.sourceLines[ui.activeSource] ?: ui.reports
+        renderSourceChips(ui)
+        stopAdapter.highlightCode = ui.anchorCode
+        if (ui.anchorCode != null && ui.anchorCode != lastAnchor) {
+            lastAnchor = ui.anchorCode
+            val idx = m.rows.indexOfFirst { it.code.equals(ui.anchorCode!!, true) }
+            if (idx >= 0) {
+                val rv = binding.stops
+                rv.post {
+                    val lm = rv.layoutManager as LinearLayoutManager
+                    lm.scrollToPositionWithOffset(idx, 60)
+                    rv.post {
+                        val v = lm.findViewByPosition(idx) ?: return@post
+                        binding.scroller.smoothScrollTo(0, (rv.top + v.top - 340).coerceAtLeast(0))
+                    }
+                }
+            }
+        }
+        if (ui.reports.isNotEmpty()) {
+            Diary.get()?.log("UISTATE") {
+                "crowd on screen: " + ui.reports.entries.joinToString(" ; ") { it.key + " -> " + it.value }
+            }
+        }
 
-        val win = vm.windowFor(m.rows, m.anchorSeq, fullRoute)
+        val anchorSeq = ui.anchorCode
+            ?.let { ac -> m.rows.firstOrNull { it.code.equals(ac, true) }?.seq }
+            ?: m.anchorSeq
+        // Always the FULL route now: the owner removed the segment toggle - the screen points at the
+        // train and the traveller scrolls for the rest, which the anchor scroll already does.
+        val win = vm.windowFor(m.rows, anchorSeq, true)
         val from = win.first.coerceIn(0, (m.rows.size - 1).coerceAtLeast(0))
         val to = win.last.coerceIn(from, (m.rows.size - 1).coerceAtLeast(0))
         stopAdapter.submitList(m.rows.subList(from, to + 1))
@@ -154,21 +285,18 @@ class TrainActivity : AppCompatActivity() {
             binding.rowsNote.text = getString(R.string.rows_window, from + 1, to + 1, m.rows.size)
         }
 
-        // The plot always shows the passenger's own segment: it answers "is it late on my stretch", and
-        // re-centring it on a route the traveller never rides would make the gap unreadable.
-        val segStart = m.rows.indexOfFirst { it.isBoarding }.coerceAtLeast(0)
-        val segEnd = m.rows.indexOfLast { it.isAlighting }.let { if (it < segStart) m.rows.size - 1 else it }
-        binding.chart.setJourney(
-            m, ui.answer.position, ui.nowRailMinute,
-            segStart..segEnd.coerceAtLeast(segStart + 1),
-        )
-        binding.chartLegend.text = if (m.isLive) {
-            "dashed = timetable · solid = reported position · amber tick on the bar = where the timetable puts it now"
-        } else {
-            "amber dotted = what the timetable implies at this minute, not a report about the train"
-        }
-
         bindSource(m, ui)
+
+        // The frontend captures itself (the owner's ask, 2026-10-12): what this screen shows goes
+        // into the diary as elements, and the window photographs itself to the app's own private
+        // files dir - a paste then carries the screens with zero screenshots taken by hand.
+        Diary.get()?.log("UISTATE") {
+            UiState.track(
+                m.trainNo, m.headline, m.provenanceLabel, m.ageLabel, m.delayLabel,
+                m.nextLabel, m.progressLabel, m.note, m.rows,
+            )
+        }
+        UiShot.snap(this, "track")
     }
 
     /**

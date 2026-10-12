@@ -42,6 +42,13 @@ data class TrainHit(
     val toSeq: Int,
     val distanceKm: Int,
     val runDays: Int?,
+    /**
+     * v2 provenance suffix for this row, or null for a pure v1 row: "via erail" when a live list
+     * carries this train, "timetable" when the time on the row is the baked-in copy. Rendered in the
+     * meta line; the default keeps every existing constructor call site untouched (v2 wiring, not a
+     * v1 rewrite).
+     */
+    val sourceTag: String? = null,
 ) {
     val durationMin: Int get() = alightMinute - boardMinute
 

@@ -41,6 +41,16 @@ class Prefs(context: Context) {
         get() = sp.getBoolean(KEY_DIARY, false)
         set(v) = sp.edit().putBoolean(KEY_DIARY, v).apply()
 
+    /** The mirror's last known actuals, one JSON object keyed by train number - stale-while-revalidate. */
+    var mirrorCache: String
+        get() = sp.getString(KEY_MIRROR_CACHE, "{}").orEmpty().ifBlank { "{}" }
+        set(v) = sp.edit().putString(KEY_MIRROR_CACHE, v).apply()
+
+    /** The full-route halt list per train (erail's page), cached for a day - same SWR discipline. */
+    var erailRouteCache: String
+        get() = sp.getString(KEY_ERAIL_ROUTE_CACHE, "{}").orEmpty().ifBlank { "{}" }
+        set(v) = sp.edit().putString(KEY_ERAIL_ROUTE_CACHE, v).apply()
+
     var lastFromCode: String
         get() = sp.getString(KEY_LAST_FROM, "").orEmpty()
         set(v) = sp.edit().putString(KEY_LAST_FROM, v).apply()
@@ -58,6 +68,16 @@ class Prefs(context: Context) {
     var onboarded: Boolean
         get() = sp.getBoolean(KEY_ONBOARDED, false)
         set(v) = sp.edit().putBoolean(KEY_ONBOARDED, v).apply()
+
+    /**
+     * ADR-006 traveller reports. Shipped off-by-default per the ADR; flipped ON-by-default the same
+     * day on the acceptance authority's explicit direction ("Priority is to get actual arrival and
+     * departure time. Work for that, do anything") - reading is passive and renders nothing until a
+     * real report exists, and the toggle still governs the publish controls outright.
+     */
+    var crowdReports: Boolean
+        get() = sp.getBoolean(KEY_CROWD, true)
+        set(v) = sp.edit().putBoolean(KEY_CROWD, v).apply()
 
     var useLocation: Boolean
         get() = sp.getBoolean(KEY_USE_LOCATION, false)
@@ -86,5 +106,8 @@ class Prefs(context: Context) {
         private const val KEY_ONBOARDED = "onboarded"
         private const val KEY_USE_LOCATION = "useLocation"
         private const val KEY_RECENT = "recent"
+        private const val KEY_CROWD = "crowdReports"
+        private const val KEY_MIRROR_CACHE = "mirrorCache"
+        private const val KEY_ERAIL_ROUTE_CACHE = "erailRouteCache"
     }
 }

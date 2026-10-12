@@ -41,6 +41,14 @@
     <string name="auto_off">Auto off</string>
 
     <string name="searching">Searching on-device timetable…</string>
+    <string name="report_toggle_on">Report a time (helps other travellers)</string>
+    <string name="report_toggle_off">Hide report controls</string>
+    <string name="report_heading">Report what you see. One tap publishes an anonymous note to the public ntfy.sh relay - station code and minute only, no account, no location, nothing personal. Readers see it as \'reported by travellers\', never as official data.</string>
+    <string name="report_arrived">Arrived here</string>
+    <string name="report_departed">Departed here</string>
+    <string name="report_loopback">Send relay loopback test</string>
+    <string name="report_listening">Listening to the public relay for this train — no traveller reports yet. Yours will appear the moment you send one below.</string>
+    <string name="first_load">Fetching this train\'s screen — the live sources are being asked…</string>
     <string name="installing_data">Installing offline timetable… %1$d%%</string>
     <string name="err_need_two_stations">Enter both stations (name or 3–4 letter code).</string>
     <string name="err_need_train_query">Enter at least 3 characters of the train number or name.</string>
@@ -72,8 +80,10 @@
     <string name="selected_station">Selected</string>
     <string name="suggestions_title">Matches</string>
     <string name="col_station">Station</string>
+    <string name="source_label">Source:</string>
     <string name="col_scheduled">Scheduled</string>
-    <string name="col_live">Live / expected</string>
+    <string name="col_arrival">Arrival</string>
+    <string name="col_departure">Departure</string>
     <string name="col_distance">km</string>
     <string name="sec_position">Where it is now</string>
     <string name="sec_progress">Journey progress</string>

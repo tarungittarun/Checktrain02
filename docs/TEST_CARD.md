@@ -1,5 +1,21 @@
 # OpenTrack India — test card
 
+> **NEW 2026-10-12 — the live station-pair list has landed. Before anything below, do this 90-second check:**
+> 1. Search **SMET → MYS** (Shivamogga → Mysuru). Rows appear instantly, then upgrade: several gain
+>    "· via erail" — including **16221 Kuvempu Express**, which this app has never shown before.
+> 2. The top line ends with a live sentence ("live list via erail · erail data stamp 2026-8-6…").
+> 3. Airplane mode, search again: the top line must say **"no live list reached this device — every
+>    time below is the timetable"**. Never silent, never looking live.
+> 4. **THE BIG ONE — 60 seconds that unlocks live arrival/departure times:** the app can only get
+>    "actual" times from the railway's own live feed, and only YOUR phone can reach it (our servers
+>    can't — by design we have none; the railway blocks datacentres). So: **Settings → turn ON
+>    diagnostics → go back → open any train that is running right now → wait ~20 s on its screen →
+>    Settings → Save to file → PASTE the text into the chat** (attachments arrive empty — paste).
+>    That one paste shows us exactly what the railway's feed sends your phone, and the next build
+>    reads it properly.
+> 5. Then continue with the full card below — Part 1 and Part 2 as before.
+
+
 Hand this to anyone. Nothing here needs a technical background. Roughly 4 minutes for the first two parts,
 1 minute more only if live running status does not appear.
 

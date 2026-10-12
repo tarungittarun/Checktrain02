@@ -1,47 +1,16 @@
-TRAIN APP TEST — 4 minutes, Android only
+OpenTrack India — quick test card (full card: docs/TEST_CARD.md)
 
-Works on Android 7.0 and newer. Install (about 10.6 MB). On the page, confirm the size says 10,591,177 bytes - if it is smaller you have
-an old build. Tap the file and choose "Install anyway" if the phone warns you. No account, no login, no ads.
+Install: https://github.com/tarungittarun/Checktrain02/releases/download/latest-apk/app-debug.apk
 
-1. Type three letters in each box: "Bang" -> pick KSR Bengaluru, "Chenn" -> pick MGR Chennai Central.
-2. Tap -1d, now and +1d once each. The date and the list must change.
-3. Tap "Find trains". On a train that is running right now (leaving in the next hour or two is best), tap "Track".
-4. Look at the pill under the big headline.
-   - "LIVE · running status" plus a delay  ->  working, that is what we want to see.
-   - "OFFLINE · schedule only"              ->  live data did not reach your phone. That is the bug. Tell us.
-5. Check the stop list: upcoming stops must show a time marked "projected" or "reported", or a dash with the
-   word "timetable". A dash is honest. A wrong delay is not - screenshot it if you see one.
-6. Compare with NTES or RailYatri for the same train at the same minute. Note the difference in minutes.
-7. Turn on airplane mode and search again. It must still work (timetables are inside the app).
+NEW 2026-10-12 (90 seconds): search SMET -> MYS. Rows appear, then upgrade with "via erail"
+(incl. 16221 Kuvempu Express). Top line gains the live sentence. Airplane mode + search again:
+it must SAY "no live list reached this device - every time below is the timetable".
 
-IF THE PILL SAYS OFFLINE (1 minute, this is the part that actually helps):
-8. Back -> "Data source" -> under Diagnostic log tap "Turn on collection". The line should say "Collecting".
-9. Open the same train again, wait 40 seconds, tap "Refresh" once.
-10. Back -> "Data source" -> tap "Share" and send it to me. (Or "Save to file" and forward the file.)
-11. Also, in the same minute: open enquiry.indianrail.gov.in/ntes in Chrome on that phone. Does it load?
-12. Then turn Wi-Fi OFF, keep mobile data on, tap "Refresh" once. Does the pill change?
+Then the two standing checks from the full card: (1) offline search always works and says so;
+(2) live status either names its source or admits it is the timetable - never a schedule minute
+dressed up as a live one. If anything crashes: Settings -> diagnostics on, reproduce, Save to
+file, PASTE the text here (attachments arrive empty).
 
-Privacy: the log holds web addresses, results and timings only. No name, number, location, accounts or search
-history - and it never leaves your phone unless you press Share. Switch collection off when done.
-
-Reply with three lines:
-1) phone + Android version, Wi-Fi or mobile data
-2) train number and the pill you saw (LIVE or OFFLINE)
-3) minutes of difference vs NTES, plus the log if it said OFFLINE
-
-ROUND 7 - TWO FIXES FOR YOU, THREE LINES FOR US
-a) Does the sentence under the pill end with "(asked from the site's own page, the way its app does)"?
-   You should NOT see that yet - it only appears if the railway really answered.
-b) After the 40 seconds and Refresh, does any stop show a real minute (marked reported/projected)?
-c) With Wi-Fi OFF, does the NTES page in Chrome still show that train's status?
-The app now reads the railway's answer as bytes, and its log line shows the HTTP number and type - the two facts we never had.
-If (b) says yes, that is the whole fix - tell us and stop testing the feed.
-Send the log FILE (lines start [BROWSER] / [PROBE]); a screenshot of the screen is not enough.
-
-FIXED IN THIS BUILD: the train screen no longer hangs 20-40 seconds (it stops waiting at ~7s and says so),
-and Save to file actually saves now - it was reporting "picker was closed" whatever you did.
-
-WHAT YOUR LAST LOG SHOWED: at 22:39 that Wi-Fi took 2.6s just to open a socket to the railway (and FAILED),
-2.2s to erail, 2.0s to a Cloudflare API. Everything on that link was slow - so that log cannot tell us whether
-the railway refuses the app. Please run it once more when the network is calm, and once on MOBILE DATA.
-The log now has a line starting [TLS] for each site: "handshake ok" vs "fail:..." is the whole answer.
+THE BIG ONE (60 s, unlocks live arrival/departure times): Settings -> diagnostics ON -> open any
+train running right now -> wait 20 s -> Settings -> Save to file -> PASTE the text in chat.
+Only your phone reaches the railway's live feed; that paste is the whole unblock.

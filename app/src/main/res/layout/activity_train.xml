@@ -63,6 +63,41 @@
             android:gravity="end" />
     </LinearLayout>
 
+    <!-- The wait is the app working, so the wait is visible: a thin moving bar while any live look
+         is in flight, and a captioned spinner while the very first look (the one the traveller is
+         staring at) has not landed yet. Indeterminate on purpose - a refused source's duration is
+         not knowable, and a fake percent would be a lie this app does not tell. -->
+    <ProgressBar
+        android:id="@+id/checkingBar"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginLeft="@dimen/gap"
+        android:layout_marginRight="@dimen/gap"
+        android:indeterminate="true"
+        android:visibility="gone" />
+
+    <LinearLayout
+        android:id="@+id/firstLoad"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:visibility="gone">
+
+        <ProgressBar
+            android:layout_width="48dp"
+            android:layout_height="48dp" />
+
+        <TextView
+            style="@style/TextMicro"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="@string/first_load" />
+    </LinearLayout>
+
     <ScrollView
         android:id="@+id/scroller"
         android:layout_width="match_parent"
@@ -171,6 +206,27 @@
                     </LinearLayout>
                 </LinearLayout>
 
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        style="@style/TextMicro"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/source_label" />
+
+                    <Spinner
+                        android:id="@+id/sourceSpinner"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="6dp"
+                        android:layout_weight="1" />
+                </LinearLayout>
+
                 <TextView
                     android:id="@+id/note"
                     style="@style/TextMicro"
@@ -183,72 +239,6 @@
                     android:visibility="gone" />
             </LinearLayout>
 
-            <!-- progress -->
-            <LinearLayout
-                style="@style/Card"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="@dimen/gap"
-                android:background="@drawable/bg_card"
-                android:orientation="vertical">
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:baselineAligned="false"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal">
-
-                    <TextView
-                        style="@style/TextLabel"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="@string/sec_progress" />
-
-                    <TextView
-                        android:id="@+id/progressLabel"
-                        style="@style/TextMeta"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:gravity="end" />
-                </LinearLayout>
-
-                <in.opentrack.india.ui.JourneyProgressView
-                    android:id="@+id/progressBar"
-                    android:layout_width="match_parent"
-                    android:layout_height="@dimen/progress_h"
-                    android:layout_marginTop="12dp" />
-            </LinearLayout>
-
-            <!-- the plot -->
-            <LinearLayout
-                style="@style/Card"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="@dimen/gap"
-                android:background="@drawable/bg_card"
-                android:orientation="vertical">
-
-                <TextView
-                    style="@style/TextLabel"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="@string/col_plot" />
-
-                <in.opentrack.india.ui.TrackInsightView
-                    android:id="@+id/chart"
-                    android:layout_width="match_parent"
-                    android:layout_height="@dimen/chart_h"
-                    android:layout_marginTop="6dp" />
-
-                <TextView
-                    android:id="@+id/chartLegend"
-                    style="@style/TextMicro"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp" />
-            </LinearLayout>
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -256,34 +246,45 @@
                 android:layout_marginTop="@dimen/gap"
                 android:orientation="horizontal">
 
+                <TextView
+                    style="@style/TextBody"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center_vertical"
+                    android:text="@string/auto_refresh" />
+
+                <Switch
+                    android:id="@+id/autoSwitch"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center_vertical"
+                    android:layout_marginStart="2dp" />
+
+                <Space
+                    android:layout_width="0dp"
+                    android:layout_height="1dp"
+                    android:layout_weight="1" />
+
                 <Button
                     android:id="@+id/refresh"
                     style="@style/BtnGhost"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
+                    android:layout_weight="1.4"
                     android:text="@string/refresh" />
-
-                <Button
-                    android:id="@+id/toggle"
-                    style="@style/BtnGhost"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="8dp"
-                    android:layout_weight="1.2"
-                    android:text="@string/show_full_route" />
-
-                <Button
-                    android:id="@+id/autoBtn"
-                    style="@style/BtnGhost"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="8dp"
-                    android:layout_weight="0.7"
-                    android:text="@string/auto_refresh" />
             </LinearLayout>
 
-            <!-- route table -->
+            <TextView
+                android:id="@+id/mirrorState"
+                style="@style/TextMicro"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:gravity="center_horizontal"
+                android:textColor="@color/accent"
+                android:visibility="gone" />
+
+<!-- route table -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -299,25 +300,26 @@
 
                 <TextView
                     style="@style/TextLabel"
+                    android:layout_width="@dimen/col_sched"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_horizontal"
+                    android:text="@string/col_arrival" />
+
+                <TextView
+                    style="@style/TextLabel"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_marginStart="@dimen/rail_w"
                     android:layout_weight="1"
-                    android:text="@string/col_station" />
-
-                <TextView
-                    style="@style/TextLabel"
-                    android:layout_width="@dimen/col_sched"
-                    android:layout_height="wrap_content"
                     android:gravity="center_horizontal"
-                    android:text="@string/col_scheduled" />
+                    android:text="@string/col_station" />
 
                 <TextView
                     style="@style/TextLabel"
                     android:layout_width="@dimen/col_live"
                     android:layout_height="wrap_content"
                     android:gravity="center_horizontal"
-                    android:text="@string/col_live" />
+                    android:text="@string/col_departure" />
             </LinearLayout>
 
             <androidx.recyclerview.widget.RecyclerView

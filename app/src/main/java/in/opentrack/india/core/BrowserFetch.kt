@@ -5,6 +5,7 @@ import android.os.Handler
 import android.os.Looper
 import android.webkit.CookieManager
 import android.webkit.WebResourceError
+import android.webkit.WebResourceResponse
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
@@ -91,6 +92,17 @@ object BrowserFetch {
     var tried: Boolean = false
         private set
 
+    // What the loaded page's own scripts asked for, bounded - the honest way to learn an endpoint:
+    // watch the site, never invent its URLs (two folk-lore spellings already measured 404 from a
+    // phone that passes the WAF; the third spelling will not be guessed here).
+    private val observed = java.util.Collections.synchronizedList(ArrayList<String>())
+
+    fun observedRequestsSnapshot(): List<String> = synchronized(observed) { observed.toList() }
+
+    fun noteObserved(url: String) {
+        if (observed.size < 24) observed.add(url.take(130))
+    }
+
     @Volatile
     var lastError: String? = null
         private set
@@ -122,6 +134,7 @@ object BrowserFetch {
             Http.Result.Kind.HTTP, "BrowserFetch not initialised (no application context)",
         )
         tried = true
+        synchronized(observed) { observed.clear() }
         val call = Call(url, body, page, headers)
         val outcome = synchronized(gate) {
             val t0 = System.currentTimeMillis()
@@ -156,6 +169,284 @@ object BrowserFetch {
         return verdict
     }
 
+    /**
+     * Load a real page in the engine and read its rendered text - the one capability left for a site
+     * whose live data arrives over its own websocket (erail/SignalR, measured 2026-10-12): their page
+     * populates itself, and what any browser user reads, this reads. Not the apiCall path (JSON bytes
+     * cannot render - that mistake is documented at the top of this file); here rendering IS the point.
+     * Same safety envelope as every call here: offscreen view, no JS interface, one call at a time.
+     */
+    fun pageText(
+        url: String,
+        timeoutMillis: Int = defaultTimeout,
+        /**
+         * Wait this long after the page reports "finished" BEFORE reading its text. erail's running
+         * table is filled by their own scripts seconds after the page settles (the owner's paste of
+         * 2026-10-12: the instant read caught 426 B of navigation while the halt table was still
+         * mid-flight). Zero keeps the old instant read.
+         */
+        settleMillis: Int = 0,
+        /** innerText cap; 1200 was a navigation-menu read, the running table needs room. */
+        textCap: Int = 1200,
+        /** Read the page as raw HTML (outerHTML) instead of rendered text - data can sit in the DOM invisibly. */
+        dom: Boolean = false,
+        /** After the settle wait, click the first element whose text equals this (case-insensitive), then re-wait. */
+        tapText: String = "",
+        /** How long after the tap to wait before reading. */
+        tapSettleMillis: Int = 6_000,
+        /** Present as desktop Chrome: some sites serve a different - and differently populated - page. */
+        desktop: Boolean = false,
+    ): Http.Result {
+        val ctx = appContext ?: return Http.Result.Failed(
+            Http.Result.Kind.HTTP, "BrowserFetch not initialised (no application context)",
+        )
+        tried = true
+        val latch = CountDownLatch(1)
+        val settled = AtomicBoolean(false)
+        val text = AtomicReference<String?>(null)
+        val problem = AtomicReference<String?>(null)
+        synchronized(gate) {
+            val t0 = System.currentTimeMillis()
+            runCatching {
+                main.post {
+                    runCatching {
+                        val w = ensureView(ctx)
+                        if (desktop) {
+                            w.settings.userAgentString = DESKTOP_UA
+                            Diary.get()?.log("BROWSER") { "UA switched to desktop for this read" }
+                        }
+                        w.webViewClient = object : WebViewClient() {
+                            override fun onPageFinished(v: WebView, pageUrl: String) {
+                                if (settled.get()) return
+                                fun readNow() {
+                                    val expr = (if (dom) "document.documentElement.outerHTML"
+                                        else "(document.body?document.body.innerText:'')") +
+                                        ".substring(0,$textCap)"
+                                    runCatching {
+                                        v.evaluateJavascript(
+                                            expr,
+                                        ) { raw ->
+                                            if (settled.compareAndSet(false, true)) {
+                                                runCatching {
+                                                    val quoted = raw ?: "''"
+                                                    text.set(JSONObject("{\"v\":$quoted}").optString("v"))
+                                                }.onFailure { problem.set("unreadable text: " + it.javaClass.simpleName) }
+                                                latch.countDown()
+                                            }
+                                        }
+                                    }.onFailure {
+                                        if (settled.compareAndSet(false, true)) {
+                                            problem.set(it.message ?: it.javaClass.simpleName)
+                                            latch.countDown()
+                                        }
+                                    }
+                                }
+                                if (tapText.isNotEmpty()) {
+                                    main.postDelayed({
+                                        if (settled.get()) return@postDelayed
+                                        val lit = JSONObject.quote(tapText)
+                                        v.evaluateJavascript(
+                                            "(function(){var w=[$lit].map(function(s){return s.toLowerCase();});" +
+                                                "var els=document.querySelectorAll('a,button,div,span,li,td');" +
+                                                "for(var i=0;i<els.length;i++){var t=(els[i].textContent||'');" +
+                                                "if(w.indexOf(t.trim().toLowerCase())>=0){els[i].click();" +
+                                                "return 'tapped';}}return 'no-target';})()",
+                                        ) { res ->
+                                            Diary.get()?.log("BROWSER") {
+                                                "TAP " + hostOf(url) + " -> " + (res ?: "null") +
+                                                    " (waiting " + tapSettleMillis + "ms, then reading)"
+                                            }
+                                            main.postDelayed(
+                                                { if (!settled.get()) readNow() },
+                                                tapSettleMillis.toLong(),
+                                            )
+                                        }
+                                    }, settleMillis.coerceAtLeast(0).toLong())
+                                } else if (settleMillis > 0) {
+                                    main.postDelayed({ if (!settled.get()) readNow() }, settleMillis.toLong())
+                                } else {
+                                    readNow()
+                                }
+                            }
+
+                            override fun onReceivedError(
+                                v: WebView,
+                                request: WebResourceRequest,
+                                error: WebResourceError,
+                            ) {
+                                // A 404 page is still a rendered document from the right site; read it
+                                // rather than declaring the site unreachable (the apiCall rule, restated).
+                            }
+                        }
+                        w.loadUrl(url)
+                    }.onFailure {
+                        if (settled.compareAndSet(false, true)) {
+                            problem.set(it.message ?: it.javaClass.simpleName)
+                            latch.countDown()
+                        }
+                    }
+                }
+            }.onFailure {
+                if (settled.compareAndSet(false, true)) {
+                    problem.set(it.message ?: it.javaClass.simpleName)
+                    latch.countDown()
+                }
+            }
+            val answered = latch.await(timeoutMillis.toLong(), TimeUnit.MILLISECONDS)
+            if (!answered) abandon()
+            val ms = System.currentTimeMillis() - t0
+            val body = text.get()
+            Diary.get()?.log("BROWSER") {
+                (if (dom) "DOM " else "PAGE ") + hostOf(url) + url.substringAfter(hostOf(url), "") +
+                    " -> " + (if (answered) "text ${body?.length ?: 0}B" else "TIMEOUT") + " in " + ms + "ms"
+            }
+            return when {
+                !answered -> Http.Result.Failed(
+                    Http.Result.Kind.TIMEOUT, "the page gave no text in " + timeoutMillis + "ms",
+                )
+                body != null -> Http.Result.Ok(body, fromCache = false, ageMillis = 0)
+                else -> Http.Result.Failed(Http.Result.Kind.HTTP, problem.get() ?: "unreadable page")
+            }
+        }
+    }
+
+    /**
+     * The interactive page probe: settle, click each named control in order (a date chip, then a
+     * submit button - the sequence a human runs), wait for their slow backend, then read the parent
+     * page's text PLUS any same-origin iframes' text. Built after the owner's 16:33 paste proved the
+     * tap FIRED ("tapped") while the DOM came back byte-identical - the table either needs longer
+     * than the 6 s we waited, or paints somewhere the parent document does not expose. Every step
+     * logs, so the paste says which link in the chain broke.
+     */
+    fun pageInteract(
+        url: String,
+        settleMillis: Int,
+        taps: List<String>,
+        postTapWaitMillis: Int,
+        totalBudgetMillis: Int,
+    ): Http.Result {
+        val ctx = appContext ?: return Http.Result.Failed(
+            Http.Result.Kind.HTTP, "BrowserFetch not initialised (no application context)",
+        )
+        tried = true
+        val latch = CountDownLatch(1)
+        val settled = AtomicBoolean(false)
+        val text = AtomicReference<String?>(null)
+        val problem = AtomicReference<String?>(null)
+        synchronized(gate) {
+            val t0 = System.currentTimeMillis()
+            runCatching {
+                main.post {
+                    runCatching {
+                        val w = ensureView(ctx)
+                        w.webViewClient = object : WebViewClient() {
+                            override fun onPageFinished(v: WebView, pageUrl: String) {
+                                if (settled.get()) return
+                                fun readAll() {
+                                    if (settled.get()) return
+                                    runCatching {
+                                        v.evaluateJavascript("location.href", ) { loc ->
+                                            Diary.get()?.log("BROWSER") {
+                                                "AFTER-TAPS page is at " + (loc ?: "?")
+                                            }
+                                        }
+                                        val expr = "(function(){var out=(document.body?document.body.innerText:'');" +
+                                            "var f=document.querySelectorAll('iframe');" +
+                                            "for(var i=0;i<f.length&&i<3;i++){" +
+                                            "try{var d=f[i].contentDocument;" +
+                                            "if(d&&d.body){out=out+' ||IFRAME['+i+']|| '+((d.body.innerText||'').substring(0,4000));}" +
+                                            "else{out=out+' ||IFRAME['+i+']|| unreachable';}}" +
+                                            "catch(e){out=out+' ||IFRAME['+i+']|| cross-origin';}}" +
+                                            "return out.substring(0,24000);})()"
+                                        v.evaluateJavascript(expr) { raw ->
+                                            if (settled.compareAndSet(false, true)) {
+                                                runCatching {
+                                                    val quoted = raw ?: "''"
+                                                    text.set(JSONObject("{\"v\":$quoted}").optString("v"))
+                                                }.onFailure { problem.set("unreadable text: " + it.javaClass.simpleName) }
+                                                latch.countDown()
+                                            }
+                                        }
+                                    }.onFailure {
+                                        if (settled.compareAndSet(false, true)) {
+                                            problem.set(it.message ?: it.javaClass.simpleName)
+                                            latch.countDown()
+                                        }
+                                    }
+                                }
+                                fun tapAt(index: Int) {
+                                    if (settled.get()) return
+                                    if (index >= taps.size) {
+                                        main.postDelayed(
+                                            { if (!settled.get()) readAll() },
+                                            postTapWaitMillis.toLong(),
+                                        )
+                                        return
+                                    }
+                                    val label = taps[index]
+                                    val lit = JSONObject.quote(label)
+                                    // normalized equality: "12-Oct", "12 Oct" and "12oct" are one target
+                                    val js = "(function(){var norm=function(s){return s.toLowerCase()" +
+                                        ".replace(/[^a-z0-9]/g,'');};" +
+                                        "var want=[$lit].map(function(s){return norm(s);});" +
+                                        "var els=document.querySelectorAll('a,button,div,span,li,td,input');" +
+                                        "for(var i=0;i<els.length;i++){var t=norm((els[i].value||'')+' '+(els[i].textContent||''));" +
+                                        "if(want.some(function(w){return t===w;})){" +
+                                        "els[i].click();return 'tapped';}}return 'no-target';})()"
+                                    v.evaluateJavascript(js) { res ->
+                                        Diary.get()?.log("BROWSER") {
+                                            "TAP[$label] -> " + (res ?: "null")
+                                        }
+                                        main.postDelayed(
+                                            { runCatching { tapAt(index + 1) } },
+                                            400L,
+                                        )
+                                    }
+                                }
+                                main.postDelayed({ if (!settled.get()) runCatching { tapAt(0) } }, settleMillis.toLong())
+                            }
+
+                            override fun onReceivedError(
+                                v: WebView,
+                                request: WebResourceRequest,
+                                error: WebResourceError,
+                            ) {
+                                // A 404 page is still a rendered document from the right site; read it
+                                // rather than declaring the site unreachable (the apiCall rule, restated).
+                            }
+                        }
+                        w.loadUrl(url)
+                    }.onFailure {
+                        if (settled.compareAndSet(false, true)) {
+                            problem.set(it.message ?: it.javaClass.simpleName)
+                            latch.countDown()
+                        }
+                    }
+                }
+            }.onFailure {
+                if (settled.compareAndSet(false, true)) {
+                    problem.set(it.message ?: it.javaClass.simpleName)
+                    latch.countDown()
+                }
+            }
+            val answered = latch.await(totalBudgetMillis.toLong(), TimeUnit.MILLISECONDS)
+            if (!answered) abandon()
+            val ms = System.currentTimeMillis() - t0
+            val body = text.get()
+            Diary.get()?.log("BROWSER") {
+                "INTERACT " + hostOf(url) + url.substringAfter(hostOf(url), "") +
+                    " -> " + (if (answered) "text ${body?.length ?: 0}B" else "TIMEOUT") + " in " + ms + "ms"
+            }
+            return when {
+                !answered -> Http.Result.Failed(
+                    Http.Result.Kind.TIMEOUT, "the page gave no text in " + totalBudgetMillis + "ms",
+                )
+                body != null -> Http.Result.Ok(body, fromCache = false, ageMillis = 0)
+                else -> Http.Result.Failed(Http.Result.Kind.HTTP, problem.get() ?: "unreadable page")
+            }
+        }
+    }
+
     /** Clears the engine's cookie jar; wired to the same button that clears the app's live cache. */
     fun clearCookies() {
         val ctx = appContext ?: return
@@ -185,6 +476,10 @@ object BrowserFetch {
             runCatching { dead.destroy() }
         }
     }
+
+    private const val DESKTOP_UA =
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) " +
+            "Chrome/126.0.0.0 Safari/537.36"
 
     private fun ensureView(ctx: Context): WebView {
         view?.let { return it }
@@ -238,6 +533,14 @@ object BrowserFetch {
                 w.webViewClient = object : WebViewClient() {
                     override fun onPageFinished(v: WebView, pageUrl: String) {
                         send(v)
+                    }
+
+                    override fun shouldInterceptRequest(
+                        v: WebView,
+                        request: WebResourceRequest,
+                    ): WebResourceResponse? {
+                        if (!request.isForMainFrame) BrowserFetch.noteObserved(request.url.toString())
+                        return null
                     }
 
                     override fun onReceivedError(

@@ -78,31 +78,29 @@ class TrackingFlowTest {
     // @flow stop-table-columns
     @Test
     fun liveCellIsAMinuteOrADashNeverTheTimetable() {
+        // Round 45: the stacked columns name their kind - "Sch hh:mm" over "Act hh:mm"/"Est hh:mm";
+        // a row nothing moved shows "—" on the Act line. The prefix IS the tag now.
         val sched = rowTexts("schedArr")
         val live = rowTexts("liveArr")
-        val tags = rowTexts("liveTag")
         assertTrue("no rows to compare", sched.isNotEmpty() && sched.size == live.size)
         var qualified = 0
         for (i in sched.indices) {
-            val tag = tags.getOrNull(i).orEmpty()
+            assertTrue(
+                "row $i scheduled arrival is not prefixed 'Sch ': '${sched[i]}'",
+                sched[i].startsWith("Sch "),
+            )
             val isDash = live[i] == "—" || live[i] == "-" || live[i].isEmpty()
-            if (tag.contains("timetable", true) || tag.contains("no report", true)) {
-                assertTrue(
-                    "row $i is unreported yet prints '${live[i]}' in the LIVE column — that is the timetable " +
-                        "being read as an arrival, the exact complaint",
-                    isDash,
-                )
+            if (isDash) {
                 qualified++
-            } else if (!isDash) {
+            } else {
                 assertTrue(
-                    "row $i prints a minute ('$live[i]') whose tag ('$tag') does not say it was reported",
-                    tag.contains("actual", true) || tag.contains("expected", true) ||
-                        tag.contains("late", true) || tag.contains("early", true),
+                    "row $i prints a reported minute ('${live[i]}') without an Act/Est prefix",
+                    live[i].startsWith("Act ") || live[i].startsWith("Est "),
                 )
             }
         }
         // A schedule-only run must qualify *every* row; anything else and the rule is untested, not true.
-        assertTrue("no row carried a timetable/no-report tag, so the rule above never ran", qualified > 0)
+        assertTrue("no row was unreported (every row printed an Act/Est minute) — the rule above never ran", qualified > 0)
         E2E.shot("live-column")
     }
 
@@ -270,4 +268,22 @@ class TrackingFlowTest {
         )
         E2E.assertNoSystemDialog("back")
     }
+    // @flow details-live-identity (round 20): the details screen asks erail what this number runs
+    // TODAY. 12627 is owner-verified (KARNATAKA EXP, SBC->NDLS) and erail answers the same from the
+    // runners every probe run - so the label must gain the live confirmation inside the network
+    // budget. A silent timetable label here means the new fetch never fired or never answered,
+    // which is exactly what this row exists to catch.
+    @Test(timeout = 120_000) // the identity fetch is bounded in the app; the test bounds itself too
+    fun routeLabelGainsTheLiveIdentityConfirmation() {
+        val before = E2E.text("routeLabel")
+        assertTrue("no route label to relabel", before.isNotBlank())
+        val saw = E2E.ui.wait(Until.hasObject(By.textContains("confirmed live")), E2E.NETWORK_MS)
+        val label = E2E.text("routeLabel")
+        assertTrue(
+            "the live identity never reached the label (after='$label', saw=$saw)",
+            label.contains("confirmed live"),
+        )
+        E2E.shot("details-live-identity")
+    }
+
 }

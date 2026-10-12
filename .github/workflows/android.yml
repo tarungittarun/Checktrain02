@@ -16,7 +16,9 @@ on:
   push:
     branches: [main, 'arena/**']
     tags: ['v*']
-  pull_request:
+  # pull_request deliberately REMOVED (ADR-001): with the session branch always open as a PR, every
+  # push fired this workflow twice (push + PR events), doubling runner-minutes and artifacts. The
+  # round report on the PR body carries the run ids; the PR tab is a review surface, not a CI surface.
   workflow_dispatch:
 
 concurrency:
@@ -60,12 +62,41 @@ jobs:
         #ability logic is under test: the alternate source must still be asked when the primary is dead, and
         # two dead sources must produce a report, never an empty confident answer.
         run: python3 tools/ci/test_probe_live_feed.py
+      - name: Refresher self-tests (the fixture refresher must be print-only, proven not promised)
+        # known_truths_refresh proposes fixture edits and never writes them; its AST is asserted to contain
+        # no write-mode open, because auto-editing the file the gate trusts is the app believing itself.
+        run: python3 tools/ci/test_known_truths_refresh.py
+      - name: Import-gate self-tests (this gate missed the exact miss it exists for, once - 2026-10-12)
+        run: python3 tools/ci/test_check_refs.py
+      - name: Hygiene self-tests (the tool that deletes artifacts must classify, not guess)
+        run: python3 tools/ci/test_artifact_hygiene.py
       - name: ETL importability + schema constant agreement
         run: |
           python3 -c "import sys; sys.path.insert(0, 'tools'); import build_refdb; print('SCHEMA_VERSION', build_refdb.SCHEMA_VERSION)"
           test "$(python3 -c "import sys; sys.path.insert(0,'tools'); import build_refdb; print(build_refdb.SCHEMA_VERSION)")" \
             = "$(grep -o 'REFDB_SCHEMA_VERSION", "[0-9]*' app/build.gradle | grep -o '[0-9]*')" \
             || { echo "REFDB_SCHEMA_VERSION in app/build.gradle does not match tools/build_refdb.py"; exit 1; }
+
+  # The store janitor: artifacts older than 6 h are deleted and runs wedged in_progress over 4 h are
+  # cancelled, on every push. Why a job and not a human: the sandbox token can list but not write
+  # (403 measured 2026-10-12), and one-off cleanups rot - the policy lives where every push enforces it
+  # (ADR-001). Cheap, read-mostly, and it prints one ::notice:: line with the totals.
+  hygiene:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Delete stale artifacts, cancel wedged runs
+        env:
+          # gh refuses to run in Actions without a token in the environment; the 3b7a14d run failed on
+          # exactly that. `github.token` + the job's actions: write is the whole authority needed.
+          GH_TOKEN: ${{ github.token }}
+        run: python3 tools/ci/artifact_hygiene.py
 
   ui:
     needs: checks
@@ -102,14 +133,14 @@ jobs:
           name: ui-previews
           path: app/build/reports/previews/
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 7
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
           name: test-reports
           path: app/build/reports/tests/
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 3
       # Pixels, not a green tick: `gh api .../commits/$SHA/comments` is readable from anywhere, so the
       # render is reviewable by whoever wrote it. GitHub strips data: URIs from markdown, hence a code
       # block of base64 to decode rather than an <img>.
@@ -207,7 +238,9 @@ jobs:
           name: opentrack-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
-          retention-days: 30
+          # The installable APK lives on the `latest-apk` RELEASE (permanent, no sign-in, direct URL);
+          # this artifact copy is a convenience only, so its life is short (ADR-001).
+          retention-days: 7
       - name: Publish the APK on a rolling release so a phone can fetch it directly
         # Artifacts are CI's own copy of the build: they expire, they want a signed-in browser, and their bytes
         # live on a blob host that neither this project's sandbox nor some phone browsers can reach. A
@@ -235,6 +268,74 @@ jobs:
           fi
           gh release upload "$tag" "$apk" --clobber || echo "::warning::could not publish to the release; the artifact on this run still has the APK"
           rc=$?
+      - name: Capture ntfy.sh's real poll shape (the crowd parser was written against an assumed shape)
+        # The traveller-report parser filters ntfy's JSON stream by hand, and every on-device poll has
+        # returned "relay answered, 0 reports" while publishes return HTTP 200 - paste #19 even lost the
+        # owner's OWN report. The sandbox has no ntfy egress, so CI - which does - publishes a canned
+        # marker to a throwaway topic and captures the poll bytes as a commit comment (marker "live-feed",
+        # the same channel the erail captures used). The parser gets fixed against THESE bytes, and the
+        # capture doubles as the relay-side verdict: if CI's own publish is missing from CI's own poll,
+        # the relay itself is the broken link. A convenience, never a gate: set +e, check=False.
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          python3 - << 'PY'
+          import json, os, subprocess, time, urllib.request
+          topic = "ct-cap-" + str(os.environ.get("GITHUB_RUN_ID", "0"))
+          payload = '{"trainNo":"00000","stationCode":"CAP","kind":"DEPARTED","railMinute":1025,"reportedAt":1791810000000}'
+          req = urllib.request.Request(
+              "https://ntfy.sh/" + topic, data=payload.encode(), method="POST",
+              headers={"Content-Type": "text/plain; charset=utf-8",
+                       "User-Agent": "OpenTrackIndia-ci/1.0 (capture)"},
+          )
+          pubid = "?"
+          try:
+              pubid = json.loads(urllib.request.urlopen(req, timeout=20).read().decode()).get("id", "?")
+          except Exception as e:
+              print("publish failed:", e)
+          time.sleep(3)
+          try:
+              poll = urllib.request.urlopen(
+                  "https://ntfy.sh/" + topic + "/json?poll=1&since=10m", timeout=20,
+              ).read().decode()
+          except Exception as e:
+              print("poll failed:", e)
+              poll = ""
+          body = ("live-feed ntfy poll shape - publish id=%s, topic=%s, poll=%d bytes\n\n" % (pubid, topic, len(poll))) + poll[:3500]
+          subprocess.run(
+              ["gh", "api", "-X", "POST",
+               "repos/tarungittarun/Checktrain02/commits/" + os.environ["GITHUB_SHA"] + "/comments",
+               "-f", "body=" + body],
+              check=False, capture_output=True,
+          )
+          print("capture done: publish id", pubid, "poll bytes", len(poll))
+          # Backup mirrors for the ACTUAL-arr/dep path: runningstatus.in is behind Cloudflare on the
+          # owner's phone (paste #21: direct wire HTTP 403, WebView challenge page). Before any parser
+          # is written for a backup, CI captures what those pages REALLY serve for the owner's train
+          # (20651) - no parser against an assumed shape. One commit comment each, marker "live-feed".
+          for name, url in [
+              ("railmitra", "https://railmitra.in/live-running-status/20651"),
+              ("confirmtkt", "https://www.confirmtkt.com/train-running-status/20651"),
+          ]:
+              try:
+                  req = urllib.request.Request(url, headers={
+                      "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+                  })
+                  page = urllib.request.urlopen(req, timeout=25).read().decode("utf-8", "replace")
+                  mark = ("live-feed %s capture (%d bytes) - " % (name, len(page)))
+                  c = mark + page[:3000]
+                  subprocess.run(
+                      ["gh", "api", "-X", "POST",
+                       "repos/tarungittarun/Checktrain02/commits/" + os.environ["GITHUB_SHA"] + "/comments",
+                       "-f", "body=" + c],
+                      check=False, capture_output=True,
+                  )
+                  print("captured", name, len(page))
+              except Exception as e:
+                  print("capture failed:", name, e)
+          PY
           if [ "$rc" -ne 0 ]; then exit 0; fi
           {
             echo ""

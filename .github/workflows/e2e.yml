@@ -22,7 +22,9 @@ name: e2e
 on:
   push:
     branches: [main, 'arena/**']
-  pull_request:
+  # pull_request deliberately REMOVED (ADR-001): same reasoning as android.yml - it doubled every
+  # push's emulator spend, and emulator rows are the expensive ones. [e2e-full] in a commit message
+  # or a dispatch checkbox asks for the full matrix; nothing depends on a PR event existing.
   workflow_dispatch:
     inputs:
       full:
@@ -71,7 +73,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    timeout-minutes: 6
+    timeout-minutes: 14 # the live-status + route + script ladders for 2 trains need ~9 min (6m0s kills were T21.14)
+
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -81,6 +84,11 @@ jobs:
         continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          # The capture directory is the point of the run: a parser may only be written against a captured
+          # payload (brief 4.5), and the runner is the only machine that can ask. The probe also posts the
+          # raw erail pair body as a commit comment, because artefact storage is unreachable from the
+          # sandbox where the parser is written.
+          PROBE_CAPTURE: ${{ github.workspace }}/probe-capture
         run: |
           set +e
           echo "::notice::[probe] step 1: installing the AES dependency"
@@ -90,6 +98,14 @@ jobs:
           rc=$?
           echo "probe finished with rc=$rc"
           exit 0
+      - name: Keep the raw bodies (a parser may only be written against a capture - 4.5)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: probe-capture
+          path: probe-capture
+          if-no-files-found: warn
+          retention-days: 7
   plan:
     runs-on: ubuntu-latest
     outputs:
@@ -124,12 +140,11 @@ jobs:
           # Four emulator rows is on the order of two runner-hours per push, which is a real cost on a
           # metered plan, and two of the four (density, release) answer questions about new APIs and about
           # R8 rather than "does the app work for a traveller". So: the two core rows on an ordinary push,
-          # the whole matrix on a dispatch that asks for it, on a pull request, on main, or on a commit that
-          # asks for it. Nothing else in the file depends on the row set.
+          # the whole matrix on a dispatch that asks for it, on main, or on a commit that asks for it
+          # ([e2e-full]). The pull_request case is gone with the trigger (ADR-001).
           full=false
           case "${{ github.event_name }}" in
             workflow_dispatch) [ "$DISPATCH_FULL" = "true" ] && full=true ;;
-            pull_request) full=true ;;
             push) [ "${{ github.ref }}" = "refs/heads/main" ] && full=true ;;
           esac
           case "$HEAD_MSG" in *'[e2e-full]'*) full=true ;; esac
@@ -260,16 +275,19 @@ jobs:
           name: apk-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+          retention-days: 3
       - uses: actions/upload-artifact@v4
         with:
           name: apk-debug-androidTest
           path: app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
           if-no-files-found: error
+          retention-days: 3
       - uses: actions/upload-artifact@v4
         with:
           name: apk-release
           path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
+          retention-days: 3
       # The Actions UI is the only place these logs live for most readers, and a red "build" job with no
       # message is the least actionable thing CI can produce, so the compiler's own words go on the commit.
       - name: Put the compile errors on the commit
@@ -301,6 +319,7 @@ jobs:
           name: e2e-classes
           path: e2e-classes.zip
           if-no-files-found: error
+          retention-days: 3
 
   # ----------------------------------------------------------------------------------- the device matrix
   #
