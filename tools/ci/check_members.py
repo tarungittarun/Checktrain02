@@ -78,7 +78,7 @@ getValue setRequestProperty protocol remove addAll
 # identity parse (exactly one record must carry the number); indexOfLast sat unflagged in
 # LiveViewModel.segmentRange for weeks because no local named `rows` existed - the identity fetch
 # added one, and the checker rightly began scanning the receiver. Both stdlib, not typos.
-singleOrNull indexOfLast
+singleOrNull indexOfLast findAll range
 lastModified openOutputStream toByteArray registerForActivityResult clear text
 packageName contentResolver connect takeLast log
 removeFirst addLast appendText appendBytes readBytes copyOfRange versionName lastUpdateTime getPackageInfo packageManager getLinkProperties hasTransport hasCapability getNetworkCapabilities activeNetwork mkdirs resume install tailLabels exportName rotationPlan getAllByName hostAddress getSharedPreferences putString putInt

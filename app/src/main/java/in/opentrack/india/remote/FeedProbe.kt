@@ -224,6 +224,15 @@ object FeedProbe {
                 false, true,
             ),
             Variant(
+                "webview-erail-sitejs",
+                "https://erail.in/js5/cmp/eRailMobileHTMLEN.js?v=22092026",
+                null, emptyMap(), false,
+                "the site's OWN app script, captured verbatim (a static asset, same-origin GET - observed on " +
+                    "the owner's phone 11:02, not invented): its text names the SignalR hub and every data " +
+                    "path the live page really uses. SignalR's presence explains why no GET spelling can 200",
+                false, true,
+            ),
+            Variant(
                 "get-erail-runtrain-xhr",
                 "https://erail.in/rail/getRunTrain.aspx?trainno=$trainNo&startDate=$ddmm",
                 null,
@@ -458,7 +467,17 @@ object FeedProbe {
                         (if (v.name == "webview-erail-observe") {
                             val obs = BrowserFetch.observedRequestsSnapshot()
                             if (obs.isEmpty()) " site-called=(none recorded)"
-                            else " site-called=" + obs.take(10).joinToString(" ; ") { u -> u.take(110) }
+                            else " site-called=" + obs.take(14).joinToString(" ; ") { u -> u.take(200) }
+                        } else "") +
+                        // Their app script, filtered in the app: a window around every endpoint-ish
+                        // keyword. Their code, their names - the parser meets only what was seen.
+                        (if (v.name == "webview-erail-sitejs" && got is Http.Result.Ok) {
+                            val rx = Regex("aspx|getrun|signalr|hub|ajax|live|running", RegexOption.IGNORE_CASE)
+                            " endpoint-hits=" + rx.findAll(got.body).take(10).map { m ->
+                                val a = (m.range.first - 50).coerceAtLeast(0)
+                                val b = (m.range.last + 70).coerceAtMost(got.body.length)
+                                got.body.substring(a, b).replace('\n', ' ')
+                            }.joinToString(" || ").take(1100)
                         } else "")
                 }
                 if (usable) {

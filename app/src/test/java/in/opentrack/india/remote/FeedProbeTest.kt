@@ -28,8 +28,9 @@ class FeedProbeTest {
         // erail asks lead, in erail's own date format, and the shipped shape is the control.
         assertEquals("the observation run leads (the guessing era ended with two 404s from the phone)",
             "webview-erail-observe", vs.first().name)
-        assertEquals("the erail live endpoint (right date format) is asked second", "get-erail-runtrain-xhr", vs[1].name)
-        assertEquals("the shipped shape follows as the control", "post-dalvik-json", vs[3].name)
+        assertEquals("the site's own script is captured second (it names the real endpoints)",
+            "webview-erail-sitejs", vs[1].name)
+        assertEquals("the shipped shape follows as the control", "post-dalvik-json", vs[4].name)
         for (v in vs) {
             assertTrue("${v.name} must not send data in the clear", v.url.startsWith("https://"))
             assertTrue("${v.name} needs an explanation for the report", v.note.length > 8)
