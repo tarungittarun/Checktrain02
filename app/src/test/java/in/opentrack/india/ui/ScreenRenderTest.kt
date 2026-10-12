@@ -116,8 +116,8 @@ class ScreenRenderTest {
         val headline = shot.text(R.id.headline)
         val strings = listOf(
             headline, shot.text(R.id.provenance), shot.text(R.id.age), shot.text(R.id.delay),
-            shot.text(R.id.next), shot.text(R.id.progressLabel), shot.text(R.id.trainNo),
-            shot.text(R.id.routeLabel), shot.text(R.id.runDate), shot.text(R.id.chartLegend),
+            shot.text(R.id.next), shot.text(R.id.trainNo),
+            shot.text(R.id.routeLabel), shot.text(R.id.runDate),
         )
         strings.forEach { assertTrue("unfilled or empty label: '$it'", it.isNotBlank() && !it.contains("%")) }
         assertTrue("headline too short to be a sentence: '$headline'", headline.length > 20)

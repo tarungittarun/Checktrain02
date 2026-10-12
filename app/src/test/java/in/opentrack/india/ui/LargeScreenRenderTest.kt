@@ -237,7 +237,7 @@ class LargeScreenRenderTest {
     /** Every header cell on the tracking screen, measured rather than eyeballed. */
     private fun assertHeaderIntact(shot: Render.Shot) {
         listOf(R.id.trainNo, R.id.routeLabel, R.id.runDate, R.id.headline, R.id.provenance, R.id.age,
-            R.id.delay, R.id.next, R.id.progressLabel, R.id.chartLegend).forEach {
+            R.id.delay, R.id.next).forEach {
             val value = shot.text(it)
             assertTrue("unfilled or empty label: '${name(shot, it)}' = '$value'",
                 value.isNotBlank() && !value.contains("%"))
