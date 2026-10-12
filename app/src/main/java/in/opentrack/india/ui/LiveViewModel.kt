@@ -398,7 +398,32 @@ class LiveViewModel(
             }
             val crowd = _ui.value?.reports ?: emptyMap()
             val merged = crowd.filterKeys { it !in mirrorLines } + mirrorLines
-            _ui.postValue(_ui.value?.copy(reports = merged))
+            // The extra log the owner asked for, and the feature it announces: the schedule clock said
+            // "past Shimoga" while the actuals proved the train left Birur 31 late - so the POSITION
+            // follows the actuals now. Last confirmed departure, its lateness, and the clock set back
+            // by exactly that lateness: "next stop in N min" becomes the train's real remaining time.
+            val u = _ui.value
+            val last = RunningStatusMirror.lastConfirmed(actuals, codes)
+            val late = last?.let { RunningStatusMirror.slipMinutes(it) } ?: 0
+            if (u != null && last != null && late > 0) {
+                fun hm(m: Int): String = "${m / 60}:" + "%02d".format(m % 60)
+                val positionNote =
+                    "Position from the mirror's actuals: last confirmed ${last.stationCode} dep " +
+                        hm(last.actDep!!) + " (${RunningStatusMirror.SOURCE}, $late min late) — the " +
+                        "schedule clock is set back by that lateness, so the next-stop estimate is " +
+                        "the train's, not the timetable's."
+                val shifted = buildUi(
+                    u.route, u.answer, u.tried, emptyList(),
+                    nowMinute(System.currentTimeMillis()) - late, positionNote,
+                ).copy(reports = merged, relayOk = u.relayOk)
+                _ui.postValue(shifted)
+                Diary.get()?.log("MIRROR") {
+                    "position from actuals: last confirmed ${last.stationCode} dep ${hm(last.actDep)} " +
+                        "($late min late) - schedule clock shifted back $late min"
+                }
+            } else {
+                _ui.postValue(u?.copy(reports = merged))
+            }
             Diary.get()?.log("MIRROR") {
                 "${RunningStatusMirror.SOURCE} answered: ${mirrorLines.size} stop(s) with actual " +
                     "arr/dep for $trainNo"
@@ -487,9 +512,13 @@ class LiveViewModel(
     private fun buildUi(
         route: TrainRoute, answer: PositionEngine.Answer, tried: List<String>,
         notes: List<String> = emptyList(),
+        /** The mirror's actuals set this clock back by the train's measured lateness (0 = schedule). */
+        nowRailOverride: Int? = null,
+        /** When the mirror speaks, its sentence IS the position note - it outranks the refusal text. */
+        positionNote: String? = null,
     ): Ui {
         val now = System.currentTimeMillis()
-        val nowRail = nowMinute(now)
+        val nowRail = nowRailOverride ?: nowMinute(now)
         val pos = answer.position
         val model = TrackModel.build(
             route = route, pos = pos, perStop = answer.perStop, nowRailMinute = nowRail,
@@ -502,7 +531,7 @@ class LiveViewModel(
             // on — no network, a timeout, a refusal, or the case this endpoint really is: it answered about
             // the train and published no arrival or departure minute at all. "No live report reached this
             // device" is the last resort, for when no source had anything more specific to say.
-            note = notes.firstOrNull { it.isNotBlank() } ?: answer.note
+            note = positionNote ?: notes.firstOrNull { it.isNotBlank() } ?: answer.note
                 ?: if (pos.provenance.live) null
                 else "No live report reached this device — every minute below is the timetable, " +
                     "not the train.",

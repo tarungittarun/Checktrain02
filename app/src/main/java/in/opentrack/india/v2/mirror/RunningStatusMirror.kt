@@ -128,6 +128,25 @@ object RunningStatusMirror {
         return out
     }
 
+    /**
+     * The last halt (in route order) whose DEPARTURE the mirror confirms - the strongest "the train is
+     * PAST here" signal a second witness can give. The position engine had only the schedule clock; a
+     * train running 24 late is NOT where that clock says, and paste #22 is the proof on screen.
+     */
+    fun lastConfirmed(actuals: Actuals, routeCodes: Collection<String>): Stop? {
+        val order = routeCodes.map { it.uppercase() }
+        return actuals.stops
+            .filter { it.actDep != null && it.stationCode.uppercase() in order }
+            .maxByOrNull { order.indexOf(it.stationCode.uppercase()) }
+    }
+
+    /** Wrap-safe scheduled-vs-actual slip in minutes from the mirror's own pair; null if either is missing. */
+    fun slipMinutes(stop: Stop): Int? {
+        val a = stop.actDep ?: return null
+        val s = stop.schDep ?: return null
+        return (((a - s + 720) % 1440) + 1440) % 1440 - 720
+    }
+
     private fun delayWord(raw: Int): String {
         val d = ((raw + 720) % 1440) - 720
         return when {

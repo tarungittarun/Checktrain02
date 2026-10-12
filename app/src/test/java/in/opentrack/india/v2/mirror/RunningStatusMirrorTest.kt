@@ -166,4 +166,24 @@ class RunningStatusMirrorTest {
         assertNull(junk.actuals)
         assertEquals("answered but no halt rows parsed", junk.why)
     }
+    @Test
+    fun `the last confirmed departure is the strongest past-here signal`() {
+        val actuals = RunningStatusMirror.parse(RunningStatusMirror.stripTags(capture()))!!
+        val last = RunningStatusMirror.lastConfirmed(actuals, routeCodes)
+        assertNotNull(last)
+        assertEquals(
+            "SRF is the last halt with an actual departure in the capture (TLGP only arrives)",
+            "SRF", last!!.stationCode,
+        )
+        assertEquals("8:35 PM is 20:35", 1235, last.actDep)
+    }
+
+    @Test
+    fun `slip minutes read straight off the mirror pair`() {
+        val actuals = RunningStatusMirror.parse(RunningStatusMirror.stripTags(capture()))!!
+        assertEquals(12, RunningStatusMirror.slipMinutes(actuals.stops.first { it.stationCode == "YPR" }))
+        assertEquals(24, RunningStatusMirror.slipMinutes(actuals.stops.first { it.stationCode == "ASK" }))
+        assertNull("the terminus never departs", RunningStatusMirror.slipMinutes(actuals.stops.last()))
+    }
+
 }
