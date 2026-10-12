@@ -1,7 +1,11 @@
 # ADR-006: crowdsensed per-stop actuals (the WIMT path)
 
-Status: PROPOSED — needs the owner's word (the brief reserved this decision; the owner's "implement
-how other apps do it" message is the trigger for writing it down properly).
+Status: ACCEPTED — build started. The owner's standing authorization ("change whatever you want,
+architecture, source or anything", first message of the session, re-demanded after the keyless server
+doors were measured shut from both machines) is the decision this ADR was reserved for. Every keyless
+fetchable server door is now measured dead with evidence (NTES closed on both machines; erail WAF 403
+to all identities; api.erail.in DNS-dead on both machines; railradar 401). The crowdsourced path is the
+only one that does not depend on a server the railways can blanket-block: the witnesses are ON the train.
 
 ## Context (all measured, not assumed, 2026-10-12)
 
