@@ -275,7 +275,7 @@ class TrackingFlowTest {
     // runners every probe run - so the label must gain the live confirmation inside the network
     // budget. A silent timetable label here means the new fetch never fired or never answered,
     // which is exactly what this row exists to catch.
-    @Test
+    @Test(timeout = 120_000) // the identity fetch is bounded in the app; the test bounds itself too
     fun routeLabelGainsTheLiveIdentityConfirmation() {
         val before = E2E.text("routeLabel")
         assertTrue("no route label to relabel", before.isNotBlank())

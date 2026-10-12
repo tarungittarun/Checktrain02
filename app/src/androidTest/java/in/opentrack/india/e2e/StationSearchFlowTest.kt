@@ -179,7 +179,7 @@ class StationSearchFlowTest {
     // A row without a named source is the founding bug's door: timetable dressed as live. So the
     // contract here is exactly: rows exist -> at least one names erail (the live authority);
     // nothing answered -> a typed message exists. Silence and unnamed rows both fail.
-    @Test
+    @Test(timeout = 120_000) // a wedged feed must cost this test, never the whole class (600s cap)
     fun pairRowsNameTheirSource() {
         assertTrue("board-at 'yes' never resolved", E2E.typeInBox("fromBox", "yes"))
         assertTrue("no suggestion for 'yes'", E2E.ui.wait(Until.findObject(By.res(E2E.PKG, "id/sugPrimary")), E2E.LOCAL_MS) != null)
