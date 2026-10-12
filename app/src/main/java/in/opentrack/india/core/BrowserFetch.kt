@@ -304,6 +304,140 @@ object BrowserFetch {
         }
     }
 
+    /**
+     * The interactive page probe: settle, click each named control in order (a date chip, then a
+     * submit button - the sequence a human runs), wait for their slow backend, then read the parent
+     * page's text PLUS any same-origin iframes' text. Built after the owner's 16:33 paste proved the
+     * tap FIRED ("tapped") while the DOM came back byte-identical - the table either needs longer
+     * than the 6 s we waited, or paints somewhere the parent document does not expose. Every step
+     * logs, so the paste says which link in the chain broke.
+     */
+    fun pageInteract(
+        url: String,
+        settleMillis: Int,
+        taps: List<String>,
+        postTapWaitMillis: Int,
+        totalBudgetMillis: Int,
+    ): Http.Result {
+        val ctx = appContext ?: return Http.Result.Failed(
+            Http.Result.Kind.HTTP, "BrowserFetch not initialised (no application context)",
+        )
+        tried = true
+        val latch = CountDownLatch(1)
+        val settled = AtomicBoolean(false)
+        val text = AtomicReference<String?>(null)
+        val problem = AtomicReference<String?>(null)
+        synchronized(gate) {
+            val t0 = System.currentTimeMillis()
+            runCatching {
+                main.post {
+                    runCatching {
+                        val w = ensureView(ctx)
+                        w.webViewClient = object : WebViewClient() {
+                            override fun onPageFinished(v: WebView, pageUrl: String) {
+                                if (settled.get()) return
+                                fun readAll() {
+                                    if (settled.get()) return
+                                    runCatching {
+                                        v.evaluateJavascript("location.href", ) { loc ->
+                                            Diary.get()?.log("BROWSER") {
+                                                "AFTER-TAPS page is at " + (loc ?: "?")
+                                            }
+                                        }
+                                        val expr = "(function(){var out=(document.body?document.body.innerText:'');" +
+                                            "var f=document.querySelectorAll('iframe');" +
+                                            "for(var i=0;i<f.length&&i<3;i++){" +
+                                            "try{var d=f[i].contentDocument;" +
+                                            "if(d&&d.body){out=out+' ||IFRAME['+i+']|| '+((d.body.innerText||'').substring(0,4000));}" +
+                                            "else{out=out+' ||IFRAME['+i+']|| unreachable';}}" +
+                                            "catch(e){out=out+' ||IFRAME['+i+']|| cross-origin';}}" +
+                                            "return out.substring(0,24000);})()"
+                                        v.evaluateJavascript(expr) { raw ->
+                                            if (settled.compareAndSet(false, true)) {
+                                                runCatching {
+                                                    val quoted = raw ?: "''"
+                                                    text.set(JSONObject("{\"v\":$quoted}").optString("v"))
+                                                }.onFailure { problem.set("unreadable text: " + it.javaClass.simpleName) }
+                                                latch.countDown()
+                                            }
+                                        }
+                                    }.onFailure {
+                                        if (settled.compareAndSet(false, true)) {
+                                            problem.set(it.message ?: it.javaClass.simpleName)
+                                            latch.countDown()
+                                        }
+                                    }
+                                }
+                                fun tapAt(index: Int) {
+                                    if (settled.get()) return
+                                    if (index >= taps.size) {
+                                        main.postDelayed(
+                                            { if (!settled.get()) readAll() },
+                                            postTapWaitMillis.toLong(),
+                                        )
+                                        return
+                                    }
+                                    val label = taps[index]
+                                    val lit = JSONObject.quote(label)
+                                    val js = "(function(){var want=[$lit].map(function(s){return s.toLowerCase();});" +
+                                        "var els=document.querySelectorAll('a,button,div,span,li,td,input');" +
+                                        "for(var i=0;i<els.length;i++){var t=(els[i].value||'')+' '+(els[i].textContent||'');" +
+                                        "if(want.some(function(w){return t.trim().toLowerCase()===w;})){" +
+                                        "els[i].click();return 'tapped';}}return 'no-target';})()"
+                                    v.evaluateJavascript(js) { res ->
+                                        Diary.get()?.log("BROWSER") {
+                                            "TAP[$label] -> " + (res ?: "null")
+                                        }
+                                        main.postDelayed(
+                                            { runCatching { tapAt(index + 1) } },
+                                            400L,
+                                        )
+                                    }
+                                }
+                                main.postDelayed({ if (!settled.get()) runCatching { tapAt(0) } }, settleMillis.toLong())
+                            }
+
+                            override fun onReceivedError(
+                                v: WebView,
+                                request: WebResourceRequest,
+                                error: WebResourceError,
+                            ) {
+                                // A 404 page is still a rendered document from the right site; read it
+                                // rather than declaring the site unreachable (the apiCall rule, restated).
+                            }
+                        }
+                        w.loadUrl(url)
+                    }.onFailure {
+                        if (settled.compareAndSet(false, true)) {
+                            problem.set(it.message ?: it.javaClass.simpleName)
+                            latch.countDown()
+                        }
+                    }
+                }
+            }.onFailure {
+                if (settled.compareAndSet(false, true)) {
+                    problem.set(it.message ?: it.javaClass.simpleName)
+                    latch.countDown()
+                }
+            }
+            val answered = latch.await(totalBudgetMillis.toLong(), TimeUnit.MILLISECONDS)
+            if (!answered) abandon()
+            val ms = System.currentTimeMillis() - t0
+            val body = text.get()
+            Diary.get()?.log("BROWSER") {
+                "INTERACT " + hostOf(url) + url.substringAfter(hostOf(url), "") +
+                    " -> " + (if (answered) "text ${body?.length ?: 0}B" else "TIMEOUT") + " in " + ms + "ms"
+            }
+            return when {
+                !answered -> Http.Result.Failed(
+                    Http.Result.Kind.TIMEOUT, "the page gave no text in " + totalBudgetMillis + "ms",
+                )
+                body != null -> Http.Result.Ok(body, fromCache = false, ageMillis = 0)
+                else -> Http.Result.Failed(Http.Result.Kind.HTTP, problem.get() ?: "unreadable page")
+            }
+        }
+    }
+
     /** Clears the engine's cookie jar; wired to the same button that clears the app's live cache. */
     fun clearCookies() {
         val ctx = appContext ?: return

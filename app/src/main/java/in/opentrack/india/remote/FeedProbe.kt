@@ -63,9 +63,9 @@ object FeedProbe {
     private const val BROWSER_TIMEOUT = 8_000
     private const val MAX_TRIES = 11  // every variant, controls included - a probe that ran out of tries
                                     // before its own control host is a probe that proves nothing
-    private const val TOTAL_BUDGET = 121_000 // three settled page reads lead (rstrain text ~13 s,
-    // rstrain dom ~10 s, the tap read 20 s + tap + 6 s, 34 s cap) plus the researched gateway POSTs;
-    // the rest still skip with reported lines
+    private const val TOTAL_BUDGET = 135_000 // three settled page reads lead (rstrain text ~13 s,
+    // rstrain dom ~10 s, the human-sequence read 20 s + 2 taps + 15 s, 48 s cap) plus the researched
+    // gateway POSTs; the rest still skip with reported lines
 
     @Volatile
     private var last: List<Result> = emptyList()
@@ -157,9 +157,12 @@ object FeedProbe {
                 // The last in-page lever: if 20 s of patience plus tapping their own tab still ends in
                 // a DOM without times, the data channel is interaction- or gate-kept and no further
                 // read variant of THIS page can succeed - the paste will have said so.
-                BrowserFetch.pageText(
-                    rebuilt.url, 34_000, settleMillis = 20_000, textCap = 64_000, dom = true,
-                    tapText = "Show Status",
+                BrowserFetch.pageInteract(
+                    rebuilt.url,
+                    settleMillis = 20_000,
+                    taps = listOf("12-Oct", "Show Status"),
+                    postTapWaitMillis = 15_000,
+                    totalBudgetMillis = 48_000,
                 )
             } else if (rebuilt.name == "webview-erail-rstrain-dom") {
                 // The 14:40 paste's second verdict: the visible text never gains a table. Their own
@@ -337,11 +340,11 @@ object FeedProbe {
                 "webview-erail-rstrain-dom-tap",
                 "https://erail.in/train-running-status/$trainNo",
                 null, emptyMap(), false,
-                "the same page given PATIENCE and a TAP: 20 s settle, then the button the page's " +
-                    "own text names - 'Show Status' (paste #12: our tap looked for 'Running status' " +
-                    "and hit no-target, while the captured text ends '11-Oct 12-Oct 13-Oct Show " +
-                    "Status') - and the DOM read 6 s later. If their table only paints behind that " +
-                    "button, this read is where the per-stop actuals finally land",
+                "the page run like a human: 20 s settle, then the DATE CHIP ('12-Oct'), then " +
+                    "'Show Status' - the tap paste #13 proved FIRES ('tapped') - then 15 s for their " +
+                    "slow backend, then read the parent text AND any same-origin iframes (the two " +
+                    "explanations for a byte-identical DOM after a fired tap: a slow answer, or " +
+                    "content the parent document does not expose). Every step logs its own line",
                 false, true,
             ),
             Variant(
