@@ -63,11 +63,12 @@ object FeedProbe {
     // A cold web view is not a socket write: the engine answered in ~1.1 s of its own on a device, and a
     // 5 s cap turned a page load plus a request into a timeout. Generous, because it runs after a failure.
     private const val BROWSER_TIMEOUT = 8_000
-    internal const val MAX_TRIES = 15  // every variant, controls included - a probe that ran out of tries
+    internal const val MAX_TRIES = 16  // every variant, controls included - a probe that ran out of tries
                                     // before its own control host is a probe that proves nothing
-    private const val TOTAL_BUDGET = 195_000 // four settled page reads lead (rstrain text ~13 s,
+    private const val TOTAL_BUDGET = 201_000 // four settled page reads lead (rstrain text ~13 s,
     // desktop ~10 s, rstrain dom ~10 s, the human-sequence read 20 s + taps + 15 s, 48 s cap) plus
-    // the researched gateway POSTs and two mirror reads; the rest skip with reported lines
+    // the researched gateway POSTs, two mirror reads, and the official app's gateway root; the rest
+    // skip with reported lines
 
     @Volatile
     private var last: List<Result> = emptyList()
@@ -380,6 +381,22 @@ object FeedProbe {
                 "the second researched mirror; the research gave selectors, not URLs, so the path is " +
                     "a labelled guess - a miss renders their navigation and no bytes masquerade as data",
                 false, true,
+            ),
+            Variant(
+                "get-crisapis-gateway",
+                "https://gw.crisapis.indianrail.gov.in/",
+                null,
+                mapOf(
+                    "User-Agent" to "Dalvik/2.1.0 (Linux; Android 11)",
+                    "Accept" to "application/json, */*",
+                ),
+                false,
+                "the OFFICIAL app's API gateway, found only in BeVigil's scan of its binary (owner's " +
+                    "link): 'gw.' prefix says an API gateway, and NO open source or captured traffic " +
+                    "names it - so this asks the ROOT, honestly labelled a reachability probe: any " +
+                    "HTTP status proves the host answers a phone; TLS-closed extends the refusal map. " +
+                    "Paths are invented NOWHERE - a 401/404 from the root is a door found, not opened",
+                false,
             ),
             Variant(
                 "get-erail-sitejs",

@@ -454,6 +454,10 @@ class Diary(private val file: File) {
             // ADR-006's relay: if a local filter (the owner's AdGuard) blocks ntfy.sh, the traveller
             // pipe is dead on that device and EVERY paste must say so from the ENV block upward.
             "ntfy.sh",
+            // The official app's API gateway, visible ONLY in BeVigil's static scan of its binary
+            // (owner's link, 2026-10-12) - absent from the working OSS client and from every capture
+            // so far. Reachability first; paths are invented nowhere.
+            "gw.crisapis.indianrail.gov.in",
         )
 
         @Volatile

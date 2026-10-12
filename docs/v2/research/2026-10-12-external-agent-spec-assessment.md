@@ -145,3 +145,30 @@ The owner asked directly: "Are you still there. Have checked these?" Checked, pi
    have not built is its "Cell Tower Check-Ins" auto-detection: needs location/telephony
    permissions and a station→cell-ID database; the manual stop-tap reporter achieves the same
    data with zero permissions. Designed as a later enhancement, not a blocker.
+
+---
+
+## Addendum 4: the owner's two SOURCE LINKS, fetched and mined
+
+The owner re-sent the two source URLs themselves; both were fetched directly (2026-10-12, late):
+
+1. **share.google/… → `x64vbhv/ntes-client`** — the same real repository already cloned and read
+   in full (Addendum 3). Its own README now headlines the fix this assessment shipped from it:
+   "Fix SSLV3_ALERT_HANDSHAKE_FAILURE against indianrail.gov.in … mounting a session with
+   DEFAULT@SECLEVEL=1 ciphers" — independent confirmation of the legacy-cipher fact behind
+   `post-appservand-legacytls`. Fully mined; nothing further.
+
+2. **share.google/… → `bevigil.com/report/cris.icms.ntes`** — a static-analysis report of the
+   OFFICIAL NTES Android app. Mined for anything a keyless client can use:
+   - **NEW HOST: `gw.crisapis.indianrail.gov.in`** — appears nowhere in the OSS client, in any
+     capture, or in any prior research. A "gw." prefix says API gateway; this may be where the
+     official app's traffic actually goes today. SHIPPED: joins the diagnostics ENV reachability
+     map (DNS/TCP/TLS from the owner's phone in every paste) AND a probe variant
+     (`get-crisapis-gateway`, a root GET with the app's dalvik signature) — any HTTP status
+     proves the host answers a phone; a TLS kill extends the refusal map. Paths are invented
+     NOWHERE: a 401/404 from the root is a door found, not opened.
+   - `Crypto.java` with weak crypto (LOW): consistent with the static AES key already in hand —
+     no new fact.
+   - "Accept Self Signed Certificate" (2 findings): app-internal pinning hygiene; nothing
+     usable by a keyless client, and deliberately not imitated.
+   - The rest (SQL, logs, trackers, firebaseio) is app-internal surface, irrelevant to us.
