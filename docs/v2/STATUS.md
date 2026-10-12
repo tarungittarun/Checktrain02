@@ -319,5 +319,5 @@ Latest-apk: the owner-installed build (21:26 UTC, 10,667,232 B) already carries 
 
 
 
-Latest-apk: 10,723,795 B @ 2026-10-12T09:51:27Z (660f7a6, Round 25: probe v11 tap+patience read, full-line UISTATE capture, finished-run headline fix; android SUCCESS, run 38232296678)
+Latest-apk: 10,740,143 B @ 2026-10-12T10:21:28Z (37cc5fb, Round 26: the actuals answer SHIPPED - traveller reporter UI [opt-in, off], reader lines on every stop, relay loopback on ct-test-*; android SUCCESS, 223 tests, run 38235457389)
 
