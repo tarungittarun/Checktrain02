@@ -331,5 +331,5 @@ Latest-apk: the owner-installed build (21:26 UTC, 10,667,232 B) already carries 
 
 
 
-Latest-apk: 10,747,391 B @ 2026-10-12T11:10:23Z (7cf291e, Round 30: probe v14 pageInteract - the human sequence [date chip -> Show Status -> 15 s -> parent + iframe text] after paste #13's fired-but-empty tap; android SUCCESS, run 38240615058)
+Latest-apk: 10,747,663 B @ 2026-10-12T11:26:48Z (6b1d55c, Round 31: the station-loss bug FIXED [a transient live failure no longer swaps the halt table for the endpoints screen], reporter moved above the timetable, page-render door closed with the 5-attempt chain; android SUCCESS, run 38242414112)
 
