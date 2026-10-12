@@ -321,5 +321,5 @@ Latest-apk: the owner-installed build (21:26 UTC, 10,667,232 B) already carries 
 
 
 
-Latest-apk: 10,740,143 B @ 2026-10-12T10:21:28Z (37cc5fb, Round 26: the actuals answer SHIPPED - traveller reporter UI [opt-in, off], reader lines on every stop, relay loopback on ct-test-*; android SUCCESS, 223 tests, run 38235457389)
+Latest-apk: 10,740,559 B @ 2026-10-12T10:26:55Z (ccb2da3, Round 27: owner's external spec assessed - relay poll discipline adopted [90 s], proxy rejected on the both-vantages evidence; android SUCCESS, 223 tests, run 38236043392)
 
