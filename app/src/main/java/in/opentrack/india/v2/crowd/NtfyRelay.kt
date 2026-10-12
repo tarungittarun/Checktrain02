@@ -45,14 +45,13 @@ class NtfyRelay(
 
     data class Poll(val reports: List<StopReport>, val relayOk: Boolean)
 
-    private fun parseMessageLines(body: String): List<StopReport> = body.lineSequence()
+    private fun parseMessageLines(body: String): List<StopReport> = body.lines()
         .filter { it.contains("\"event\":\"message\"") }
         .mapNotNull { line ->
             val message = extractJsonField(line, "message") ?: return@mapNotNull null
             val unescaped = message.replace("\\\"", "\"").replace("\\\\", "\\")
             StopReport.fromJson(unescaped)
         }
-        .toList()
 
     fun topicFor(trainNo: String): String = "ct-$trainNo"
 
