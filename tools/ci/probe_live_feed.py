@@ -457,6 +457,39 @@ def erail_live_status_lines(train_no: str, date_ddmm: str,
     return out, caps
 
 
+def erail_site_script_lines(get=erail_get) -> tuple[list[str], list[tuple[str, str, str]]]:
+    """erail's own app scripts, asked from CI - the 403 wall was on getRunTrain.aspx specifically
+    (getTrains.aspx answers runners all day), and static assets on the same host are worth one ask.
+
+    The owner's phone observed these exact URLs (11:02 log); nothing is invented here either. The
+    bodies are filtered in place: windows around endpoint-ish keywords - their code names the hub,
+    and the SignalR requester's presence already explains why no GET endpoint spelling can 200.
+    """
+    import re as _re
+    browser = {"User-Agent": BROWSER_UA, "Accept": "*/*", "Referer": "https://erail.in/"}
+    urls = (
+        "https://erail.in/js5/cmp/eRailMobileHTMLEN.js?v=22092026",
+        "https://erail.in/SignalR/js/requester_min.js",
+    )
+    out: list[str] = []
+    caps: list[tuple[str, str, str]] = []
+    rx = _re.compile(r"aspx|getrun|signalr|hub|negotiate|ajax|live|running", _re.I)
+    for url in urls:
+        path = url.split("erail.in/", 1)[1] if "erail.in/" in url else url
+        verdict, body = get(path, base="https://erail.in/", headers=browser)
+        out.append(f"site script {url} · {verdict}")
+        if not body:
+            continue
+        hits = []
+        for m in list(rx.finditer(body))[:10]:
+            a = max(0, m.start() - 60)
+            b = min(len(body), m.end() + 90)
+            hits.append(body[a:b].replace("\n", " "))
+        out.append("  endpoint-hits: " + (" || ".join(hits))[:1800])
+        caps.append((url.rsplit("/", 1)[-1].split("?")[0], url, body[:4000]))
+    return out, caps
+
+
 # The proposal a probe or refresher prints is a per-fact merge suggestion, never a replacement file. The
 # ac06f62 probe comment proved the footgun: its proposed refresh carried "trains": [] because NTES was
 # unreachable, and one human paste away from erasing three owner-verified identities. So the rule travels
@@ -482,7 +515,8 @@ def new_proposal(today: datetime.datetime, verified_against: str) -> dict:
 def erail_capture_comment(pairs: list[tuple[str, str, str, str]], probed_at: str,
                           identities: list[tuple[str, str]] | None = None,
                           routes: list[tuple[str, str]] | None = None,
-                          live_status: list[tuple[str, str, str]] | None = None) -> str | None:
+                          live_status: list[tuple[str, str, str]] | None = None,
+                          scripts: list[tuple[str, str, str]] | None = None) -> str | None:
     """The raw erail bodies as a commit comment - the only capture path a sandbox can read.
 
     CI artefacts live on blob hosts that some sandboxes cannot fetch, but commit comments come through the
@@ -495,7 +529,8 @@ def erail_capture_comment(pairs: list[tuple[str, str, str, str]], probed_at: str
     idents = [(n, b) for n, b in (identities or []) if b]
     routes_ = [(n, u, b) for n, u, b in (routes or []) if b]
     status_ = [(n, u, b) for n, u, b in (live_status or []) if b]
-    if not bodies and not idents and not routes_ and not status_:
+    scripts_ = [(n, u, b) for n, u, b in (scripts or []) if b]
+    if not bodies and not idents and not routes_ and not status_ and not scripts_:
         return None
     out = ["### live-feed capture (erail, raw bodies)", "",
            "Parsers are written against exactly this text, nothing imagined (4.5).",
@@ -534,6 +569,14 @@ def erail_capture_comment(pairs: list[tuple[str, str, str, str]], probed_at: str
             out.append(f"...[truncated at 6000 of {len(body)} bytes]")
         out.append("```")
         out.append("")
+    for name, url, body in scripts_:
+        out.append(f"site script {name} ({url}) · {len(body)}B captured")
+        out.append("```text")
+        out.append(body[:4000])
+        if len(body) > 4000:
+            out.append(f"...[truncated at 4000 of {len(body)} bytes]")
+        out.append("```")
+        out.append("")
     return "\n".join(out)
 
 
@@ -569,6 +612,9 @@ def main() -> int:
 
     live = new_proposal(today, "CI probe " + BASE)
 
+    script_captures: list[tuple[str, str, str]] = []
+    script_out, script_captures = erail_site_script_lines()
+    out += ["\n### erail's own site scripts (their code names the hub)"] + script_out
     identity_captures: list[tuple[str, str]] = []
     route_captures: list[tuple[str, str, str]] = []
     live_status_captures: list[tuple[str, str, str]] = []
@@ -650,7 +696,7 @@ def main() -> int:
         )
         capture_md = erail_capture_comment(pair_captures, today.isoformat(timespec="seconds"),
                                            identities=identity_captures, routes=route_captures,
-                                           live_status=live_status_captures)
+                                           live_status=live_status_captures, scripts=script_captures)
         if capture_md:
             subprocess.run(
                 ["gh", "api", "-X", "POST", f"repos/{repo}/commits/{sha}/comments",

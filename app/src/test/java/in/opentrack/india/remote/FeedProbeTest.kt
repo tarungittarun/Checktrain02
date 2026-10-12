@@ -29,7 +29,7 @@ class FeedProbeTest {
         assertEquals("the observation run leads (the guessing era ended with two 404s from the phone)",
             "webview-erail-observe", vs.first().name)
         assertEquals("the site's own script is captured second (it names the real endpoints)",
-            "webview-erail-sitejs", vs[1].name)
+            "get-erail-sitejs", vs[1].name)
         assertEquals("the shipped shape follows as the control", "post-dalvik-json", vs[4].name)
         for (v in vs) {
             assertTrue("${v.name} must not send data in the clear", v.url.startsWith("https://"))

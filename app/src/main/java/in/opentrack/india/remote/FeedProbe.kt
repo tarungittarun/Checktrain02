@@ -224,13 +224,19 @@ object FeedProbe {
                 false, true,
             ),
             Variant(
-                "webview-erail-sitejs",
+                "get-erail-sitejs",
                 "https://erail.in/js5/cmp/eRailMobileHTMLEN.js?v=22092026",
-                null, emptyMap(), false,
-                "the site's OWN app script, captured verbatim (a static asset, same-origin GET - observed on " +
-                    "the owner's phone 11:02, not invented): its text names the SignalR hub and every data " +
-                    "path the live page really uses. SignalR's presence explains why no GET spelling can 200",
-                false, true,
+                null,
+                mapOf(
+                    "User-Agent" to
+                        "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Mobile Safari/537.36",
+                    "Referer" to "https://erail.in/",
+                    "Accept" to "*/*",
+                ),
+                false,
+                "the site's OWN app script on the PLAIN stack (the owner's 11:23 log proves the plain stack " +
+                    "answers erail.in - the 404s ARE responses; the WebView fetch stalled on their heavy " +
+                    "homepage): its text names the SignalR hub and every data path the live page really uses",
             ),
             Variant(
                 "get-erail-runtrain-xhr",
@@ -471,7 +477,7 @@ object FeedProbe {
                         } else "") +
                         // Their app script, filtered in the app: a window around every endpoint-ish
                         // keyword. Their code, their names - the parser meets only what was seen.
-                        (if (v.name == "webview-erail-sitejs" && got is Http.Result.Ok) {
+                        (if (v.name == "get-erail-sitejs" && got is Http.Result.Ok) {
                             val rx = Regex("aspx|getrun|signalr|hub|ajax|live|running", RegexOption.IGNORE_CASE)
                             " endpoint-hits=" + rx.findAll(got.body).take(10).map { m ->
                                 val a = (m.range.first - 50).coerceAtLeast(0)

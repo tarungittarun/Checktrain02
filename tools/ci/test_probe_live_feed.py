@@ -289,5 +289,47 @@ class ErailLiveStatusProbe(unittest.TestCase):
         self.assertNotIn("train 16228 live-status body", md, "empty bodies are not captures")
 
 
+class ErailSiteScriptCapture(unittest.TestCase):
+    """erail's own app scripts, asked from CI: their code names the hub (the owner's phone observed
+    the URLs; nothing here is invented). The tests pin the filter's honesty - windows around real
+    keywords, verbatim, and a dead asset is a fact, never a crash or a half-parse."""
+
+    def test_the_scripts_are_asked_with_browser_identity_and_filtered(self):
+        bodies = {
+            "js5/cmp/eRailMobileHTMLEN.js?v=22092026":
+                "var x=1;$.connection.hub.url='/SignalR';$.ajax('/rail/getRunTrain.aspx?trainno='",
+            "SignalR/js/requester_min.js":
+                "window.SignalR={hub:'/signalr/negotiate?clientProtocol=1.5'};live",
+        }
+
+        def fake(q, timeout=20, base=plf.ERAIL_BASE, headers=None):
+            for k, v in bodies.items():
+                if q.startswith(k.split("?")[0]):
+                    return ("HTTP 200 %dB" % len(v), v)
+            return ("HTTP 404", "")
+
+        lines, caps = plf.erail_site_script_lines(get=fake)
+        self.assertEqual(2, len(caps))
+        self.assertEqual("eRailMobileHTMLEN.js", caps[0][0])
+        joined = " ".join(lines)
+        self.assertIn("endpoint-hits:", joined)
+        self.assertIn("hub.url", joined)
+        self.assertIn("getRunTrain.aspx", joined)
+        self.assertIn("negotiate", joined)
+
+    def test_a_dead_asset_is_a_fact_not_a_capture(self):
+        lines, caps = plf.erail_site_script_lines(
+            get=lambda q, timeout=20, base=plf.ERAIL_BASE, headers=None: ("HTTP 404", ""))
+        self.assertEqual(2, len([l for l in lines if "HTTP 404" in l]))
+        self.assertEqual([], caps)
+
+    def test_the_capture_comment_carries_script_bodies(self):
+        md = plf.erail_capture_comment([], "2026-10-12T06:00:00+05:30",
+                                       scripts=[("requester_min.js", "https://erail.in/SignalR/js/requester_min.js",
+                                                 "hub.url='/signalr'")])
+        self.assertIn("site script requester_min.js (https://erail.in/SignalR/js/requester_min.js)", md)
+        self.assertIn("hub.url", md)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
