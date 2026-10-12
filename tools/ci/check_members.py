@@ -66,7 +66,7 @@ getLocationInWindow getPixel drawColor mkdirs compress recycle zipWithNext getCh
 ALLOW |= set("""
 isEmpty
 postUrl loadUrl evaluateJavascript isForMainFrame countDown await removeAllCookies flush destroy
-stopLoading compareAndSet incrementAndGet optInt setInstanceFollowRedirects lastPathSegment exceptionOrNull
+stopLoading compareAndSet incrementAndGet optInt setInstanceFollowRedirects optJSONArray length lastPathSegment exceptionOrNull
 javaClass getMethod invoke
 firstInstallTime versionCode substringBeforeLast
 setFixedRouteToAddress getAllByName hostAddress filterIsInstance

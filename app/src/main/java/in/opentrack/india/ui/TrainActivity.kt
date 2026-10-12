@@ -208,10 +208,21 @@ class TrainActivity : AppCompatActivity() {
         // sentences ("Should be past Shimoga Town") contradicted the confirmed departure and read as
         // wrong data (paste #25). The badge earns its colour from the measured lateness.
         if (ui.actualsHeadline == null) {
-            // The static-sounding labels were a fair complaint: a chip that says the same thing in every
-            // state reads as stuck. Name the situation instead - the sources are being asked.
-            binding.provenance.text = "SCHEDULE · sources unreachable"
-            binding.delay.text = "—"
+            val src = ui.actualsSource
+            if (src != null) {
+                // A witness answered with minutes but none is an observation yet: say so, name it,
+                // never fall back to "sources unreachable" - that would deny data on the screen.
+                binding.provenance.text = "ACTUALS · $src"
+                binding.provenance.setBackgroundResource(R.drawable.bg_badge_live)
+                binding.provenance.setTextColor(getColor(R.color.live))
+                binding.delay.text = "no halt reported yet"
+                binding.delay.setTextColor(getColor(R.color.accent))
+            } else {
+                // The static-sounding labels were a fair complaint: a chip that says the same thing in
+                // every state reads as stuck. Name the situation instead - the sources are being asked.
+                binding.provenance.text = "SCHEDULE · sources unreachable"
+                binding.delay.text = "—"
+            }
         }
         if (ui.actualsHeadline != null) {
             binding.headline.text = ui.actualsHeadline

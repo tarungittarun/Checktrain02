@@ -119,10 +119,12 @@ class LiveViewModel(
         val actualsLate: Int? = null,
         /** Which witnesses answered this refresh, for the age line: honesty about sources. */
         val sourcesLine: String? = null,
-        /** Per-witness reader lines; the chips switch which one the table shows. */
+        /** Per-witness reader lines; the dropdown switches which one the table shows. */
         val sourceLines: Map<String, Map<String, String>> = emptyMap(),
-        /** The witness the table is currently showing - the highlighted chip. */
+        /** The witness the table is currently showing - the dropdown's selection. */
         val activeSource: String? = null,
+        /** A witness answered with minutes, but none is an observation yet (no deviation to report). */
+        val actualsSource: String? = null,
     )
 
     private val _ui = MutableLiveData<Ui?>()
@@ -168,6 +170,8 @@ class LiveViewModel(
     private var mirrorBadge: String? = null
     private var mirrorSources: String? = null
     private var mirrorSourceLines: Map<String, Map<String, String>> = emptyMap()
+    /** Per-witness STRUCTURED minutes (code -> act arr/dep) - what the table's Act/Est columns carry. */
+    private var mirrorStops: Map<String, List<RunningStatusMirror.Stop>> = emptyMap()
     private var mirrorActiveSource: String? = null
     private var mirrorRefreshedAt = 0L
     private var cacheTrainNo: String? = null
@@ -175,12 +179,11 @@ class LiveViewModel(
     private fun freshShift(): Boolean =
         cacheTrainNo == trainNo && System.currentTimeMillis() - mirrorShiftAt < 1_800_000
 
-    /** The table's lines follow the selected chip; the merged view is the fallback. */
+    /** The table re-renders from the selected witness: its minutes overlay the Act/Est columns. */
     fun setActiveSource(name: String) {
         mirrorActiveSource = name
-        val lines = mirrorSourceLines[name]
         val u = _ui.value ?: return
-        _ui.postValue(u.copy(activeSource = name, reports = lines ?: u.reports))
+        _ui.postValue(buildUi(u.route, u.answer, u.tried).copy(relayOk = u.relayOk))
     }
 
     /**
@@ -201,6 +204,21 @@ class LiveViewModel(
         if (lines.isEmpty()) return
         cacheTrainNo = trainNo
         mirrorSourceLines = mapOf("last known" to lines)
+        val cachedStops = mutableListOf<RunningStatusMirror.Stop>()
+        val stopArr = obj.optJSONArray("stops")
+        if (stopArr != null) {
+            for (i in 0 until stopArr.length()) {
+                val o = stopArr.optJSONObject(i) ?: continue
+                cachedStops += RunningStatusMirror.Stop(
+                    o.optString("c"),
+                    o.optInt("sa", -1).takeIf { it >= 0 },
+                    o.optInt("sd", -1).takeIf { it >= 0 },
+                    o.optInt("aa", -1).takeIf { it >= 0 },
+                    o.optInt("ad", -1).takeIf { it >= 0 },
+                )
+            }
+        }
+        if (cachedStops.isNotEmpty()) mirrorStops = mapOf("last known" to cachedStops)
         mirrorActiveSource = "last known"
         mirrorAnchorCode = obj.optString("anchor").ifBlank { null }
         mirrorHeadline = obj.optString("headline").ifBlank { null }
@@ -234,6 +252,17 @@ class LiveViewModel(
         val lines = org.json.JSONObject()
         for ((k, v) in display) lines.put(k, v)
         obj.put("lines", lines)
+        val stopsOut = org.json.JSONArray()
+        for (st in mirrorStops[mirrorActiveSource].orEmpty()) {
+            val so = org.json.JSONObject()
+            so.put("c", st.stationCode)
+            st.schArr?.let { so.put("sa", it) }
+            st.schDep?.let { so.put("sd", it) }
+            st.actArr?.let { so.put("aa", it) }
+            st.actDep?.let { so.put("ad", it) }
+            stopsOut.put(so)
+        }
+        if (stopsOut.length() > 0) obj.put("stops", stopsOut)
         raw.put(trainNo, obj)
         val trimmed = org.json.JSONObject()
         // Keep the freshest eight trains: a commuter's week is five, with margin.
@@ -615,6 +644,10 @@ class LiveViewModel(
                 RunningStatusMirror.SOURCE to mirrorLines,
                 ConfirmTktMirror.SOURCE to ck.lines,
             )
+            mirrorStops = linkedMapOf(
+                RunningStatusMirror.SOURCE to actuals.stops,
+                ConfirmTktMirror.SOURCE to ck.stops,
+            )
             mirrorActiveSource = RunningStatusMirror.SOURCE
             cacheTrainNo = trainNo
             saveMirrorCache(display)
@@ -693,7 +726,11 @@ class LiveViewModel(
                     mirrorAnchorCode = anchorCode
                     mirrorHeadline = headline
                     mirrorNext = nextLine
+                    // No deviation to report is not "nothing answered": the witness spoke, the badge
+                    // says so, and the columns carry its minutes (paste #29: answers with the screen
+                    // still reading schedule-only was the defect).
                     mirrorBadge = headline?.let { "ACTUALS · ${RunningStatusMirror.SOURCE}" }
+                        ?: if (mirrorStops.isNotEmpty()) "ACTUALS · ${RunningStatusMirror.SOURCE}" else null
                     _ui.postValue(buildUi(u.route, u.answer, u.tried, emptyList()).copy(reports = display))
                 }
             }
@@ -819,24 +856,36 @@ class LiveViewModel(
                 ?.let { "${model.routeLabel} · $it" }
                 ?: model.routeLabel,
         )
+        // THE OWNER'S COLUMNS, FED: the active witness's structured minutes are written INTO the
+        // rows - Act under Sch - whenever that witness answered, whether or not the erail chain
+        // did. This is the gate paste #28 caught and #29 proved twice more: the mirror answered
+        // while the screen kept saying "schedule only". Erail's refusal no longer buries a
+        // witness that spoke.
+        val overlayStops = if (freshShift()) mirrorStops[mirrorActiveSource].orEmpty() else emptyList()
+        val withActuals = if (overlayStops.isEmpty()) labelled
+            else overlayActuals(labelled, overlayStops, nowRail)
         // Refreshes must not wipe what the witnesses wrote (paste #24 wiped the reader lines, paste #26
         // wiped the actuals headline): everything the mirror said is re-applied from state while fresh.
         val live = freshShift()
+        // No deviation to build a status word from is still not silence: one sentence from the
+        // freshest reported halt keeps the top box in the mirror's voice.
+        val fallback = if (mirrorHeadline == null && overlayStops.isNotEmpty()) mirrorVerdict(withActuals) else null
         return Ui(
-            route = route, answer = answer, model = labelled,
-            boarding = model.rows.firstOrNull { it.isBoarding },
-            alighting = model.rows.firstOrNull { it.isAlighting },
+            route = route, answer = answer, model = withActuals,
+            boarding = withActuals.rows.firstOrNull { it.isBoarding },
+            alighting = withActuals.rows.firstOrNull { it.isAlighting },
             nowRailMinute = nowRail, tried = tried, loading = false,
             reports = mirrorSourceLines[mirrorActiveSource] ?: _ui.value?.reports ?: emptyMap(),
             relayOk = _ui.value?.relayOk ?: true,
             anchorCode = if (live) mirrorAnchorCode else null,
-            actualsHeadline = if (live) mirrorHeadline else null,
+            actualsHeadline = if (live) (mirrorHeadline ?: fallback?.first) else null,
             actualsNext = if (live) mirrorNext else null,
             actualsBadge = if (live) mirrorBadge else null,
-            actualsLate = if (live && mirrorLate > 0) mirrorLate else null,
+            actualsLate = if (live) (mirrorLate.takeIf { it > 0 } ?: fallback?.second) else null,
             sourcesLine = if (live) mirrorSources else null,
             sourceLines = if (live) mirrorSourceLines else emptyMap(),
             activeSource = if (live) mirrorActiveSource else null,
+            actualsSource = if (live && overlayStops.isNotEmpty()) mirrorActiveSource else null,
         )
     }
 
@@ -911,6 +960,71 @@ class LiveViewModel(
             ),
             segments = emptyList(),
         )
+
+        /** One overlaid minute: what to print, its slip vs the DISPLAYED schedule, observed or not. */
+        private data class OverlayCell(val shown: Int, val delay: Int?, val reported: Boolean)
+
+        /**
+         * The witness's minutes, written INTO the table rows (round 45): Act under Sch. A minute that
+         * DEVIATES from the mirror's own schedule is an observation -> Act; one equal to it is the
+         * schedule copied forward (the documented echo, paste #24) -> Est, whatever the clock says.
+         * Under-claiming beats fabricating: an unproven minute never prints as Act. The delay runs
+         * against the schedule the screen shows, because that is the subtraction a traveller does
+         * with their eyes.
+         */
+        internal fun overlayActuals(
+            model: TrackModel.View,
+            stops: List<RunningStatusMirror.Stop>,
+            nowRail: Int,
+        ): TrackModel.View {
+            val byCode = HashMap<String, RunningStatusMirror.Stop>()
+            for (st in stops) byCode[st.stationCode.uppercase()] = st
+            val nowOfDay = ((nowRail % 1440) + 1440) % 1440
+            val rows = model.rows.map { r ->
+                val m = byCode[r.code.uppercase()] ?: return@map r
+                fun cell(act: Int?, sched: Int?, mirSch: Int?): OverlayCell? {
+                    val shown = RailTime.alignClock(act, sched) ?: return null
+                    val deviates = mirSch != null && shown != ((mirSch % 1440) + 1440) % 1440
+                    val ahead = (shown - nowOfDay + 1440) % 1440
+                    val reported = deviates && ahead !in 0..29
+                    val delay = sched?.let { (((shown - it + 720) % 1440) + 1440) % 1440 - 720 }
+                    return OverlayCell(shown, delay, reported)
+                }
+                val arr = cell(m.actArr, r.schedArr, m.schArr)
+                val dep = cell(m.actDep, r.schedDep, m.schDep)
+                if (arr == null && dep == null) return@map r
+                val reported = arr?.reported == true || dep?.reported == true
+                r.copy(
+                    showArr = arr?.shown,
+                    showDep = dep?.shown,
+                    delay = (dep ?: arr)?.delay,
+                    source = if (reported) TrackModel.MinuteSource.REPORTED
+                    else TrackModel.MinuteSource.PROJECTED,
+                )
+            }
+            return model.copy(rows = rows)
+        }
+
+        /**
+         * The top box's sentence when the mirror answered but nothing deviated yet: the freshest
+         * REPORTED halt, its minute, and its slip against the displayed timetable. Null when no row
+         * carries an observed minute - the screen then says plainly that no halt is reported yet.
+         */
+        internal fun mirrorVerdict(model: TrackModel.View): Pair<String, Int>? {
+            val last = model.rows.lastOrNull { it.source == TrackModel.MinuteSource.REPORTED }
+                ?: return null
+            val shown = last.showDep ?: last.showArr ?: return null
+            val sched = last.schedDep ?: last.schedArr ?: return null
+            val d = (((shown - sched + 720) % 1440) + 1440) % 1440 - 720
+            val m = ((shown % 1440) + 1440) % 1440
+            val hm = "${m / 60}:" + "%02d".format(m % 60)
+            val word = when {
+                d > 2 -> "$d min late"
+                d < -2 -> "${-d} min early"
+                else -> "on time"
+            }
+            return "Running — last reported ${last.code} at $hm — $word (vs this timetable)" to d
+        }
 
         /** The sentence under the dead-end's replacement: what we know, and exactly what we do not. */
         internal fun fallbackNote(live: ErailLiveIdentity, searchedFrom: String, searchedTo: String): String {
