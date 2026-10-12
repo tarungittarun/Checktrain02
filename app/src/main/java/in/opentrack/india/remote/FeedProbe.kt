@@ -49,6 +49,8 @@ object FeedProbe {
         val browser: Boolean = false,
         /** A page to visit first, so the engine holds the site's own cookies when the API is asked. */
         val warm: String = "",
+        /** Offer the legacy static-RSA suites indianrail.gov.in is documented to require. */
+        val legacyTls: Boolean = false,
     )
 
     data class Result(val name: String, val outcome: String, val head: String, val millis: Long)
@@ -61,11 +63,11 @@ object FeedProbe {
     // A cold web view is not a socket write: the engine answered in ~1.1 s of its own on a device, and a
     // 5 s cap turned a page load plus a request into a timeout. Generous, because it runs after a failure.
     private const val BROWSER_TIMEOUT = 8_000
-    private const val MAX_TRIES = 12  // every variant, controls included - a probe that ran out of tries
+    private const val MAX_TRIES = 15  // every variant, controls included - a probe that ran out of tries
                                     // before its own control host is a probe that proves nothing
-    private const val TOTAL_BUDGET = 152_000 // four settled page reads lead (rstrain text ~13 s,
+    private const val TOTAL_BUDGET = 195_000 // four settled page reads lead (rstrain text ~13 s,
     // desktop ~10 s, rstrain dom ~10 s, the human-sequence read 20 s + taps + 15 s, 48 s cap) plus
-    // the researched gateway POSTs; the rest still skip with reported lines
+    // the researched gateway POSTs and two mirror reads; the rest skip with reported lines
 
     @Volatile
     private var last: List<Result> = emptyList()
@@ -192,7 +194,7 @@ object FeedProbe {
             } else {
                 http.post(
                     rebuilt.url, rebuilt.body, rebuilt.headers, PER_TRY_TIMEOUT, 0, rebuilt.tls12, rebuilt.pin4,
-                    PER_TRY_TIMEOUT + 1_500,
+                    PER_TRY_TIMEOUT + 1_500, legacyCiphers = rebuilt.legacyTls,
                 )
             }
         } catch (e: Throwable) {
@@ -429,6 +431,16 @@ object FeedProbe {
                 "the shape this build ships - the control that is not the thing under test",
             ),
             Variant(
+                "post-appservand-legacytls", NtesWire.BASE_URL, envelope, dalvik, false,
+                "the SAME correct shape - our endpoint, AES key and jsonIn envelope already match the " +
+                    "working open-source client (x64vbhv/ntes-client, read today; the researched plain " +
+                    "queryType-6 body was never the protocol) - with the legacy static-RSA TLS suites " +
+                    "explicitly OFFERED: that client documents this server refusing all else. Answered " +
+                    "= cipher defaults were the wall; identical 'closed' = the local filter's hop, " +
+                    "and the paste proves it",
+                false, false, "", true,
+            ),
+            Variant(
                 "webview-post", NtesWire.BASE_URL, envelope,
                 mapOf("Content-Type" to "application/json", "charset" to "utf-8"), false,
                 "the shipped request sent from the railway's own origin with its content type declared: the " +
@@ -552,6 +564,24 @@ object FeedProbe {
                 "the same pin on a host we know answers, which is what proves the pinned route itself works " +
                     "rather than merely failing differently",
                 true,
+            ),
+            Variant(
+                "webview-confirmtkt",
+                "https://www.confirmtkt.com/train-running-status/$trainNo",
+                null, emptyMap(), false,
+                "the researched MIRROR class - trackers whose own whitelisted servers query the central " +
+                    "cluster and render the answer as plain HTML (owner's research, third piece): read " +
+                    "settled like our erail reads and scanned for time tokens; selectors unverified, " +
+                    "but the method is ours - the page carries times or its own navigation says so",
+                false, true,
+            ),
+            Variant(
+                "webview-railmitra",
+                "https://www.railmitra.com/live-running-status/$trainNo",
+                null, emptyMap(), false,
+                "the second researched mirror; the research gave selectors, not URLs, so the path is " +
+                    "a labelled guess - a miss renders their navigation and no bytes masquerade as data",
+                false, true,
             ),
         )
     }

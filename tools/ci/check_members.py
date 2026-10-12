@@ -95,6 +95,8 @@ getOrPut getOrElse onFailure onSuccess awaitCancellable current isDisposed dispo
 # the live-feed client: javax.crypto, java.security, org.json and the stdlib calls on their results
 init doFinal indices optJSONObject opt optString has keys getJSONArray encodeToString decode nextBytes lines
 setPrimaryClip
+# legacy-cipher factory (2026-10-12): SSLSocket suite lists and the delegate pattern
+enabledCipherSuites supportedCipherSuites defaultCipherSuites createSocket getOrDefault
 isNullOrBlank containsKey isNullOrEmpty takeWhile toLongOrNull substringAfter asSequence toList filter
 createConfigurationContext density getLineWidth setTextSize requestRectangleOnScreen idleFor application
 addView await childCount contentEncoding countDown disconnect filterIndexed getInt getLastKnownLocation getSystemService hasAccuracy hasSpeed ifEmpty isProviderEnabled lastModified matchEntire maxOrNull minOrNull putIfAbsent rawQuery removeUpdates requestFocus requestLocationUpdates right setOnClickListener setOnEditorActionListener setOnFocusChangeListener setSelection sortedWith subList toByteArray toDouble toDoubleOrNull toLong trimEnd windowToken

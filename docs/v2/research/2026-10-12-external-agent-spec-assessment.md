@@ -109,3 +109,39 @@ second door closed by this device in one day.
 The per-stop-actuals doors that remain: travellers (ADR-006 — shipped: reporter, reader lines,
 loopback) and nothing else within the keyless constraints. The honest screen says exactly this
 per state; it will not fabricate what no reachable source reports.
+
+---
+
+## Addendum 3 (evening): the owner's third research piece — CHECKED, with receipts
+
+The owner asked directly: "Are you still there. Have checked these?" Checked, piece by piece:
+
+1. **"64kbytelabs/ntes-client"** — the repository DOES NOT EXIST (`git clone` → not found). The
+   research output hallucinated the install URL. BUT GitHub code search found the real client it
+   garbled: **x64vbhv/ntes-client** — cloned and read in full. What the REAL code proves:
+   - `AppServAnd` is the true endpoint — but the protocol is an **ENCRYPTED** `{"jsonIn": …}`
+     body (AES-128-CBC, key `8EA4DB2CC1EB3DC5`, MD5(plain+secret) framing). The earlier
+     research's plain `queryType-6` JSON was never the protocol; its instant "closed" verdict
+     stands, and for the right reason now.
+   - **Our shipped shape already matched the working client exactly** — same endpoint, same key,
+     same envelope (NtesWire). The ONE thing it names that we never tried: the server accepts
+     only **legacy static-RSA TLS suites** modern stacks drop ("SSLV3_ALERT_HANDSHAKE_FAILURE
+     unless the cipher list is widened"). SHIPPED this round as `post-appservand-legacytls` —
+     the same correct bytes with the legacy suites added to the OFFER (trust untouched). This
+     variant discriminates the last two candidate causes of every "closed": stack defaults vs
+     the owner's local filter hop.
+   - The library itself (Python, server-side) stays rejected: the datacenter vantage is
+     measured dead six ways; its knowledge, however, is now in our phone probe.
+
+2. **"Enterprise mirrors" (RailMitra / ConfirmTkt / eRail-tracker pages)** — the class is
+   legitimate (third-party sites whose whitelisted servers render the central cluster's data as
+   plain HTML), the specific selectors are chat-output unverifiable. Shipped as two settled
+   page-read variants with the time-token scan: `webview-confirmtkt` (real URL pattern) and
+   `webview-railmitra` (path honestly labelled a guess). Same method as erail: read, scan,
+   verdict in the paste.
+
+3. **"Hybrid in-app crowdsourcing" (the WIMT architecture)** — already built and shipped today
+   (reporter, reader lines, keyless relay, loopback, reader on by default). The one piece we
+   have not built is its "Cell Tower Check-Ins" auto-detection: needs location/telephony
+   permissions and a station→cell-ID database; the manual stop-tap reporter achieves the same
+   data with zero permissions. Designed as a later enhancement, not a blocker.

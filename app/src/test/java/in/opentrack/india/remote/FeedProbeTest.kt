@@ -52,6 +52,13 @@ class FeedProbeTest {
         assertEquals("the same gateway through the browser engine (the transport axis that separates " +
             "this phone's two stacks)", "webview-appservand", vs[10].name)
         assertEquals("the shipped shape follows as the control", "post-dalvik-json", vs[11].name)
+        assertEquals("the legacy-cipher ask: the SAME correct shape with static-RSA suites offered - the " +
+            "working OSS client widens for exactly this reason", "post-appservand-legacytls", vs[12].name)
+        assertEquals("the researched mirror class first: ConfirmTkt's own whitelisted servers render the " +
+            "cluster's data as HTML", "webview-confirmtkt", vs[13].name)
+        assertEquals("the second mirror, its path honestly labelled a guess", "webview-railmitra", vs[14].name)
+        assertTrue("the ladder cannot outgrow the run budget",
+            vs.size <= FeedProbe.MAX_TRIES)
         for (v in vs) {
             assertTrue("${v.name} must not send data in the clear", v.url.startsWith("https://"))
             assertTrue("${v.name} needs an explanation for the report", v.note.length > 8)

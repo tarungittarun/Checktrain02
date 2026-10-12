@@ -145,6 +145,9 @@ class Http(context: Context) {
         tls12: Boolean = false,
         pinIpv4: Boolean = false,
         budgetMillis: Int = 0,
+        /** Offer the legacy static-RSA suites indianrail.gov.in is documented (by a working open-source
+            client) to REQUIRE and modern defaults to drop. Trust unchanged - only what we OFFER widens. */
+        legacyCiphers: Boolean = false,
     ): Result {
         var attempt = 0
         var last: Result = Result.Failed(Result.Kind.EMPTY, "not attempted")
@@ -159,7 +162,7 @@ class Http(context: Context) {
                 left = if (timeoutMillis < MIN_ATTEMPT_MS) timeoutMillis else MIN_ATTEMPT_MS
             }
             attempt++
-            last = tryPost(url, body, headers, left, tls12, pinIpv4)
+            last = tryPost(url, body, headers, left, tls12, pinIpv4, legacyCiphers)
             Diary.get()?.log("HTTP") {
                 "POST " + hostOf(url) + " try#" + attempt + (if (tls12) " tls1.2" else "") +
                     (if (pinIpv4) " pinned-v4" else "") + " body=" + body.length + "B -> " + verdict(last)
@@ -170,7 +173,7 @@ class Http(context: Context) {
         }
         if (resolverBlip(last) && clampTimeout(deadline, timeoutMillis) > 0) {
             sleep(600L)
-            val again = tryPost(url, body, headers, clampTimeout(deadline, timeoutMillis), tls12)
+            val again = tryPost(url, body, headers, clampTimeout(deadline, timeoutMillis), tls12, pinIpv4, legacyCiphers)
             Diary.get()?.log("HTTP", "POST " + hostOf(url) + " after a resolver blip -> " + verdict(again))
             if (again is Result.Ok) return again
             last = again
@@ -178,7 +181,7 @@ class Http(context: Context) {
         if (last is Result.Failed && !pinIpv4 && last.kind != Result.Kind.OFFLINE &&
             clampTimeout(deadline, timeoutMillis) > 0
         ) {
-            val pinned = tryPost(url, body, headers, clampTimeout(deadline, timeoutMillis), tls12, true)
+            val pinned = tryPost(url, body, headers, clampTimeout(deadline, timeoutMillis), tls12, true, legacyCiphers)
             Diary.get()?.log("HTTP") {
                 "POST " + hostOf(url) + " pinned-v4 retry -> " + verdict(pinned)
             }
@@ -253,6 +256,7 @@ class Http(context: Context) {
         timeoutMillis: Int,
         tls12: Boolean = false,
         pin4: Boolean = false,
+        legacyCiphers: Boolean = false,
     ): Result = serial {
         var conn: HttpURLConnection? = null
         var bodyRead = false
@@ -266,7 +270,9 @@ class Http(context: Context) {
                 setRequestProperty("Accept-Encoding", "gzip")
                 setRequestProperty("Connection", "close")
                 for ((k, v) in headers) setRequestProperty(k, v)
-                if (tls12 && this is HttpsURLConnection) this.sslSocketFactory = tls12Factory()
+                if ((tls12 || legacyCiphers) && this is HttpsURLConnection) {
+                    this.sslSocketFactory = if (legacyCiphers) legacyCipherFactory() else tls12Factory()
+                }
             }
             conn.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
             val code = conn.responseCode
@@ -310,6 +316,56 @@ class Http(context: Context) {
         javax.net.ssl.SSLContext.getInstance("TLSv1.2").apply {
             init(null, null, null)
         }.socketFactory
+
+    /**
+     * The default trust anchors, with the legacy static-RSA suites ADDED to whatever the platform
+     * already offers. The working open-source NTES client (x64vbhv/ntes-client, read 2026-10-12)
+     * documents this exact server refusing everything else - "SSLV3_ALERT_HANDSHAKE_FAILURE unless
+     * the cipher list is widened". Only suites the socket SUPPORTS are requested; nothing is
+     * disabled, no trust decision is touched.
+     */
+    private fun legacyCipherFactory(): javax.net.ssl.SSLSocketFactory {
+        val base = javax.net.ssl.HttpsURLConnection.getDefaultSSLSocketFactory()
+        return object : javax.net.ssl.SSLSocketFactory() {
+            private fun prep(s: java.net.Socket): java.net.Socket = runCatching {
+                (s as? javax.net.ssl.SSLSocket)?.let { sock ->
+                    val wanted = arrayOf(
+                        "TLS_RSA_WITH_AES_128_GCM_SHA256",
+                        "TLS_RSA_WITH_AES_256_GCM_SHA384",
+                        "TLS_RSA_WITH_AES_128_CBC_SHA",
+                        "TLS_RSA_WITH_AES_256_CBC_SHA",
+                    )
+                    sock.enabledCipherSuites =
+                        (sock.enabledCipherSuites + wanted.filter { it in sock.supportedCipherSuites })
+                            .distinct().toTypedArray()
+                }
+                s
+            }.getOrDefault(s)
+
+            override fun getDefaultCipherSuites(): Array<String> = base.defaultCipherSuites
+
+            override fun getSupportedCipherSuites(): Array<String> = base.supportedCipherSuites
+
+            override fun createSocket(
+                s: java.net.Socket?, host: String?, port: Int, autoClose: Boolean,
+            ): java.net.Socket = prep(base.createSocket(s, host, port, autoClose))
+
+            override fun createSocket(host: String?, port: Int): java.net.Socket =
+                prep(base.createSocket(host, port))
+
+            override fun createSocket(
+                host: String?, port: Int, localHost: java.net.InetAddress?, localPort: Int,
+            ): java.net.Socket = prep(base.createSocket(host, port, localHost, localPort))
+
+            override fun createSocket(host: java.net.InetAddress?, port: Int): java.net.Socket =
+                prep(base.createSocket(host, port))
+
+            override fun createSocket(
+                address: java.net.InetAddress?, port: Int,
+                localAddress: java.net.InetAddress?, localPort: Int,
+            ): java.net.Socket = prep(base.createSocket(address, port, localAddress, localPort))
+        }
+    }
 
     /**
      * One line per attempt: host and verdict. The query string is left out deliberately - a query is where a
