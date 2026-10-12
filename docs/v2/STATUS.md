@@ -311,5 +311,5 @@ Latest-apk: the owner-installed build (21:26 UTC, 10,667,232 B) already carries 
 
 
 
-Latest-apk: 10,721,463 B @ 2026-10-12T09:36:32Z (be0f6f9, Round 24: frontend self-capture [UISTATE element lines + UiShot on-device PNGs] + probe v10 DOM read with time-token scan; android SUCCESS, 221 tests, run 38230614389)
+Latest-apk: 10,721,463 B @ 2026-10-12T09:36:32Z (be0f6f9, Round 24: frontend self-capture [UISTATE element lines + UiShot on-device PNGs] + probe v10 DOM read with time-token scan; android SUCCESS, 220 tests, run 38230614389)
 
