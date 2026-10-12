@@ -307,9 +307,9 @@ Honest ledger: live pair list ✓, identity correction ✓, honest labelling ✓
 
 
 
-Latest-apk: 10,712,003 B @ 2026-10-12T08:54:55Z (cc92234, Round 23: renumber dedupe + loading states + endpoint-screen copy + probe v9 settled read; android SUCCESS, 216 tests, run 38226251945)
+Latest-apk: the owner-installed build (21:26 UTC, 10,667,232 B) already carries M2 slice 1 (live pair list, row labels). The details screen still renders the OFFLINE copy's route — T20.2's parser is its correction path.
 
 
 
-Latest-apk: 10,712,003 B @ 2026-10-12T08:54:55Z (cc92234, Round 23: renumber dedupe + loading states + endpoint-screen copy + probe v9 settled read; android SUCCESS, 216 tests, run 38226251945)
+Latest-apk: 10,721,463 B @ 2026-10-12T09:36:32Z (be0f6f9, Round 24: frontend self-capture [UISTATE element lines + UiShot on-device PNGs] + probe v10 DOM read with time-token scan; android SUCCESS, 221 tests, run 38230614389)
 
