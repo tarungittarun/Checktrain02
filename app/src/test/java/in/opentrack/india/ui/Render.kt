@@ -245,12 +245,6 @@ object Render {
             v.visibility = if (note == null && m.note == null) View.GONE else View.VISIBLE
             (note ?: m.note)?.let { (v as TextView).text = it }
         }
-        root.findViewById<JourneyProgressView>(R.id.progressBar)?.apply {
-            pct = m.progressPct
-            schedulePct = m.schedulePct
-            live = m.isLive
-        }
-        root.findViewById<TrackInsightView>(R.id.chart)?.setJourney(m, pos, now, 0 until m.rows.size)
         root.findViewById<RecyclerView>(R.id.stops)?.apply {
             layoutManager = LinearLayoutManager(context)
             adapter = StopAdapter().apply { submitList(m.rows) }
