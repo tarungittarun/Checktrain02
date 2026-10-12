@@ -172,3 +172,34 @@ The owner re-sent the two source URLs themselves; both were fetched directly (20
    - "Accept Self Signed Certificate" (2 findings): app-internal pinning hygiene; nothing
      usable by a keyless client, and deliberately not imitated.
    - The rest (SQL, logs, trackers, firebaseio) is app-internal surface, irrelevant to us.
+
+## Addendum 5 — THE MIRROR ANSWER: actual arrival/departure minutes exist, keyless, server-rendered (fetched 2026-10-12 ~18:05 IST)
+
+The owner's priority restated ("Peak priority is ACTUAL DEPARTURE AND ARRIVAL times. Get it from
+anywhere, but bring") forced the question the probe ladder had left implicit: which public page
+serves PER-STOP ACTUAL minutes in plain fetchable HTML? Answer, verified by direct fetch of both
+pages minutes ago (fetch_page, not a screenshot):
+
+1. **runningstatus.in/status/20651 — THE SOURCE.** Server-rendered table, per halt:
+   `Sch. Arr/Dep | Actual Arr/Dep | Delay`. For the LIVE run of 12 Oct (train mid-run, departed
+   Ballekere Halt 18:00): YPR actual 15:22/15:24 (12 min), TK 16:20/16:22 (20), TTR 17:11/17:13
+   (23), ASK 17:33/17:39 (20/24); future halts "Update Awaited" or RT repeats of the schedule;
+   "Updated just now". Station codes in parens ((SBC)…(TLGP)) = stable parse anchors; a 12-hour
+   clock; near-station row carries a 24-hour time and no code — cannot contaminate a block.
+2. **confirmtkt.com/train-running-status/20651 — usable but blended.** One time column that mixes
+   actuals (passed) and estimates (ahead) with "Delay by N min", station NAMES not codes
+   (Tumakuru vs our Tumkur) — kept as the existing reachability probe only, not parsed this round.
+3. **Adoption:** runningstatus.in is now a real DATA PATH (v2/mirror/RunningStatusMirror), parser
+   written against a capture of the page taken today, tested on that capture; the app fetches it
+   only when no live data reached the device, and every on-screen line names the source
+   ("via runningstatus.in (24 min late)") — the labelled-second-witness rule generalized.
+4. **Schedule-vintage discrepancy the mirror exposed (open, not blocking):** our offline/erail tail
+   says 20651 reaches TLGP ~19:40; the mirror says scheduled 21:45 and ConfirmTkt 22:05. SMET
+   agrees (~19:05–19:10). The tail halts' scheduled minutes on the device may be a stale vintage —
+   worth one look when the mirror answers on the owner's phone.
+5. **Paste #16 (owner, 17:56–17:59 IST) — VERIFIED LATEST build** (installed=1791807989299 =
+   12:26:29Z = 17:56:29 IST, five minutes after the 17:51 publish; first paste ever from the
+   current build). Its tail was TRUNCATED mid-line at 17:59:30 — the probe window vs[6..15]
+   (confirmtkt, railmitra, get-crisapis-gateway, post-appservand-legacytls) RAN AFTER the cut, so
+   the discriminator's answer exists on the device but was never pasted. Diary line for line 6 of
+   the window onward is the single most valuable missing artifact; the app's copy gave out first.

@@ -19,6 +19,7 @@ import `in`.opentrack.india.v2.contract.TrainIdentity
 import `in`.opentrack.india.v2.crowd.CrowdMerger
 import `in`.opentrack.india.v2.crowd.NtfyRelay
 import `in`.opentrack.india.v2.crowd.StopReport
+import `in`.opentrack.india.v2.mirror.RunningStatusMirror
 import `in`.opentrack.india.v2.source.ErailPairParser
 import `in`.opentrack.india.v2.source.ErailTransport
 import `in`.opentrack.india.v2.source.PairParse
@@ -130,6 +131,9 @@ class LiveViewModel(
 
     @Volatile
     private var lastCrowdPoll = 0L
+
+    /** The mirror's own throttle - independent of the relay's, so one slow witness cannot starve the other. */
+    private var lastMirrorPoll = 0L
 
     private var pollJob: Job? = null
     private var lastAnswer: PositionEngine.Answer? = null
@@ -253,6 +257,7 @@ class LiveViewModel(
                     )
                     _error.value = null
                     maybeCrowd()
+                    maybeMirror()
                     return
                 }
                 // The train the list advertised may exist ONLY in the live source (the offline copy
@@ -274,12 +279,14 @@ class LiveViewModel(
                 _ui.value = buildUi(route, answer, emptyList(), listOf(fallbackNote(id, fromCode, toCode)))
                 _error.value = null
                 maybeCrowd()
+                maybeMirror()
                 return
             }
             lastAnswer = live.answer
             _ui.value = buildUi(live.route, live.answer, live.tried, live.notes)
             _error.value = null
             maybeCrowd()
+            maybeMirror()
         }
     }
 
@@ -317,6 +324,46 @@ class LiveViewModel(
                 "read ${poll.reports.size} report(s) on ct-$trainNo; ${lines.size} stop(s) with fresh " +
                     "actuals, ${merged.droppedStale} dropped stale; relay " +
                     (if (poll.relayOk) "answered" else "unreachable")
+            }
+        }
+    }
+
+    /**
+     * The mirror witness: while the officials refuse this device, runningstatus.in server-renders the
+     * actual arrival/departure of today's run for every halt it knows about - the exact minutes this
+     * product exists for (the owner's priority, verbatim: "get actual arrival and departure time").
+     * It runs only when NO live data reached the device (a live answer outranks a mirror), it is
+     * throttled like the relay, and its lines carry its own name - a second witness is labelled, never
+     * blended into the official columns. A traveller report wins its stop; the mirror fills the rest.
+     */
+    private fun maybeMirror(force: Boolean = false) {
+        if (_ui.value?.answer?.position?.provenance?.live == true) return
+        val nowWall = System.currentTimeMillis()
+        if (!force && nowWall - lastMirrorPoll < CROWD_POLL_MIN_MILLIS) return
+        lastMirrorPoll = nowWall
+        viewModelScope.launch {
+            val codes = _ui.value?.route?.stops?.map { it.code } ?: return@launch
+            val got = withContext(Dispatchers.IO) { RunningStatusMirror.fetchOrWhy(trainNo) }
+            val actuals = got.actuals
+            if (actuals == null) {
+                Diary.get()?.log("MIRROR") {
+                    "${RunningStatusMirror.SOURCE} did not answer for $trainNo: ${got.why}"
+                }
+                return@launch
+            }
+            val mirrorLines = RunningStatusMirror.sentences(actuals, codes)
+            if (mirrorLines.isEmpty()) {
+                Diary.get()?.log("MIRROR") {
+                    "${RunningStatusMirror.SOURCE} answered for $trainNo but carries no actual minutes yet"
+                }
+                return@launch
+            }
+            val crowd = _ui.value?.reports ?: emptyMap()
+            val merged = crowd.filterKeys { it !in mirrorLines } + mirrorLines
+            _ui.postValue(_ui.value?.copy(reports = merged))
+            Diary.get()?.log("MIRROR") {
+                "${RunningStatusMirror.SOURCE} answered: ${mirrorLines.size} stop(s) with actual " +
+                    "arr/dep for $trainNo"
             }
         }
     }
@@ -359,8 +406,19 @@ class LiveViewModel(
                 _reportStatus.postValue("loopback FAILED at publish: $why")
                 return@launch
             }
-            delay(1_500)
-            val back = withContext(Dispatchers.IO) { relay.pollRecentOrFailure("test-$nonce") }
+            // ntfy.sh serves from a load-balanced cluster: the publish lands on one node and the
+            // read-back can hit another before the caches sync - a single 1.5 s read failed THREE
+            // times on the owner's phone (paste #16) with relayOk=true. The retry window is the fix:
+            // same topic, same test minute, a few patient reads - never a second publish.
+            var back = withContext(Dispatchers.IO) { relay.pollRecentOrFailure("test-$nonce") }
+            var attempt = 1
+            while (attempt < 4 &&
+                !(back.relayOk && back.reports.any { it.stationCode == "TEST" && it.railMinute == rep.railMinute })
+            ) {
+                delay(attempt * 2_500L)
+                attempt++
+                back = withContext(Dispatchers.IO) { relay.pollRecentOrFailure("test-$nonce") }
+            }
             val msg = if (back.relayOk && back.reports.any { it.stationCode == "TEST" && it.railMinute == rep.railMinute }) {
                 "loopback OK: published and read back on ct-test-$nonce — the report pipe works on this device"
             } else {
