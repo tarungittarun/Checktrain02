@@ -13,6 +13,7 @@ import `in`.opentrack.india.domain.PositionEngine
 import `in`.opentrack.india.domain.Suggestion
 import `in`.opentrack.india.domain.TrackModel
 import `in`.opentrack.india.model.StopRow
+import `in`.opentrack.india.model.TrainPosition
 import `in`.opentrack.india.model.TrainRoute
 import `in`.opentrack.india.v2.contract.TrainIdentity
 import `in`.opentrack.india.v2.source.ErailPairParser
@@ -199,7 +200,7 @@ class LiveViewModel(
         }
     }
 
-    private suspend fun refreshBody(previous: PositionEngine.TrainPosition?) {
+    private suspend fun refreshBody(previous: TrainPosition?) {
         run {
             val repo = repo() ?: run {
                 _error.value = "Timetable is not installed on this device yet."

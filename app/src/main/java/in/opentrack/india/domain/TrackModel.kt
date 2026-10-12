@@ -331,8 +331,8 @@ object TrackModel {
         if (route.totalKm == 0) {
             val first = route.stops.firstOrNull()
             val last = route.stops.lastOrNull()
-            val dep = first?.departureMin?.let { RailTime.formatClock(it) } ?: "—"
-            val arr = last?.arrivalMin?.let { RailTime.formatClock(it) } ?: "—"
+            val dep = first?.departureMin?.let { RailTime.formatRailMinute(it) } ?: "—"
+            val arr = last?.arrivalMin?.let { RailTime.formatRailMinute(it) } ?: "—"
             return "Endpoints only: leaves ${TitleCase.of(first?.name ?: route.srcName)} $dep, reaches " +
                 "${TitleCase.of(route.dstName)} $arr — this device has no halts for this train"
         }
