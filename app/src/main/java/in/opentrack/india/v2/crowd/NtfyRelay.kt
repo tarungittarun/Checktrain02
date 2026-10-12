@@ -40,10 +40,13 @@ class NtfyRelay(
     fun pollRecentOrFailure(trainNo: String): Poll {
         val wire = fetch("$base/ct-$trainNo/json?poll=1&since=30m", "GET", null)
         if (wire !is Wire.Ok) return Poll(emptyList(), relayOk = false)
-        return Poll(parseMessageLines(wire.body), relayOk = true)
+        // rawBody rides along so a caller can verify a publish PARSE-INDEPENDENTLY (a published id is
+        // either in the poll's bytes or it is not): paste #19 proved publish-OK + read-zero twice, and
+        // without the raw bytes nobody can tell a parser bug from a relay that never returns the message.
+        return Poll(parseMessageLines(wire.body), relayOk = true, rawBody = wire.body.take(4000))
     }
 
-    data class Poll(val reports: List<StopReport>, val relayOk: Boolean)
+    data class Poll(val reports: List<StopReport>, val relayOk: Boolean, val rawBody: String = "")
 
     private fun parseMessageLines(body: String): List<StopReport> = body.lines()
         .filter { it.contains("\"event\":\"message\"") }

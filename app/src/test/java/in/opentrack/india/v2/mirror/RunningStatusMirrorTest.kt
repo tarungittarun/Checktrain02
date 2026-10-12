@@ -156,10 +156,13 @@ class RunningStatusMirrorTest {
 
     @Test
     fun `the wire reports its reason when the mirror does not answer`() {
-        val dead = RunningStatusMirror.fetchOrWhy("20651") { null }
+        val dead = RunningStatusMirror.fetchOrWhy("20651") { null to "HTTP 403" }
         assertNull(dead.actuals)
-        assertEquals("no answer", dead.why)
-        val junk = RunningStatusMirror.fetchOrWhy("20651") { "<html>no halt rows here</html>" }
+        assertEquals("HTTP 403", dead.why)
+        val silent = RunningStatusMirror.fetchOrWhy("20651") { null to "" }
+        assertNull(silent.actuals)
+        assertEquals("no answer", silent.why)
+        val junk = RunningStatusMirror.fetchOrWhy("20651") { "<html>no halt rows here</html>" to "ok" }
         assertNull(junk.actuals)
         assertEquals("answered but no halt rows parsed", junk.why)
     }

@@ -36,9 +36,14 @@ object RunningStatusMirror {
     /** The actuals, or the honest reason there are none - a silent null helps nobody debug. */
     data class Fetched(val actuals: Actuals?, val why: String)
 
-    /** The wire the phone uses: one plain GET, capped, no key, no session. Tests inject canned wires. */
-    fun fetchOrWhy(trainNo: String, get: (String) -> String? = ::plainGet): Fetched {
-        val body = get(BASE + trainNo) ?: return Fetched(null, "no answer")
+    /**
+     * The wire the phone uses: one plain GET, capped, no key, no session. The pair is (body, why) -
+     * paste #19 showed DNS+TCP+TLS all healthy and the GET still "no answer", which is exactly the
+     * gap a bare null leaves: the next paste must name the status or the exception, not the silence.
+     */
+    fun fetchOrWhy(trainNo: String, get: (String) -> Pair<String?, String> = ::plainGet): Fetched {
+        val (body, why) = get(BASE + trainNo)
+        if (body == null) return Fetched(null, why.ifBlank { "no answer" })
         val actuals = parse(stripTags(body)) ?: return Fetched(null, "answered but no halt rows parsed")
         return Fetched(actuals, "ok")
     }
@@ -131,19 +136,20 @@ object RunningStatusMirror {
         }
     }
 
-    /** The production wire: one GET, 8 s patience, a naming UA, nothing remembered. */
-    fun plainGet(url: String): String? = try {
+    /** The production wire: one GET, 8 s patience, a naming UA, nothing remembered. (body, why). */
+    fun plainGet(url: String): Pair<String?, String> = try {
         val conn = (java.net.URL(url).openConnection() as java.net.HttpURLConnection).apply {
             connectTimeout = 8_000
             readTimeout = 8_000
             setRequestProperty("User-Agent", "OpenTrackIndia/1.0 (live running status)")
         }
-        if (conn.responseCode in 200..299) {
-            conn.inputStream.use { it.readBytes().toString(Charsets.UTF_8) }.take(400_000)
+        val code = conn.responseCode
+        if (code in 200..299) {
+            Pair(conn.inputStream.use { it.readBytes().toString(Charsets.UTF_8) }.take(400_000), "ok")
         } else {
-            null
+            Pair(null, "HTTP $code")
         }
     } catch (e: Exception) {
-        null
+        Pair(null, e.javaClass.simpleName + ": " + (e.message ?: ""))
     }
 }

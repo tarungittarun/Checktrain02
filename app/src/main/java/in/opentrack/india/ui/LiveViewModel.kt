@@ -363,7 +363,9 @@ class LiveViewModel(
                 actuals = (page as? Http.Result.Ok)
                     ?.let { RunningStatusMirror.parse(RunningStatusMirror.stripTags(it.body)) }
                 if (actuals == null) {
-                    val why = (page as? Http.Result.Failed)?.message ?: "no halt rows in the rendered page"
+                    val peek = (page as? Http.Result.Ok)?.body?.replace('\n', ' ')?.take(150)
+                    val why = (page as? Http.Result.Failed)?.message
+                        ?: ("no halt rows in the rendered page" + (peek?.let { "; the page began: \"$it\"" } ?: ""))
                     Diary.get()?.log("MIRROR") {
                         "${RunningStatusMirror.SOURCE} browser lane also failed: $why"
                     }
@@ -439,10 +441,23 @@ class LiveViewModel(
                 attempt++
                 back = withContext(Dispatchers.IO) { relay.pollRecentOrFailure("test-$nonce") }
             }
-            val msg = if (back.relayOk && back.reports.any { it.stationCode == "TEST" && it.railMinute == rep.railMinute }) {
-                "loopback OK: published and read back on ct-test-$nonce — the report pipe works on this device"
-            } else {
-                "loopback FAILED at read-back (relayOk=${back.relayOk}, ${back.reports.size} report(s) seen)"
+            // Three verdicts, not one: PARSED (the pipe and the parser both work), IN-THE-BYTES (the
+            // relay returned the message but our parser could not read it - parser guilty, and the raw
+            // line is captured below), or NEVER-RETURNED (the relay accepted the publish and never
+            // serves it back - relay guilty). Paste #19 made both failure shapes plausible.
+            val id = (pub as NtfyRelay.Wire.Ok).body.substringAfter("\"id\":\"", "").substringBefore('"')
+            val parsedMatch = back.reports.any { it.stationCode == "TEST" && it.railMinute == rep.railMinute }
+            val rawHit = id.isNotEmpty() && back.rawBody.contains(id)
+            val msg = when {
+                parsedMatch ->
+                    "loopback OK: published and read back on ct-test-$nonce — the report pipe works on this device"
+                rawHit -> {
+                    val rawLine = back.rawBody.lineSequence().firstOrNull { it.contains(id) }?.take(600) ?: ""
+                    Diary.get()?.log("CROWD") { "loopback raw line: $rawLine" }
+                    "loopback: the relay DID return the message ($id) but it did not parse - parser guilty, raw line captured in the diary"
+                }
+                else ->
+                    "loopback FAILED: published $id but the poll never returned it after $attempt read(s) - relay-side"
             }
             _reportStatus.postValue(msg)
             Diary.get()?.log("CROWD") { msg }

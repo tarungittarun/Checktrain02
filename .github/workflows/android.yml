@@ -268,6 +268,50 @@ jobs:
           fi
           gh release upload "$tag" "$apk" --clobber || echo "::warning::could not publish to the release; the artifact on this run still has the APK"
           rc=$?
+      - name: Capture ntfy.sh's real poll shape (the crowd parser was written against an assumed shape)
+        # The traveller-report parser filters ntfy's JSON stream by hand, and every on-device poll has
+        # returned "relay answered, 0 reports" while publishes return HTTP 200 - paste #19 even lost the
+        # owner's OWN report. The sandbox has no ntfy egress, so CI - which does - publishes a canned
+        # marker to a throwaway topic and captures the poll bytes as a commit comment (marker "live-feed",
+        # the same channel the erail captures used). The parser gets fixed against THESE bytes, and the
+        # capture doubles as the relay-side verdict: if CI's own publish is missing from CI's own poll,
+        # the relay itself is the broken link. A convenience, never a gate: set +e, check=False.
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          python3 - << 'PY'
+          import json, os, subprocess, time, urllib.request
+          topic = "ct-cap-" + str(os.environ.get("GITHUB_RUN_ID", "0"))
+          payload = '{"trainNo":"00000","stationCode":"CAP","kind":"DEPARTED","railMinute":1025,"reportedAt":1791810000000}'
+          req = urllib.request.Request(
+              "https://ntfy.sh/" + topic, data=payload.encode(), method="POST",
+              headers={"Content-Type": "text/plain; charset=utf-8",
+                       "User-Agent": "OpenTrackIndia-ci/1.0 (capture)"},
+          )
+          pubid = "?"
+          try:
+              pubid = json.loads(urllib.request.urlopen(req, timeout=20).read().decode()).get("id", "?")
+          except Exception as e:
+              print("publish failed:", e)
+          time.sleep(3)
+          try:
+              poll = urllib.request.urlopen(
+                  "https://ntfy.sh/" + topic + "/json?poll=1&since=10m", timeout=20,
+              ).read().decode()
+          except Exception as e:
+              print("poll failed:", e)
+              poll = ""
+          body = ("live-feed ntfy poll shape - publish id=%s, topic=%s, poll=%d bytes\n\n" % (pubid, topic, len(poll))) + poll[:3500]
+          subprocess.run(
+              ["gh", "api", "-X", "POST",
+               "repos/tarungittarun/Checktrain02/commits/" + os.environ["GITHUB_SHA"] + "/comments",
+               "-f", "body=" + body],
+              check=False, capture_output=True,
+          )
+          print("capture done: publish id", pubid, "poll bytes", len(poll))
+          PY
           if [ "$rc" -ne 0 ]; then exit 0; fi
           {
             echo ""
