@@ -252,19 +252,13 @@ jobs:
             :app:compileDebugKotlin --stacktrace 2>&1 | tee /tmp/build.log
       # The release row has to test the R8 + resource-shrunk artifact, because shrinking breaks exactly the
       # things no debug build can show. It is signed with the *debug* keystore on purpose: an instrumented
-      # test APK must be signed by the same key as the app it drives, and the package manager refuses the
-      # pair otherwise. A transient CI key would break the install, not the test.
+      # test APK must be signed by the same key as the app it drives. The stable public TEST key is
+      # used here only for the never-published release-smoke artifact, not a production release.
       - name: Assemble the release APK signed with the debug key (for the release-smoke row)
         run: |
-          DBG="$HOME/.android/debug.keystore"
-          # `assembleDebug` above creates that keystore as a side effect; creating it here too means this
-          # step does not depend on AGP continuing to do so, and a missing key is a confusing failure.
-          if [ ! -f "$DBG" ]; then
-            mkdir -p "$HOME/.android"
-            keytool -genkeypair -v -keystore "$DBG" -storepass android -keypass android \
-              -alias androiddebugkey -dname "CN=Android Debug,O=Android,C=US" -keyalg RSA -keysize 2048 \
-              -validity 10000 >/dev/null
-          fi
+          # This is a test-only release-smoke APK, never published. Sign it with the same
+          # stable TEST key as debug so the instrumented test package can attach to it.
+          DBG="$GITHUB_WORKSPACE/tools/ci/test-only-debug.p12"
           ./gradlew --no-daemon :app:assembleRelease \
             -Pandroid.injected.signing.store.file="$DBG" \
             -Pandroid.injected.signing.store.password=android \

@@ -23,8 +23,8 @@ android {
         // without legacy branches.
         minSdk 24
         targetSdk 34
-        versionCode 4
-        versionName "1.0.3-r52"
+        versionCode 5
+        versionName "1.0.4-r53"
         // No ABI-specific native code at all -> one universal APK, no splits, no app bundle games.
         resConfigs "en"
         // Instrumented tests are how this app gets validated against the *live* feed: a JVM test can pin
@@ -40,9 +40,22 @@ android {
         viewBinding true
     }
 
-    // Release signing is optional by design. If the keystore env vars are absent we still build a
-    // verified-but-unsigned APK rather than failing the pipeline, because the artifact is also used
-    // for sideload testing. The CI job re-signs with a transient keystore when no secret is present.
+    // The rolling DEBUG APK must be signed with the same key across CI runners, or Android refuses
+    // every update and forces a destructive uninstall. This public, test-only key has no production
+    // authority; keep release signing separate and private. Pre-R53 APKs had random CI keys, so ONE
+    // last uninstall is unavoidable; all debug APKs from R53 onward update in place.
+    signingConfigs {
+        stableTestDebug {
+            storeFile file("../tools/ci/test-only-debug.p12")
+            storeType "pkcs12"
+            storePassword "android"
+            keyAlias "androiddebugkey"
+            keyPassword "android"
+        }
+    }
+
+    // Release signing remains separate: no release may use the public test key.
+    // If no production keystore is configured, a release build is unsigned by default.
     def releaseKeystore = System.getenv("OPENTRACK_KEYSTORE")?.trim()
     if (releaseKeystore) {
         signingConfigs {
@@ -57,6 +70,7 @@ android {
 
     buildTypes {
         debug {
+            signingConfig signingConfigs.stableTestDebug
             // Debuggable build keeps logs; used by the emulator smoke test in CI.
             minifyEnabled false
             // JaCoCo instrumentation of the *app* classes at runtime, which is what lets the emulator

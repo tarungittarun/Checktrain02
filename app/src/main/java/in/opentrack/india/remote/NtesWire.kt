@@ -85,7 +85,8 @@ object NtesWire {
         if (text.startsWith("{")) {
             val doc = runCatching { JSONObject(text) }.getOrNull()
             val nested = doc?.opt("jsonIn") as? String
-            if (!nested.isNullOrBlank()) payload = nested
+            if (nested.isNullOrBlank()) return text // plain mobile JSON is not an AES envelope
+            payload = nested
         }
         val hex = payload.substringAfter('#', payload).trim()
         // Unwrap in the same order the sender stacked them: hex -> base64 text -> ciphertext.
@@ -256,19 +257,29 @@ object NtesWire {
         val doc = runCatching { JSONObject(text) }.getOrNull() ?: return null
         val array = findRowArray(doc) ?: return null
         val rows = ArrayList<Row>(array.length())
+        val mobile = doc.has("STNS")
         for (i in 0 until array.length()) {
             val o = array.optJSONObject(i) ?: continue
+            val schArr = o.minutes("ARR", "STA", "schArr", "scheduledArrival")
+            val schDep = o.minutes("DEP", "STD", "schDep", "scheduledDeparture")
+            // The mobile STNS feed calls ETA/ETD estimates even at future stops, and echoes
+            // STA/STD into them. A changed minute is only a candidate: the provider also checks
+            // the run and clock before calling it an actual. Schedule-identical cells stay blank.
+            val actArr = if (mobile) o.minutes("ETA")?.takeIf { it != schArr }
+                else o.minutes("ATA", "actArr", "actualArrival", "ARV_TIME")
+            val actDep = if (mobile) o.minutes("ETD")?.takeIf { it != schDep }
+                else o.minutes("ATD", "actDep", "actualDeparture", "DEP_TIME")
             rows.add(
                 Row(
-                    code = o.str("STN", "stationCode", "stnCode", "code")?.uppercase(Locale.ROOT)?.trim(),
-                    name = o.str("STN_NAME", "stationName", "S_NAME", "name"),
-                    schedArr = o.minutes("ARR", "STA", "schArr", "scheduledArrival"),
-                    schedDep = o.minutes("DEP", "STD", "schDep", "scheduledDeparture"),
-                    actArr = o.minutes("ATA", "actArr", "actualArrival", "ARV_TIME"),
-                    actDep = o.minutes("ATD", "actDep", "actualDeparture", "DEP_TIME"),
-                    delayArr = o.delay("ARR_DELAY", "DELAY", "delayArr", "ARRDELAY"),
-                    delayDep = o.delay("DEP_DELAY", "DEPDELAY", "delayDep"),
-                    platform = o.str("ARRPLT", "DEPPLT", "platform", "PLAT", "PB"),
+                    code = o.str("STN", "SC", "stationCode", "stnCode", "code")?.uppercase(Locale.ROOT)?.trim(),
+                    name = o.str("STN_NAME", "SN", "stationName", "S_NAME", "name"),
+                    schedArr = schArr,
+                    schedDep = schDep,
+                    actArr = actArr,
+                    actDep = actDep,
+                    delayArr = o.delay("ARR_DELAY", "DARR", "DELAY", "delayArr", "ARRDELAY"),
+                    delayDep = o.delay("DEP_DELAY", "DDEP", "DEPDELAY", "delayDep"),
+                    platform = o.str("ARRPLT", "DEPPLT", "PF", "platform", "PLAT", "PB"),
                     km = o.int("DIST", "distance", "km"),
                     cancelled = o.flag("CANC", "IS_CANCELED", "cancelled"),
                     departed = when {
@@ -292,7 +303,7 @@ object NtesWire {
     }
 
     private fun findRowArray(doc: JSONObject): JSONArray? {
-        for (k in listOf("S", "stops", "route", "trainSchedule", "DATA", "data", "Result", "rows")) {
+        for (k in listOf("STNS", "S", "stops", "route", "trainSchedule", "DATA", "data", "Result", "rows")) {
             val v = doc.opt(k)
             if (v is JSONArray && v.length() > 0 && v.optJSONObject(0) != null) return v
         }
@@ -354,14 +365,18 @@ object NtesWire {
             val v = opt(k) ?: continue
             val s = v.toString().trim()
             if (s.isEmpty() || s == "--" || s.equals("na", true)) continue
-            val parts = s.split('.', ':', ' ').filter { it.isNotBlank() }
+            if (s.contains("UA", true) || s == "0") continue
+            // Mobile NTES writes "Source/20:55 13-Oct" and "Destination/08:20 14-Oct".
+            // Strip only these known wrappers, never digits from an arbitrary status string.
+            val clock = s.substringAfter('/', s).trim()
+            val parts = clock.split('.', ':', ' ').filter { it.isNotBlank() }
             if (parts.size < 2) continue
             val h = parts[0].filter { it.isDigit() }.toIntOrNull() ?: continue
             val digits = parts[1].filter { it.isDigit() }
             if (digits.isEmpty()) continue
             val m = digits.substring(0, minOf(2, digits.length)).padEnd(2, '0').toIntOrNull() ?: continue
             if (h > 23 || m > 59) continue
-            val tail = s.substringAfter('+', "")
+            val tail = clock.substringAfter('+', "")
             val extraDays = tail.takeWhile { it.isDigit() }.toIntOrNull() ?: 0
             return h * 60 + m + extraDays * 1440
         }

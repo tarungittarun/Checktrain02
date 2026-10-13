@@ -221,14 +221,17 @@ class NtesProvider(
             // reset the connection, which the traveller would otherwise experience as "no live data".
             "User-Agent" to NtesWire.USER_AGENT,
         )
-        val got = if (adopted != null) {
+        val first = if (adopted != null) {
             FeedProbe.execute(http, adopted, trainNo, journeyEpochDay)
         } else {
-            // Six and a half seconds, most of it for the first attempt: a traveller watching a spinner for
-            // 30 s because three polite retries are queued behind each other has been measured here twice,
-            // and the retries never once changed the outcome. They are still tried - inside a budget.
+            // Bounded ladder; a separate, session-warmed mobile JSON form follows a refusal.
             ask(http, baseUrl, NtesWire.envelope(plain), headers, TIMEOUT, 6_500)
         }
+        // kilotrain documents this second official request shape but its CI did not prove a
+        // per-stop response. It is a fallback, not a new "working source" in the UI.
+        val mobile = if (first is Http.Result.Failed && baseUrl == NtesWire.BASE_URL)
+            NtesMobileFallback.fetch(trainNo, journeyEpochDay) else null
+        val got = if (mobile is Http.Result.Ok) mobile else first
         val body = when (got) {
             is Http.Result.Ok -> got
             is Http.Result.Failed -> {
@@ -260,7 +263,17 @@ class NtesProvider(
             Diary.get()?.log("NTES", "envelope unopenable: body=" + body.body.length + "B, framing changed?")
             return null
         }
-        val parsed = runCatching { NtesWire.parse(doc.toString()) }.getOrNull()
+        val stns = doc.has("STNS")
+        if (stns && !NtesMobileFallback.matchesRun(doc, trainNo, journeyEpochDay)) {
+            note = "NTES mobile JSON answered but did not identify this train AND the requested run date; " +
+                "its minutes are not safe to show as actuals."
+            Diary.get()?.log("NTES", "mobile reply refused: train/run date not proven in response")
+            return null
+        }
+        val rawParsed = runCatching { NtesWire.parse(doc.toString()) }.getOrNull()
+        val parsed = if (stns && rawParsed != null)
+            NtesMobileFallback.trustedRows(rawParsed, route, journeyEpochDay, System.currentTimeMillis())
+            else rawParsed
         if (parsed == null) {
             val keys = runCatching { doc.keys().asSequence().take(8).joinToString(", ") }.getOrNull()
             Diary.get()?.log("NTES", "reply was not a status table; top-level keys: " + (keys ?: "-") +

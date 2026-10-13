@@ -24,9 +24,12 @@ app/src/main/assets/ref/*.json
 # downloaded reference dumps
 .cache/
 
-# signing material must never be committed
+# Production signing material must never be committed. The single explicit exception is
+# the public debug-only test key: it cannot sign production releases.
 *.keystore
 *.jks
+*.p12
+!tools/ci/test-only-debug.p12
 keystore.properties
 secrets.*
 

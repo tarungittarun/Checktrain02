@@ -196,3 +196,13 @@ per screen, on demand, only if you enable it in Settings, and never leaves the d
 The code in this repository is yours to use under the terms you publish it with. The *data* is derived
 from a public timetable dump and belongs to the original source; treat it as reference material, not a
 guaranteed schedule — check before you travel.
+
+### Updating test APKs
+
+The rolling **debug** APK is signed with the explicitly public, test-only certificate at
+`tools/ci/test-only-debug.p12` (password `android`). It is **not** a production credential;
+release signing still requires a separate private keystore. Builds through R52 used a
+fresh CI key for every build, so Android cannot update them: **uninstall the old APK once**
+(back up any diagnostics/settings you need first), install R53 or newer, then later rolling
+debug APKs can update in place without uninstalling. Do not install an APK from an untrusted
+source simply because it is signed with this publicly known debug key.
