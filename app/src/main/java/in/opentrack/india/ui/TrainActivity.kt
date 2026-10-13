@@ -46,6 +46,8 @@ class TrainActivity : AppCompatActivity() {
     private var autoOn = true
     private var sourceShown = false
     private var lastUi: LiveViewModel.Ui? = null
+    private var chainBusy = false
+    private var mirrorBusy = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -100,15 +102,15 @@ class TrainActivity : AppCompatActivity() {
 
         vm.ui.observe(this) { it?.let { u -> lastUi = u; bind(u); renderNote() } }
         vm.checking.observe(this) { busy ->
-            // The 1800s complaint, answered: a moving bar for exactly as long as the app is working,
-            // and a captioned spinner while the very first look is still in flight.
-            binding.checkingBar.visibility = if (busy == true) View.VISIBLE else View.GONE
-            binding.firstLoad.visibility = if (busy == true && lastUi == null) View.VISIBLE else View.GONE
+            chainBusy = busy == true
+            renderChecking()
         }
         // The sources box: fetching while the witnesses work. Once actuals exist, the line goes quiet -
         // the top card then carries the same sentence (badge + source row + refreshed stamp), and one
         // copy on screen is the owner's round-47 point: everything read at once, nothing said twice.
         vm.mirrorState.observe(this) { st ->
+            mirrorBusy = st?.startsWith("Checking independent feeds") == true
+            renderChecking()
             val duplicate = st != null && st.startsWith("Actuals ·")
             binding.mirrorState.visibility = if (st == null || duplicate) View.GONE else View.VISIBLE
             st?.let {
@@ -120,6 +122,14 @@ class TrainActivity : AppCompatActivity() {
             errorText = msg
             renderNote()
         }
+    }
+
+    /** The first HTTP ladder can finish in three seconds while mirror page checks take twenty.
+     * Keep the visible progress alive for both; an OFF auto switch controls *future* ticks, not this one. */
+    private fun renderChecking() {
+        val busy = chainBusy || mirrorBusy
+        binding.checkingBar.visibility = if (busy) View.VISIBLE else View.GONE
+        binding.firstLoad.visibility = if (busy && lastUi == null) View.VISIBLE else View.GONE
     }
 
     // LEGACY-FREEZE (5.2b): the live pair list (v2) can know a fresher identity for this number than

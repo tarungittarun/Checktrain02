@@ -277,11 +277,7 @@ class Http(context: Context) {
             conn.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
             val code = conn.responseCode
             if (code >= 400) return Result.Failed(Result.Kind.HTTP, "HTTP $code")
-            val stream: InputStream = conn.inputStream.use { raw ->
-                if ("gzip".equals(conn.contentEncoding, ignoreCase = true)) GZIPInputStream(raw) else raw
-            }
-            val text = stream.bufferedReader(Charsets.UTF_8).use(BufferedReader::readText)
-            stream.close()
+            val text = readResponseBody(conn.inputStream, conn.contentEncoding)
             bodyRead = true
             if (text.isBlank()) Result.Failed(Result.Kind.EMPTY, "empty body")
             else Result.Ok(text, fromCache = false, ageMillis = 0)
@@ -433,11 +429,7 @@ class Http(context: Context) {
             if (conn.responseCode >= 400) {
                 return Result.Failed(Result.Kind.HTTP, "HTTP ${conn.responseCode}")
             }
-            val stream: InputStream = conn.inputStream.use { raw ->
-                if ("gzip".equals(conn.contentEncoding, ignoreCase = true)) GZIPInputStream(raw) else raw
-            }
-            val body = stream.bufferedReader(Charsets.UTF_8).use(BufferedReader::readText)
-            stream.close()
+            val body = readResponseBody(conn.inputStream, conn.contentEncoding)
             bodyRead = true
             if (body.isBlank()) return Result.Failed(Result.Kind.EMPTY, "empty body")
             store(url, body)
@@ -517,3 +509,10 @@ object Hash {
             .joinToString("") { "%02x".format(it) }
     }.getOrElse { text.hashCode().toString(16) }
 }
+
+/** Read before closing. Closing `raw` inside a use block that returns it makes every later
+ * read fail with IOException: closed, even when DNS, TLS and HTTP all succeeded. GET and POST share
+ * this path so neither can reintroduce the failure independently. The reader owns and closes raw. */
+internal fun readResponseBody(raw: InputStream, encoding: String?): String =
+    (if ("gzip".equals(encoding, ignoreCase = true)) GZIPInputStream(raw) else raw)
+        .bufferedReader(Charsets.UTF_8).use { it.readText() }
