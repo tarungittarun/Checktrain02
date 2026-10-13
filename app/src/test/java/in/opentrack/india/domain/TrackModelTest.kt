@@ -79,7 +79,7 @@ class TrackModelTest {
         val reported = mapOf("SRC" to LiveStopFields(actualDepartureMin = 1387,
             delayDepartureMin = 7))
         val m = model(r, pos(1, 2, StopStatus.DEPARTED, delay = 7), reported, now = 1435)
-        assertEquals("Next: Mid Jn · 00:07 (+1d) expected · in 12 min", m.nextLabel)
+        assertEquals("Next: MID Jn · 00:07 (+1d) expected · in 12 min", m.nextLabel)
         val overdue = model(r, pos(1, 2, StopStatus.DEPARTED, delay = 7), reported, now = 1449)
         assertTrue(overdue.nextLabel.contains("estimate overdue; arrival unconfirmed"))
     }
@@ -92,7 +92,7 @@ class TrackModelTest {
         val m = model(r, pos(1, 2, StopStatus.DEPARTED, delay = 7,
             kind = SourceKind.CACHED), reported, now = 1435)
         assertTrue(m.headline.contains("current position unknown"))
-        assertTrue(m.nextLabel.startsWith("Next scheduled: Mid Jn · 00:00 (+1d)"))
+        assertTrue(m.nextLabel.startsWith("Next scheduled: MID Jn · 00:00 (+1d)"))
         assertEquals(TrackModel.MinuteSource.SCHEDULE, m.rows[1].source)
         assertEquals(TrackModel.MinuteSource.REPORTED, m.rows[0].source)
     }
