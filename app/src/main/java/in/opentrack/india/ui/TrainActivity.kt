@@ -188,7 +188,15 @@ class TrainActivity : AppCompatActivity() {
             binding.sourceSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
                 override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
                     val name = names.getOrNull(pos) ?: return
-                    if (name != lastUi?.activeSource) vm.setActiveSource(name)
+                    if (name != lastUi?.activeSource) {
+                        if (states[name]?.first !in listOf("live", "last-known")) {
+                            Toast.makeText(this@TrainActivity,
+                                "$name: no verified stop times — timetable stays on screen",
+                                Toast.LENGTH_SHORT).show()
+                            val previous = names.indexOf(lastUi?.activeSource)
+                            if (previous >= 0) binding.sourceSpinner.setSelection(previous, false)
+                        } else vm.setActiveSource(name)
+                    }
                 }
 
                 override fun onNothingSelected(p: AdapterView<*>?) {}
@@ -209,6 +217,9 @@ class TrainActivity : AppCompatActivity() {
         binding.runDate.text = m.runDateLabel
         binding.lastUpdated.visibility = if (ui.lastUpdated == null) View.GONE else View.VISIBLE
         binding.lastUpdated.text = ui.lastUpdated
+        val verifiedFeeds = ui.sourceStates.count { it.value.first == "live" }
+        binding.sourceSummary.text =
+            "${ui.sourceStates.size} source slots · $verifiedFeeds with verified stop minutes · tap Source"
         binding.headline.text = m.headline
 
         val (badgeBg, badgeText) = when (m.tone) {
@@ -236,22 +247,22 @@ class TrainActivity : AppCompatActivity() {
         // When the mirror's actuals reached this screen, THEY are the headline: the schedule's own
         // sentences ("Should be past Shimoga Town") contradicted the confirmed departure and read as
         // wrong data (paste #25). The badge earns its colour from the measured lateness.
-        if (ui.actualsHeadline == null) {
-            val src = ui.actualsSource
-            if (src != null) {
-                // A witness answered with minutes but none is an observation yet: say so, name it,
-                // never fall back to "sources unreachable" - that would deny data on the screen.
-                binding.provenance.text = "ACTUALS · $src"
-                binding.provenance.setBackgroundResource(R.drawable.bg_badge_live)
-                binding.provenance.setTextColor(getColor(R.color.live))
-                binding.delay.text = "no halt reported yet"
-                binding.delay.setTextColor(getColor(R.color.accent))
-            } else {
-                // The static-sounding labels were a fair complaint: a chip that says the same thing in
-                // every state reads as stuck. Name the situation instead - the sources are being asked.
-                binding.provenance.text = "SCHEDULE · sources unreachable"
-                binding.delay.text = "—"
+        if (ui.actualsHeadline == null && !m.isLive) {
+            binding.headline.text = "Live position unverified — timetable only"
+            binding.provenance.text = "SCHEDULE · no verified actuals"
+            binding.provenance.setBackgroundResource(R.drawable.bg_badge_schedule)
+            binding.provenance.setTextColor(getColor(R.color.warn))
+            binding.age.text = ui.lastUpdated ?: "Not checked yet"
+            binding.delay.text = "— · no verified delay"
+            binding.delay.setTextColor(getColor(R.color.warn))
+            val nextSchedule = m.rows.firstOrNull {
+                (it.schedArr ?: it.schedDep ?: Int.MIN_VALUE) > ui.nowRailMinute
             }
+            binding.next.text = nextSchedule?.let {
+                "Scheduled: ${it.name} · " +
+                    (it.schedArr ?: it.schedDep)?.let(RailTime::formatRailMinute) +
+                    " (not a live ETA)"
+            } ?: "No live next-stop ETA"
         }
         if (ui.actualsHeadline != null) {
             binding.headline.text = ui.actualsHeadline
@@ -270,7 +281,7 @@ class TrainActivity : AppCompatActivity() {
             ui.delayDetail?.let { binding.delay.text = "${binding.delay.text} · $it" }
             binding.delay.setTextColor(getColor(if (late > 2) R.color.late else R.color.live))
         }
-        ui.sourcesLine?.let { binding.age.text = it }
+        if (ui.actualsHeadline != null) ui.sourcesLine?.let { binding.age.text = it }
         binding.note.visibility = if (m.note == null) View.GONE else View.VISIBLE
         m.note?.let { binding.note.text = it }
 
@@ -327,7 +338,9 @@ class TrainActivity : AppCompatActivity() {
      * taps, which is what makes a claim like "this came from cache" auditable instead of vibes.
      */
     private fun bindSource(m: TrackModel.View, ui: LiveViewModel.Ui) {
-        binding.sourceText.text = sourceText(m, ui.tried)
+        binding.sourceText.text = ui.sourceStates.entries.joinToString("\n") { (name, status) ->
+            "$name: ${status.second}"
+        } + "\n\n" + sourceText(m, ui.tried)
     }
 
     /** Everything the screen knows about the feed, as text — see the long-press handler above. */

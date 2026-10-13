@@ -110,9 +110,12 @@ class MirrorOverlayTest {
         // AAA dep scheduled 600; mirror reports 00:05 next day. Whatever the fold, the slip the
         // screen computes must stay inside the wrap-safe +/-720 band or the colour lies.
         val stops = listOf(RunningStatusMirror.Stop("AAA", null, 600, null, 1445))
-        val out = LiveViewModel.overlayActuals(model(), stops, nowRail = 1500)
+        val overnight = model().copy(rows = model().rows.map { row ->
+            if (row.code == "AAA") row.copy(schedDep = 1435) else row
+        })
+        val out = LiveViewModel.overlayActuals(overnight, stops, nowRail = 1500)
         val aaa = out.rows.first { it.code == "AAA" }
-        assertTrue("slip must stay in the wrap-safe band: ${aaa.delay}", aaa.delay!! in -720..720)
+        assertEquals(10, aaa.delay)
     }
 
     @Test
@@ -126,6 +129,53 @@ class MirrorOverlayTest {
         )
         assertEquals(TrackModel.MinuteSource.PROJECTED, out.rows.last().source)
         assertEquals(900, out.rows.last().showArr)
+    }
+
+    @Test
+    fun aFutureStopCannotTravelBackToBeforeTheRunAndRewriteEarlierEstimates() {
+        val today = model().copy(rows = model().rows.map { row ->
+            when (row.code) {
+                "AAA" -> row.copy(schedDep = 900)      // SBC 15:00
+                "BBB" -> row.copy(schedArr = 910, schedDep = 912) // YPR 15:10/15:12
+                else -> row.copy(schedArr = 1140)       // BDVT 19:00
+            }
+        })
+        val raw = listOf(RunningStatusMirror.Stop("CCC", null, null, 903, null)) // 15:03 at 19:00 halt
+        assertTrue(LiveViewModel.validateStops(today, raw, 924).all {
+            it.actArr == null && it.actDep == null
+        })
+        assertTrue(LiveViewModel.crossCheckedStops(emptyList(), raw, today, 924).isEmpty())
+        val shown = LiveViewModel.overlayActuals(today, raw, 924)
+        assertNull("no verified position", LiveViewModel.mirrorVerdict(shown))
+        assertEquals(TrackModel.MinuteSource.SCHEDULE, shown.rows[1].source)
+        assertEquals(TrackModel.MinuteSource.SCHEDULE, shown.rows[2].source)
+    }
+
+    @Test
+    fun departureIsReportedOnlyAtTheWitnessedHaltAndEstimatesMoveForward() {
+        val stops = listOf(
+            RunningStatusMirror.Stop("AAA", null, 600, null, 610),
+            RunningStatusMirror.Stop("BBB", 700, 705, null, null),
+        )
+        val result = LiveViewModel.overlayActuals(model(), stops, 690)
+        assertEquals(TrackModel.MinuteSource.REPORTED, result.rows[0].source)
+        assertEquals(610, result.rows[0].showDep)
+        assertEquals(TrackModel.MinuteSource.PROJECTED, result.rows[1].source)
+        assertEquals(715, result.rows[1].showDep)
+        assertEquals(810, result.rows[2].showArr)
+        assertEquals("confirmed only where first witness agrees",
+            emptyList<RunningStatusMirror.Stop>(),
+            LiveViewModel.crossCheckedStops(stops, listOf(
+                RunningStatusMirror.Stop("AAA", null, null, null, 640)), model(), 690))
+    }
+
+    @Test
+    fun contradictoryPlausibleWitnessesCannotBothClaimAct() {
+        val first = listOf(RunningStatusMirror.Stop("BBB", 700, 705, 700, 720))
+        val second = listOf(RunningStatusMirror.Stop("BBB", null, null, 700, 732))
+        assertEquals(setOf("BBB"), LiveViewModel.conflictingCodes(first, second, model(), 740))
+        assertTrue(LiveViewModel.crossCheckedStops(first, second, model(), 740)
+            .all { it.actDep == null })
     }
 
     @Test

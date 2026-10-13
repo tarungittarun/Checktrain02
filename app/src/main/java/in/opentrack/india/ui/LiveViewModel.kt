@@ -213,6 +213,7 @@ class LiveViewModel(
         val repo = runCatching { repo() }.getOrNull() ?: return
         val raw = runCatching { org.json.JSONObject(repo.prefs.mirrorCache) }.getOrNull() ?: return
         val obj = raw.optJSONObject(trainNo) ?: return
+        if (obj.optInt("validated") != 1 || obj.optLong("originDay") != originEpochDay) return
         val at = obj.optLong("at", 0L)
         if (at == 0L || System.currentTimeMillis() - at > 6 * 3_600_000L) return
         val lines = LinkedHashMap<String, String>()
@@ -262,6 +263,8 @@ class LiveViewModel(
             .format(java.util.Date(mirrorRefreshedAt))
         val obj = org.json.JSONObject()
             .put("at", mirrorRefreshedAt)
+            .put("validated", 1)
+            .put("originDay", originEpochDay)
             .put("refreshed", refreshed)
             .put("late", mirrorLate)
             .put("delayDevice", delayDevice)
@@ -646,285 +649,109 @@ class LiveViewModel(
         if (!force && nowWall - lastMirrorPoll < CROWD_POLL_MIN_MILLIS) return
         lastMirrorPoll = nowWall
         viewModelScope.launch {
-            // The route may not be on screen yet (first load fires the mirror in parallel with the
-            // erail chain) - the OFFLINE copy names the halts, and it is on this device.
-            val stopRows = _ui.value?.route?.stops
-                ?: runCatching { repo()?.queries?.route(trainNo)?.stops }.getOrNull()
+            val route = _ui.value?.route ?: runCatching { repo()?.queries?.route(trainNo) }.getOrNull()
                 ?: return@launch
-            val codes = stopRows.map { it.code }
             if (!freshShift()) loadMirrorCache()
-            _mirrorState.postValue("Fetching actuals from 2 sources…")
-            // The SECOND source runs in PARALLEL, not after: paste #26 waited out the primary's whole
-            // chain before confirmtkt even started - seconds the traveller pays twice.
+            val names = route.stops.map { it.code to it.name }
+            _mirrorState.postValue("Checking independent feeds; page times are not actuals until validated…")
             val ckDeferred = async {
-                val routeNames = stopRows.map { it.code to it.name }
-                val first = withContext(Dispatchers.IO) { ConfirmTktMirror.fetchOrWhy(trainNo, routeNames) }
-                if (first.ok) first else {
-                    Diary.get()?.log("MIRROR", "confirmtkt direct wire failed; asking browser once")
+                val direct = withContext(Dispatchers.IO) { ConfirmTktMirror.fetchOrWhy(trainNo, names) }
+                if (direct.ok) direct else {
                     val page = withContext(Dispatchers.IO) {
-                        BrowserFetch.pageText(
-                            ConfirmTktMirror.BASE + trainNo, 25_000,
-                            settleMillis = 6_000, textCap = 24_000,
-                        )
+                        BrowserFetch.pageText(ConfirmTktMirror.BASE + trainNo, 25_000,
+                            settleMillis = 6_000, textCap = 24_000)
                     }
-                    val text = (page as? Http.Result.Ok)?.body
-                        ?.let { RunningStatusMirror.stripTags(it) }
-                    if (text == null) first else {
-                        val lines = ConfirmTktMirror.parse(text, routeNames)
-                        ConfirmTktMirror.Fetched(
-                            lines, lines.size, lines.isNotEmpty(),
-                            ConfirmTktMirror.stopsOf(text, routeNames),
-                        )
+                    val text = (page as? Http.Result.Ok)?.body?.let(RunningStatusMirror::stripTags)
+                    if (text == null) direct else {
+                        val lines = ConfirmTktMirror.parse(text, names)
+                        ConfirmTktMirror.Fetched(lines, lines.size, lines.isNotEmpty(),
+                            ConfirmTktMirror.stopsOf(text, names))
                     }
                 }
             }
-            val directSkipped = System.currentTimeMillis() < directDeadUntil
-            val got = if (directSkipped) {
-                RunningStatusMirror.Fetched(null, "skipped: blocked minutes ago")
-            } else {
-                withContext(Dispatchers.IO) { RunningStatusMirror.fetchOrWhy(trainNo) }
-            }
-            var actuals = got.actuals
-            if (actuals == null && got.why.startsWith("HTTP 403")) {
-                // A fresh 403 buys the direct wire ten minutes of silence: an 8 s wait for a refusal
-                // the network already answered is latency the traveller pays for nothing.
-                directDeadUntil = System.currentTimeMillis() + 600_000
-            }
-            if (actuals == null) {
-                // The direct wire is filtered or bot-gated on some networks (paste #21: HTTP 403 here
-                // while CI fetched the same url fine) - so ask through the app's browser lane, the
-                // transport this phone demonstrably lets through, before declaring the mirror dead.
-                Diary.get()?.log("MIRROR") {
-                    "${RunningStatusMirror.SOURCE} direct wire: ${got.why}" +
-                        (if (directSkipped) " (skipped - blocked recently)" else "; asking through the app's browser")
+            val direct = if (System.currentTimeMillis() < directDeadUntil)
+                RunningStatusMirror.Fetched(null, "recent 403; browser lane")
+            else withContext(Dispatchers.IO) { RunningStatusMirror.fetchOrWhy(trainNo) }
+            if (direct.why.startsWith("HTTP 403")) directDeadUntil = System.currentTimeMillis() + 600_000
+            val primary = direct.actuals ?: run {
+                val page = withContext(Dispatchers.IO) {
+                    BrowserFetch.pageText("https://runningstatus.in/status/$trainNo", 30_000,
+                        settleMillis = 10_000, textCap = 24_000)
                 }
-                // Paste #21 named the block: Cloudflare. The WebView lands on "Performing security
-                // verification", which AUTO-CLEARS in a real browser in ~5-10 s and then loads the real
-                // page - the first build read at 2 s and caught the challenge itself. Two reads, each
-                // waiting 12 s inside the clear window; the mirror is declared dead only if BOTH still
-                // sit behind the check.
-                var laneBody: String? = null
-                var laneWhy = "no answer"
-                for (read in 1..2) {
-                    val page = withContext(Dispatchers.IO) {
-                        BrowserFetch.pageText(
-                            "https://runningstatus.in/status/$trainNo", 30_000,
-                            settleMillis = 12_000, textCap = 16_000,
-                        )
-                    }
-                    val body = (page as? Http.Result.Ok)?.body
-                    when {
-                        body == null -> laneWhy = (page as Http.Result.Failed).message
-                        body.contains("security verification") ->
-                            laneWhy = "the bot check was still up at read $read"
-                        else -> laneBody = body
-                    }
-                    if (laneBody != null) break
-                }
-                val lane = laneBody?.let { RunningStatusMirror.parse(RunningStatusMirror.stripTags(it)) }
-                if (lane == null) {
-                    val peek = laneBody?.replace('\n', ' ')?.take(150)
-                    Diary.get()?.log("MIRROR") {
-                        "${RunningStatusMirror.SOURCE} browser lane failed: $laneWhy" +
-                            (peek?.let { "; the page began: \"$it\"" } ?: "")
-                    }
-                    val ck = ckDeferred.await()
-                    mirrorCrossChecked = ck.ok
-               mirrorSourceStates = linkedMapOf(
-                        RunningStatusMirror.SOURCE to ("none" to "no answer this refresh"),
-                        ConfirmTktMirror.SOURCE to (if (ck.ok) "live" to "${ck.halts} halts · refreshed ${clockAt(System.currentTimeMillis())}"
-                            else "none" to "no answer this refresh"),
-                    )
-               mirrorSourceLines = linkedMapOf(
-                        RunningStatusMirror.SOURCE to emptyMap(), ConfirmTktMirror.SOURCE to ck.lines,
-                    )
-                    mirrorStops = linkedMapOf(
-                        RunningStatusMirror.SOURCE to emptyList(), ConfirmTktMirror.SOURCE to ck.stops,
-                    )
-                    mirrorActiveSource = ConfirmTktMirror.SOURCE.takeIf { ck.ok }
-                    if (ck.ok) {
-                        cacheTrainNo = trainNo
-                        mirrorShiftAt = System.currentTimeMillis()
-                        mirrorRefreshedAt = mirrorShiftAt
-                        mirrorBadge = "ACTUALS · ${ConfirmTktMirror.SOURCE}"
-                        mirrorHeadline = null
-                        mirrorNext = null
-                        mirrorAnchorCode = null
-                        mirrorLate = 0
-                        mirrorNote = null
-                    }
-                    _ui.value?.let { u -> _ui.postValue(buildUi(u.route, u.answer, u.tried)) }
-                    val offline = laneWhy.contains("UnknownHost") || laneWhy.contains("imeout")
-                    _mirrorState.postValue(
-                        when {
-                            offline && freshShift() ->
-                                "No network right now — showing the last known actuals"
-                            offline ->
-                                "No network right now — the actuals will load when it returns"
-                            else ->
-                                "No actuals yet — the train may not be running today " +
-                                    "(runningstatus.in: no halt rows · confirmtkt: " +
-                                    if (ck.ok) "${ck.halts} halts)" else "no answer)"
-                        }
-                    )
-                    return@launch
-                }
-                actuals = lane
-                Diary.get()?.log("MIRROR") { "${RunningStatusMirror.SOURCE} answered through the browser lane" }
-            }
-            val mirrorLines = RunningStatusMirror.sentences(actuals, codes)
-            if (mirrorLines.isEmpty()) {
-                Diary.get()?.log("MIRROR") {
-                    "${RunningStatusMirror.SOURCE} answered for $trainNo but carries no actual minutes yet"
-                }
-                _mirrorState.postValue(
-                    "No actuals yet — the train may not be running today (runningstatus.in: 0 halts)"
-                )
-                return@launch
-            }
-            val crowd = _ui.value?.reports ?: emptyMap()
-            val merged = crowd.filterKeys { it !in mirrorLines } + mirrorLines
-            // The extra log the owner asked for, and the feature it announces: the schedule clock said
-            // "past Shimoga" while the actuals proved the train left Birur 31 late - so the POSITION
-            // follows the actuals now. Last confirmed departure, its lateness, and the clock set back
-            // by exactly that lateness: "next stop in N min" becomes the train's real remaining time.
-            val u = _ui.value
-            val nowRail = nowMinute(System.currentTimeMillis())
-            val confirmed = lastCovered(actuals.stops, stopRows, nowRail)
-            if (confirmed != null && confirmed.second.isNotEmpty()) {
-                Diary.get()?.log("MIRROR") {
-                    "excluded ${confirmed.second.size} future-minute echo halt(s) " +
-                        "(${confirmed.second.joinToString(",")}) - estimates, not observations"
+                (page as? Http.Result.Ok)?.body?.let {
+                    RunningStatusMirror.parse(RunningStatusMirror.stripTags(it))
                 }
             }
-            // The displayed timetable, not the mirror's separate schedule, is the delay baseline.
-            val evidence = u?.let { overlayActuals(it.model, actuals.stops, nowRail).let(::deviceReceipt) }
-            val late = evidence?.first ?: 0
-            delayDevice = late
-            delayDetail = evidence?.second
-            // The SECOND witness, fetched on the same refresh: confirmtkt by station name. Its lines
-            // fill only the stops the primary lacks, and its answering (or not) is shown in the age
-            // line - the owner asked for two sources on screen every refresh, and honesty about which.
             val ck = ckDeferred.await()
-            mirrorCrossChecked = ck.ok
-            val ckFilled = ck.lines.filterKeys { it !in merged }
-            val display = merged + ckFilled
-            mirrorRefreshedAt = System.currentTimeMillis()
-            val refreshed = clockAt(mirrorRefreshedAt)
+            val u = _ui.value ?: return@launch
+            val nowRail = nowMinute(System.currentTimeMillis())
+            val base = TrackModel.build(route, u.answer.position, u.answer.perStop, nowRail,
+                route.stops.firstOrNull { it.code.equals(fromCode, true) }?.seq ?: route.stops.first().seq,
+                route.stops.lastOrNull { it.code.equals(toCode, true) }?.seq ?: route.stops.last().seq,
+                originEpochDay, null)
+            val plausiblePrimary = validateStops(base, primary?.stops.orEmpty(), nowRail)
+                .filter { st -> base.rows.any { row -> row.code.equals(st.stationCode, true) &&
+                    ((row.schedArr != null && st.actArr != null) ||
+                        (row.schedDep != null && st.actDep != null)) } }
+            val disputed = conflictingCodes(plausiblePrimary, ck.stops, base, nowRail)
+            val verifiedPrimary = plausiblePrimary.filterNot { it.stationCode.uppercase() in disputed }
+            // ConfirmTkt's page mixes schedule, estimates and past runs. An answer is NOT evidence.
+            // Only minutes independently agreeing with an already validated, same-run primary survive.
+            val verifiedCk = crossCheckedStops(verifiedPrimary, ck.stops, base, nowRail)
+            mirrorCrossChecked = verifiedCk.isNotEmpty()
+            val refreshed = clockAt(System.currentTimeMillis())
             mirrorSourceStates = linkedMapOf(
-                RunningStatusMirror.SOURCE to ("live" to "${mirrorLines.size} halts · refreshed $refreshed"),
-                ConfirmTktMirror.SOURCE to (if (ck.ok) "live" to "${ck.halts} halts · refreshed $refreshed"
+                RunningStatusMirror.SOURCE to (if (verifiedPrimary.isNotEmpty())
+                    "live" to "${verifiedPrimary.size} verified halts" +
+                        (if (disputed.isEmpty()) "" else " · ${disputed.size} disputed hidden") + " · $refreshed"
+                    else "none" to "no verified halt this refresh"),
+                ConfirmTktMirror.SOURCE to (if (verifiedCk.isNotEmpty())
+                    "live" to "${verifiedCk.size} cross-checked halts · $refreshed"
+                    else if (ck.ok) "unverified" to "page answered; minutes not corroborated"
                     else "none" to "no answer this refresh"),
             )
-            val relayLine = "relay: " + if (_ui.value?.relayOk != false) "answered" else "unreachable"
-            val sourcesLine = "${RunningStatusMirror.SOURCE} (${mirrorLines.size} halts) · " +
-                "${ConfirmTktMirror.SOURCE} " + (if (ck.ok) "(${ck.halts} halts)" else "did not answer") +
-                " · " + relayLine + " · refreshed $refreshed"
-            mirrorSources = sourcesLine
             mirrorSourceLines = linkedMapOf(
-                RunningStatusMirror.SOURCE to mirrorLines,
-                ConfirmTktMirror.SOURCE to ck.lines,
+                RunningStatusMirror.SOURCE to primary?.let {
+                    RunningStatusMirror.sentences(it.copy(stops = verifiedPrimary), route.stops.map { r -> r.code })
+                }.orEmpty(),
+                ConfirmTktMirror.SOURCE to ck.lines.filterKeys { code ->
+                    verifiedCk.any { it.stationCode.equals(code, true) }
+                },
             )
             mirrorStops = linkedMapOf(
-                RunningStatusMirror.SOURCE to actuals.stops,
-                ConfirmTktMirror.SOURCE to ck.stops,
+                RunningStatusMirror.SOURCE to verifiedPrimary,
+                ConfirmTktMirror.SOURCE to verifiedCk,
             )
-            mirrorActiveSource = RunningStatusMirror.SOURCE
+            // Never silently switch away from the selected feed, except when the previous selection
+            // was a deprecated cache entry. The dropdown and the table must describe the same witness.
+            if (mirrorActiveSource == null || mirrorActiveSource == "last known")
+                mirrorActiveSource = if (verifiedPrimary.isNotEmpty()) RunningStatusMirror.SOURCE
+                    else if (verifiedCk.isNotEmpty()) ConfirmTktMirror.SOURCE else null
+            mirrorRefreshedAt = System.currentTimeMillis()
+            mirrorShiftAt = mirrorRefreshedAt
             cacheTrainNo = trainNo
-            mirrorShiftAt = System.currentTimeMillis()
-            _mirrorState.postValue("Actuals · $sourcesLine")
-            Diary.get()?.log("MIRROR") { "sources this refresh: $sourcesLine" }
-
-            // Anchor + headline from the ACTUALS: the halt the train is making for, and the sentence
-            // that names what the train really did - the schedule's own headline ("Should be past
-            // Shimoga Town") contradicted the confirmed departure and read as wrong data (paste #25).
-            var anchorCode: String? = null
-            var headline: String? = null
-            var nextLine: String? = null
-            if (confirmed != null) {
-                val last = confirmed.first
-                val li = stopRows.indexOfFirst { it.code.equals(last.stationCode, true) }
-                val next = if (li >= 0) stopRows.getOrNull(li + 1) else null
-                val coveredDep = witnessedMinute(last.actDep, stopRows.getOrNull(li)?.departureMin, nowRail)
-                val coveredArr = witnessedMinute(last.actArr, stopRows.getOrNull(li)?.arrivalMin, nowRail)
-                anchorCode = if (coveredDep != null) next?.code ?: last.stationCode else last.stationCode
-                fun hm(m: Int): String = "${m / 60}:" + "%02d".format(m % 60)
-                fun dayTag(minute: Int): String = if (minute >= 1440) " (+1d)" else ""
-                // The station-status word the owner asked for, derived ONLY from what a mirror can prove:
-                // a halt whose departure minute is this exact minute or the next few is being served; a
-                // halt with an arrival but no departure is being sat at; anything else is running.
-                val statusWord = when {
-                    last.stationCode == codes.lastOrNull() && coveredArr != null ->
-                        "Reached ${last.stationCode} — journey complete"
-                    coveredArr != null && coveredDep == null -> "Halted at ${last.stationCode}"
-                    coveredDep != null && nowRail - coveredDep in 0..2 -> "Departing ${last.stationCode} now"
-                    else -> "Running"
-                }
-                headline = statusWord + " · Left ${last.stationCode} at " +
-                    hm(Math.floorMod(coveredDep ?: coveredArr ?: 0, 1440)) + dayTag(coveredDep ?: coveredArr ?: 0) + " · " +
-                    (if (late > 2) "$late min late" else "on time") +
-                    (if (mirrorCrossChecked) " · cross-checked" else "")
-                nextLine = when {
-                    next != null -> {
-                        val sch = (next.arrivalMin ?: next.departureMin) ?: 0
-                        val exp = sch + late
-                        "Next: ${next.name} · expected ~${hm(exp % 1440)}" + dayTag(exp)
-                    }
-                    else -> "Reached ${last.stationCode} — the run's end"
-                }
-            }
-            val confirmedDep = confirmed?.first?.let { st ->
-                val row = stopRows.firstOrNull { it.code.equals(st.stationCode, true) }
-                witnessedMinute(st.actDep, row?.departureMin, nowRail)
-            }
-            if (u != null && confirmed != null && confirmedDep != null && late > 0) {
-                val last = confirmed.first
-                fun hm(m: Int): String = "${m / 60}:" + "%02d".format(m % 60)
-                val positionNote =
-                    "Position from the mirror's actuals: last confirmed ${last.stationCode} dep " +
-                        hm(confirmedDep) + " (${RunningStatusMirror.SOURCE}, $late min late) — the " +
-                        "schedule clock is set back by that lateness, so the next-stop estimate is " +
-                        "the train's, not the timetable's."
-                mirrorLate = late
-                mirrorNote = positionNote
-                mirrorShiftAt = System.currentTimeMillis()
-                mirrorAnchorCode = anchorCode
-                mirrorHeadline = headline
-                mirrorNext = nextLine
-                mirrorBadge = "ACTUALS · ${RunningStatusMirror.SOURCE}"
-                val shifted = buildUi(
-                    u.route, u.answer, u.tried, emptyList(),
-                    nowRail - late, positionNote,
-                ).copy(reports = display, relayOk = u.relayOk)
-                _ui.postValue(shifted)
-                Diary.get()?.log("MIRROR") {
-                    "position from actuals: last confirmed ${last.stationCode} dep ${hm(confirmedDep)} " +
-                        "($late min late) - schedule clock shifted back $late min (persists across refreshes)"
-                }
-            } else {
-                if (confirmed == null || late <= 0 || confirmedDep == null) {
-                    // The train caught up with its timetable (or the mirror only has on-time data):
-                    // drop any stale shift instead of dragging the clock back forever.
-                    mirrorLate = 0
-                    mirrorNote = null
-                    mirrorShiftAt = System.currentTimeMillis()
-                }
-                if (u != null) {
-                    mirrorAnchorCode = anchorCode
-                    mirrorHeadline = headline
-                    mirrorNext = nextLine
-                    // No deviation to report is not "nothing answered": the witness spoke, the badge
-                    // says so, and the columns carry its minutes (paste #29: answers with the screen
-                    // still reading schedule-only was the defect).
-                    mirrorBadge = headline?.let { "ACTUALS · ${RunningStatusMirror.SOURCE}" }
-                        ?: if (mirrorStops.isNotEmpty()) "ACTUALS · ${RunningStatusMirror.SOURCE}" else null
-                    _ui.postValue(buildUi(u.route, u.answer, u.tried, emptyList()).copy(reports = display))
-                }
-            }
-            saveMirrorCache(display)
+            val overlaid = overlayActuals(base, verifiedPrimary, nowRail)
+            val receipt = deviceReceipt(overlaid)
+            delayDevice = receipt?.first ?: 0
+            delayDetail = receipt?.second
+            // An extrapolated position and ETA must never arise from an uncorroborated page token.
+            mirrorLate = if (verifiedPrimary.isNotEmpty()) delayDevice.coerceAtLeast(0) else 0
+            mirrorNote = null
+            mirrorHeadline = null
+            mirrorNext = null
+            mirrorBadge = null
+            mirrorAnchorCode = null
+            mirrorSources = "${verifiedPrimary.size} verified on runningstatus.in · " +
+                "${verifiedCk.size} corroborated on confirmtkt · checked $refreshed"
+            _mirrorState.postValue(if (verifiedPrimary.isNotEmpty()) "Verified actuals · $mirrorSources"
+                else "No verified actual arrival/departure this refresh — showing timetable only")
+            _ui.postValue(buildUi(u.route, u.answer, u.tried).copy(relayOk = u.relayOk))
+            if (verifiedPrimary.isNotEmpty()) saveMirrorCache(mirrorSourceLines[RunningStatusMirror.SOURCE].orEmpty())
             Diary.get()?.log("MIRROR") {
-                "${RunningStatusMirror.SOURCE} answered: ${mirrorLines.size} stop(s) with actual " +
-                    "arr/dep for $trainNo"
+                "primary raw=${primary?.stops?.size ?: 0} verified=${verifiedPrimary.size} " +
+                    "disputed hidden=${disputed.joinToString(",")}; " +
+                    "confirmtkt raw=${ck.stops.size} corroborated=${verifiedCk.size}; " +
+                    "unverified minutes never drive position or delay"
             }
         }
     }
@@ -1019,8 +846,7 @@ class LiveViewModel(
         positionNote: String? = null,
     ): Ui {
         val now = System.currentTimeMillis()
-        val shift = if (nowRailOverride == null && freshShift()) mirrorLate else 0
-        val nowRail = (nowRailOverride ?: nowMinute(now)) - shift
+        val nowRail = nowRailOverride ?: nowMinute(now)
         val pos = answer.position
         val model = TrackModel.build(
             route = route, pos = pos, perStop = answer.perStop, nowRailMinute = nowRail,
@@ -1033,7 +859,7 @@ class LiveViewModel(
             // on — no network, a timeout, a refusal, or the case this endpoint really is: it answered about
             // the train and published no arrival or departure minute at all. "No live report reached this
             // device" is the last resort, for when no source had anything more specific to say.
-            note = positionNote ?: (if (freshShift()) mirrorNote else null)
+            note = positionNote
                 ?: notes.firstOrNull { it.isNotBlank() } ?: answer.note
                 ?: if (pos.provenance.live) null
                 else "No live report reached this device — every minute below is the timetable, " +
@@ -1060,8 +886,31 @@ class LiveViewModel(
         val live = freshShift()
         // No deviation to build a status word from is still not silence: one sentence from the
         // freshest reported halt keeps the top box in the mirror's voice.
-        val fallback = if (mirrorHeadline == null && overlayStops.isNotEmpty()) mirrorVerdict(withActuals) else null
-        val receipt = if (live) deviceReceipt(withActuals) else null
+        val verified = if (live && overlayStops.isNotEmpty()) mirrorVerdict(withActuals) else null
+        val receipt = if (verified != null) deviceReceipt(withActuals) else null
+        val sourceNames = linkedMapOf(
+            "NTES (official)" to (if (answer.position.provenance.live && answer.perStop.isNotEmpty())
+                "live" to "${answer.perStop.size} reported stops" else "none" to "no per-stop actuals on this device"),
+            RunningStatusMirror.SOURCE to (mirrorSourceStates[RunningStatusMirror.SOURCE]
+                ?: ("none" to "not answered yet")),
+            ConfirmTktMirror.SOURCE to (mirrorSourceStates[ConfirmTktMirror.SOURCE]
+                ?: ("none" to "not answered yet")),
+            "erail" to (if (liveIdentity != null) "unverified" to "identity only; no actual halt times"
+                else "none" to "no per-stop actuals"),
+            "ixigo" to ("unverified" to "probe only; no verified per-stop feed"),
+        )
+        val selectable = linkedMapOf<String, Map<String, String>>()
+        if ("last known" in mirrorSourceLines) sourceNames["last known"] =
+            "last-known" to "cached for this run; not a new observation"
+        for (name in sourceNames.keys) selectable[name] = mirrorSourceLines[name].orEmpty()
+        val selected = mirrorActiveSource ?: "NTES (official)"
+        val lastReported = withActuals.rows.lastOrNull { it.source == TrackModel.MinuteSource.REPORTED }
+        val nextRow = lastReported?.let { r -> withActuals.rows.getOrNull(withActuals.rows.indexOf(r) + 1) }
+        val nextStatement = nextRow?.let { r ->
+            if (r.source == TrackModel.MinuteSource.PROJECTED && r.showArr != null && r.showArr >= nowMinute(now))
+                "Next ${r.name}: estimated ${RailTime.formatRailMinute(r.showArr)} (not reported)"
+            else "Next ${r.name}: arrival not confirmed"
+        }
         return Ui(
             route = route, answer = answer, model = withActuals,
             boarding = withActuals.rows.firstOrNull { it.isBoarding },
@@ -1069,19 +918,21 @@ class LiveViewModel(
             nowRailMinute = nowRail, tried = tried, loading = false,
             reports = mirrorSourceLines[mirrorActiveSource] ?: _ui.value?.reports ?: emptyMap(),
             relayOk = _ui.value?.relayOk ?: true,
-            anchorCode = if (live) mirrorAnchorCode else null,
-            actualsHeadline = if (live) (mirrorHeadline ?: fallback?.first) else null,
-            actualsNext = if (live) mirrorNext else null,
-            actualsBadge = if (live) mirrorBadge else null,
-            actualsLate = if (live) (receipt?.first ?: delayDevice.takeIf { mirrorHeadline != null }) else null,
-            sourcesLine = if (live) mirrorSources else null,
-            sourceLines = if (live) mirrorSourceLines else emptyMap(),
-            activeSource = if (live) mirrorActiveSource else null,
-            actualsSource = if (live && overlayStops.isNotEmpty()) mirrorActiveSource else null,
-            sourceStates = mirrorSourceStates,
+            anchorCode = if (verified != null) lastReported?.code else null,
+            actualsHeadline = verified?.first?.let { if (selected == "last known")
+                "Last known at ${clockAt(mirrorRefreshedAt)} · $it" else it },
+            actualsNext = if (verified != null) nextStatement else null,
+            actualsBadge = if (verified != null) (if (selected == "last known")
+                "CACHED · $selected" else "VERIFIED · $selected") else null,
+            actualsLate = receipt?.first,
+            sourcesLine = if (verified != null) mirrorSources else null,
+            sourceLines = selectable,
+            activeSource = selected,
+            actualsSource = if (verified != null) selected else null,
+            sourceStates = sourceNames,
             lastUpdated = (mirrorRefreshedAt.takeIf { it > 0 } ?: lastFetchAt.takeIf { it > 0 })
-                ?.let { "Last updated ${clockAt(it)}" },
-            delayDetail = if (live) (receipt?.second ?: delayDetail) else null,
+                ?.let { (if (verified != null) "Verified " else "Last checked ") + clockAt(it) },
+            delayDetail = receipt?.second,
         )
     }
 
@@ -1157,16 +1008,71 @@ class LiveViewModel(
             segments = emptyList(),
         )
 
-        /** A witnessed minute is covered only when it is at or behind the device clock (2 min skew).
-         * Align against the displayed schedule first so a day-two halt is not mistaken for yesterday. */
-        private fun witnessedMinute(act: Int?, sched: Int?, nowRail: Int): Int? {
-            val shown = if (act != null && act >= 1440) act
-                else RailTime.alignClock(act, sched ?: nowRail) ?: return null
-            return shown.takeIf { it - nowRail <= 2 }
-        }
-
         private fun slip(actual: Int, scheduled: Int): Int =
             Math.floorMod(actual - scheduled + 720, 1440) - 720
+
+        /** Refuse a clock-only token that is hours before its own displayed stop, ahead of now,
+         * before the run began, or out of route order. Never wrap an implausible -237 min into a
+         * seemingly valid delay, and never use the feed's separate schedule as the baseline. */
+        internal fun validateStops(
+            model: TrackModel.View, stops: List<RunningStatusMirror.Stop>, nowRail: Int,
+        ): List<RunningStatusMirror.Stop> {
+            val byCode = stops.associateBy { it.stationCode.uppercase() }
+            val origin = model.rows.firstOrNull()?.schedDep ?: model.rows.firstOrNull()?.schedArr
+            var lastMinute = origin?.minus(10) ?: Int.MIN_VALUE
+            return model.rows.mapNotNull { row ->
+                val st = byCode[row.code.uppercase()] ?: return@mapNotNull null
+                fun accept(clock: Int?, sched: Int?): Int? {
+                    if (clock == null || sched == null) return null
+                    val shown = if (clock >= 1440) clock else RailTime.alignClock(clock, sched) ?: return null
+                    val offset = shown - sched
+                    return shown.takeIf { offset in -10..180 && shown <= nowRail + 2 &&
+                        (origin == null || shown >= origin - 10) && shown >= lastMinute - 2 }
+                }
+                val arr = accept(st.actArr, row.schedArr)
+                if (arr != null) lastMinute = arr
+                val dep = accept(st.actDep, row.schedDep)
+                if (dep != null) lastMinute = dep
+                // Extensions without a timetable can carry a *labelled estimate*, not a confirmed Act.
+                val extension = row.schedArr == null && row.schedDep == null
+                st.copy(actArr = arr ?: if (extension) st.actArr else null,
+                    actDep = dep ?: if (extension) st.actDep else null)
+            }
+        }
+
+        /** Suppress a row when two plausible past timestamps explicitly disagree; neither witness
+         * wins by ordering. Missing or implausible page times are NOT counter-evidence. */
+        internal fun conflictingCodes(
+            primary: List<RunningStatusMirror.Stop>, candidate: List<RunningStatusMirror.Stop>,
+            model: TrackModel.View, nowRail: Int,
+        ): Set<String> {
+            val second = validateStops(model, candidate, nowRail)
+                .associateBy { it.stationCode.uppercase() }
+            return primary.filter { first ->
+                val other = second[first.stationCode.uppercase()] ?: return@filter false
+                (first.actArr != null && other.actArr != null &&
+                    kotlin.math.abs(slip(first.actArr, other.actArr)) > 5) ||
+                    (first.actDep != null && other.actDep != null &&
+                        kotlin.math.abs(slip(first.actDep, other.actDep)) > 5)
+            }.map { it.stationCode.uppercase() }.toSet()
+        }
+
+        /** The second page is not independent proof merely because it returned HTML. */
+        internal fun crossCheckedStops(
+            primary: List<RunningStatusMirror.Stop>, candidate: List<RunningStatusMirror.Stop>,
+            model: TrackModel.View, nowRail: Int,
+        ): List<RunningStatusMirror.Stop> {
+            val clean = validateStops(model, candidate, nowRail)
+            val byCode = primary.associateBy { it.stationCode.uppercase() }
+            return clean.mapNotNull { st ->
+                val first = byCode[st.stationCode.uppercase()] ?: return@mapNotNull null
+                val arr = st.actArr?.takeIf { a -> first.actArr != null &&
+                    kotlin.math.abs(slip(a, first.actArr)) <= 5 }
+                val dep = st.actDep?.takeIf { d -> first.actDep != null &&
+                    kotlin.math.abs(slip(d, first.actDep)) <= 5 }
+                if (arr == null && dep == null) null else st.copy(actArr = arr, actDep = dep)
+            }
+        }
 
         private fun deviceReceipt(model: TrackModel.View): Pair<Int, String>? {
             val last = model.rows.lastOrNull { it.source == TrackModel.MinuteSource.REPORTED &&
@@ -1179,70 +1085,39 @@ class LiveViewModel(
                 "${last.code} ${RailTime.formatRailMinuteBare(sched)} → ${RailTime.formatRailMinuteBare(shown)}"
         }
 
-        private fun lastCovered(
-            stops: List<RunningStatusMirror.Stop>, route: List<StopRow>, nowRail: Int,
-        ): Pair<RunningStatusMirror.Stop, List<String>>? {
-            val byCode = stops.associateBy { it.stationCode.uppercase() }
-            val future = mutableListOf<String>()
-            var last: RunningStatusMirror.Stop? = null
-            for (row in route) {
-                val st = byCode[row.code.uppercase()] ?: continue
-                if (witnessedMinute(st.actDep, row.departureMin, nowRail) != null ||
-                    witnessedMinute(st.actArr, row.arrivalMin, nowRail) != null) last = st
-                else if (st.actDep != null || st.actArr != null) future += row.code
-            }
-            return last?.let { it to future }
-        }
-
-        /** Observed rows are Act; future witness timestamps never become an observation. Their Est
-         * comes from THIS timetable plus the last covered row's device delay, not future feed echoes. */
+        /** Only a VERIFIED stop can move an estimate. Propagate forward, never backwards from a
+         * later halt; hide an ETA already behind the device clock instead of printing time travel. */
         internal fun overlayActuals(
-            model: TrackModel.View,
-            stops: List<RunningStatusMirror.Stop>,
-            nowRail: Int,
+            model: TrackModel.View, stops: List<RunningStatusMirror.Stop>, nowRail: Int,
         ): TrackModel.View {
-            val byCode = stops.associateBy { it.stationCode.uppercase() }
-            var delayDevice = 0
-            for (r in model.rows) {
-                val m = byCode[r.code.uppercase()] ?: continue
-                val dep = witnessedMinute(m.actDep, r.schedDep, nowRail)
-                val arr = witnessedMinute(m.actArr, r.schedArr, nowRail)
-                val observed = if (dep != null && r.schedDep != null) dep to r.schedDep
-                    else if (arr != null && r.schedArr != null) arr to r.schedArr else null
-                if (observed != null) delayDevice = slip(observed.first, observed.second)
-            }
-            return model.copy(rows = model.rows.map { r ->
-                val m = byCode[r.code.uppercase()]
-                val scheduled = r.schedDep ?: r.schedArr
-                if (m == null) return@map if (scheduled != null && scheduled > nowRail + 2) r.copy(
-                    showArr = r.schedArr?.plus(delayDevice),
-                    showDep = r.schedDep?.plus(delayDevice),
-                    delay = delayDevice,
-                    source = TrackModel.MinuteSource.PROJECTED,
-                ) else r
-                val arr = witnessedMinute(m.actArr, r.schedArr, nowRail)
-                val dep = witnessedMinute(m.actDep, r.schedDep, nowRail)
-                val extension = r.schedArr == null && r.schedDep == null
-                when {
-                    extension -> r.copy(
-                        showArr = RailTime.alignClock(m.actArr, nowRail),
-                        showDep = RailTime.alignClock(m.actDep, nowRail),
-                        source = TrackModel.MinuteSource.PROJECTED,
-                    )
-                    arr != null || dep != null -> r.copy(
-                        showArr = arr, showDep = dep,
-                        delay = (if (dep != null && r.schedDep != null) slip(dep, r.schedDep)
-                            else if (arr != null && r.schedArr != null) slip(arr, r.schedArr) else null),
-                        source = TrackModel.MinuteSource.REPORTED,
-                    )
-                    m.actArr != null || m.actDep != null -> r.copy(
-                        showArr = r.schedArr?.plus(delayDevice),
-                        showDep = r.schedDep?.plus(delayDevice),
-                        delay = delayDevice,
-                        source = TrackModel.MinuteSource.PROJECTED,
-                    )
-                    else -> r
+            val byCode = validateStops(model, stops, nowRail).associateBy { it.stationCode.uppercase() }
+            var carried: Int? = null
+            val origin = model.rows.firstOrNull()?.schedDep ?: model.rows.firstOrNull()?.schedArr
+            return model.copy(rows = model.rows.map { row ->
+                val st = byCode[row.code.uppercase()]
+                if (row.schedArr == null && row.schedDep == null) {
+                    return@map if (st?.actArr != null || st?.actDep != null) row.copy(
+                        showArr = st?.actArr, showDep = st?.actDep,
+                        source = TrackModel.MinuteSource.PROJECTED) else row
                 }
+                val arr = st?.actArr?.takeIf { row.schedArr != null }
+                val dep = st?.actDep?.takeIf { row.schedDep != null }
+                if (arr != null || dep != null) {
+                    val actual = if (dep != null && row.schedDep != null) dep to row.schedDep
+                        else arr!! to row.schedArr!!
+                    carried = slip(actual.first, actual.second)
+                    return@map row.copy(showArr = arr, showDep = dep, delay = carried,
+                        source = TrackModel.MinuteSource.REPORTED)
+                }
+                if (row.source == TrackModel.MinuteSource.REPORTED) return@map row
+                val offset = carried
+                val arrEst = if (offset == null) null else row.schedArr?.plus(offset)
+                val depEst = if (offset == null) null else row.schedDep?.plus(offset)
+                val pivot = arrEst ?: depEst
+                if (pivot != null && pivot >= nowRail - 2 && (origin == null || pivot >= origin - 10))
+                    row.copy(showArr = arrEst, showDep = depEst, delay = offset,
+                        source = TrackModel.MinuteSource.PROJECTED)
+                else row.copy(source = TrackModel.MinuteSource.SCHEDULE, delay = null)
             })
         }
 
@@ -1252,20 +1127,19 @@ class LiveViewModel(
          * carries an observed minute - the screen then says plainly that no halt is reported yet.
          */
         internal fun mirrorVerdict(model: TrackModel.View): Pair<String, Int>? {
-            val last = model.rows.lastOrNull { it.source == TrackModel.MinuteSource.REPORTED }
-                ?: return null
-            val useDep = last.showDep != null && last.schedDep != null
-            val shown = if (useDep) last.showDep!! else last.showArr ?: return null
-            val sched = if (useDep) last.schedDep!! else last.schedArr ?: return null
-            val d = (((shown - sched + 720) % 1440) + 1440) % 1440 - 720
-            val m = ((shown % 1440) + 1440) % 1440
-            val hm = "${m / 60}:" + "%02d".format(m % 60)
+            val last = model.rows.lastOrNull { it.source == TrackModel.MinuteSource.REPORTED &&
+                (it.showDep != null || it.showArr != null) } ?: return null
+            val dep = last.showDep != null && last.schedDep != null
+            val actual = if (dep) last.showDep!! else last.showArr ?: return null
+            val schedule = if (dep) last.schedDep!! else last.schedArr ?: return null
+            val d = slip(actual, schedule)
             val word = when {
                 d > 2 -> "$d min late"
                 d < -2 -> "${-d} min early"
                 else -> "on time"
             }
-            return "Running — last reported ${last.code} at $hm — $word (vs this timetable)" to d
+            return "Last verified: ${if (dep) "left" else "arrived at"} ${last.code} at " +
+                RailTime.formatRailMinuteBare(actual) + " · $word" to d
         }
 
         /**

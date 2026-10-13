@@ -120,6 +120,7 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         val dot: View = view.findViewById(R.id.stopDot)
         val name: TextView = view.findViewById(R.id.stopName)
         val meta: TextView = view.findViewById(R.id.stopMeta)
+        val status: TextView = view.findViewById(R.id.stopStatus)
         val schedArr: TextView = view.findViewById(R.id.schedArr)
         val schedDep: TextView = view.findViewById(R.id.schedDep)
         val liveArr: TextView = view.findViewById(R.id.liveArr)
@@ -140,13 +141,24 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             if (s.isBoarding) append(" · ").append(ctx.getString(R.string.tag_board))
             else if (s.isAlighting) append(" · ").append(ctx.getString(R.string.tag_alight))
             s.platform?.takeIf { it.isNotBlank() }?.let { append(" · plat ").append(it) }
-            when (s.state) {
-                TrackModel.State.HERE -> append(" · TRAIN AT STATION NOW")
-                TrackModel.State.NEXT -> append(" · running — due in ")
-                    .append(s.minutesFromNow?.coerceAtLeast(0) ?: "?").append(" min")
-                else -> Unit
-            }
         }
+        val verified = s.source == TrackModel.MinuteSource.REPORTED
+        holder.status.text = when {
+            verified && s.showDep != null -> "LEFT · departure reported"
+            verified && s.showArr != null -> "ARRIVED · departure not reported"
+            s.state == TrackModel.State.PASSED -> "TIMETABLE PAST · actual unknown"
+            s.state == TrackModel.State.HERE -> "TIMETABLE AT STOP · train unconfirmed"
+            s.state == TrackModel.State.NEXT && s.source == TrackModel.MinuteSource.PROJECTED ->
+                "NEXT · estimated, arrival unconfirmed"
+            s.state == TrackModel.State.NEXT -> "NEXT ON TIMETABLE · not live"
+            s.source == TrackModel.MinuteSource.PROJECTED -> "ESTIMATE · not reported"
+            else -> "SCHEDULED · not reported"
+        }
+        holder.status.setTextColor(ctx.getColor(when {
+            verified -> R.color.live
+            s.source == TrackModel.MinuteSource.PROJECTED -> R.color.warn
+            else -> R.color.text3
+        }))
         // The owner's arrangement (round 45): each time column stacks SCHEDULED above ACTUAL/EXPECTED,
         // every minute prefixed so the two kinds can never be confused. A late actual burns red - and it
         // sits BELOW the schedule, which is the whole point: the eye compares them at one glance.
@@ -179,12 +191,14 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         holder.liveDep.setTextColor(ctx.getColor(color))
         holder.dot.setBackgroundResource(dotFor(s))
         holder.row.setPadding(holder.row.paddingLeft,
-            if (s.state == TrackModel.State.NEXT) ctx.resources.getDimensionPixelSize(R.dimen.row_gap_running)
+            if (s.state == TrackModel.State.NEXT && s.source == TrackModel.MinuteSource.PROJECTED)
+                ctx.resources.getDimensionPixelSize(R.dimen.row_gap_running)
             else ctx.resources.getDimensionPixelSize(R.dimen.gap_s),
             holder.row.paddingRight, holder.row.paddingBottom)
         holder.row.setBackgroundColor(
             when {
-                s.state == TrackModel.State.HERE -> 0x30FFC107.toInt()
+                s.state == TrackModel.State.HERE && verified && s.showArr != null && s.showDep == null ->
+                    0x30FFC107.toInt()
                 s.code.equals(highlightCode, true) -> 0x30FFC107.toInt() // amber: where the train IS
                 s.isAnchor -> 0x2437C978.toInt()
                 s.isBoarding || s.isAlighting -> 0x0AFFFFFF
@@ -217,7 +231,7 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
     }
 
     private fun tagColorFor(s: TrackModel.Stop): Int = when {
-        s.state == TrackModel.State.HERE -> R.color.accent
+        s.state == TrackModel.State.HERE && s.source == TrackModel.MinuteSource.REPORTED -> R.color.accent
         s.state == TrackModel.State.CANCELLED || s.state == TrackModel.State.SKIPPED -> R.color.late
         s.state == TrackModel.State.NEXT -> R.color.text1
         s.source == TrackModel.MinuteSource.PROJECTED -> R.color.warn
@@ -227,15 +241,18 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
     }
 
     private fun dotFor(s: TrackModel.Stop): Int = when (s.state) {
-        TrackModel.State.HERE -> R.drawable.dot_here
-        TrackModel.State.PASSED -> R.drawable.dot_passed
+        TrackModel.State.HERE -> if (s.source == TrackModel.MinuteSource.REPORTED)
+            R.drawable.dot_here else R.drawable.dot_later
+        TrackModel.State.PASSED -> if (s.source == TrackModel.MinuteSource.REPORTED)
+            R.drawable.dot_passed else R.drawable.dot_later
         TrackModel.State.CANCELLED, TrackModel.State.SKIPPED -> R.drawable.dot_problem
         else -> R.drawable.dot_later
     }
 
     private fun colorFor(s: TrackModel.Stop): Int = when {
         s.state == TrackModel.State.CANCELLED || s.state == TrackModel.State.SKIPPED -> R.color.late
-        s.state == TrackModel.State.HERE -> R.color.accent
+        s.state == TrackModel.State.HERE && s.source == TrackModel.MinuteSource.REPORTED -> R.color.accent
+        s.source == TrackModel.MinuteSource.SCHEDULE -> R.color.text2
         s.state == TrackModel.State.LATER -> R.color.text2
         else -> R.color.text1
     }

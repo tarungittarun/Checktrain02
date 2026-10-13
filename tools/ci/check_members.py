@@ -46,7 +46,7 @@ LOCAL_RECEIVERS = {"hit", "s", "m", "ui", "pos", "route", "ans", "row", "st", "v
 ALLOW = set("""
 equals hashCode toString copy name ordinal values of entries size isEmpty isNotEmpty isBlank isNotBlank
 trim lowercase uppercase substring substringBefore substringAfter split replace startsWith endsWith
-contains indexOf lastIndex firstOrNull find filter map mapIndexed mapNotNull forEach sumBy maxBy
+contains indexOf lastIndex firstOrNull find filter filterNot map mapIndexed mapNotNull forEach sumBy maxBy
 minByOrNull sortedBy distinct distinctBy take drop joinToString orEmpty padStart padEnd repeat toList
 toTypedArray toSet toMutableList associate associateBy zip mapIndexedNotNull onEach fold any all none
 count groupBy sum average min max require requireNotNull check checkNotNull format append appendLine
