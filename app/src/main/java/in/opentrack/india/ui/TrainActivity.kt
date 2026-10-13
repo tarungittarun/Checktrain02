@@ -14,6 +14,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.LinearLayoutManager
 import `in`.opentrack.india.App
+import `in`.opentrack.india.core.BuildStamp
 import `in`.opentrack.india.core.Diary
 import `in`.opentrack.india.R
 import `in`.opentrack.india.core.RailTime
@@ -69,7 +70,7 @@ class TrainActivity : AppCompatActivity() {
         stopAdapter = StopAdapter()
         binding.stops.layoutManager = LinearLayoutManager(this)
         binding.stops.adapter = stopAdapter
-        binding.stops.isNestedScrollingEnabled = false
+        binding.buildStamp.text = BuildStamp.ROUND
 
         binding.refresh.setOnClickListener { vm.refresh(manual = true) }
         binding.autoSwitch.setOnCheckedChangeListener(null)
@@ -152,21 +153,46 @@ class TrainActivity : AppCompatActivity() {
      */
     private fun renderSourceChips(ui: LiveViewModel.Ui) {
         val names = ui.sourceLines.keys.toList()
-        if (binding.sourceSpinner.tag == names || names.isEmpty()) {
-            binding.sourceSpinner.visibility = if (names.isEmpty()) View.GONE else View.VISIBLE
-            return
-        }
-        binding.sourceSpinner.tag = names
-        binding.sourceSpinner.adapter = ArrayAdapter(
-            this, android.R.layout.simple_spinner_dropdown_item, names,
-        )
-        binding.sourceSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
-                val name = names.getOrNull(pos) ?: return
-                if (name != ui.activeSource) vm.setActiveSource(name)
-            }
+        binding.sourceSpinner.visibility = if (names.isEmpty()) View.GONE else View.VISIBLE
+        if (names.isEmpty()) return
+        val states = ui.sourceStates
+        if (binding.sourceSpinner.tag != (names to states)) {
+            binding.sourceSpinner.tag = names to states
+            binding.sourceSpinner.adapter = object : ArrayAdapter<String>(
+                this, android.R.layout.simple_spinner_item, names,
+            ) {
+                override fun getView(position: Int, convertView: View?, parent: android.view.ViewGroup): View {
+                    val view = super.getView(position, convertView, parent)
+                    (view as TextView).apply {
+                        text = names[position]
+                        setTextColor(getColor(R.color.text1))
+                    }
+                    return view
+                }
 
-            override fun onNothingSelected(p: AdapterView<*>?) {}
+                override fun getDropDownView(position: Int, convertView: View?, parent: android.view.ViewGroup): View {
+                    val view = super.getDropDownView(position, convertView, parent)
+                    val name = names[position]
+                    val (state, detail) = states[name] ?: ("last-known" to "last known")
+                    (view as TextView).apply {
+                        text = "$name · $detail"
+                        setTextColor(getColor(when (state) {
+                            "live" -> R.color.live
+                            "none" -> R.color.late
+                            else -> R.color.warn
+                        }))
+                    }
+                    return view
+                }
+            }
+            binding.sourceSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                    val name = names.getOrNull(pos) ?: return
+                    if (name != lastUi?.activeSource) vm.setActiveSource(name)
+                }
+
+                override fun onNothingSelected(p: AdapterView<*>?) {}
+            }
         }
         ui.activeSource?.let { src ->
             val at = names.indexOf(src)
@@ -174,7 +200,6 @@ class TrainActivity : AppCompatActivity() {
                 binding.sourceSpinner.setSelection(at, false)
             }
         }
-        binding.sourceSpinner.visibility = View.VISIBLE
     }
 
     private fun bind(ui: LiveViewModel.Ui) {
@@ -182,6 +207,8 @@ class TrainActivity : AppCompatActivity() {
         binding.trainNo.text = m.trainNo
         binding.routeLabel.text = m.routeLabel
         binding.runDate.text = m.runDateLabel
+        binding.lastUpdated.visibility = if (ui.lastUpdated == null) View.GONE else View.VISIBLE
+        binding.lastUpdated.text = ui.lastUpdated
         binding.headline.text = m.headline
 
         val (badgeBg, badgeText) = when (m.tone) {
@@ -240,6 +267,7 @@ class TrainActivity : AppCompatActivity() {
                 ui.actualsLate != null -> "on time"
                 else -> m.delayLabel
             }
+            ui.delayDetail?.let { binding.delay.text = "${binding.delay.text} · $it" }
             binding.delay.setTextColor(getColor(if (late > 2) R.color.late else R.color.live))
         }
         ui.sourcesLine?.let { binding.age.text = it }
@@ -249,21 +277,6 @@ class TrainActivity : AppCompatActivity() {
         stopAdapter.reports = ui.sourceLines[ui.activeSource] ?: ui.reports
         renderSourceChips(ui)
         stopAdapter.highlightCode = ui.anchorCode
-        if (ui.anchorCode != null && ui.anchorCode != lastAnchor) {
-            lastAnchor = ui.anchorCode
-            val idx = m.rows.indexOfFirst { it.code.equals(ui.anchorCode!!, true) }
-            if (idx >= 0) {
-                val rv = binding.stops
-                rv.post {
-                    val lm = rv.layoutManager as LinearLayoutManager
-                    lm.scrollToPositionWithOffset(idx, 60)
-                    rv.post {
-                        val v = lm.findViewByPosition(idx) ?: return@post
-                        binding.scroller.smoothScrollTo(0, (rv.top + v.top - 340).coerceAtLeast(0))
-                    }
-                }
-            }
-        }
         if (ui.reports.isNotEmpty()) {
             Diary.get()?.log("UISTATE") {
                 "crowd on screen: " + ui.reports.entries.joinToString(" ; ") { it.key + " -> " + it.value }
@@ -278,7 +291,16 @@ class TrainActivity : AppCompatActivity() {
         val win = vm.windowFor(m.rows, anchorSeq, true)
         val from = win.first.coerceIn(0, (m.rows.size - 1).coerceAtLeast(0))
         val to = win.last.coerceIn(from, (m.rows.size - 1).coerceAtLeast(0))
-        stopAdapter.submitList(m.rows.subList(from, to + 1))
+        stopAdapter.submitList(m.rows.subList(from, to + 1)) {
+            val anchor = ui.anchorCode
+            if (anchor != null && anchor != lastAnchor) {
+                val idx = m.rows.subList(from, to + 1).indexOfFirst { it.code.equals(anchor, true) }
+                if (idx >= 0) {
+                    lastAnchor = anchor
+                    (binding.stops.layoutManager as LinearLayoutManager).scrollToPositionWithOffset(idx, 160)
+                }
+            }
+        }
         val hidden = m.rows.size - (to - from + 1)
         binding.rowsNote.visibility = if (hidden > 0) View.VISIBLE else View.GONE
         if (hidden > 0) {

@@ -13,6 +13,7 @@
     <dimen name="col_sched">102dp</dimen>
     <dimen name="col_live">102dp</dimen>
     <dimen name="col_km">44dp</dimen>
+    <dimen name="row_gap_running">34dp</dimen>
     <dimen name="row_min_h">54dp</dimen>
     <dimen name="chart_h">190dp</dimen>
     <dimen name="progress_h">10dp</dimen>

@@ -202,7 +202,7 @@ class Diary(private val file: File) {
             val pi = app.packageManager.getPackageInfo(app.packageName, 0)
             append(
                 "ENV",
-                "app=" + pi.versionName + " versionCode=" + pi.versionCode +
+                "build=" + BuildStamp.STAMP + " app=" + pi.versionName + " versionCode=" + pi.versionCode +
                     " installed=" + pi.firstInstallTime + " diagSchema=" + SCHEMA,
             )
         }

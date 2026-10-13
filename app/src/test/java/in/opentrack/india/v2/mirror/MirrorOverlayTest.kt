@@ -52,10 +52,10 @@ class MirrorOverlayTest {
     )
 
     @Test
-    fun aDeviationFromTheMirrorsOwnSchedulePrintsAsActWithTheScreensArithmetic() {
-        // Mirror's own schedule for BBB is 700/705; the page reports 700/735 - a deviation: Act.
-        val stops = listOf(RunningStatusMirror.Stop("BBB", 700, 705, 700, 735))
-        val out = LiveViewModel.overlayActuals(model(), stops, nowRail = 730)
+    fun coveredMinutePrintsAsActWithTheScreensArithmetic() {
+        // The device clock has passed the witnessed minute; the displayed timetable is the baseline.
+        val stops = listOf(RunningStatusMirror.Stop("BBB", 690, 695, 700, 735))
+        val out = LiveViewModel.overlayActuals(model(), stops, nowRail = 740)
         val bbb = out.rows.first { it.code == "BBB" }
         assertEquals(TrackModel.MinuteSource.REPORTED, bbb.source)
         assertEquals(735, bbb.showDep)
@@ -70,33 +70,38 @@ class MirrorOverlayTest {
     }
 
     @Test
-    fun aScheduleEqualMinuteIsTheEchoAndStaysEstEvenHoursBehindTheClock() {
-        // Paste #24: the mirror copies the schedule into halts it cannot observe. A copy is never Act.
+    fun aScheduleEqualMinuteIsActOnceCoveredByTheDeviceClock() {
+        // R48: clock coverage, not comparison to the mirror's schedule, decides Act.
         val stops = listOf(RunningStatusMirror.Stop("BBB", 700, 705, 700, 705))
         val out = LiveViewModel.overlayActuals(model(), stops, nowRail = 730)
         val bbb = out.rows.first { it.code == "BBB" }
-        assertEquals(TrackModel.MinuteSource.PROJECTED, bbb.source)
+        assertEquals(TrackModel.MinuteSource.REPORTED, bbb.source)
         assertEquals(705, bbb.showDep)
-        assertNull("no observation, no verdict", LiveViewModel.mirrorVerdict(out))
+        assertNotNull(LiveViewModel.mirrorVerdict(out))
     }
 
     @Test
-    fun aScheduleCopyStaysEstEvenWhenTheClockIsUponTheHalt() {
-        // The echo rule ignores the clock entirely: a schedule-equal minute is unverifiable as an
-        // observation at any distance, imminent or far.
-        val stops = listOf(RunningStatusMirror.Stop("BBB", 700, 705, 700, 705))
+    fun aFutureWitnessMinuteIsEstFromDisplayedScheduleAndCoveredDelay() {
+        val stops = listOf(
+            RunningStatusMirror.Stop("AAA", null, 600, null, 610),
+            RunningStatusMirror.Stop("BBB", 700, 705, 770, 775),
+        )
         val out = LiveViewModel.overlayActuals(model(), stops, nowRail = 690)
         val bbb = out.rows.first { it.code == "BBB" }
         assertEquals(TrackModel.MinuteSource.PROJECTED, bbb.source)
+        assertEquals(715, bbb.showDep) // 705 + 10, NOT the future witness's 775
     }
 
     @Test
     fun haltsTheWitnessDoesNotCarryKeepTheirTimetableRowUntouched() {
         val stops = listOf(RunningStatusMirror.Stop("BBB", 700, 705, 700, 735))
         val out = LiveViewModel.overlayActuals(model(), stops, nowRail = 730)
+        val aaa = out.rows.first { it.code == "AAA" }
+        assertEquals(TrackModel.MinuteSource.SCHEDULE, aaa.source)
+        assertNull(aaa.showDep)
         val ccc = out.rows.first { it.code == "CCC" }
-        assertEquals(TrackModel.MinuteSource.SCHEDULE, ccc.source)
-        assertNull(ccc.showDep)
+        assertEquals(TrackModel.MinuteSource.PROJECTED, ccc.source)
+        assertEquals(800, ccc.showArr)
     }
 
     @Test
@@ -104,9 +109,22 @@ class MirrorOverlayTest {
         // AAA dep scheduled 600; mirror reports 00:05 next day. Whatever the fold, the slip the
         // screen computes must stay inside the wrap-safe +/-720 band or the colour lies.
         val stops = listOf(RunningStatusMirror.Stop("AAA", null, 600, null, 1445))
-        val out = LiveViewModel.overlayActuals(model(), stops, nowRail = 730)
+        val out = LiveViewModel.overlayActuals(model(), stops, nowRail = 1500)
         val aaa = out.rows.first { it.code == "AAA" }
         assertTrue("slip must stay in the wrap-safe band: ${aaa.delay}", aaa.delay!! in -720..720)
+    }
+
+    @Test
+    fun extensionHaltWithNoScheduleShowsWitnessAsEstimate() {
+        val ext = model().copy(rows = model().rows + model().rows.last().copy(
+            code = "EXT", schedArr = null, schedDep = null, showArr = null, showDep = null,
+            source = TrackModel.MinuteSource.SCHEDULE,
+        ))
+        val out = LiveViewModel.overlayActuals(
+            ext, listOf(RunningStatusMirror.Stop("EXT", null, null, 900, null)), 730,
+        )
+        assertEquals(TrackModel.MinuteSource.PROJECTED, out.rows.last().source)
+        assertEquals(900, out.rows.last().showArr)
     }
 
     @Test

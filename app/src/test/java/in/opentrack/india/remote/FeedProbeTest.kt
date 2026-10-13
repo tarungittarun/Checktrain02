@@ -41,31 +41,32 @@ class FeedProbeTest {
         assertEquals("the researched mirrors ride the fresh budget: ConfirmTkt's whitelisted servers " +
             "render the cluster's data as HTML", "webview-confirmtkt", vs[6].name)
         assertEquals("the second mirror, its path honestly labelled a guess", "webview-railmitra", vs[7].name)
+        assertEquals("the third mirror is probe-only and capture-first", "webview-ixigo", vs[8].name)
         assertEquals("the official app's gateway root: a door BeVigil's scan of the binary named and " +
             "no client ever knocked on - reachability first, paths invented nowhere",
-            "get-crisapis-gateway", vs[8].name)
-        assertEquals("the site's own script capture follows", "get-erail-sitejs", vs[9].name)
+            "get-crisapis-gateway", vs[9].name)
+        assertEquals("the site's own script capture follows", "get-erail-sitejs", vs[10].name)
         assertEquals("their own advertised public API is asked after the page reads (runningstatus = actuals)",
-            "get-api-runningstatus", vs[10].name)
-        assertEquals("and the route API next (per-stop schedule)", "get-api-route", vs[11].name)
+            "get-api-runningstatus", vs[11].name)
+        assertEquals("and the route API next (per-stop schedule)", "get-api-route", vs[12].name)
         // The two getRunTrain spellings retired here (404 twice from the owner's phone, pastes #10 and
         // #11) - their slots now carry the owner's researched mobile-gateway shape: unverified claims,
         // but testable on the ONE vantage where this host completes TLS. The probe is the experiment.
         assertEquals("the researched NTES app gateway: POST JSON, queryType 6, dalvik, dd-MMM-yyyy",
-            "post-appservand-json", vs[12].name)
+            "post-appservand-json", vs[13].name)
         assertTrue("gateway body must be the researched query, regenerable per train",
-            vs[12].body!!.contains("\"queryType\":\"6\"") && vs[12].body!!.contains("\"trainNo\":\"12627\""))
+            vs[13].body!!.contains("\"queryType\":\"6\"") && vs[13].body!!.contains("\"trainNo\":\"12627\""))
         assertEquals("the same gateway through the browser engine (the transport axis that separates " +
-            "this phone's two stacks)", "webview-appservand", vs[13].name)
-        assertEquals("the shipped shape follows as the control", "post-dalvik-json", vs[14].name)
+            "this phone's two stacks)", "webview-appservand", vs[14].name)
+        assertEquals("the shipped shape follows as the control", "post-dalvik-json", vs[15].name)
         assertEquals("the legacy-cipher ask last-in-window: the SAME correct shape with static-RSA suites " +
             "offered - the working OSS client widens for exactly this reason",
-            "post-appservand-legacytls", vs[15].name)
+            "post-appservand-legacytls", vs[16].name)
         // The run window is the first MAX_TRIES; everything beyond must be legacy leftovers, never a
         // settled page read - the reads that need the fresh budget must sit inside the window.
         assertTrue("beyond the window only legacy controls may live: got " +
-            vs.drop(16).joinToString(",") { it.name },
-            vs.drop(16).none {
+            vs.drop(17).joinToString(",") { it.name },
+            vs.drop(17).none {
                 it.name.startsWith("webview-erail-rstrain") || it.name.contains("confirmtkt") ||
                     it.name.contains("crisapis")
             })

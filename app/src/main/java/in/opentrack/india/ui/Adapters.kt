@@ -140,6 +140,12 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             if (s.isBoarding) append(" · ").append(ctx.getString(R.string.tag_board))
             else if (s.isAlighting) append(" · ").append(ctx.getString(R.string.tag_alight))
             s.platform?.takeIf { it.isNotBlank() }?.let { append(" · plat ").append(it) }
+            when (s.state) {
+                TrackModel.State.HERE -> append(" · TRAIN AT STATION NOW")
+                TrackModel.State.NEXT -> append(" · running — due in ")
+                    .append(s.minutesFromNow?.coerceAtLeast(0) ?: "?").append(" min")
+                else -> Unit
+            }
         }
         // The owner's arrangement (round 45): each time column stacks SCHEDULED above ACTUAL/EXPECTED,
         // every minute prefixed so the two kinds can never be confused. A late actual burns red - and it
@@ -172,8 +178,13 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         holder.liveArr.setTextColor(ctx.getColor(color))
         holder.liveDep.setTextColor(ctx.getColor(color))
         holder.dot.setBackgroundResource(dotFor(s))
+        holder.row.setPadding(holder.row.paddingLeft,
+            if (s.state == TrackModel.State.NEXT) ctx.resources.getDimensionPixelSize(R.dimen.row_gap_running)
+            else ctx.resources.getDimensionPixelSize(R.dimen.gap_s),
+            holder.row.paddingRight, holder.row.paddingBottom)
         holder.row.setBackgroundColor(
             when {
+                s.state == TrackModel.State.HERE -> 0x30FFC107.toInt()
                 s.code.equals(highlightCode, true) -> 0x30FFC107.toInt() // amber: where the train IS
                 s.isAnchor -> 0x2437C978.toInt()
                 s.isBoarding || s.isAlighting -> 0x0AFFFFFF

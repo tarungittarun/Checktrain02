@@ -11,7 +11,7 @@ package `in`.opentrack.india.v2.mirror
 object ConfirmTktMirror {
 
     const val SOURCE = "confirmtkt"
-    private const val BASE = "https://www.confirmtkt.com/train-running-status/"
+    const val BASE = "https://www.confirmtkt.com/train-running-status/"
 
     data class Fetched(
         val lines: Map<String, String>,
