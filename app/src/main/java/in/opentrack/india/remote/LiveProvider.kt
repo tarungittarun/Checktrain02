@@ -249,13 +249,14 @@ class NtesProvider(
             }
         }
         val doc = NtesWire.unwrapJson(body.body)
-        // LEGACY-FREEZE (5.2b): this line is here, not in v2, because the transport it observes is this
-        // file's. It is the capture mechanism 4.5 demands: no parser may be written against the real
-        // NTES reply until a real reply has been SEEN, and this - opt-in log, bounded, no PII (train
-        // numbers and minutes only) - is how the phone, the only machine that can reach NTES, shows it
-        // to us. shape= lines name keys; body1= carries values.
-        Diary.get()?.log("NTES", "body1=" + body.body.take(1500) +
-            (if (body.body.length > 1500) " …(" + body.body.length + "B total)" else ""))
+        // Log the *decrypted* structure, not 1,500 characters of ciphertext. On the owner's R53
+        // phone the official envelope succeeded in 0.4 s, but the old log concealed the fields
+        // that would explain why a 34,957-byte answer was refused.
+        Diary.get()?.log("NTES") {
+            "reply via " + (if (mobile is Http.Result.Ok) "warmed JSON" else "official envelope") +
+                " ${body.body.length}B; decoded=" +
+                (doc?.let { NtesWire.shapeOf(it, 3) } ?: "unopenable")
+        }
         if (doc == null) {
             // The one failure that is ours rather than upstream's, so it has to be distinguishable: an
             // envelope we could not open means the framing changed, not that the train is not running.
@@ -265,9 +266,20 @@ class NtesProvider(
         }
         val stns = doc.has("STNS")
         if (stns && !NtesMobileFallback.matchesRun(doc, trainNo, journeyEpochDay)) {
-            note = "NTES mobile JSON answered but did not identify this train AND the requested run date; " +
+            note = "NTES answered with stops but did not prove this train and run date; " +
                 "its minutes are not safe to show as actuals."
-            Diary.get()?.log("NTES", "mobile reply refused: train/run date not proven in response")
+            Diary.get()?.log("NTES") {
+                "STNS refused: train/run date unproven; train=" + doc.optString("TrainNo").take(8) +
+                    " run-field=" + doc.optString("StartDate").take(24) +
+                    " update=" + doc.optString("LUPDT").take(40) +
+                    " first-rows=" + (doc.optJSONArray("STNS")?.let { array ->
+                        (0 until minOf(3, array.length())).mapNotNull { array.optJSONObject(it) }
+                            .joinToString(" | ") { row ->
+                                listOf("SC", "STA", "STD", "ETA", "ETD", "DARR", "DDEP")
+                                    .joinToString(",") { k -> "$k:${row.optString(k).take(24)}" }
+                            }
+                    } ?: "missing")
+            }
             return null
         }
         val rawParsed = runCatching { NtesWire.parse(doc.toString()) }.getOrNull()

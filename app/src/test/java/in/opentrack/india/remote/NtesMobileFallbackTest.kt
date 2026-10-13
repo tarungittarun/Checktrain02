@@ -32,7 +32,17 @@ class NtesMobileFallbackTest {
         assertTrue(NtesMobileFallback.matchesRun(doc!!, "20651", day))
         assertFalse(NtesMobileFallback.matchesRun(doc, "20652", day))
         assertFalse(NtesMobileFallback.matchesRun(doc, "20651", day + 1))
-        assertFalse(NtesMobileFallback.matchesRun(JSONObject(body.replace("13-Oct-2026", "")), "20651", day))
+        // R53's real encrypted STNS reply has no top-level StartDate. Dated, changed,
+        // delay-bearing stop cells are still run evidence; schedule dates alone are not.
+        assertTrue(NtesMobileFallback.matchesRun(JSONObject(body.replace("13-Oct-2026", "")), "20651", day))
+        assertFalse(NtesMobileFallback.matchesRun(
+            JSONObject(body.replace("13-Oct-2026", "").replace("15:22 13-Oct", "15:22 12-Oct")
+                .replace("15:24 13-Oct", "15:24 12-Oct")), "20651", day,
+        ))
+        assertFalse(NtesMobileFallback.matchesRun(
+            JSONObject(body.replace("13-Oct-2026", "").replace("\"DARR\":\"12\",\"DDEP\":\"12\"", "\"DARR\":\"\",\"DDEP\":\"\"")),
+            "20651", day,
+        ))
         val parsed = NtesWire.parse(doc.toString())!!
         assertEquals(4, parsed.rows.size)
         assertNull(parsed.rows[0].actDep) // schedule echoed in mobile ETD

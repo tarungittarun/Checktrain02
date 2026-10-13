@@ -313,6 +313,7 @@ class LiveViewModel(
     private var directDeadUntil = 0L
 
     private var pollJob: Job? = null
+    private var liveRefreshJob: Job? = null
     private var lastAnswer: PositionEngine.Answer? = null
     private var auto = true
 
@@ -390,6 +391,13 @@ class LiveViewModel(
      * produced a result is what makes a timing question (does a second request interfere with the first?)
      * answerable from a file instead of from a guess. */
     fun refresh(manual: Boolean = false) {
+        // Three taps in one second on the owner's R53 phone launched three copies of the
+        // same official POST. Keep one live chain in flight; the independent mirror is
+        // already throttled separately. This prevents duplicate traffic on weak networks.
+        if (liveRefreshJob?.isActive == true) {
+            Diary.get()?.log("UI", "refresh already running; duplicate tick/tap ignored")
+            return
+        }
         if (!manual && !auto) {
             Diary.get()?.log("UI", "auto tick refused - the switch is off; only a manual Refresh asks")
             return
@@ -404,7 +412,7 @@ class LiveViewModel(
             FeedProbe.requestCancel()
         }
         val previous = lastAnswer?.position
-        viewModelScope.launch {
+        liveRefreshJob = viewModelScope.launch {
             try {
                 refreshBody(previous)
             } finally {
