@@ -79,7 +79,7 @@ class NtesMobileFallbackTest {
             "16227", day, "MYS", "PANP",
         ))
         assertFalse(NtesMobileFallback.matchesRun(
-            JSONObject(observed16227.replace(""SRC":"MYS"", ""TrainNo":"99999"")),
+            JSONObject(observed16227).put("TrainNo", "99999"),
             "16227", day, "MYS", "PANP",
         ))
         val parsed = NtesWire.parse(doc.toString())!!
