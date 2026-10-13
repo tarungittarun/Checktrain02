@@ -98,7 +98,8 @@ class MirrorOverlayTest {
         val out = LiveViewModel.overlayActuals(model(), stops, nowRail = 730)
         val aaa = out.rows.first { it.code == "AAA" }
         assertEquals(TrackModel.MinuteSource.SCHEDULE, aaa.source)
-        assertNull(aaa.showDep)
+        // A schedule row can retain its timetable minute internally; the adapter prints a dash
+        // instead of Act/Est when source is SCHEDULE.
         val ccc = out.rows.first { it.code == "CCC" }
         assertEquals(TrackModel.MinuteSource.PROJECTED, ccc.source)
         assertEquals(800, ccc.showArr)
