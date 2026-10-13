@@ -390,6 +390,14 @@ object NtesWire {
             val s = v.toString()
             if (s.isBlank()) continue
             if (s.contains("on time", true)) return 0
+            val clockDelay = Regex("^([+-]?)(\\d{1,2}):(\\d{2})$").matchEntire(s.trim())
+            if (clockDelay != null) {
+                val hours = clockDelay.groupValues[2].toInt()
+                val minutes = clockDelay.groupValues[3].toInt()
+                if (minutes < 60) return (hours * 60 + minutes) *
+                    (if (clockDelay.groupValues[1] == "-") -1 else 1)
+                continue
+            }
             val n = Regex("(-?\\d+)").find(s)?.groupValues?.get(1)?.toIntOrNull()
             if (n != null) return n
         }

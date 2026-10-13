@@ -81,18 +81,39 @@ internal object NtesMobileFallback {
      * StartDate: it answered 34,957 bytes in 0.4 s and our invented mandatory field dropped it.
      * A date stamped on a changed, delay-bearing ETA/ETD cell is an alternate form of run evidence.
      * A date on STA/STD alone is only the timetable and is never sufficient. */
-    fun matchesRun(doc: JSONObject, trainNo: String, runDay: Long): Boolean {
-        val echoedNo = listOf("TrainNo", "trainNo", "TrainNumber", "TRAIN_NO")
-            .map { doc.optString(it).trim() }.firstOrNull { it.isNotEmpty() } ?: return false
-        if (echoedNo != trainNo) return false
+    fun matchesRun(
+        doc: JSONObject, trainNo: String, runDay: Long,
+        fromCode: String? = null, toCode: String? = null,
+    ): Boolean {
+        val rows = doc.optJSONArray("STNS") ?: return false
+        val codes = (0 until rows.length()).mapNotNull { rows.optJSONObject(it)?.optString("SC") }
+            .map { it.uppercase() }
+        val src = doc.optString("SRC").trim()
+        if (src.matches(Regex("[A-Za-z]{2,5}")) && codes.isNotEmpty() &&
+            !src.equals(codes.first(), true)) return false
+        val explicitNo = listOf("TrainNo", "trainNo", "TrainNumber", "TRAIN_NO")
+            .map { doc.optString(it).trim() }.firstOrNull { it.isNotEmpty() }
+        if (explicitNo != null && explicitNo != trainNo) return false
+        if (explicitNo == null) {
+            // The actual 16227 ShowFullRunJson capture has NO train-number field. It is a reply
+            // to a train-number + origin-date POST; require its multi-stop route to contain the
+            // two stations the traveller selected, in order, rather than guess from the old DB.
+            val from = fromCode?.uppercase() ?: return false
+            val to = toCode?.uppercase() ?: return false
+            val first = codes.indexOf(from)
+            if (codes.distinct().size < 3 || first < 0 || codes.indexOf(to) <= first) return false
+        }
         val expected = NtesWire.dateForWire(runDay)
         val topDate = listOf("StartDate", "startDate", "RunDate", "runDate", "JourneyDate")
             .map { doc.optString(it).trim() }.firstOrNull { it.isNotBlank() }
-        if (topDate != null) return topDate.equals(expected, ignoreCase = true)
-        val rows = doc.optJSONArray("STNS") ?: return false
+        if (topDate != null && !topDate.equals(expected, ignoreCase = true)) return false
         val updateStamp = listOf("LUPDT", "LASTUPD", "LAST_UPDATE", "lastUpdate")
             .map { doc.optString(it).trim() }.firstOrNull { it.isNotBlank() }.orEmpty()
-        val currentUpdateDated = dateInCell(updateStamp, expected)
+        // A run starting before midnight can still be reporting just after midnight.
+        val currentUpdateDated = dateInCell(updateStamp, expected) ||
+            dateInCell(updateStamp, NtesWire.dateForWire(runDay + 1))
+        if (topDate == null && !currentUpdateDated) return false
+        // A timetable-only answer with a fresh header is still not an observation.
         for (i in 0 until rows.length()) {
             val r = rows.optJSONObject(i) ?: continue
             for ((timeKey, scheduleKey, delayKey) in listOf(
@@ -102,7 +123,10 @@ internal object NtesMobileFallback {
                 val sch = r.optString(scheduleKey).trim()
                 val delay = r.optString(delayKey).trim()
                 if (delay.isEmpty() || !delay.any(Char::isDigit)) continue
-                if ((dateInCell(cell, expected) || currentUpdateDated) &&
+                val cellDated = CELL_DATE.find(cell) != null
+                val sameRunCell = dateInCell(cell, expected) ||
+                    dateInCell(cell, NtesWire.dateForWire(runDay + 1))
+                if ((!cellDated || sameRunCell) && (sameRunCell || currentUpdateDated || topDate != null) &&
                     clockInCell(cell) != null && clockInCell(cell) != clockInCell(sch)) return true
             }
         }
@@ -122,14 +146,27 @@ internal object NtesMobileFallback {
             (m.groupValues[2].isEmpty() || m.groupValues[2] == year)
     }
 
+    /** The real mobile payload stamps updates as "23:39 13-Oct" (IST, no year). */
+    fun updateMillis(doc: JSONObject, runDay: Long): Long? {
+        val raw = doc.optString("LUPDT").trim()
+        val clock = clockInCell(raw) ?: return null
+        val hour = clock.substringBefore(':').toIntOrNull() ?: return null
+        val minute = clock.substringAfter(':').toIntOrNull() ?: return null
+        if (hour > 23 || minute > 59) return null
+        val offset = (0L..2L).firstOrNull { dateInCell(raw, NtesWire.dateForWire(runDay + it)) }
+            ?: return null
+        return RailTime.railMinuteToEpochMillis(runDay + offset, hour * 60 + minute)
+    }
+
     /** ETA/ETD from STNS are NOT synonymous with actuals. Only a run-matched, past,
      * schedule-plausible deviation for a halt on our route can enter Act. The rest remain unknown;
      * in particular no future estimate may anchor position or become an actual. */
     fun trustedRows(
         parsed: NtesWire.Parsed, route: TrainRoute, runDay: Long, nowMillis: Long,
     ): NtesWire.Parsed {
-        val nowRail = ((RailTime.istEpochDay(nowMillis) - runDay) * 1440 +
-            RailTime.istMinuteOfDay(nowMillis)).toInt()
+        val evidenceMillis = parsed.feedStampMillis?.coerceAtMost(nowMillis) ?: nowMillis
+        val nowRail = ((RailTime.istEpochDay(evidenceMillis) - runDay) * 1440 +
+            RailTime.istMinuteOfDay(evidenceMillis)).toInt()
         val origin = route.stops.firstOrNull()?.departureMin ?: Int.MAX_VALUE
         val byCode = route.stops.associateBy { it.code.uppercase() }
         return parsed.copy(rows = parsed.rows.map { row ->

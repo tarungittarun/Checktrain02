@@ -155,6 +155,8 @@ data class LiveSnapshot(
      * means the app can only claim the age of its own fetch — and the header says that instead.
      */
     val feedStampMillis: Long? = null,
+    /** Validated NTES schedule for this run; ephemeral, never silently persisted as offline data. */
+    val reportedRoute: TrainRoute? = null,
 ) {
     companion object {
         fun empty(trainNo: String, kind: SourceKind) = LiveSnapshot(

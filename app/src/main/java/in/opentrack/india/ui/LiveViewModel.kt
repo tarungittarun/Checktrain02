@@ -584,6 +584,8 @@ class LiveViewModel(
                 saveExtentCache(got.halts)
             }
             val u = _ui.value ?: return@launch
+            // A late, partial erail halt list must not overwrite the complete official table.
+            if (u.answer.position.provenance == SourceKind.PROVIDER_NTES) return@launch
             val grown = extentRoute ?: return@launch
             _ui.postValue(buildUi(grown, u.answer, u.tried).copy(relayOk = u.relayOk))
             Diary.get()?.log("ROUTE") {
@@ -692,6 +694,8 @@ class LiveViewModel(
                 }
             }
             val rawCk = ckDeferred.await()
+            // A slower mirror must never replace a verified official screen or its route.
+            if (_ui.value?.answer?.position?.provenance == SourceKind.PROVIDER_NTES) return@launch
             val expectedDay = java.text.SimpleDateFormat("dd-MMM", java.util.Locale.ENGLISH).apply {
                 timeZone = java.util.TimeZone.getTimeZone("Asia/Kolkata")
             }.format(java.util.Date(originEpochDay * 86_400_000L))
@@ -900,7 +904,8 @@ class LiveViewModel(
         // did. This is the gate paste #28 caught and #29 proved twice more: the mirror answered
         // while the screen kept saying "schedule only". Erail's refusal no longer buries a
         // witness that spoke.
-        val overlayStops = if (freshShift()) mirrorStops[mirrorActiveSource].orEmpty() else emptyList()
+        val overlayStops = if (pos.provenance == SourceKind.PROVIDER_NTES) emptyList()
+            else if (freshShift()) mirrorStops[mirrorActiveSource].orEmpty() else emptyList()
         val withActuals = if (overlayStops.isEmpty()) labelled
             else overlayActuals(labelled, overlayStops, nowMinute(now))
         // Refreshes must not wipe what the witnesses wrote (paste #24 wiped the reader lines, paste #26

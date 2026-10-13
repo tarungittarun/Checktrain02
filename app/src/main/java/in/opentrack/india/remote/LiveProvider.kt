@@ -196,6 +196,8 @@ class NtesProvider(
     private val http: Http,
     private val baseUrl: String = NtesWire.BASE_URL,
     private val store: SnapshotStore? = null,
+    private val selectedFrom: String? = null,
+    private val selectedTo: String? = null,
 ) : LiveProvider {
 
     override val kind = SourceKind.PROVIDER_NTES
@@ -265,7 +267,8 @@ class NtesProvider(
             return null
         }
         val stns = doc.has("STNS")
-        if (stns && !NtesMobileFallback.matchesRun(doc, trainNo, journeyEpochDay)) {
+        if (stns && !NtesMobileFallback.matchesRun(doc, trainNo, journeyEpochDay,
+                selectedFrom ?: route.srcCode, selectedTo ?: route.dstCode)) {
             note = "NTES answered with stops but did not prove this train and run date; " +
                 "its minutes are not safe to show as actuals."
             Diary.get()?.log("NTES") {
@@ -283,9 +286,23 @@ class NtesProvider(
             return null
         }
         val rawParsed = runCatching { NtesWire.parse(doc.toString()) }.getOrNull()
-        val parsed = if (stns && rawParsed != null)
-            NtesMobileFallback.trustedRows(rawParsed, route, journeyEpochDay, System.currentTimeMillis())
-            else rawParsed
+        val officialRoute = if (stns && rawParsed != null) NtesRoute.fromStatus(rawParsed, route) else null
+        // Never align official MYS->TLGP cells against an SBC->SMET device timetable.
+        if (stns && officialRoute == null) {
+            note = "NTES supplied stops, but their schedule could not be reconstructed safely."
+            Diary.get()?.log("NTES") {
+                val rows = rawParsed?.rows.orEmpty()
+                "STNS schedule incomplete; refusing unaligned actuals; count=${rows.size} " +
+                    "first=${rows.firstOrNull()?.code}:${rows.firstOrNull()?.schedDep} " +
+                    "last=${rows.lastOrNull()?.code}:${rows.lastOrNull()?.schedArr}"
+            }
+            return null
+        }
+        val parsed = if (stns && rawParsed != null && officialRoute != null) {
+            val stamped = rawParsed.copy(feedStampMillis =
+                NtesMobileFallback.updateMillis(doc, journeyEpochDay) ?: rawParsed.feedStampMillis)
+            NtesMobileFallback.trustedRows(stamped, officialRoute, journeyEpochDay, System.currentTimeMillis())
+        } else rawParsed
         if (parsed == null) {
             val keys = runCatching { doc.keys().asSequence().take(8).joinToString(", ") }.getOrNull()
             Diary.get()?.log("NTES", "reply was not a status table; top-level keys: " + (keys ?: "-") +
@@ -322,9 +339,12 @@ class NtesProvider(
         // different support conversation from "live, via the shipped request".
         // `adopted.name` is only reachable in the else branch, where the null check above has already excluded
         // the case - `adopted` is nullable, so hoisting that read out here would not compile.
-        val shaped = if (adopted == null || snap.rawNote.isNullOrBlank()) snap
-        else snap.copy(rawNote = (snap.rawNote ?: "live") + " · via " + adopted.name)
-        store?.save(trainNo, shaped)
+        val routed = snap.copy(reportedRoute = officialRoute)
+        val shaped = if (adopted == null || routed.rawNote.isNullOrBlank()) routed
+        else routed.copy(rawNote = (routed.rawNote ?: "live") + " · via " + adopted.name)
+        // The cache codec stores stops but not the authoritative route. Replaying these
+        // observations against an unrelated device route would misidentify the train.
+        if (officialRoute == null) store?.save(trainNo, shaped)
         return shaped
     }
 
@@ -653,11 +673,12 @@ class ProviderChain(private val providers: List<LiveProvider>) {
     }
 
     companion object {
-        fun build(http: Http, store: SnapshotStore, overrideUrl: String?, columnHint: String?) =
+        fun build(http: Http, store: SnapshotStore, overrideUrl: String?, columnHint: String?,
+            fromCode: String? = null, toCode: String? = null) =
             ProviderChain(
                 listOf(
                     OverrideProvider(http, overrideUrl, store),
-                    NtesProvider(http, NtesWire.BASE_URL, store),
+                    NtesProvider(http, NtesWire.BASE_URL, store, fromCode, toCode),
                     ErailProvider(http, ErailProvider.DEFAULT_BASE, columnHint, store),
                     CacheProvider(store),
                 )

@@ -34,13 +34,13 @@ class NtesMobileFallbackTest {
         assertFalse(NtesMobileFallback.matchesRun(doc, "20651", day + 1))
         // R53's real encrypted STNS reply has no top-level StartDate. Dated, changed,
         // delay-bearing stop cells are still run evidence; schedule dates alone are not.
-        assertTrue(NtesMobileFallback.matchesRun(JSONObject(body.replace("13-Oct-2026", "")), "20651", day))
+        assertTrue(NtesMobileFallback.matchesRun(JSONObject(body.replace("\"StartDate\":\"13-Oct-2026\",", "\"LUPDT\":\"16:11 13-Oct\",")), "20651", day))
         assertFalse(NtesMobileFallback.matchesRun(
-            JSONObject(body.replace("13-Oct-2026", "").replace("15:22 13-Oct", "15:22 12-Oct")
+            JSONObject(body.replace("\"StartDate\":\"13-Oct-2026\",", "\"LUPDT\":\"16:11 13-Oct\",").replace("15:22 13-Oct", "15:22 12-Oct")
                 .replace("15:24 13-Oct", "15:24 12-Oct")), "20651", day,
         ))
         assertFalse(NtesMobileFallback.matchesRun(
-            JSONObject(body.replace("13-Oct-2026", "").replace("\"DARR\":\"12\",\"DDEP\":\"12\"", "\"DARR\":\"\",\"DDEP\":\"\"")),
+            JSONObject(body.replace("\"StartDate\":\"13-Oct-2026\",", "\"LUPDT\":\"16:11 13-Oct\",").replace("\"DARR\":\"12\",\"DDEP\":\"12\"", "\"DARR\":\"\",\"DDEP\":\"\"")),
             "20651", day,
         ))
         val parsed = NtesWire.parse(doc.toString())!!
@@ -55,6 +55,74 @@ class NtesMobileFallbackTest {
         assertNull("estimate after clock", safe.rows[2].actArr)
         assertNull("future estimate", safe.rows[3].actDep)
         assertNull("a rejected estimate cannot anchor delay", safe.rows[3].delayDep)
+    }
+
+    /** The first three STNS entries and LUPDT are transcribed from the owner's R54 diary.
+     * The capture contained 29 rows, but no full payload; this is a partial, not a fake
+     * 29-stop fixture. In particular it contains NO TrainNo or StartDate header. */
+    private val observed16227 = """{"SRC":"MYS","LUPDT":"23:39 13-Oct","STNS":[
+        {"SC":"MYS","STA":"Source","STD":"19:40 13-Oct","ETA":"Source","ETD":"19:40 13-Oct","DARR":"","DDEP":"On Time"},
+        {"SC":"NHY","STA":"19:51 13-Oct","STD":"19:52 13-Oct","ETA":"19:51 13-Oct","ETD":"19:52 13-Oct","DARR":"On Time","DDEP":"On Time"},
+        {"SC":"PANP","STA":"20:02 13-Oct","STD":"20:03 13-Oct","ETA":"20:05 13-Oct","ETD":"20:06 13-Oct","DARR":"00:03","DDEP":"00:03"}
+    ]}"""
+
+    @Test
+    fun `captured no-header STNS accepts selected corridor and replaces contradictory device timetable`() {
+        val doc = JSONObject(observed16227)
+        val wrong = route() // device route starts SBC, not the official response's MYS
+        assertFalse(NtesMobileFallback.matchesRun(doc, "16227", day))
+        assertTrue(NtesMobileFallback.matchesRun(doc, "16227", day, "MYS", "PANP"))
+        assertFalse(NtesMobileFallback.matchesRun(doc, "16227", day, "SBC", "SMET"))
+        assertFalse(NtesMobileFallback.matchesRun(doc, "16227", day - 1, "MYS", "PANP"))
+        assertFalse(NtesMobileFallback.matchesRun(
+            JSONObject(observed16227.replace("23:39 13-Oct", "23:39 12-Oct")),
+            "16227", day, "MYS", "PANP",
+        ))
+        assertFalse(NtesMobileFallback.matchesRun(
+            JSONObject(observed16227.replace(""SRC":"MYS"", ""TrainNo":"99999"")),
+            "16227", day, "MYS", "PANP",
+        ))
+        val parsed = NtesWire.parse(doc.toString())!!
+        assertEquals(3, parsed.rows[2].delayArr)
+        assertEquals(3, parsed.rows[2].delayDep)
+        val official = NtesRoute.fromStatus(parsed, wrong)!!
+        assertEquals(listOf("MYS", "NHY", "PANP"), official.stops.map { it.code })
+        assertEquals(19 * 60 + 40, official.stops.first().departureMin)
+        assertEquals(20 * 60 + 2, official.stops.last().arrivalMin)
+        val stamp = NtesMobileFallback.updateMillis(doc, day)!!
+        assertEquals(23 * 60 + 39, RailTime.istMinuteOfDay(stamp))
+        val safe = NtesMobileFallback.trustedRows(parsed.copy(feedStampMillis = stamp),
+            official, day, RailTime.railMinuteToEpochMillis(day, 23 * 60 + 40))
+        assertEquals(20 * 60 + 5, safe.rows[2].actArr)
+        assertEquals(20 * 60 + 6, safe.rows[2].actDep)
+        assertEquals(3, safe.rows[2].delayArr)
+        val snap = NtesAdapter.toSnapshot(safe, "16227", day)!!
+        assertEquals("PANP", snap.atCode)
+        assertEquals(20 * 60 + 5, snap.perStop["PANP"]!!.actualArrivalMin)
+        assertEquals(20 * 60 + 6, snap.perStop["PANP"]!!.actualDepartureMin)
+    }
+
+    @Test
+    fun `past day two stop stays on day two while next estimate cannot turn into actual`() {
+        val status = JSONObject("""{"LUPDT":"00:55 14-Oct","STNS":[
+            {"SC":"MYS","STD":"23:40 13-Oct","ETD":"23:40 13-Oct"},
+            {"SC":"NHY","STA":"00:20 14-Oct","STD":"00:21 14-Oct",
+              "ETA":"00:23 14-Oct","ETD":"00:24 14-Oct","DARR":"00:03","DDEP":"00:03"},
+            {"SC":"PANP","STA":"01:30 14-Oct","STD":"01:31 14-Oct",
+              "ETA":"01:33 14-Oct","ETD":"01:34 14-Oct","DARR":"00:03","DDEP":"00:03"}
+        ]}""")
+        assertTrue(NtesMobileFallback.matchesRun(status, "16227", day, "MYS", "PANP"))
+        val parsed = NtesWire.parse(status.toString())!!
+        val official = NtesRoute.fromStatus(parsed, route())!!
+        assertEquals(1440 + 20, official.stops[1].arrivalMin)
+        assertEquals(1, official.stops[1].journeyDay)
+        val stamp = NtesMobileFallback.updateMillis(status, day)!!
+        assertEquals(day + 1, RailTime.istEpochDay(stamp))
+        val safe = NtesMobileFallback.trustedRows(parsed.copy(feedStampMillis = stamp), official,
+            day, RailTime.railMinuteToEpochMillis(day + 1, 60))
+        assertEquals(1440 + 23, safe.rows[1].actArr)
+        assertNull(safe.rows[2].actArr)
+        assertNull(safe.rows[2].delayArr)
     }
 
     @Test

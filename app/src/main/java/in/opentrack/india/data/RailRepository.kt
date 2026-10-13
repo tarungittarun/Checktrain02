@@ -90,25 +90,32 @@ class RailRepository private constructor(
             http, store,
             overrideUrl = prefs.overrideUrl.ifBlank { null },
             columnHint = prefs.columnHint.ifBlank { null },
+            fromCode = fromCode, toCode = toCode,
         )
         val chainT0 = System.currentTimeMillis()
         val outcome = chain.fetch(trainNo, route, originEpochDay)
         Diary.get()?.log("CHAIN", "in " + (System.currentTimeMillis() - chainT0) + "ms: " +
             (outcome.notes.take(4).joinToString(" | ") { it.take(140) }))
+        val effectiveRoute = outcome.snapshot?.reportedRoute ?: route
+        if (effectiveRoute !== route) Diary.get()?.log("ROUTE") {
+            "official NTES schedule replaces device ${route.srcCode}->${route.dstCode} " +
+                "(${route.stops.size} stops) with ${effectiveRoute.srcCode}->${effectiveRoute.dstCode} " +
+                "(${effectiveRoute.stops.size} stops)"
+        }
         val gps = if (prefs.useLocation && hasLocationPermission()) {
-            sensors.singleFix()?.let { sensors.evidence(it, route) }
+            sensors.singleFix()?.let { sensors.evidence(it, effectiveRoute) }
         } else null
         val answer = PositionEngine.locate(
             PositionEngine.Request(
-                route = route,
+                route = effectiveRoute,
                 snapshot = outcome.snapshot,
                 nowRailMinute = nowRail,
                 nowMillis = nowMillis,
-                previous = previous?.position,
+                previous = previous?.position?.takeIf { effectiveRoute === route },
                 gps = gps,
             )
         )
-        Live(route, answer, outcome.tried, originEpochDay, outcome.notes)
+        Live(effectiveRoute, answer, outcome.tried, originEpochDay, outcome.notes)
     }
 
     fun hasLocationPermission(): Boolean =
