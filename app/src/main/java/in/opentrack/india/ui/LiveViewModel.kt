@@ -197,11 +197,69 @@ class LiveViewModel(
     private fun freshShift(): Boolean =
         cacheTrainNo == trainNo && System.currentTimeMillis() - mirrorShiftAt < 1_800_000
 
-    /** The table re-renders from the selected witness: its minutes overlay the Act/Est columns. */
+    private var manualErail: PositionEngine.Answer? = null
+    private var manualErailAt = 0L
+    private var manualErailDetail: String? = null
+    private var manualProbeJob: Job? = null
+
+    /** Explicit selection is a *fetch*, even when the official feed is healthy. Only a
+     * same-run, past-stop verified response can replace its table. On refusal the official
+     * view stays in place and the selected source's failure is shown. */
     fun setActiveSource(name: String) {
-        mirrorActiveSource = name
-        val u = _ui.value ?: return
-        _ui.postValue(buildUi(u.route, u.answer, u.tried).copy(relayOk = u.relayOk))
+        if (name == "NTES (official)" || name == "last known") {
+            mirrorActiveSource = name
+            val u = _ui.value ?: return
+            _ui.postValue(buildUi(u.route, lastAnswer ?: u.answer, u.tried).copy(relayOk = u.relayOk))
+            return
+        }
+        if (name == "erail") {
+            if (System.currentTimeMillis() - manualErailAt > PositionEngine.STALE_MS)
+                manualErail = null
+            if (manualErail != null) {
+                mirrorActiveSource = name
+                val u = _ui.value ?: return
+                _ui.postValue(buildUi(u.route, manualErail ?: u.answer, u.tried).copy(relayOk = u.relayOk))
+            } else probeSource(name)
+            return
+        }
+        if (name in setOf(RunningStatusMirror.SOURCE, ConfirmTktMirror.SOURCE)) {
+            if (freshShift() && mirrorStops[name].orEmpty().isNotEmpty()) {
+                mirrorActiveSource = name
+                val u = _ui.value ?: return
+                _ui.postValue(buildUi(u.route, lastAnswer ?: u.answer, u.tried).copy(relayOk = u.relayOk))
+            } else probeSource(name)
+            return
+        }
+        _mirrorState.postValue("$name: no verified per-stop feed available to ask")
+    }
+
+    fun probeSource(name: String) {
+        if (manualProbeJob?.isActive == true) {
+            _mirrorState.postValue("Already checking a source; wait for its result")
+            return
+        }
+        Diary.get()?.log("SOURCE", "manual probe requested: $name")
+        if (name == RunningStatusMirror.SOURCE || name == ConfirmTktMirror.SOURCE) {
+            maybeMirror(force = true, preferred = name)
+        } else if (name == "erail") {
+            manualProbeJob = viewModelScope.launch {
+                _mirrorState.postValue("Checking erail independently; keeping the official view until verified…")
+                val u = _ui.value ?: return@launch
+                val live = runCatching { repo()?.probeErail(trainNo, u.route, originEpochDay) }.getOrNull()
+                manualErail = live?.answer?.takeIf { it.position.provenance.live &&
+                    it.perStop.values.any { f -> f.actualArrivalMin != null || f.actualDepartureMin != null } }
+                manualErailDetail = if (manualErail != null) "verified run stops from erail"
+                    else "checked; no verified same-run stop minutes"
+                if (manualErail != null) {
+                    manualErailAt = System.currentTimeMillis()
+                    mirrorActiveSource = name
+                }
+                _mirrorState.postValue("erail: $manualErailDetail")
+                _ui.postValue(buildUi(u.route, manualErail ?: (lastAnswer ?: u.answer), u.tried)
+                    .copy(relayOk = u.relayOk))
+                Diary.get()?.log("SOURCE", "manual erail: $manualErailDetail")
+            }
+        } else _mirrorState.postValue("$name: no verified per-stop endpoint is configured")
     }
 
     /**
@@ -660,12 +718,12 @@ class LiveViewModel(
      * throttled like the relay, and its lines carry its own name - a second witness is labelled, never
      * blended into the official columns. A traveller report wins its stop; the mirror fills the rest.
      */
-    private fun maybeMirror(force: Boolean = false) {
-        if (_ui.value?.answer?.position?.provenance?.live == true) return
+    private fun maybeMirror(force: Boolean = false, preferred: String? = null) {
+        if (!force && _ui.value?.answer?.position?.provenance?.live == true) return
         val nowWall = System.currentTimeMillis()
         if (!force && nowWall - lastMirrorPoll < CROWD_POLL_MIN_MILLIS) return
         lastMirrorPoll = nowWall
-        viewModelScope.launch {
+        val job = viewModelScope.launch {
             val route = _ui.value?.route ?: runCatching { repo()?.queries?.route(trainNo) }.getOrNull()
                 ?: return@launch
             if (!freshShift()) loadMirrorCache()
@@ -676,7 +734,7 @@ class LiveViewModel(
                 if (direct.ok) direct else {
                     val page = withContext(Dispatchers.IO) {
                         BrowserFetch.pageText(ConfirmTktMirror.BASE + trainNo, 25_000,
-                            settleMillis = 6_000, textCap = 24_000)
+                            settleMillis = 1_200, textCap = 24_000)
                     }
                     val text = (page as? Http.Result.Ok)?.body?.let(RunningStatusMirror::stripTags)
                     if (text == null) direct else {
@@ -693,7 +751,7 @@ class LiveViewModel(
             val primary = direct.actuals ?: run {
                 val page = withContext(Dispatchers.IO) {
                     BrowserFetch.pageText("https://runningstatus.in/status/$trainNo", 30_000,
-                        settleMillis = 10_000, textCap = 24_000)
+                        settleMillis = 1_200, textCap = 24_000)
                 }
                 (page as? Http.Result.Ok)?.body?.let {
                     RunningStatusMirror.parse(RunningStatusMirror.stripTags(it))
@@ -701,7 +759,7 @@ class LiveViewModel(
             }
             val rawCk = ckDeferred.await()
             // A slower mirror must never replace a verified official screen or its route.
-            if (_ui.value?.answer?.position?.provenance == SourceKind.PROVIDER_NTES) return@launch
+            if (!force && _ui.value?.answer?.position?.provenance == SourceKind.PROVIDER_NTES) return@launch
             val expectedDay = java.text.SimpleDateFormat("dd-MMM", java.util.Locale.ENGLISH).apply {
                 timeZone = java.util.TimeZone.getTimeZone("Asia/Kolkata")
             }.format(java.util.Date(originEpochDay * 86_400_000L))
@@ -736,7 +794,7 @@ class LiveViewModel(
                 RunningStatusMirror.SOURCE to (if (verifiedPrimary.isNotEmpty())
                     "live" to "${verifiedPrimary.size} verified halts" +
                         (if (disputed.isEmpty()) "" else " · ${disputed.size} disputed hidden") + " · $refreshed"
-                    else "none" to "no verified halt this refresh"),
+                    else "none" to "no verified halt (${direct.why.take(60)})"),
                 ConfirmTktMirror.SOURCE to (if (verifiedCk.isNotEmpty())
                     "live" to "${verifiedCk.size} cross-checked halts · $refreshed"
                     else if (ck.ok) "unverified" to "page answered; minutes not corroborated"
@@ -756,7 +814,9 @@ class LiveViewModel(
             )
             // Never silently switch away from the selected feed, except when the previous selection
             // was a deprecated cache entry. The dropdown and the table must describe the same witness.
-            if (mirrorActiveSource == null || mirrorActiveSource == "last known")
+            if (preferred != null) {
+                if (mirrorStops[preferred].orEmpty().isNotEmpty()) mirrorActiveSource = preferred
+            } else if (mirrorActiveSource == null || mirrorActiveSource == "last known")
                 mirrorActiveSource = if (verifiedPrimary.isNotEmpty()) RunningStatusMirror.SOURCE
                     else if (verifiedCk.isNotEmpty()) ConfirmTktMirror.SOURCE else null
             mirrorRefreshedAt = System.currentTimeMillis()
@@ -775,17 +835,23 @@ class LiveViewModel(
             mirrorAnchorCode = null
             mirrorSources = "${verifiedPrimary.size} verified on runningstatus.in · " +
                 "${verifiedCk.size} corroborated on confirmtkt · checked $refreshed"
-            _mirrorState.postValue(if (verifiedPrimary.isNotEmpty()) "Verified actuals · $mirrorSources"
+            _mirrorState.postValue(if (preferred != null) {
+                if (mirrorStops[preferred].orEmpty().isNotEmpty())
+                    "$preferred: verified for this run · $mirrorSources"
+                else "$preferred: no verified same-run actuals; keeping the current source"
+            } else if (verifiedPrimary.isNotEmpty()) "Verified actuals · $mirrorSources"
                 else "No verified actual arrival/departure this refresh — showing timetable only")
             _ui.postValue(buildUi(u.route, u.answer, u.tried).copy(relayOk = u.relayOk))
             if (verifiedPrimary.isNotEmpty()) saveMirrorCache(mirrorSourceLines[RunningStatusMirror.SOURCE].orEmpty())
             Diary.get()?.log("MIRROR") {
-                "primary raw=${primary?.stops?.size ?: 0} verified=${verifiedPrimary.size} " +
+                "manual=${preferred ?: "no"}; direct=${direct.why.take(45)}; " +
+                    "primary raw=${primary?.stops?.size ?: 0} verified=${verifiedPrimary.size} " +
                     "disputed hidden=${disputed.joinToString(",")}; " +
                     "confirmtkt raw=${ck.stops.size} corroborated=${verifiedCk.size}; " +
                     "unverified minutes never drive position or delay"
             }
         }
+        if (force) manualProbeJob = job
     }
 
     /** The traveller's half: publish one observation, then re-read the topic so the report shows. */
@@ -878,10 +944,25 @@ class LiveViewModel(
         positionNote: String? = null,
     ): Ui {
         val now = System.currentTimeMillis()
+        if (manualErail != null && now - manualErailAt > PositionEngine.STALE_MS) {
+            manualErail = null
+            if (mirrorActiveSource == "erail") mirrorActiveSource = null
+        }
         val nowRail = nowRailOverride ?: nowMinute(now)
         val pos = answer.position
+        // An explicit mirror selection is an independent witness, not an overlay on
+        // NTES's 15 actuals. Start from the schedule and add ONLY that mirror's
+        // validated cells; otherwise the dropdown would misattribute official minutes.
+        val selectedMirrorForTable = freshShift() && mirrorActiveSource in
+            setOf(RunningStatusMirror.SOURCE, ConfirmTktMirror.SOURCE, "last known") &&
+            mirrorStops[mirrorActiveSource].orEmpty().isNotEmpty()
+        val tablePos = if (selectedMirrorForTable) pos.copy(
+            provenance = SourceKind.OFFLINE_SCHEDULE, anchorSeq = 0, nextSeq = 0,
+            fraction = 0f, delayMinutes = null, etaNextMinute = null) else pos
         val model = TrackModel.build(
-            route = route, pos = pos, perStop = answer.perStop, nowRailMinute = nowRail,
+            route = route, pos = tablePos,
+            perStop = if (selectedMirrorForTable) emptyMap() else answer.perStop,
+            nowRailMinute = nowRail,
             boardSeq = route.stops.firstOrNull { it.code.equals(fromCode, true) }?.seq
                 ?: route.stops.firstOrNull()?.seq ?: 1,
             alightSeq = route.stops.lastOrNull { it.code.equals(toCode, true) }?.seq
@@ -910,8 +991,11 @@ class LiveViewModel(
         // did. This is the gate paste #28 caught and #29 proved twice more: the mirror answered
         // while the screen kept saying "schedule only". Erail's refusal no longer buries a
         // witness that spoke.
-        val overlayStops = if (pos.provenance == SourceKind.PROVIDER_NTES) emptyList()
-            else if (freshShift()) mirrorStops[mirrorActiveSource].orEmpty() else emptyList()
+        val selectedMirror = mirrorActiveSource in setOf(RunningStatusMirror.SOURCE,
+            ConfirmTktMirror.SOURCE, "last known")
+        val overlayStops = if (freshShift() && selectedMirror &&
+            (pos.provenance != SourceKind.PROVIDER_NTES || selectedMirrorForTable))
+            mirrorStops[mirrorActiveSource].orEmpty() else emptyList()
         val withActuals = if (overlayStops.isEmpty()) labelled
             else overlayActuals(labelled, overlayStops, nowMinute(now))
         // Refreshes must not wipe what the witnesses wrote (paste #24 wiped the reader lines, paste #26
@@ -934,7 +1018,9 @@ class LiveViewModel(
                 ?: ("none" to "not answered yet")),
             ConfirmTktMirror.SOURCE to (mirrorSourceStates[ConfirmTktMirror.SOURCE]
                 ?: ("none" to "not answered yet")),
-            "erail" to (if (answer.position.provenance == SourceKind.PROVIDER && ntesActualCount > 0)
+            "erail" to (if (manualErail != null) "live" to (manualErailDetail ?: "verified manual result")
+                else if (manualErailDetail != null) "unverified" to manualErailDetail!!
+                else if (answer.position.provenance == SourceKind.PROVIDER && ntesActualCount > 0)
                 "live" to "$ntesActualCount stops with actual minutes"
                 else if (liveIdentity != null) "unverified" to "identity only; no actual halt times"
                 else "none" to "no per-stop actuals"),
@@ -954,7 +1040,8 @@ class LiveViewModel(
             else "Next ${r.name}: arrival not confirmed"
         }
         return Ui(
-            route = route, answer = answer, model = withActuals,
+            route = route, answer = if (selectedMirrorForTable) answer.copy(position = tablePos,
+                perStop = emptyMap()) else answer, model = withActuals,
             boarding = withActuals.rows.firstOrNull { it.isBoarding },
             alighting = withActuals.rows.firstOrNull { it.isAlighting },
             nowRailMinute = nowRail, tried = tried, loading = false,
@@ -1133,6 +1220,10 @@ class LiveViewModel(
             model: TrackModel.View, stops: List<RunningStatusMirror.Stop>, nowRail: Int,
         ): TrackModel.View {
             val byCode = validateStops(model, stops, nowRail).associateBy { it.stationCode.uppercase() }
+            // Project only the single next station after the final verified stop.
+            val lastVerified = model.rows.indexOfLast { r -> byCode[r.code.uppercase()]?.let { st ->
+                st.actArr != null || st.actDep != null } == true }
+            val nextSeq = model.rows.getOrNull(lastVerified + 1)?.seq
             var carried: Int? = null
             val origin = model.rows.firstOrNull()?.schedDep ?: model.rows.firstOrNull()?.schedArr
             return model.copy(rows = model.rows.map { row ->
@@ -1152,7 +1243,7 @@ class LiveViewModel(
                         source = TrackModel.MinuteSource.REPORTED)
                 }
                 if (row.source == TrackModel.MinuteSource.REPORTED) return@map row
-                val offset = carried
+                val offset = carried?.takeIf { row.seq == nextSeq }
                 val arrEst = if (offset == null) null else row.schedArr?.plus(offset)
                 val depEst = if (offset == null) null else row.schedDep?.plus(offset)
                 val pivot = arrEst ?: depEst

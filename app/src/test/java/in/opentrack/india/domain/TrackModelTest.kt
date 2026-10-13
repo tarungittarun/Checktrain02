@@ -191,14 +191,29 @@ class TrackModelTest {
     }
 
     @Test
-    fun aLiveDelayTurnsStopsAheadIntoProjectionsAndLeavesReportedOnesReported() {
+    fun aLiveDelayLeavesStopsBeyondNextOnThePublishedSchedule() {
         val m = model(
             pos = pos(1, 2, StopStatus.DEPARTED, delay = 12),
             perStop = mapOf("MID" to LiveStopFields(actualArrivalMin = 606, delayArrivalMin = 6)),
             now = 620,
         )
         assertEquals(TrackModel.MinuteSource.REPORTED, m.rows[1].source)
+        assertEquals(TrackModel.MinuteSource.SCHEDULE, m.rows[2].source)
+        assertEquals(m.rows[2].schedArr, m.rows[2].showArr)
+    }
+
+    @Test
+    fun onlyImmediateNextStopCarriesLiveDelay() {
+        val base = route()
+        val distant = stop(4, "END", 820, null, 270)
+        val r = base.copy(dstCode = "END", dstName = "End Jn",
+            stops = base.stops + distant,
+            segments = base.segments + SegmentRow(3, "DST", "END", 70, 120))
+        val m = model(route = r, pos = pos(2, 3, StopStatus.DEPARTED, delay = 14), now = 620)
+        assertEquals(714, m.rows[2].showArr)
         assertEquals(TrackModel.MinuteSource.PROJECTED, m.rows[2].source)
+        assertEquals(820, m.rows[3].showArr)
+        assertEquals(TrackModel.MinuteSource.SCHEDULE, m.rows[3].source)
     }
 
     // ------------------------------------------------------------------ headline ↔ rows

@@ -9,6 +9,7 @@ import `in`.opentrack.india.domain.PositionEngine
 import `in`.opentrack.india.domain.TrainFinder
 import `in`.opentrack.india.model.SourceKind
 import `in`.opentrack.india.model.TrainRoute
+import `in`.opentrack.india.remote.ErailProvider
 import `in`.opentrack.india.remote.ProviderChain
 import `in`.opentrack.india.remote.SnapshotStore
 import `in`.opentrack.india.sensor.SensorPositioner
@@ -71,6 +72,24 @@ class RailRepository private constructor(
     suspend fun resolveStations(text: String) = withContext(Dispatchers.IO) {
         queries.resolveStations(text)
     }
+
+    /** User-requested, independent erail status probe. Never falls back to NTES or a file. */
+    suspend fun probeErail(trainNo: String, route: TrainRoute, day: Long): Live? =
+        withContext(Dispatchers.IO) {
+            val provider = ErailProvider(http, ErailProvider.DEFAULT_BASE,
+                prefs.columnHint.ifBlank { null }, null)
+            val snap = provider.fetch(trainNo, route, day)
+                ?.takeIf { it.trainNo == trainNo && it.journeyEpochDay == day &&
+                    it.sourceKind.live && it.perStop.any { (code, fields) ->
+                        route.stops.any { stop -> stop.code.equals(code, true) } &&
+                            (fields.actualArrivalMin != null || fields.actualDepartureMin != null)
+                    } } ?: return@withContext null
+            val now = System.currentTimeMillis()
+            val minute = ((RailTime.istEpochDay(now) - day) * 1440 +
+                RailTime.istMinuteOfDay(now)).toInt()
+            val answer = PositionEngine.locate(PositionEngine.Request(route, snap, minute, now))
+            Live(route, answer, listOf("erail=manual-hit"), day)
+        }
 
     /** Instant last-known official run for a tunnel: a paired route + observations, never live. */
     suspend fun lastOfficial(trainNo: String, from: String, to: String, day: Long): Live? =

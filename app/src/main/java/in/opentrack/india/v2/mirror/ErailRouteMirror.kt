@@ -71,7 +71,7 @@ object ErailRouteMirror {
     fun fetchOrWhy(trainNo: String): Fetched {
         val page = BrowserFetch.pageText(
             "https://erail.in/train-running-status/$trainNo", 25_000,
-            settleMillis = 6_000, textCap = 24_000,
+            settleMillis = 1_200, textCap = 24_000,
         )
         val body = (page as? Http.Result.Ok)?.body
             ?: return Fetched(emptyList(), (page as Http.Result.Failed).message)

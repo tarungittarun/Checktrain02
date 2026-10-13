@@ -109,7 +109,8 @@ class TrainActivity : AppCompatActivity() {
         // the top card then carries the same sentence (badge + source row + refreshed stamp), and one
         // copy on screen is the owner's round-47 point: everything read at once, nothing said twice.
         vm.mirrorState.observe(this) { st ->
-            mirrorBusy = st?.startsWith("Checking independent feeds") == true
+            mirrorBusy = st?.startsWith("Checking independent feeds") == true ||
+                st?.startsWith("Checking erail independently") == true
             renderChecking()
             val duplicate = st != null && st.startsWith("Actuals ·")
             binding.mirrorState.visibility = if (st == null || duplicate) View.GONE else View.VISIBLE
@@ -202,10 +203,12 @@ class TrainActivity : AppCompatActivity() {
                     if (name != lastUi?.activeSource) {
                         if (states[name]?.first !in listOf("live", "last-known")) {
                             Toast.makeText(this@TrainActivity,
-                                "$name: no verified stop times — timetable stays on screen",
+                                if (name == "ixigo") "ixigo has no validated per-stop endpoint yet"
+                                else "Checking $name independently; current view stays until verified",
                                 Toast.LENGTH_SHORT).show()
                             val previous = names.indexOf(lastUi?.activeSource)
                             if (previous >= 0) binding.sourceSpinner.setSelection(previous, false)
+                            vm.probeSource(name)
                         } else vm.setActiveSource(name)
                     }
                 }

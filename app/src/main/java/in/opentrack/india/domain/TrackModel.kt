@@ -147,14 +147,18 @@ object TrackModel {
         val stops = route.stops.mapIndexed { index, s ->
             val liveFields = perStop[s.code]
             // A cached report is a past observation, not permission to keep forecasting.
-            val carried = if (pos.provenance == SourceKind.CACHED) null else overlay.getOrNull(index)
+            val carried = if (pos.provenance == SourceKind.CACHED ||
+                (live && s.seq != pos.nextSeq)) null else overlay.getOrNull(index)
             // Aligned to the scheduled minute before use: the feed answers with a clock, the table counts
             // from the run's first halt, and without this a halt on day 2 put "00:20" under "00:30 (+1d)" —
             // two cells in one row that a traveller has to subtract 24 hours between. The alignment is what
             // `LargeScreenRenderTest`'s picture showed happening; see `RailTime.alignClock`.
             val actualArr = RailTime.alignClock(liveFields?.actualArrivalMin, s.arrivalMin)
             val actualDep = RailTime.alignClock(liveFields?.actualDepartureMin, s.departureMin)
-            val delay = liveFields?.let { it.delayArrivalMin ?: it.delayDepartureMin } ?: carried
+            // Official ETA/ETD at a future stop are predictions, not historical delay.
+            // Only the immediate next stop earns a forecast; later rows remain pure Sch.
+            val delay = (if (!live || s.seq <= pos.anchorSeq || s.seq == pos.nextSeq)
+                liveFields?.let { it.delayArrivalMin ?: it.delayDepartureMin } else null) ?: carried
             // Confirmed time where the feed reported one; otherwise the schedule, nudged by the delay
             // we are allowed to carry forward (which delayProfile restricts to stops still ahead).
             val estArr = s.arrivalMin?.let { it + (delay ?: 0) }

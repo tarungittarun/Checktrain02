@@ -192,11 +192,11 @@ object RunningStatusMirror {
         }
     }
 
-    /** The production wire: one GET, 8 s patience, a naming UA, nothing remembered. (body, why). */
+    /** The production wire: one GET, 3.5 s patience, a naming UA, nothing remembered. (body, why). */
     fun plainGet(url: String): Pair<String?, String> = try {
         val conn = (java.net.URL(url).openConnection() as java.net.HttpURLConnection).apply {
-            connectTimeout = 8_000
-            readTimeout = 8_000
+            connectTimeout = 3_500
+            readTimeout = 3_500
             setRequestProperty("User-Agent", "OpenTrackIndia/1.0 (live running status)")
         }
         val code = conn.responseCode
