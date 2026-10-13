@@ -79,15 +79,46 @@ class RailRepository private constructor(
             val provider = ErailProvider(http, ErailProvider.DEFAULT_BASE,
                 prefs.columnHint.ifBlank { null }, null)
             val snap = provider.fetch(trainNo, route, day)
-                ?.takeIf { it.trainNo == trainNo && it.journeyEpochDay == day &&
-                    it.sourceKind.live && it.perStop.any { (code, fields) ->
-                        route.stops.any { stop -> stop.code.equals(code, true) } &&
-                            (fields.actualArrivalMin != null || fields.actualDepartureMin != null)
-                    } } ?: return@withContext null
+                ?.takeIf { it.trainNo == trainNo && it.journeyEpochDay == day && it.sourceKind.live }
+                ?: return@withContext null
+            // The list endpoint's old date stamp cannot verify a different origin run.
+            val stamp = snap.feedStampMillis ?: return@withContext null
             val now = System.currentTimeMillis()
+            if (RailTime.istEpochDay(stamp) !in day..(day + 1) ||
+                now - stamp !in 0..PositionEngine.STALE_MS) return@withContext null
+            val feedRail = ((RailTime.istEpochDay(stamp) - day) * 1440 +
+                RailTime.istMinuteOfDay(stamp)).toInt()
+            val byCode = route.stops.associateBy { it.code.uppercase() }
+            val safe = snap.perStop.mapNotNull { (code, f) ->
+                val stop = byCode[code.uppercase()] ?: return@mapNotNull null
+                fun past(raw: Int?, sch: Int?): Int? {
+                    val aligned = RailTime.alignClock(raw, sch) ?: return null
+                    return aligned.takeIf { sch != null && it != sch &&
+                        it - sch in -10..180 && it <= feedRail + 2 }
+                }
+                val arr = past(f.actualArrivalMin, stop.arrivalMin)
+                val dep = past(f.actualDepartureMin, stop.departureMin)
+                if (arr == null && dep == null) null else code to f.copy(
+                    actualArrivalMin = arr, actualDepartureMin = dep,
+                    delayArrivalMin = f.delayArrivalMin.takeIf { arr != null },
+                    delayDepartureMin = f.delayDepartureMin.takeIf { dep != null })
+            }.toMap()
+            if (safe.isEmpty()) return@withContext null
+            val anchorStop = route.stops.lastOrNull { it.code in safe } ?: return@withContext null
+            val anchor = safe[anchorStop.code] ?: return@withContext null
+            val dep = anchor.actualDepartureMin
+            val checked = snap.copy(perStop = safe, atCode = anchorStop.code,
+                event = if (dep != null) `in`.opentrack.india.model.StopStatus.DEPARTED
+                    else `in`.opentrack.india.model.StopStatus.ARRIVED,
+                eventMinute = dep ?: anchor.actualArrivalMin,
+                scheduledMinuteAtEvent = if (dep != null) anchorStop.departureMin else anchorStop.arrivalMin,
+                delayMinutes = (dep ?: anchor.actualArrivalMin)?.let { actual ->
+                    (anchorStop.departureMin.takeIf { dep != null } ?: anchorStop.arrivalMin)
+                        ?.let { actual - it } },
+                nextCode = route.stopAtSeq(anchorStop.seq + 1)?.code, expectedNextMinute = null)
             val minute = ((RailTime.istEpochDay(now) - day) * 1440 +
                 RailTime.istMinuteOfDay(now)).toInt()
-            val answer = PositionEngine.locate(PositionEngine.Request(route, snap, minute, now))
+            val answer = PositionEngine.locate(PositionEngine.Request(route, checked, minute, now))
             Live(route, answer, listOf("erail=manual-hit"), day)
         }
 
