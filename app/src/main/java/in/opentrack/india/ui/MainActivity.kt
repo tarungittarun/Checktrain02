@@ -33,6 +33,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
     private lateinit var vm: MainViewModel
     private lateinit var adapter: TrainHitAdapter
+    private var keepSearchOpen = false
+    private var searchCollapsed = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -59,6 +61,10 @@ class MainActivity : AppCompatActivity() {
 
         wireBoxes()
         binding.find.setOnClickListener { runSearch() }
+        binding.editSearch.setOnClickListener {
+            keepSearchOpen = true
+            setSearchCollapsed(false)
+        }
         binding.swap.setOnClickListener { swap() }
         binding.dayBack.setOnClickListener { shiftDay(-1) }
         binding.dayFwd.setOnClickListener { shiftDay(1) }
@@ -85,10 +91,23 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
-        selectMode(MainViewModel.Mode.STATIONS)
+        if (savedInstanceState == null) selectMode(MainViewModel.Mode.STATIONS)
+        else renderMode(vm.mode)
         renderDate()
         restoreLast()
         vm.prepare()
+        if (savedInstanceState?.getBoolean("searchCollapsed") == true) setSearchCollapsed(true)
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putBoolean("searchCollapsed", searchCollapsed)
+        super.onSaveInstanceState(outState)
+    }
+
+    private fun setSearchCollapsed(collapsed: Boolean) {
+        searchCollapsed = collapsed
+        binding.searchCard.visibility = if (collapsed) View.GONE else View.VISIBLE
+        binding.searchCompact.visibility = if (collapsed) View.VISIBLE else View.GONE
     }
 
     /**
@@ -148,6 +167,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun selectMode(mode: MainViewModel.Mode) {
         vm.setMode(mode)
+        renderMode(mode)
+    }
+
+    private fun renderMode(mode: MainViewModel.Mode) {
         val stations = mode == MainViewModel.Mode.STATIONS
         binding.fromBox.visibility = if (stations) View.VISIBLE else View.GONE
         binding.toBox.visibility = if (stations) View.VISIBLE else View.GONE
@@ -187,6 +210,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun runSearch() {
+        keepSearchOpen = false
         val from = binding.fromBox.valueOrText()
         val to = binding.toBox.valueOrText()
         val train = binding.trainBox.valueOrText()
@@ -239,6 +263,12 @@ class MainActivity : AppCompatActivity() {
         } else getString(R.string.sorted_by)
         adapter.nowMinute = vm.targetEpochMinute
         adapter.submitList(report.hits)
+        if (report.hits.isNotEmpty()) {
+            val pair = listOfNotNull(report.from?.code, report.to?.code).joinToString(" → ")
+                .ifBlank { binding.trainBox.valueOrText() }
+            binding.searchSummary.text = "$pair · ${binding.whenValue.text} · ${report.hits.size} train(s)"
+            if (!keepSearchOpen) setSearchCollapsed(true)
+        } else setSearchCollapsed(false)
         val head = when (report.reason) {
             TrainFinder.Reason.OK -> {
                 val pair = listOfNotNull(report.from?.code, report.to?.code).joinToString(" → ")
@@ -280,6 +310,7 @@ class MainActivity : AppCompatActivity() {
         statusHead + (vm.liveNote.value?.let { " — $it" } ?: "")
 
     private fun open(hit: TrainHit) {
+        setSearchCollapsed(true)
         startActivity(
             Intent(this, TrainActivity::class.java).apply {
                 putExtra(TrainActivity.EXTRA_TRAIN_NO, hit.trainNo)

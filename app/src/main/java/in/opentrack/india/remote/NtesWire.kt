@@ -237,6 +237,8 @@ object NtesWire {
         /** Top-level key names, kept so a schema change upstream is visible in the diagnostics log. */
         val topKeys: List<String>,
     ) {
+        /** A delay field alone is not an observed arrival/departure. */
+        val hasReportedTimes: Boolean get() = rows.any { it.actArr != null || it.actDep != null }
         /** True when the answer carries at least one actual time or delay, i.e. it is running data. */
         val hasLiveColumns: Boolean
             get() = rows.any { it.actArr != null || it.actDep != null || it.delayArr != null || it.delayDep != null }

@@ -64,7 +64,9 @@ private fun ask(
     timeoutMillis: Int = Http.DEFAULT_TIMEOUT,
     budgetMillis: Int = 0,
 ): Http.Result {
-    if (!FeedProbe.browserWorks) {
+    // A 2xx browser answer on erail/ixigo is not proof that the NTES POST works in that
+    // engine. Keep host-specific transports isolated; never warm enquiry with another host's page.
+    if (!FeedProbe.browserWorks || BrowserFetch.hostOf(url) != "enquiry.indianrail.gov.in") {
         return if (body == null) http.get(url, timeoutMillis, 1, headers, budgetMillis = budgetMillis)
         else http.post(url, body, headers, timeoutMillis = timeoutMillis, retries = 1,
             budgetMillis = budgetMillis)
@@ -167,6 +169,8 @@ class ErailProvider(
                     "is the timetable."
             }
         }
+        // Delay-only/schedule-only replies are not observed arrival/departure minutes.
+        if (parsed.stops.none { it.actArr != null || it.actDep != null }) return null
         val snap = ErailAdapter.toSnapshot(parsed, trainNo, journeyEpochDay, r.fromCache, r.ageMillis)
             ?: return null
         store?.save(trainNo, snap)
@@ -274,9 +278,11 @@ class NtesProvider(
             Diary.get()?.log("NTES", "parsed empty; shape=" + runCatching { NtesWire.shapeOf(doc) }.getOrDefault("-"))
             return null
         }
-        if (!parsed.hasLiveColumns) {
-            note = "The live feed is tracking this run but has not reported an arrival or departure minute " +
-                "at any halt yet, so the times below are the timetable until it does."
+        if (!parsed.hasReportedTimes) {
+            note = "NTES answered but supplied no observed arrival or departure minute for this run. " +
+                "A winner in the request ladder is not a confirmed stop; checking the next source."
+            Diary.get()?.log("NTES", "timetable/delay-only answer rejected: no actual per-stop minute")
+            return null
         }
         val snap = NtesAdapter.toSnapshot(parsed, trainNo, journeyEpochDay) ?: run {
             Diary.get()?.log("NTES", "rows parsed (" + parsed.rows.size + ") but no station matched the timetable")
@@ -341,7 +347,7 @@ object NtesAdapter {
         // anchor to and no cell for the stop table to read. Returning null here keeps that guarantee at the
         // seam that produces it: ProviderChain would also drop this snapshot, but an adapter that hands back
         // an empty "live" result is one refactor away from a screen that says LIVE over a table of dashes.
-        if (perStop.isEmpty()) return null
+        if (perStop.values.none { it.actualArrivalMin != null || it.actualDepartureMin != null }) return null
         val anchor = anchorIdx.takeIf { it >= 0 }?.let { rows[it] }
         val next = anchorIdx.takeIf { it >= 0 }?.let { rows.getOrNull(it + 1) }
         val anchorCode = anchor?.code

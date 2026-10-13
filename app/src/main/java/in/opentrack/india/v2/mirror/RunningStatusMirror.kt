@@ -31,7 +31,7 @@ object RunningStatusMirror {
         val actDep: Int?,
     )
 
-    data class Actuals(val source: String, val stops: List<Stop>)
+    data class Actuals(val source: String, val stops: List<Stop>, val runEpochDay: Long? = null)
 
     /** The actuals, or the honest reason there are none - a silent null helps nobody debug. */
     data class Fetched(val actuals: Actuals?, val why: String)
@@ -71,7 +71,17 @@ object RunningStatusMirror {
             stops += stop
         }
         if (stops.isEmpty()) return null
-        return Actuals(SOURCE, stops)
+        // The page can serve yesterday's run even when today's train number is requested.
+        // A run without a readable date is not safe to promote to today's actuals.
+        val date = Regex("""\bDate\s+(\d{1,2}-[A-Za-z]{3}-\d{4})\b""")
+            .find(text)?.groupValues?.get(1)
+        val day = date?.let { token -> runCatching {
+            val fmt = java.text.SimpleDateFormat("dd-MMM-yyyy", java.util.Locale.ENGLISH)
+            fmt.timeZone = java.util.TimeZone.getTimeZone("Asia/Kolkata")
+            fmt.isLenient = false
+            `in`.opentrack.india.core.RailTime.istEpochDay(fmt.parse(token)!!.time)
+        }.getOrNull() }
+        return Actuals(SOURCE, stops, day)
     }
 
     /** One halt block -> a Stop with actuals, or null when the mirror itself has none ("Update Awaited"). */

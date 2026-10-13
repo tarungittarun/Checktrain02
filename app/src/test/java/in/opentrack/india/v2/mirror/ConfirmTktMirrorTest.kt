@@ -29,6 +29,7 @@ class ConfirmTktMirrorTest {
     fun `the capture parses to one labelled line per halt`() {
         val lines = ConfirmTktMirror.parse(capture(), stops)
         assertEquals("every routed halt found by name", 16, lines.size)
+        assertEquals("12-Oct", ConfirmTktMirror.pageDayOf(capture()))
         assertTrue(lines.containsKey("SBC") && lines.containsKey("TLGP"))
     }
 

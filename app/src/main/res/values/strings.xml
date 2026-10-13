@@ -8,6 +8,8 @@
     <string name="hint_to">To station — name or code</string>
     <string name="hint_train">Train number or name</string>
     <string name="search">Find trains</string>
+    <string name="edit_search">Edit search</string>
+    <string name="back_to_trains">Train list</string>
     <string name="window_hint">window −24 h … +24 h</string>
     <string name="day_back">−1d</string>
     <string name="day_fwd">+1d</string>

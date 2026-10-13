@@ -19,6 +19,7 @@ object ConfirmTktMirror {
         val ok: Boolean,
         /** The same walk as structured minutes, so the table's Act/Est columns can carry this witness. */
         val stops: List<RunningStatusMirror.Stop> = emptyList(),
+        val pageDay: String? = null,
     )
 
     /** The wire the phone uses: same (body, why) pair discipline as the primary mirror. */
@@ -31,8 +32,14 @@ object ConfirmTktMirror {
         if (body == null) return Fetched(emptyMap(), 0, false).also { }
         val text = RunningStatusMirror.stripTags(body)
         val lines = parse(text, stops)
-        return Fetched(lines, lines.size, lines.isNotEmpty(), stopsOf(text, stops))
+        return Fetched(lines, lines.size, lines.isNotEmpty(), stopsOf(text, stops), pageDayOf(text))
     }
+
+    /** ConfirmTkt prints "Day 112-Oct" after tag stripping (Day 1 + 12-Oct). No year on
+     * this page: compare the month/day with the requested run, never with fetch time. */
+    fun pageDayOf(text: String): String? =
+        Regex("""Day\s*1\s*(\d{1,2}-[A-Za-z]{3})\b""", RegexOption.IGNORE_CASE)
+            .find(text)?.groupValues?.get(1)
 
     private val TIME = Regex("""\b(\d{1,2}):(\d{2})\b""")
     private val DELAY = Regex("""Delay by (\d{1,3}) min""")

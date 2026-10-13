@@ -19,6 +19,16 @@ import org.junit.Test
 class FeedProbeTest {
 
     @Test
+    fun `a browser result on another host cannot reroute NTES`() {
+        val variants = FeedProbe.variants("20651", "2026-10-13", "x")
+        val erail = variants.first { it.name == "webview-erail-observe" }
+        val ntes = variants.first { it.name == "webview-post" }
+        assertFalse(FeedProbe.canAdoptBrowser(erail, true))
+        assertFalse(FeedProbe.canAdoptBrowser(ntes, false))
+        assertTrue(FeedProbe.canAdoptBrowser(ntes, true))
+    }
+
+    @Test
     fun `every variant asks a different question over https`() {
         val vs = FeedProbe.variants("12627", "2026-10-11", NtesWire.plainFor(NtesWire.SUB_LIVE, "12627", 20737L))
         assertTrue("a probe with ${vs.size} variants cannot distinguish much", vs.size >= 6)

@@ -49,6 +49,34 @@
         android:layout_marginTop="8dp" />
 
     <LinearLayout
+        android:id="@+id/searchCompact"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/searchSummary"
+            style="@style/TextBody"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:maxLines="2" />
+
+        <Button
+            android:id="@+id/editSearch"
+            style="@style/BtnGhost"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:minHeight="40dp"
+            android:text="@string/edit_search" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/searchCard"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="14dp"

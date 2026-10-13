@@ -1,6 +1,6 @@
 package `in`.opentrack.india.core
 
 object BuildStamp {
-    const val ROUND = "R50"
-    const val STAMP = "R50 · 2026-10-13"
+    const val ROUND = "R51"
+    const val STAMP = "R51 · 2026-10-13"
 }

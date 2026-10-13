@@ -53,6 +53,7 @@ class TrainActivity : AppCompatActivity() {
         if (trainNo.length < 4) { finish(); return }
         binding = ActivityTrainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        binding.back.setText(R.string.back_to_trains)
 
         val app = application as App
         val from = intent.getStringExtra(EXTRA_FROM).orEmpty()

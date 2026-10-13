@@ -165,6 +165,8 @@ class NtesWireTest {
         )
         assertEquals(2, p.rows.size)
         assertFalse("dashes must not read as live data", p.hasLiveColumns)
+        assertFalse(p.hasReportedTimes)
+        assertNull(NtesAdapter.toSnapshot(p, "12627", 20737L))
     }
 
     @Test

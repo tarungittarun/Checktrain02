@@ -12,6 +12,7 @@ import `in`.opentrack.india.remote.FeedProbe
 import `in`.opentrack.india.domain.PositionEngine
 import `in`.opentrack.india.domain.Suggestion
 import `in`.opentrack.india.domain.TrackModel
+import `in`.opentrack.india.model.SourceKind
 import `in`.opentrack.india.model.StopRow
 import `in`.opentrack.india.model.TrainPosition
 import `in`.opentrack.india.model.TrainRoute
@@ -665,7 +666,7 @@ class LiveViewModel(
                     if (text == null) direct else {
                         val lines = ConfirmTktMirror.parse(text, names)
                         ConfirmTktMirror.Fetched(lines, lines.size, lines.isNotEmpty(),
-                            ConfirmTktMirror.stopsOf(text, names))
+                            ConfirmTktMirror.stopsOf(text, names), ConfirmTktMirror.pageDayOf(text))
                     }
                 }
             }
@@ -682,14 +683,27 @@ class LiveViewModel(
                     RunningStatusMirror.parse(RunningStatusMirror.stripTags(it))
                 }
             }
-            val ck = ckDeferred.await()
+            val rawCk = ckDeferred.await()
+            val expectedDay = java.text.SimpleDateFormat("dd-MMM", java.util.Locale.ENGLISH).apply {
+                timeZone = java.util.TimeZone.getTimeZone("Asia/Kolkata")
+            }.format(java.util.Date(originEpochDay * 86_400_000L))
+            val ck = if (rawCk.pageDay?.equals(expectedDay, true) == true) rawCk else {
+                Diary.get()?.log("MIRROR", "confirmtkt page date ${rawCk.pageDay ?: "missing"} " +
+                    "does not prove requested run $expectedDay; refusing all minutes")
+                rawCk.copy(lines = emptyMap(), stops = emptyList(), halts = 0, ok = false)
+            }
             val u = _ui.value ?: return@launch
             val nowRail = nowMinute(System.currentTimeMillis())
             val base = TrackModel.build(route, u.answer.position, u.answer.perStop, nowRail,
                 route.stops.firstOrNull { it.code.equals(fromCode, true) }?.seq ?: route.stops.first().seq,
                 route.stops.lastOrNull { it.code.equals(toCode, true) }?.seq ?: route.stops.last().seq,
                 originEpochDay, null)
-            val plausiblePrimary = validateStops(base, primary?.stops.orEmpty(), nowRail)
+            if (primary != null && primary.runEpochDay != originEpochDay) {
+                Diary.get()?.log("MIRROR", "runningstatus page run=${primary.runEpochDay} " +
+                    "does not match requested run=$originEpochDay; refusing all minutes")
+            }
+            val primaryForRun = primary?.takeIf { it.runEpochDay == originEpochDay }
+            val plausiblePrimary = validateStops(base, primaryForRun?.stops.orEmpty(), nowRail)
                 .filter { st -> base.rows.any { row -> row.code.equals(st.stationCode, true) &&
                     ((row.schedArr != null && st.actArr != null) ||
                         (row.schedDep != null && st.actDep != null)) } }
@@ -888,14 +902,20 @@ class LiveViewModel(
         // freshest reported halt keeps the top box in the mirror's voice.
         val verified = if (live && overlayStops.isNotEmpty()) mirrorVerdict(withActuals) else null
         val receipt = if (verified != null) deviceReceipt(withActuals) else null
+        val ntesActualCount = answer.perStop.values.count {
+            it.actualArrivalMin != null || it.actualDepartureMin != null
+        }
         val sourceNames = linkedMapOf(
-            "NTES (official)" to (if (answer.position.provenance.live && answer.perStop.isNotEmpty())
-                "live" to "${answer.perStop.size} reported stops" else "none" to "no per-stop actuals on this device"),
+            "NTES (official)" to (if (answer.position.provenance == SourceKind.PROVIDER_NTES && ntesActualCount > 0)
+                "live" to "$ntesActualCount stops with actual minutes"
+                else "none" to "no per-stop actuals on this device"),
             RunningStatusMirror.SOURCE to (mirrorSourceStates[RunningStatusMirror.SOURCE]
                 ?: ("none" to "not answered yet")),
             ConfirmTktMirror.SOURCE to (mirrorSourceStates[ConfirmTktMirror.SOURCE]
                 ?: ("none" to "not answered yet")),
-            "erail" to (if (liveIdentity != null) "unverified" to "identity only; no actual halt times"
+            "erail" to (if (answer.position.provenance == SourceKind.PROVIDER && ntesActualCount > 0)
+                "live" to "$ntesActualCount stops with actual minutes"
+                else if (liveIdentity != null) "unverified" to "identity only; no actual halt times"
                 else "none" to "no per-stop actuals"),
             "ixigo" to ("unverified" to "probe only; no verified per-stop feed"),
         )
@@ -903,7 +923,8 @@ class LiveViewModel(
         if ("last known" in mirrorSourceLines) sourceNames["last known"] =
             "last-known" to "cached for this run; not a new observation"
         for (name in sourceNames.keys) selectable[name] = mirrorSourceLines[name].orEmpty()
-        val selected = mirrorActiveSource ?: "NTES (official)"
+        val selected = mirrorActiveSource ?: if (answer.position.provenance == SourceKind.PROVIDER)
+            "erail" else "NTES (official)"
         val lastReported = withActuals.rows.lastOrNull { it.source == TrackModel.MinuteSource.REPORTED }
         val nextRow = lastReported?.let { r -> withActuals.rows.getOrNull(withActuals.rows.indexOf(r) + 1) }
         val nextStatement = nextRow?.let { r ->

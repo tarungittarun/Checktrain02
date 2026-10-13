@@ -147,6 +147,11 @@ object FeedProbe {
         }
     }
 
+    /** A page loading on an unrelated host (or an NTES HTML error) must not redirect every
+     * later official request through that browser session. See the owner's 15:15 device log. */
+    internal fun canAdoptBrowser(v: Variant, usable: Boolean): Boolean =
+        usable && v.browser && BrowserFetch.hostOf(v.url) == "enquiry.indianrail.gov.in"
+
     /** Run one variant. Shared with [NtesProvider] so an adopted shape is requested exactly as it was found. */
     fun execute(http: Http, v: Variant, trainNo: String, journeyEpochDay: Long): Http.Result {
         val rebuilt = rebuild(v, trainNo, journeyEpochDay)
@@ -646,7 +651,7 @@ object FeedProbe {
                 if (got is Http.Result.Ok) {
                     val doc = NtesWire.unwrapJson(got.body)
                     val parsed = doc?.let { runCatching { NtesWire.parse(it.toString()) }.getOrNull() }
-                    usable = parsed != null && parsed.hasLiveColumns &&
+                    usable = parsed != null && parsed.hasReportedTimes &&
                         NtesAdapter.toSnapshot(parsed, trainNo, journeyEpochDay) != null
                 }
                 out += when (got) {
@@ -664,9 +669,9 @@ object FeedProbe {
                 }
                 // Logged after the append: a line written before it reports the *previous* variant's verdict
                 // against this variant's clock, which is how one field report came to read "nothing in 1005ms".
-                if (got is Http.Result.Ok && v.browser) {
+                if (canAdoptBrowser(v, usable)) {
                     browserWorks = true
-                    browserPage = v.warm
+                    browserPage = if (v.warm.isBlank()) BrowserFetch.originPage(v.url) else v.warm
                 }
                 Diary.get()?.log("PROBE") {
                     val r = out.lastOrNull()

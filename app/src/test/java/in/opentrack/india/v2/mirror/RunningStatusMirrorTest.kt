@@ -35,6 +35,7 @@ class RunningStatusMirrorTest {
             14, actuals!!.stops.size,
         )
         assertEquals("runningstatus.in", actuals.source)
+        assertEquals("yesterday's captured page must not become today's run", 20738L, actuals.runEpochDay)
         assertEquals("SBC", actuals.stops.first().stationCode)
         assertEquals("TLGP", actuals.stops.last().stationCode)
     }
