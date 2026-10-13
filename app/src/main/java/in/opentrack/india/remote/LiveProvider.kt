@@ -345,6 +345,7 @@ class NtesProvider(
         // The cache codec stores stops but not the authoritative route. Replaying these
         // observations against an unrelated device route would misidentify the train.
         if (officialRoute == null) store?.save(trainNo, shaped)
+        else store?.saveOfficial(trainNo, shaped)
         return shaped
     }
 
@@ -612,6 +613,28 @@ class SnapshotStore(context: Context) {
             }
         }
     }
+
+    /** Persist the paired official route and its observations, atomically per train AND run.
+     * Unlike the generic cache, a stale official answer can never be aligned to another route. */
+    fun saveOfficial(trainNo: String, snapshot: LiveSnapshot) {
+        val day = snapshot.journeyEpochDay ?: return
+        runCatching {
+            val f = File(dir, "${trainNo.filter(Char::isDigit)}-$day.official.json")
+            val tmp = File(dir, f.name + ".tmp")
+            tmp.writeText(OfficialRunCache.encode(snapshot))
+            if (!tmp.renameTo(f)) {
+                tmp.copyTo(f, overwrite = true)
+                tmp.delete()
+            }
+        }
+    }
+
+    fun loadOfficial(trainNo: String, day: Long, from: String, to: String): LiveSnapshot? =
+        runCatching {
+            val f = File(dir, "${trainNo.filter(Char::isDigit)}-$day.official.json")
+            if (!f.isFile) null else OfficialRunCache.decode(f.readText(), trainNo, day, from, to,
+                System.currentTimeMillis())
+        }.getOrNull()
 
     fun load(trainNo: String): LiveSnapshot? = runCatching {
         val f = file(trainNo)

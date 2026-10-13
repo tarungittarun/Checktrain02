@@ -434,15 +434,16 @@ class LiveViewModel(
             val paintT0 = System.currentTimeMillis()
             if (_ui.value == null) {
                 val now0 = System.currentTimeMillis()
-                val cachedRoute = runCatching { repo.queries.route(trainNo) }.getOrNull()
+                val saved = repo.lastOfficial(trainNo, fromCode, toCode, originEpochDay)
+                val cachedRoute = saved?.route ?: runCatching { repo.queries.route(trainNo) }.getOrNull()
                 if (cachedRoute != null) {
-                    val cached = PositionEngine.locate(
+                    val cached = saved?.answer ?: PositionEngine.locate(
                         PositionEngine.Request(cachedRoute, null, nowMinute(now0), now0, null),
                     )
                     lastAnswer = cached
                     _ui.value = buildUi(
                         cachedRoute, cached, emptyList(),
-                        listOf("Timetable shown while the live sources are asked — actuals land on top the moment a source answers."),
+                        saved?.notes ?: listOf("Timetable shown while the live sources are asked — actuals land on top the moment a source answers."),
                     )
                     _error.value = null
                     Diary.get()?.log("UI") {
@@ -454,11 +455,11 @@ class LiveViewModel(
             // The witnesses start NOW, in parallel with the erail chain - not after it. Paste #27: on a
             // fluctuating network the chain held the screen for minutes while the mirror needed 14 s.
             // The 90 s throttle makes the later, post-buildUi calls no-ops.
-            maybeMirror()
             maybeCrowd()
             // And the route grows to the journey's real span once erail's page names the halts the
             // device timetable lacks (throttled + day-cached; never blocks the paint above).
-            maybeRouteExtent()
+            // A 0.5 s official answer makes both of these slow page probes unnecessary;
+            // defer them until after the official request actually fails.
             val live = runCatching {
                 repo.live(
                     trainNo = trainNo, fromCode = fromCode, toCode = toCode,
@@ -486,6 +487,7 @@ class LiveViewModel(
                     _error.value = null
                     maybeCrowd()
                     maybeMirror()
+                    maybeRouteExtent()
                     return
                 }
                 // The train the list advertised may exist ONLY in the live source (the offline copy
@@ -508,13 +510,17 @@ class LiveViewModel(
                 _error.value = null
                 maybeCrowd()
                 maybeMirror()
+                maybeRouteExtent()
                 return
             }
             lastAnswer = live.answer
             _ui.value = buildUi(live.route, live.answer, live.tried, live.notes)
             _error.value = null
             maybeCrowd()
-            maybeMirror()
+            if (live.answer.position.provenance != SourceKind.PROVIDER_NTES) {
+                maybeMirror()
+                maybeRouteExtent()
+            } else _mirrorState.postValue("Official NTES answered; slow independent page probes skipped")
         }
     }
 
@@ -921,6 +927,8 @@ class LiveViewModel(
         val sourceNames = linkedMapOf(
             "NTES (official)" to (if (answer.position.provenance == SourceKind.PROVIDER_NTES && ntesActualCount > 0)
                 "live" to "$ntesActualCount stops with actual minutes"
+                else if (answer.position.provenance == SourceKind.CACHED && ntesActualCount > 0)
+                "last-known" to "$ntesActualCount saved stops; not live"
                 else "none" to "no per-stop actuals on this device"),
             RunningStatusMirror.SOURCE to (mirrorSourceStates[RunningStatusMirror.SOURCE]
                 ?: ("none" to "not answered yet")),

@@ -72,6 +72,20 @@ class RailRepository private constructor(
         queries.resolveStations(text)
     }
 
+    /** Instant last-known official run for a tunnel: a paired route + observations, never live. */
+    suspend fun lastOfficial(trainNo: String, from: String, to: String, day: Long): Live? =
+        withContext(Dispatchers.IO) {
+            val snap = store.loadOfficial(trainNo, day, from, to) ?: return@withContext null
+            val route = snap.reportedRoute ?: return@withContext null
+            val now = System.currentTimeMillis()
+            val rail = ((RailTime.istEpochDay(now) - day) * 1440 +
+                RailTime.istMinuteOfDay(now)).toInt()
+            Live(route, PositionEngine.locate(PositionEngine.Request(route, snap, rail, now)),
+                listOf("NTES=last-known"), day,
+                listOf("Showing a saved NTES report while checking for a newer one; " +
+                    "position since that report is unknown."))
+        }
+
     /**
      * Live view for one run: schedule from the device, live delta from the chain, position derived by
      * [PositionEngine] with the previously shown position as input (that is what makes rule 3 —
@@ -96,7 +110,10 @@ class RailRepository private constructor(
         val outcome = chain.fetch(trainNo, route, originEpochDay)
         Diary.get()?.log("CHAIN", "in " + (System.currentTimeMillis() - chainT0) + "ms: " +
             (outcome.notes.take(4).joinToString(" | ") { it.take(140) }))
-        val effectiveRoute = outcome.snapshot?.reportedRoute ?: route
+        val snapshot = if (outcome.snapshot == null || outcome.snapshot.sourceKind == SourceKind.CACHED)
+            store.loadOfficial(trainNo, originEpochDay, fromCode, toCode) ?: outcome.snapshot
+        else outcome.snapshot
+        val effectiveRoute = snapshot?.reportedRoute ?: route
         if (effectiveRoute !== route) Diary.get()?.log("ROUTE") {
             "official NTES schedule replaces device ${route.srcCode}->${route.dstCode} " +
                 "(${route.stops.size} stops) with ${effectiveRoute.srcCode}->${effectiveRoute.dstCode} " +
@@ -108,7 +125,7 @@ class RailRepository private constructor(
         val answer = PositionEngine.locate(
             PositionEngine.Request(
                 route = effectiveRoute,
-                snapshot = outcome.snapshot,
+                snapshot = snapshot,
                 nowRailMinute = nowRail,
                 nowMillis = nowMillis,
                 previous = previous?.position?.takeIf { effectiveRoute === route },

@@ -74,6 +74,30 @@ class TrackModelTest {
     ) = TrackModel.build(route, pos, perStop, now, board, alight, 19949L, note)
 
     @Test
+    fun nextStopUsesEstimatedArrivalNotScheduledDepartureAtMidnight() {
+        val r = overnightRoute()
+        val reported = mapOf("SRC" to LiveStopFields(actualDepartureMin = 1387,
+            delayDepartureMin = 7))
+        val m = model(r, pos(1, 2, StopStatus.DEPARTED, delay = 7), reported, now = 1435)
+        assertEquals("Next: Mid Jn · 00:07 (+1d) expected · in 12 min", m.nextLabel)
+        val overdue = model(r, pos(1, 2, StopStatus.DEPARTED, delay = 7), reported, now = 1449)
+        assertTrue(overdue.nextLabel.contains("estimate overdue; arrival unconfirmed"))
+    }
+
+    @Test
+    fun cachedOfficialPastStopNeverClaimsLivePositionOrForecast() {
+        val r = overnightRoute()
+        val reported = mapOf("SRC" to LiveStopFields(actualDepartureMin = 1387,
+            delayDepartureMin = 7))
+        val m = model(r, pos(1, 2, StopStatus.DEPARTED, delay = 7,
+            kind = SourceKind.CACHED), reported, now = 1435)
+        assertTrue(m.headline.contains("current position unknown"))
+        assertTrue(m.nextLabel.startsWith("Next scheduled: Mid Jn · 00:00 (+1d)"))
+        assertEquals(TrackModel.MinuteSource.SCHEDULE, m.rows[1].source)
+        assertEquals(TrackModel.MinuteSource.REPORTED, m.rows[0].source)
+    }
+
+    @Test
     fun theEndpointOnlyRouteIsNeverShownAsAZeroKmLeg() {
         // 20689 on the owner's device (2026-10-12): the offline copy lacks the train, the screen
         // renders the live source's two endpoints - and the old headline read "4h 49m into the

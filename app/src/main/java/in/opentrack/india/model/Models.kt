@@ -188,7 +188,7 @@ enum class SourceKind(val label: String, val live: Boolean) {
     PROVIDER_NTES("LIVE · running status", true),
     PROVIDER_OVERRIDE("LIVE · custom", true),
     SNAPSHOT_FILE("LIVE · snapshot", true),
-    CACHED("LIVE · cached", false),
+    CACHED("CACHED · last known", false),
     DERIVED_GPS("DERIVED · GPS", false),
     OFFLINE_SCHEDULE("OFFLINE · schedule only", false),
     NONE("NO DATA", false),

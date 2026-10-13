@@ -146,7 +146,8 @@ object TrackModel {
 
         val stops = route.stops.mapIndexed { index, s ->
             val liveFields = perStop[s.code]
-            val carried = overlay.getOrNull(index)
+            // A cached report is a past observation, not permission to keep forecasting.
+            val carried = if (pos.provenance == SourceKind.CACHED) null else overlay.getOrNull(index)
             // Aligned to the scheduled minute before use: the feed answers with a clock, the table counts
             // from the run's first halt, and without this a halt on day 2 put "00:20" under "00:30 (+1d)" —
             // two cells in one row that a traveller has to subtract 24 hours between. The alignment is what
@@ -181,7 +182,9 @@ object TrackModel {
                 kmRemaining = (alightKm(route, alightSeq) - s.schedKm).coerceAtLeast(0),
                 isBoarding = s.seq == boardSeq,
                 isAlighting = s.seq == alightSeq,
-                minutesFromNow = (s.departureMin ?: s.arrivalMin)?.let { it - nowRailMinute },
+                // The next-stop label refers to its ARRIVAL, using the shown estimate,
+                // not its scheduled departure (R55 called a 00:20 ETA "right now" at 00:15).
+                minutesFromNow = (actualArr ?: estArr ?: actualDep ?: estDep)?.let { it - nowRailMinute },
             )
         }
 
@@ -266,12 +269,14 @@ object TrackModel {
             // chip is the one place that says whether data arrived. `ageSeconds` is 0 for a schedule-only
             // answer, which `age()` renders as "live" — exactly the claim this app must never make.
             ageLabel = when {
+                pos.provenance == SourceKind.CACHED ->
+                    "last fetched ${pos.ageSeconds / 60} min ago · not live"
                 !live -> "no live fetch"
                 pos.feedAgeSeconds != null -> feedAgeLabel(pos.feedAgeSeconds!!)
                 else -> age(pos.ageSeconds)
             },
             delayLabel = delayLabel(pos, live),
-            nextLabel = nextLabel(next, route, alightSeq),
+            nextLabel = nextLabel(next, route, alightSeq, pos.provenance == SourceKind.CACHED),
             progressLabel = progressLabel,
             progressPct = progressPct,
             schedulePct = schedulePct,
@@ -347,6 +352,11 @@ object TrackModel {
         val name = TitleCase.of(anchor.name)
         val late = pos.delayMinutes?.let { if (abs(it) >= 2) " · ${RailTime.formatDelay(it)}" else "" } ?: ""
         if (anchor.state == State.CANCELLED) return "Cancelled at $name"
+        if (pos.provenance == SourceKind.CACHED) {
+            val t = anchor.showDep ?: anchor.showArr
+            return "Last confirmed at $name" + (t?.let { " · ${RailTime.formatRailMinute(it)}" } ?: "") +
+                " · current position unknown"
+        }
         if (!live) {
             // Everything here is an inference from the timetable. Say "should be", never "is".
             val gap = now - (anchor.schedDep ?: anchor.schedArr ?: now)
@@ -399,15 +409,19 @@ object TrackModel {
         }
     }
 
-    private fun nextLabel(next: Stop?, route: TrainRoute, alightSeq: Int): String {
+    private fun nextLabel(next: Stop?, route: TrainRoute, alightSeq: Int, cached: Boolean): String {
         if (next == null) return "Last halt reached · destination ${TitleCase.of(route.dstName)}"
-        val t = next.showDep ?: next.showArr ?: return "Next: ${TitleCase.of(next.name)}"
+        val t = next.showArr ?: next.showDep ?: return "Next: ${TitleCase.of(next.name)}"
         val clock = RailTime.formatRailMinute(t)
-        val when0 = next.minutesFromNow?.let { " · ${formatGap(it)}" } ?: ""
+        val when0 = next.minutesFromNow?.let {
+            if (next.estimated && it < 0) " · estimate overdue; arrival unconfirmed"
+            else " · ${formatGap(it)}"
+        } ?: ""
         val kind = if (next.estimated) "expected" else "due"
         val nm = TitleCase.of(next.name)
         val at = if (next.seq == alightSeq) "$nm (your stop)" else nm
-        return "Next: $at · $clock $kind$when0"
+        return if (cached) "Next scheduled: $at · $clock · arrival not confirmed"
+            else "Next: $at · $clock $kind$when0"
     }
 
     /**

@@ -103,6 +103,29 @@ class NtesMobileFallbackTest {
     }
 
     @Test
+    fun `official last-known cache keeps route and actuals paired to selected run`() {
+        val doc = JSONObject(observed16227)
+        val parsed = NtesWire.parse(doc.toString())!!
+        val route = NtesRoute.fromStatus(parsed, route())!!
+        val stamp = NtesMobileFallback.updateMillis(doc, day)!!
+        val safe = NtesMobileFallback.trustedRows(parsed.copy(feedStampMillis = stamp), route, day,
+            stamp + 60_000)
+        val fresh = NtesAdapter.toSnapshot(safe, "16227", day)!!.copy(
+            reportedRoute = route, fetchedAtMillis = stamp + 60_000)
+        val record = OfficialRunCache.encode(fresh)
+        val cached = OfficialRunCache.decode(record, "16227", day, "MYS", "PANP",
+            stamp + 120_000)!!
+        assertEquals(`in`.opentrack.india.model.SourceKind.CACHED, cached.sourceKind)
+        assertEquals(listOf("MYS", "NHY", "PANP"), cached.reportedRoute!!.stops.map { it.code })
+        assertEquals(20 * 60 + 5, cached.perStop["PANP"]!!.actualArrivalMin)
+        assertEquals(stamp, cached.feedStampMillis)
+        assertNull(OfficialRunCache.decode(record, "16227", day + 1, "MYS", "PANP", stamp + 120_000))
+        assertNull(OfficialRunCache.decode(record, "16227", day, "SBC", "SMET", stamp + 120_000))
+        assertNull(OfficialRunCache.decode(record, "16227", day, "MYS", "PANP",
+            stamp + OfficialRunCache.MAX_AGE_MS + 120_000))
+    }
+
+    @Test
     fun `past day two stop stays on day two while next estimate cannot turn into actual`() {
         val status = JSONObject("""{"LUPDT":"00:55 14-Oct","STNS":[
             {"SC":"MYS","STD":"23:40 13-Oct","ETD":"23:40 13-Oct"},

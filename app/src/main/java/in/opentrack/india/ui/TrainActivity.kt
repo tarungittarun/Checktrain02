@@ -229,8 +229,10 @@ class TrainActivity : AppCompatActivity() {
         binding.lastUpdated.visibility = if (ui.lastUpdated == null) View.GONE else View.VISIBLE
         binding.lastUpdated.text = ui.lastUpdated
         val verifiedFeeds = ui.sourceStates.count { it.value.first == "live" }
+        val confirmedStops = m.rows.count { it.source == TrackModel.MinuteSource.REPORTED }
         binding.sourceSummary.text =
-            "${ui.sourceStates.size} source slots · $verifiedFeeds with verified stop minutes · tap Source"
+            "${ui.sourceStates.size} source slots · $verifiedFeeds live source(s) · " +
+                "$confirmedStops stops with reported minutes · tap Source"
         binding.headline.text = m.headline
 
         val (badgeBg, badgeText) = when (m.tone) {

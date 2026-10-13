@@ -157,7 +157,9 @@ object PositionEngine {
         val eventMin = snap.eventMinute
         if (status == StopStatus.DEPARTED) {
             eta = null
-            if (segment != null && legMin != null && legMin > 0 && eventMin != null) {
+            if (provenance == SourceKind.CACHED) {
+                note = "Last confirmed at ${stop.code}; current position unknown until a live report arrives"
+            } else if (segment != null && legMin != null && legMin > 0 && eventMin != null) {
                 val elapsed = req.nowRailMinute - eventMin
                 if (elapsed > 0) {
                     val expected = max(1, legMin + (delay ?: 0))
@@ -210,7 +212,7 @@ object PositionEngine {
 
         val last = route.stops.last()
         val arrivalAtEnd = last.arrivalMin ?: last.departureMin
-        val remaining = arrivalAtEnd?.let {
+        val remaining = if (provenance == SourceKind.CACHED) null else arrivalAtEnd?.let {
             (it + (delay ?: 0) - req.nowRailMinute).takeIf { m -> m in 0..(20 * 1440) }
         }
 
