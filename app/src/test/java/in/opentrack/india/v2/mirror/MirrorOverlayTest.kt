@@ -162,7 +162,9 @@ class MirrorOverlayTest {
         assertEquals(610, result.rows[0].showDep)
         assertEquals(TrackModel.MinuteSource.PROJECTED, result.rows[1].source)
         assertEquals(715, result.rows[1].showDep)
-        assertEquals(810, result.rows[2].showArr)
+        assertEquals(800, result.rows[2].showArr)
+        assertEquals("only the immediate next stop may be projected",
+            TrackModel.MinuteSource.SCHEDULE, result.rows[2].source)
         assertEquals("confirmed only where first witness agrees",
             emptyList<RunningStatusMirror.Stop>(),
             LiveViewModel.crossCheckedStops(stops, listOf(
