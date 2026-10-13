@@ -113,6 +113,10 @@ internal object NtesMobileFallback {
         val currentUpdateDated = dateInCell(updateStamp, expected) ||
             dateInCell(updateStamp, NtesWire.dateForWire(runDay + 1))
         if (topDate == null && !currentUpdateDated) return false
+        // LUPDT may be the following calendar day for TWO adjacent runs. Anchor it to
+        // the origin's scheduled departure date, not merely a recent update date.
+        if (topDate == null && !dateInCell(rows.optJSONObject(0)?.optString("STD").orEmpty(),
+                expected)) return false
         // A timetable-only answer with a fresh header is still not an observation.
         for (i in 0 until rows.length()) {
             val r = rows.optJSONObject(i) ?: continue
