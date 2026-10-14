@@ -934,11 +934,18 @@ class LiveViewModel(
                     }
                 }
             }
-            val direct = if (System.currentTimeMillis() < directDeadUntil)
+            // A manual ConfirmTkt selection must ask ConfirmTkt, not spend its latency budget
+            // waiting for a known-403 runningstatus page. NTES's own already-received observations
+            // can cross-check overlapping cells; they do not make projected page rows actuals.
+            val onlyConfirm = preferred == ConfirmTktMirror.SOURCE &&
+                _ui.value?.answer?.position?.provenance == SourceKind.PROVIDER_NTES
+            val direct = if (onlyConfirm)
+                RunningStatusMirror.Fetched(null, "not needed for this manual ConfirmTkt probe")
+            else if (System.currentTimeMillis() < directDeadUntil)
                 RunningStatusMirror.Fetched(null, "recent 403; browser lane")
             else withContext(Dispatchers.IO) { RunningStatusMirror.fetchOrWhy(trainNo) }
             if (direct.why.startsWith("HTTP 403")) directDeadUntil = System.currentTimeMillis() + 600_000
-            val primary = direct.actuals ?: run {
+            val primary = if (onlyConfirm) null else (direct.actuals ?: run {
                 val page = withContext(Dispatchers.IO) {
                     BrowserFetch.pageText("https://runningstatus.in/status/$trainNo", 30_000,
                         settleMillis = 1_200, textCap = 24_000)
@@ -946,7 +953,7 @@ class LiveViewModel(
                 (page as? Http.Result.Ok)?.body?.let {
                     RunningStatusMirror.parse(RunningStatusMirror.stripTags(it))
                 }
-            }
+            })
             val rawCk = ckDeferred.await()
             // A slower mirror must never replace a verified official screen or its route.
             if (!force && _ui.value?.answer?.position?.provenance == SourceKind.PROVIDER_NTES) return@launch
@@ -991,14 +998,20 @@ class LiveViewModel(
             mirrorCrossChecked = verifiedCk.isNotEmpty()
             val refreshed = clockAt(System.currentTimeMillis())
             mirrorSourceStates = linkedMapOf(
-                RunningStatusMirror.SOURCE to (if (verifiedPrimary.isNotEmpty())
+                RunningStatusMirror.SOURCE to (if (onlyConfirm)
+                    mirrorSourceStates[RunningStatusMirror.SOURCE] ?: ("none" to "not checked in this probe")
+                    else if (verifiedPrimary.isNotEmpty())
                     "live" to "${verifiedPrimary.size} verified halts" +
                         (if (disputed.isEmpty()) "" else " · ${disputed.size} disputed hidden") + " · $refreshed"
-                    else "none" to "no verified halt (${direct.why.take(60)})"),
+                    else "none" to "${primary?.stops?.size ?: 0} page rows; " +
+                        "0 same-run actuals (${direct.why.take(45)})"),
                 ConfirmTktMirror.SOURCE to (if (verifiedCk.isNotEmpty())
                     "live" to "${verifiedCk.size} cells overlap $ckWitnessLabel · $refreshed"
-                    else if (ck.ok) "unverified" to "page answered; minutes not corroborated"
-                    else "none" to "no answer this refresh"),
+                    else if (ck.ok) "unverified" to "${ck.stops.size} page rows for " +
+                        "${ck.pageDay ?: "unknown day"}; 0 independently corroborated actuals"
+                    else "none" to "${rawCk.stops.size} page rows; " +
+                        (if (rawCk.pageDay != expectedDay) "run day mismatched/missing"
+                        else "no validated rows")),
             )
             mirrorSourceLines = linkedMapOf(
                 RunningStatusMirror.SOURCE to primary?.let {
@@ -1038,7 +1051,11 @@ class LiveViewModel(
             _mirrorState.postValue(if (preferred != null) {
                 if (mirrorStops[preferred].orEmpty().isNotEmpty())
                     "$preferred: verified for this run · $mirrorSources"
-                else "$preferred: no verified same-run actuals; keeping the current source"
+                else if (preferred == ConfirmTktMirror.SOURCE)
+                    "ConfirmTkt returned ${ck.stops.size} page rows for ${ck.pageDay ?: "unknown day"}; " +
+                        "0 independently corroborated actuals. Kept NTES."
+                else "$preferred: ${primary?.stops?.size ?: 0} page rows, " +
+                    "0 verified same-run actuals (${direct.why.take(45)}); kept NTES."
             } else if (verifiedPrimary.isNotEmpty()) "Verified actuals · $mirrorSources"
                 else "No verified actual arrival/departure this refresh — showing timetable only")
             _ui.postValue(buildUi(u.route, u.answer, u.tried).copy(relayOk = u.relayOk))
@@ -1224,7 +1241,6 @@ class LiveViewModel(
                 "live" to "$ntesActualCount stops with actual minutes"
                 else if (liveIdentity != null) "unverified" to "identity only; no actual halt times"
                 else "none" to "no per-stop actuals"),
-            "ixigo" to ("unverified" to "probe only; no verified per-stop feed"),
         )
         val selectable = linkedMapOf<String, Map<String, String>>()
         if ("last known" in mirrorSourceLines) sourceNames["last known"] =

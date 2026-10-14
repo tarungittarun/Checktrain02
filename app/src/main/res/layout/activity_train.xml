@@ -126,6 +126,27 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content" />
 
+                <!-- Projection only: no icon until a fresh reported departure gives a leg. -->
+                <LinearLayout
+                    android:id="@+id/legSection"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:orientation="vertical"
+                    android:visibility="gone">
+                    <in.opentrack.india.ui.LegPositionView
+                        android:id="@+id/legPosition"
+                        android:layout_width="match_parent"
+                        android:layout_height="54dp" />
+                    <TextView
+                        android:id="@+id/legCaption"
+                        style="@style/TextMicro"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_horizontal"
+                        android:textColor="@color/text2" />
+                </LinearLayout>
+
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"

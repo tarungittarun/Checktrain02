@@ -4,6 +4,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
+import android.widget.LinearLayout
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
@@ -12,6 +13,7 @@ import `in`.opentrack.india.core.RailTime
 import `in`.opentrack.india.domain.Suggestion
 import `in`.opentrack.india.domain.TitleCase
 import `in`.opentrack.india.domain.TrackModel
+import `in`.opentrack.india.model.StopRow
 import `in`.opentrack.india.model.StationHit
 import `in`.opentrack.india.model.TrainHit
 import `in`.opentrack.india.model.TrainSummary
@@ -109,6 +111,17 @@ class TrainHitAdapter(private val onClick: (TrainHit) -> Unit) :
  */
 class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
 
+    private var expandedCode: String? = null
+    private var routePoints: Map<String, List<StopRow>> = emptyMap()
+
+    /** A group is attached to the preceding scheduled halt. No point becomes a timed halt. */
+    fun setRoutePoints(groups: Map<String, List<StopRow>>) {
+        if (routePoints == groups) return
+        routePoints = groups
+        if (expandedCode?.let { it !in groups } == true) expandedCode = null
+        notifyDataSetChanged()
+    }
+
     /** The halt the mirror's actuals say the train is at or making for - tinted, never silent. */
     var highlightCode: String? = null
 
@@ -117,6 +130,7 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
 
     class Holder(view: View) : RecyclerView.ViewHolder(view) {
         val row: View = view.findViewById(R.id.stopRow)
+        val intermediateGroup: LinearLayout = view.findViewById(R.id.intermediateGroup)
         val dot: View = view.findViewById(R.id.stopDot)
         val name: TextView = view.findViewById(R.id.stopName)
         val meta: TextView = view.findViewById(R.id.stopMeta)
@@ -205,6 +219,37 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
                 else -> 0x00000000
             }
         )
+        val points = routePoints[s.code].orEmpty()
+        holder.row.setOnClickListener(if (points.isEmpty()) null else View.OnClickListener {
+            val previous = expandedCode
+            expandedCode = if (previous == s.code) null else s.code
+            if (previous != null) currentList.indexOfFirst { it.code == previous }
+                .takeIf { it >= 0 }?.let(::notifyItemChanged)
+            currentList.indexOfFirst { it.code == s.code }
+                .takeIf { it >= 0 }?.let(::notifyItemChanged)
+        })
+        holder.row.isClickable = points.isNotEmpty()
+        holder.row.contentDescription = if (points.isNotEmpty())
+            "${s.name}, ${points.size} route points to next scheduled halt, tap to " +
+                (if (expandedCode == s.code) "collapse" else "expand") else s.name
+        holder.status.text = holder.status.text.toString() + if (points.isNotEmpty())
+            " · ${points.size} route points · tap to ${if (expandedCode == s.code) "hide" else "show"}" else ""
+        holder.intermediateGroup.removeAllViews()
+        holder.intermediateGroup.visibility = if (points.isNotEmpty() && expandedCode == s.code)
+            View.VISIBLE else View.GONE
+        if (holder.intermediateGroup.visibility == View.VISIBLE) {
+            for (point in points) {
+                holder.intermediateGroup.addView(TextView(ctx).apply {
+                    text = "• ${RowText.of(point.name)} (${point.code}) · " +
+                        (if (point.isHalt) "scheduled halt" else "route point · halt unconfirmed") +
+                        (if (point.schedKm >= 0) " · map ${point.schedKm} km" else "")
+                    setTextColor(ctx.getColor(if (point.isHalt) R.color.text1 else R.color.text2))
+                    textSize = 13f
+                    val pad = (5 * ctx.resources.displayMetrics.density).toInt()
+                    setPadding(0, pad, 0, pad)
+                })
+            }
+        }
     }
 
     /**

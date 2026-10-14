@@ -27,6 +27,9 @@ class ConfirmTktScheduleTest {
         val result = ConfirmTktSchedule.parse(html(), "20689", day, "YPR", "SMET")!!
         assertEquals(listOf("YPR", "BAW", "SMET"), result.halts.stops.map { it.code })
         assertEquals(9, result.halts.stops[1].schedKm)
+        assertEquals(2, result.halts.segments.size)
+        assertTrue("halt-to-halt segments must exist; this is not an endpoint scaffold",
+            result.halts.segments.first().legMin != null)
         assertEquals(listOf("YPR", "BAW", "SDVL", "SMET"),
             result.allStations.stops.map { it.code })
         val point = result.allStations.stops[2]
@@ -34,6 +37,7 @@ class ConfirmTktScheduleTest {
         assertNull("embedded passage times are not published halt times", point.arrivalMin)
         assertNull(point.departureMin)
         assertEquals("SOLDEVANAHALLI", point.name)
+        assertEquals(11, point.schedKm)
     }
 
     @Test fun secondCapturedTrainAlsoCarriesPointsWithoutInventingHaltMinutes() {
@@ -54,6 +58,7 @@ class ConfirmTktScheduleTest {
             route.allStations.stops.map { it.code })
         assertEquals(listOf("TLGP", "YPR", "SBC"), route.halts.stops.map { it.code })
         assertNull(route.allStations.stops[3].arrivalMin)
+        assertEquals(368, route.allStations.stops[3].schedKm)
     }
 
     @Test fun mismatchedTrainDayCorridorAndDuplicatePointsNeverBecomeARoute() {

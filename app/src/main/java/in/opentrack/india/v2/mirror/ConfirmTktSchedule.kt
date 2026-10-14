@@ -1,5 +1,6 @@
 package `in`.opentrack.india.v2.mirror
 
+import `in`.opentrack.india.model.SegmentRow
 import `in`.opentrack.india.model.StopRow
 import `in`.opentrack.india.model.TrainRoute
 import org.json.JSONArray
@@ -88,9 +89,11 @@ object ConfirmTktSchedule {
                 val p = points.optJSONObject(j) ?: return null
                 val c = p.optString("StationCode").trim().uppercase()
                 if (!code.matches(c) || !seen.add(c)) return null
+                val pointKm = p.optString("Distance").toDoubleOrNull()
+                    ?.takeIf { it >= 0.0 }?.toInt() ?: -1
                 all += StopRow(all.size + 1, c,
                     p.optString("StationName").trim().ifBlank { c }, null, null, null,
-                    null, null, day - 1, -1, false)
+                    null, null, day - 1, pointKm, false)
             }
         }
         // A route not covering the user's selected corridor cannot be attached to their train.
@@ -105,7 +108,11 @@ object ConfirmTktSchedule {
             trainNo, "Train $trainNo", halts.first().code, halts.first().name,
             halts.last().code, halts.last().name, halts.last().schedKm.coerceAtLeast(0),
             halts.last().arrivalMin?.let { it - (halts.first().departureMin ?: 0) },
-            null, null, stops, emptyList(),
+            null, null, stops, stops.zipWithNext { a, b ->
+                SegmentRow(a.seq, a.code, b.code,
+                    if (a.schedKm >= 0 && b.schedKm >= a.schedKm) b.schedKm - a.schedKm else 0,
+                    a.departureMin?.let { dep -> b.arrivalMin?.let { (it - dep).coerceAtLeast(0) } })
+            },
         )
         return Result(route(halts), route(all))
     }

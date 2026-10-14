@@ -1,6 +1,9 @@
 package `in`.opentrack.india.domain
 
+import `in`.opentrack.india.model.SourceKind
 import `in`.opentrack.india.model.StopRow
+import `in`.opentrack.india.model.StopStatus
+import `in`.opentrack.india.model.TrainPosition
 import `in`.opentrack.india.model.TrainRoute
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -27,6 +30,34 @@ class RouteBetweenTest {
         assertEquals(645, reconciled.stops[1].arrivalMin)
         assertEquals(listOf("AAA", "BBB", "CCC", "DDD"), reconciled.stops.map { it.code })
         assertEquals(null, RouteBetween.withVerifiedHalts(route, official.copy(trainNo = "20689")))
+    }
+
+    @Test fun tapOnHaltRevealsOnlyNextLegAndLeavesPointUntimed() {
+        val halts = route.copy(stops = route.stops.filter { it.isHalt }
+            .mapIndexed { i, s -> s.copy(seq = i + 1) })
+        val groups = RouteBetween.groupedPoints(route, halts)
+        assertEquals(listOf("BBB"), groups["AAA"]?.map { it.code })
+        assertTrue(groups["CCC"].isNullOrEmpty())
+        assertEquals(null, groups["AAA"]?.first()?.arrivalMin)
+        assertEquals(emptyMap<String, List<StopRow>>(),
+            RouteBetween.groupedPoints(route.copy(trainNo = "99999"), halts))
+    }
+
+    @Test fun trainIconIsAProjectionNotAReportedIntermediateArrival() {
+        val halts = route.copy(stops = route.stops.filter { it.isHalt }
+            .mapIndexed { i, s -> s.copy(seq = i + 1) })
+        fun position(source: SourceKind, age: Long = 120) = TrainPosition(
+            anchorSeq = 1, nextSeq = 2, fraction = .5f, kmAlong = 10f,
+            status = StopStatus.DEPARTED, etaNextMinute = null, delayMinutes = 0,
+            remainingMin = null, provenance = source, confidence = TrainPosition.Confidence.LOW,
+            ageSeconds = age)
+        val projection = RouteBetween.projectLeg(halts, route, position(SourceKind.PROVIDER_NTES))!!
+        assertEquals("Passing", projection.nearestPoint)
+        assertEquals(10, projection.estimateKm)
+        assertEquals(null, RouteBetween.projectLeg(halts, route,
+            position(SourceKind.OFFLINE_SCHEDULE)))
+        assertEquals(null, RouteBetween.projectLeg(halts, route,
+            position(SourceKind.PROVIDER_NTES, 601)))
     }
 
     @Test fun arbitraryPairUsesTrainOrderWithoutReadingPosition() {

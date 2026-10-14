@@ -162,19 +162,30 @@ class TrainActivity : AppCompatActivity() {
         }
         val from = spinner(R.string.between_from)
         val to = spinner(R.string.between_to)
-        val result = TextView(this).apply { setPadding(0, pad / 2, 0, pad) }
+        val result = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, pad / 2, 0, pad)
+        }
         layout.addView(ScrollView(this).apply {
             addView(result)
-            layoutParams = LinearLayout.LayoutParams(-1, (280 * resources.displayMetrics.density).toInt())
+            layoutParams = LinearLayout.LayoutParams(-1,
+                (resources.displayMetrics.heightPixels * 0.42f).toInt())
         })
         fun update() {
             val selected = RouteBetween.inclusive(route,
                 stops[from.selectedItemPosition].code, stops[to.selectedItemPosition].code)
-            result.text = selected.joinToString("\n") { stop ->
-                val arr = stop.arrivalMin?.let(RailTime::formatRailMinute) ?: "—"
-                val dep = stop.departureMin?.let(RailTime::formatRailMinute) ?: "—"
-                "${stop.code} · ${stop.name}  ${if (stop.isHalt) "scheduled halt" else "route point · halt unconfirmed"}  " +
-                    "sch $arr / $dep"
+            result.removeAllViews()
+            for (stop in selected) {
+                result.addView(TextView(this).apply {
+                    val arr = stop.arrivalMin?.let(RailTime::formatRailMinute) ?: "—"
+                    val dep = stop.departureMin?.let(RailTime::formatRailMinute) ?: "—"
+                    text = if (stop.isHalt)
+                        "${stop.name} · ${stop.code}\nScheduled halt · Sch $arr / $dep"
+                    else "${stop.name} · ${stop.code}\nRoute point · halt unconfirmed · no published halt time"
+                    textSize = 14f
+                    setTextColor(getColor(if (stop.isHalt) R.color.text1 else R.color.text2))
+                    setPadding(0, pad / 2, 0, pad / 2)
+                })
             }
         }
         val change = object : AdapterView.OnItemSelectedListener {
@@ -186,6 +197,7 @@ class TrainActivity : AppCompatActivity() {
         to.setSelection(stops.lastIndex)
         AlertDialog.Builder(this).setTitle(R.string.between_title).setView(layout)
             .setPositiveButton(android.R.string.ok, null).show()
+            .window?.setBackgroundDrawableResource(R.drawable.bg_card)
     }
 
     /** The first HTTP ladder can finish in three seconds while mirror page checks take twenty.
@@ -266,8 +278,7 @@ class TrainActivity : AppCompatActivity() {
                     if (name != lastUi?.activeSource) {
                         if (states[name]?.first !in listOf("live", "last-known")) {
                             Toast.makeText(this@TrainActivity,
-                                if (name == "ixigo") "ixigo has no validated per-stop endpoint yet"
-                                else "Checking $name independently; current view stays until verified",
+                                "Checking $name independently; current view stays until verified",
                                 Toast.LENGTH_SHORT).show()
                             val previous = names.indexOf(lastUi?.activeSource)
                             if (previous >= 0) binding.sourceSpinner.setSelection(previous, false)
@@ -302,6 +313,17 @@ class TrainActivity : AppCompatActivity() {
             "${ui.sourceStates.size} source slots · $verifiedFeeds live source(s) · " +
                 "$confirmedStops stops with reported minutes · tap Source"
         binding.headline.text = m.headline
+        val leg = if (ui.answer.position.provenance ==
+            `in`.opentrack.india.model.SourceKind.PROVIDER_NTES)
+            RouteBetween.projectLeg(ui.route, ui.staticRoute, ui.answer.position) else null
+        binding.legSection.visibility = if (leg != null) View.VISIBLE else View.GONE
+        if (leg != null) {
+            binding.legPosition.fraction = leg.fraction
+            binding.legCaption.text = "Projected from last NTES report · ${leg.from} → ${leg.to}" +
+                (leg.nearestPoint?.let { " · near $it (static map estimate)" } ?: "") +
+                " · not GPS or a station arrival"
+            binding.legPosition.contentDescription = binding.legCaption.text
+        }
 
         val (badgeBg, badgeText) = when (m.tone) {
             TrackModel.Tone.LIVE_OK, TrackModel.Tone.LIVE_EARLY ->
@@ -367,6 +389,7 @@ class TrainActivity : AppCompatActivity() {
         m.note?.let { binding.note.text = it }
 
         stopAdapter.reports = ui.sourceLines[ui.activeSource] ?: ui.reports
+        stopAdapter.setRoutePoints(RouteBetween.groupedPoints(ui.staticRoute, ui.route))
         renderSourceChips(ui)
         stopAdapter.highlightCode = ui.anchorCode
         if (ui.reports.isNotEmpty()) {

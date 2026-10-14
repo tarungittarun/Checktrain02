@@ -1,7 +1,10 @@
 package `in`.opentrack.india.domain
 
 import `in`.opentrack.india.model.StopRow
+import `in`.opentrack.india.model.StopStatus
+import `in`.opentrack.india.model.TrainPosition
 import `in`.opentrack.india.model.TrainRoute
+import kotlin.math.abs
 
 /** Static schedule query, deliberately unrelated to live position or selected journey span.
  * The available list may contain only halts; callers MUST disclose when pass-through data is absent. */
@@ -20,6 +23,60 @@ object RouteBetween {
         return map.copy(stops = map.stops.mapIndexed { index, point ->
             (halts[point.code.uppercase()] ?: point).copy(seq = index + 1)
         })
+    }
+
+    /** Only the points between this scheduled halt and the NEXT one. A different route or
+     * out-of-order map contributes no rows; a point does not acquire a reported time. */
+    fun groupedPoints(map: TrainRoute?, halts: TrainRoute): Map<String, List<StopRow>> {
+        if (map == null || withVerifiedHalts(map, halts) == null) return emptyMap()
+        val groups = LinkedHashMap<String, List<StopRow>>()
+        var start = 0
+        for (i in 0 until halts.stops.lastIndex) {
+            val from = halts.stops[i]
+            val end = map.stops.indexOfFirst { it.code.equals(halts.stops[i + 1].code, true) }
+            if (end <= start) return emptyMap()
+            val points = map.stops.subList(start + 1, end).map { it.copy(
+                actualArrivalMin = null, actualDepartureMin = null) }
+            if (points.isNotEmpty()) groups[from.code] = points
+            start = end
+        }
+        return groups
+    }
+
+    fun followingPoints(map: TrainRoute?, halts: TrainRoute, fromCode: String): List<StopRow> =
+        groupedPoints(map, halts)[fromCode].orEmpty()
+
+    /** A *projected* train icon within the two NTES halts. Never display this as observed
+     * GPS or as an actual passage through an intermediate point. Hide on stale/schedule-only data. */
+    data class LegProjection(
+        val from: String, val to: String, val fraction: Float,
+        val nearestPoint: String?, val estimateKm: Int,
+    )
+
+    fun projectLeg(halts: TrainRoute, map: TrainRoute?, position: TrainPosition): LegProjection? {
+        if (!position.provenance.live || position.ageSeconds > PositionEngine.STALE_MS / 1000 ||
+            (position.feedAgeSeconds ?: 0L) > PositionEngine.STALE_MS / 1000 ||
+            position.status != StopStatus.DEPARTED || position.fraction <= 0f ||
+            position.fraction >= 1f) return null
+        val from = halts.stopAtSeq(position.anchorSeq) ?: return null
+        val to = halts.stopAtSeq(position.nextSeq) ?: return null
+        if (from.schedKm < 0 || to.schedKm <= from.schedKm ||
+            position.nextSeq != position.anchorSeq + 1) return null
+        val fraction = position.fraction.coerceIn(0f, 0.97f)
+        // Map distances come from a separate static source, so interpolate on that source's OWN
+        // leg axis. Official and map total km differ by a kilometre on 20652.
+        val points = followingPoints(map, halts, from.code).filter { !it.isHalt }
+        val mapStart = map?.stops?.firstOrNull { it.code.equals(from.code, true) }?.schedKm ?: -1
+        val mapEnd = map?.stops?.firstOrNull { it.code.equals(to.code, true) }?.schedKm ?: -1
+        val projected = if (mapStart >= 0 && mapEnd > mapStart)
+            mapStart + (mapEnd - mapStart) * fraction else -1f
+        val near = if (projected >= 0) points.filter {
+            it.schedKm in mapStart..mapEnd
+        }.minByOrNull { abs(it.schedKm - projected) }?.takeIf {
+            abs(it.schedKm - projected) <= maxOf(1.5f, (mapEnd - mapStart) * 0.15f)
+        }?.name else null
+        return LegProjection(from.name, to.name, fraction, near,
+            (from.schedKm + (to.schedKm - from.schedKm) * fraction).toInt())
     }
 
     fun inclusive(route: TrainRoute, firstCode: String, secondCode: String): List<StopRow> {

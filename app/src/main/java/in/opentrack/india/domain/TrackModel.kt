@@ -341,7 +341,7 @@ object TrackModel {
         // the one person reading it. Say what the two endpoints know, and nothing more. The shape is
         // named by its segments: a real route with distances missing still earns the leg/stops
         // language (the kmAllZero fallback), the endpoint pair has no legs at all.
-        if (route.segments.isEmpty()) {
+        if (route.stops.size == 2 && route.segments.isEmpty()) {
             val first = route.stops.firstOrNull()
             val last = route.stops.lastOrNull()
             val dep = first?.departureMin?.let { RailTime.formatRailMinute(it) } ?: "—"
