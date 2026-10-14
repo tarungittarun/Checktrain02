@@ -55,7 +55,8 @@ def main() -> int:
         passes = {k: v for k, v in r.items() if k not in META and VERDICT.match(v.strip())}
         if not passes:
             return r.get("tests", "-")
-        bad = sorted(k for k, v in passes.items() if "failed" in v or "not-run" in v)
+        bad = sorted(k for k, v in passes.items()
+                     if any(word in v for word in ("failed", "not-run", "skipped", "timeout")))
         line = f"{len(passes) - len(bad)}/{len(passes)} passes green"
         if bad:
             # The word "failed" must survive into this string: the gates below search for it.

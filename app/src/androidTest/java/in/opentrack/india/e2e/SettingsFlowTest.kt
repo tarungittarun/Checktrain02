@@ -158,8 +158,8 @@ class SettingsFlowTest {
         if (E2E.tap("modeTrain") && E2E.typeInBox("trainBox", "12627") &&
             E2E.ui.wait(Until.hasObject(E2E.res("sugPrimary")), E2E.LOCAL_MS) != null
         ) {
+            // Picking a train already runs the search. A second Find creates duplicate work.
             E2E.tapSuggestion("trainBox", 0)
-            E2E.tap("find")
             if (E2E.ui.wait(Until.hasObject(E2E.res("hitGo")), E2E.NETWORK_MS)) {
                 E2E.openTrackFromFirstResult()
                 val provenance = E2E.text("provenance")

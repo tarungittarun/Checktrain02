@@ -37,8 +37,9 @@ class TrackingFlowTest {
             E2E.typeInBox("trainBox", "12627") &&
                 E2E.ui.wait(Until.findObject(By.res(E2E.PKG, "sugPrimary")), E2E.LOCAL_MS) != null,
         )
-        E2E.tapSuggestion("trainBox", 0)
-        E2E.tap("find")
+        // Picking a train already starts the search. A second Find tapped immediately here
+        // used to launch duplicate work on every @Before (once per tracking assertion).
+        assertTrue("the train suggestion could not be selected", E2E.tapSuggestion("trainBox", 0))
         assertTrue(
             "no result row to open for a train that is in the timetable",
             E2E.ui.wait(Until.hasObject(By.res(E2E.PKG, "hitGo")), E2E.NETWORK_MS),

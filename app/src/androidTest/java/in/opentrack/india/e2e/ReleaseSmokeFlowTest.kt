@@ -38,16 +38,14 @@ class ReleaseSmokeFlowTest {
         E2E.tapSuggestion("fromBox", 0)
         assertTrue(E2E.tap("modeTrain") && E2E.typeInBox("trainBox", "12627") &&
             E2E.ui.wait(Until.findObject(E2E.res("sugPrimary")), E2E.LOCAL_MS) != null)
-        E2E.tapSuggestion("trainBox", 0)
-        E2E.tap("find")
+        assertTrue("the release train row could not be selected", E2E.tapSuggestion("trainBox", 0))
         assertTrue("no results and no message in the release build",
             E2E.ui.wait(Until.hasObject(E2E.res("hitGo")), E2E.NETWORK_MS) ||
                 E2E.text("statusLine").isNotBlank() || E2E.resultRows() > 0)
         if (E2E.resultRows() > 0) {
             assertTrue("Track does not open in the release build", E2E.openTrackFromFirstResult())
             assertTrue("the tracking screen has no headline in the release build", E2E.text("headline").isNotBlank())
-            assertTrue("no halt rows in the release build", E2E.count(androidx.test.uiautomator.By
-                .res(E2E.PKG, "id/stopName")) > 0)
+            assertTrue("no halt rows in the release build", E2E.count(E2E.res("stopName")) > 0)
         }
         E2E.assertNoSystemDialog("release smoke")
         E2E.shot("release-smoke")

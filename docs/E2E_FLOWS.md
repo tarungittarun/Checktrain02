@@ -54,7 +54,7 @@ railway happens to be reporting today says so, and its test asserts the invarian
 | `settings-open` | settings | The screen shows the install state, endpoint field and column map | `SettingsFlowTest#everyControlIsReachableAndBackReturns` | all |
 | `diag-log-collector` | settings | The diagnostic log is inert until the user turns it on, says so on screen once they do, and is emptied by Clear without losing the switch | `SettingsFlowTest#diagnosticCollectorIsInertThenLiveThenEmpty` | all |
 | `endpoint-save-reload` | settings | A typed endpoint survives Save and reopening | `SettingsFlowTest#endpointPersistsAcrossReopen` | all |
-| `endpoint-rejects-non-http` | settings | A non-URL endpoint is not tried silently: the tracking screen says the configured endpoint was skipped | `SettingsFlowTest#junkEndpointSaysSo` | all |
+| `endpoint-rejects-non-http` | settings | A non-URL endpoint is rejected in Settings with visible correction instead of being saved silently | `SettingsFlowTest#junkEndpointSaysSo` | all |
 | `column-hint` | settings | A column map is accepted and persisted (the escape hatch for a feed format change must be reachable) | `SettingsFlowTest#columnHintPersists` | all |
 | `clear-cache` | settings | Clear live cache is followed by an offline screen that admits it has no snapshot | `SettingsFlowTest#clearingCacheIsVisibleOnTheTrackScreen` | all |
 | `manual-refresh-only-settings` | settings | Auto chooser is gone, source override remains | `SettingsFlowTest#settingsHasNoAutoRefreshChoice` | all |

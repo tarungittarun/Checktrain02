@@ -160,12 +160,14 @@ adb shell am instrument -w -e class in.opentrack.india.realdevice.LiveFeedFieldT
   in.opentrack.india.test/androidx.test.runner.AndroidJUnitRunner
 ```
 
-CI runs the device matrix on `push`: four emulator rows (API 34 with the radio toggled for the offline
-flows, the API 24 minSdk floor, a 440 dpi large phone, and the *signed release* APK), a 30 000-event
-random-event stability pass with a crash/ANR scan of logcat and dropbox, JaCoCo line coverage measured
-from those runs, and a roll-up posted onto the commit. GitHub-hosted runners have no `/dev/kvm`, so the
-rows that need hardware acceleration report `boot=failed` rather than pretending; a run in which *no* row
-boots is red, with the reason. `workflow_dispatch` lets you run it on demand.
+On a branch push, CI runs one **required API 34** emulator row (including offline flows) and a
+600-event random smoke plus a 600-event reopen pass. It records crashes/ANRs and posts a device roll-up.
+API 24, large-density/font-scale and the signed R8 release APK are reserved for main or an explicit
+`[e2e-full]` commit/dispatch **before shipping**; a normal branch run does not prove them. Likewise,
+source reconnaissance runs on main, explicit `[probe]`, or dispatch, not every UI-only change. The runner
+checks for KVM and reports a boot failure rather than treating no device as a pass. JaCoCo line coverage
+is measured only when the instrumented device produces a readable coverage file; missing coverage is
+reported as unavailable, never inferred from a count of declared flows.
 
 ## Known limits, stated plainly
 

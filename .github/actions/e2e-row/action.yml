@@ -259,11 +259,16 @@ runs:
           [ "$rt" -lt 120 ] && rt=120
           RUN_TIMEOUT=$rt
           adb logcat -c || true
-          local ec="/sdcard/Android/data/$APP_ID/files/cover-$label.ec"
-          # pm clear can remove this directory between passes; JaCoCo will not create its parent.
-          # Shell creates it before the instrumentation process opens the coverage file.
-          adb shell mkdir -p "/sdcard/Android/data/$APP_ID/files" || true
-          adb shell rm -f "$ec" || true
+          # The `shell` user creating an Android/data directory can leave it unwritable by the
+          # instrumented app. Use the app's private filesDir instead; `run-as` gives it app UID
+          # ownership, and `exec-out` below pulls the binary bytes without a text shell/CRLF.
+          local ec="/data/user/0/$APP_ID/files/cover-$label.ec"
+          local cover_args=()
+          if [ "$VARIANT" = debug ]; then
+            adb shell run-as "$APP_ID" mkdir -p files || echo "::warning::$label could not create app-owned coverage directory"
+            adb shell run-as "$APP_ID" rm -f "files/cover-$label.ec" || true
+            cover_args=(-e coverage true -e coverageFile "$ec")
+          fi
           local sel=()
           # An empty `-e class` value is an error from the runner, not a request to run everything, so the
           # flag is added only when a filter was actually asked for.
@@ -271,8 +276,8 @@ runs:
           # Word-splitting here is deliberate: the variable holds a flag triple such as
           # `-e requireCleared true`, and every caller of it is in this file.
           [ -n "${EXTRA_ARGS:-}" ] && sel+=($EXTRA_ARGS)
-          # `coverage true` is what makes the JaCoCo agent that `testCoverageEnabled` installs flush its
-          # data at the end of the run; without the flag there is no coverage file to measure.
+          # `coverage true` flushes JaCoCo only in the debuggable, instrumented build;
+          # the release-smoke artifact has no testCoverageEnabled agent.
           # A per-pass wall clock, because the failure mode that costs a whole row is one wedged class: the
           # runner waits out its own budget and the row reports nothing at all. Bounded here, the pass that
           # exceeds it is reported as what it is and the remaining classes still run.
@@ -293,8 +298,8 @@ runs:
                 "$(adb shell dumpsys window 2>/dev/null | grep -m1 -oE 'mCurrentFocus=[^ ]+' | tr -d '\r')" \
                 | tee -a /tmp/heartbeat.txt
             done ) & HB=$!
-          timeout "$RUN_TIMEOUT" adb shell am instrument -w -e debug false -e coverage true \
-            -e coverageFile "$ec" \
+          timeout "$RUN_TIMEOUT" adb shell am instrument -w -e debug false \
+            "${cover_args[@]}" \
             -e release "$release_flag" -e offline "${OFFLINE_FLAG:-false}" \
             "${sel[@]}" \
             "$TEST_ID/androidx.test.runner.AndroidJUnitRunner" 2>&1 | tee "/tmp/instrument-$label.log"
@@ -304,8 +309,12 @@ runs:
           local secs=$(( $(date +%s) - started ))
           echo "$label rc=$rc ${secs}s $(grep -o 'Tests run: [^,]*, *Failures: [0-9]*[^)]*' "/tmp/instrument-$label.log" | tail -1)" >> /tmp/pass-times.txt
           echo "- \`$label\`: rc=$rc in ${secs}s — $(grep -o 'Tests run: .*' "/tmp/instrument-$label.log" | tail -1)" >> "$GITHUB_STEP_SUMMARY"
-          if ! adb pull "$ec" "/tmp/cover-$label.ec" >/dev/null 2>&1; then
-            echo "::warning::$label coverage file inaccessible: $(adb shell ls -ld "$ec" "/sdcard/Android/data/$APP_ID/files" 2>&1 | tr '\r\n' '  ' | cut -c1-250)"
+          if [ "$VARIANT" = debug ]; then
+            if ! adb exec-out run-as "$APP_ID" cat "files/cover-$label.ec" > "/tmp/cover-$label.ec" 2>/tmp/cover-error.txt ||
+               [ ! -s "/tmp/cover-$label.ec" ]; then
+              rm -f "/tmp/cover-$label.ec"  # never merge an empty/partial JaCoCo file
+              echo "::warning::$label coverage unavailable (app-owned path): $(cat /tmp/cover-error.txt | tr '\r\n' '  ' | cut -c1-180)"
+            fi
           fi
           grep -E "^Tests run|FAILURES|INSTRUMENTATION_RESULT|Error:" "/tmp/instrument-$label.log" | tail -20 || true
           if [ "$rc" = 124 ]; then
@@ -313,9 +322,9 @@ runs:
           elif grep -qE "FAILURES!!!|Tests run: [0-9]+,  Failures: [1-9]|INSTRUMENTATION_FAILED|Exception" \
                "/tmp/instrument-$label.log"; then
             echo "$label=failed" >> /tmp/tests.txt
-          elif ! grep -q "Tests run" "/tmp/instrument-$label.log"; then
-            # A run whose summary line is missing did not execute. Counting zero tests as a pass is how a
-            # harness reports green while having tested nothing.
+          elif ! grep -Eq 'Tests run: [1-9][0-9]*|OK \([1-9][0-9]* tests?\)' "/tmp/instrument-$label.log"; then
+            # AndroidJUnitRunner prints `OK (N tests)` on a green class; `Tests run: N, Failures: M`
+            # is its failure summary. Accept neither a missing summary nor `OK (0 tests)` as execution.
             echo "$label=failed (no test summary in the runner output)" >> /tmp/tests.txt
           else
             echo "$label=passed" >> /tmp/tests.txt
@@ -367,8 +376,8 @@ runs:
           OFFLINE_FLAG=true CLASS_FILTER="in.opentrack.india.e2e.DegradationFlowTest" run_suite offline
           adb shell svc wifi enable; adb shell svc data enable; sleep 2
         fi
-        if [ -s /tmp/tests.txt ] && grep -q failed /tmp/tests.txt; then
-          echo "::error::at least one instrumented pass failed ($(tr '\n' ' ' < /tmp/tests.txt))"
+        if [ -s /tmp/tests.txt ] && grep -Eq '=(failed|skipped|not-run)' /tmp/tests.txt; then
+          echo "::error::at least one instrumented pass failed or was skipped ($(tr '\n' ' ' < /tmp/tests.txt))"
           for f in /tmp/instrument-*.log; do echo "--- $f"; grep -B2 -A 28 "^in\.opentrack\|Failure\|expected:" "$f" | head -80; done
           exit 1
         fi
@@ -509,7 +518,7 @@ runs:
         # report job's comment arrived. `grep -q` finding nothing returns 1, and the assignment after `&&`
         # never ran, so the step died before reaching `gh api` and the failure looked like a permission.
         verdict=PASS
-        if grep -q failed /tmp/tests.txt 2>/dev/null; then verdict=FAIL; fi
+        if grep -Eq '=(failed|skipped|not-run)' /tmp/tests.txt 2>/dev/null; then verdict=FAIL; fi
         if [ "${{ steps.boot.outcome }}" != success ]; then verdict="NO DEVICE"; fi
         {
           echo "### e2e/$ROW — $verdict"
@@ -526,11 +535,11 @@ runs:
           echo '```'
           grep -E "^== |MISSING|writable=|cores=" /tmp/env.txt 2>/dev/null | head -12 || echo "  (no probe output)"
           grep -E "^   try " /tmp/avd.log 2>/dev/null | tail -4 || echo "  (no avdmanager attempts logged)"
-          echo "```"
+          echo '```'
           echo "heartbeat (one line per minute of every pass):"
           echo '```'
           tail -10 /tmp/heartbeat.txt 2>/dev/null || echo "  (no heartbeat)"
-          echo "```"
+          echo '```'
           echo "boot log (sanitised) and the tail of the failing instrument pass:"
           echo '```'
           tr '\r' '\n' < /tmp/boot.log 2>/dev/null | grep -vE "Unzipping|Downloading|Loading |Fetch remote|Computing updates" | tail -22 || true
