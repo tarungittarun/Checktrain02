@@ -46,6 +46,7 @@ railway happens to be reporting today says so, and its test asserts the invarian
 | `table-geometry` | tracking | The full station table has usable dimensions and named rows at the tested screen size | `TrackingFlowTest#tableHasGeometryAtThisDensity` | all |
 | `age-and-provenance` | tracking | The provenance and age chips are never blank; "live" cannot appear on a screen nothing fetched for | `TrackingFlowTest#ageChipNeverOverClaims` | all |
 | `source-disclosure` | tracking | Opening Info explains Act versus Est, position provenance, and that WIMT web cache is not the phone app | `TrackingFlowTest#sourceBlockExplainsTheAnswer` | all |
+| `public-source-manual-check` | tracking | Selecting ixigo in the built APK performs a bounded check, exposes its answer or failure, and leaves the NTES/schedule table labelled instead of promoting page rows to Act | `TrackingFlowTest#publicSourceTapActuallyChecksAndKeepsTheOfficialTable` | all |
 | `refresh` | tracking | Refresh re-runs the chain and the screen updates without losing the route | `TrackingFlowTest#refreshKeepsTheScreenCoherent` | all |
 | `manual-refresh-only` | tracking | Refresh is available but neither Auto nor the separate intermediate-route button remains | `TrackingFlowTest#tableHasOnlyManualRefreshAndExpandableRoutePoints` | all |
 | `long-list-scroll` | tracking | A several-hundred-halt route scrolls to the end with rows still readable (recycling correctness) | `TrackingFlowTest#longRouteScrollsWithoutBlankRows` | all |

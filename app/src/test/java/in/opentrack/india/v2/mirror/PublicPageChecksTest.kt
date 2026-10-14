@@ -1,5 +1,6 @@
 package `in`.opentrack.india.v2.mirror
 
+import `in`.opentrack.india.core.Http
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -60,6 +61,43 @@ class PublicPageChecksTest {
         assertTrue(orgResult.detail.contains("does not identify a selected origin date"))
         assertTrue(orgResult.detail.contains("not Google's WIMT phone app"))
         assertTrue(orgResult.detail.contains("page update label 04:19"))
+    }
+
+    @Test fun `each dropdown choice requests its own endpoint and cache never counts as fresh`() {
+        val urls = mutableListOf<String>()
+        for (name in PublicPageChecks.names) {
+            val response = if (name == PublicPageChecks.RAIL_YATRI) relay
+                else "<h1>16227 Running Status</h1><p>Today 14-10-2026</p><p>Yet to start</p>"
+            val result = PublicPageChecks.fetch(name, "16227", day, now) { url ->
+                urls += url
+                Http.Result.Ok(response, fromCache = false, ageMillis = 0)
+            }
+            assertTrue("$name did not make a request", result.pageAnswered)
+            assertTrue("$name omitted its returned status", result.detail.contains("16227"))
+        }
+        assertEquals(3, urls.distinct().size)
+        assertTrue(urls[0].contains("/16227/1.json?start_day=1"))
+        assertTrue(urls[1].endsWith("/trains/16227/running-status"))
+        assertTrue(urls[2].endsWith("/?trainNo=16227"))
+
+        val cached = PublicPageChecks.fetch(PublicPageChecks.RAIL_YATRI, "16227", day, now) {
+            Http.Result.Ok(relay, fromCache = true, ageMillis = 900_000)
+        }
+        assertFalse("cached page is not a new source answer", cached.pageAnswered)
+        assertTrue(cached.detail.contains("Cached HTTP body (15 min old)"))
+        assertTrue(cached.detail.contains("No fresh observation"))
+        val failed = PublicPageChecks.fetch(PublicPageChecks.IXIGO, "16227", day, now) {
+            Http.Result.Failed(Http.Result.Kind.TIMEOUT, "timeout")
+        }
+        assertFalse(failed.pageAnswered)
+        assertTrue(failed.detail.contains("Request failed: TIMEOUT"))
+        var requested = false
+        val outside = PublicPageChecks.fetch(PublicPageChecks.RAIL_YATRI, "16227", day - 3, now) {
+            requested = true
+            Http.Result.Ok(relay, false, 0)
+        }
+        assertFalse("unsupported run must not silently query today", requested)
+        assertFalse(outside.pageAnswered)
     }
 
     @Test fun `relay URL asks for origin-day offset rather than default today`() {

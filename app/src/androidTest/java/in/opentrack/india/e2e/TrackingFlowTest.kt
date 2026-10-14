@@ -201,6 +201,27 @@ class TrackingFlowTest {
         E2E.ui.pressBack()
     }
 
+    // @flow public-source-manual-check
+    @Test
+    fun publicSourceTapActuallyChecksAndKeepsTheOfficialTable() {
+        // Exercise the built APK through the same dropdown a traveller uses, on the radio-off
+        // device row. Whether the public page answers or fails, the result must be visible and
+        // must NEVER become Act or a measured marker just because a page had a quick clock.
+        assertTrue("no source picker", E2E.tap("sourceSpinner"))
+        val ixigo = E2E.ui.wait(Until.findObject(By.textContains("ixigo page")), E2E.LOCAL_MS)
+        assertNotNull("ixigo not selectable in the source dropdown", ixigo)
+        ixigo!!.click()
+        assertTrue("source selection never produced a visible result",
+            E2E.ui.wait(Until.hasObject(By.res(E2E.PKG, "sourceSummary")), E2E.NETWORK_MS))
+        val summary = E2E.text("sourceSummary")
+        assertTrue("source returned no result: '$summary'",
+            summary.contains("ixigo:") || summary.contains("Request failed:"))
+        assertTrue("page result silently replaced official Act/position: '$summary'",
+            summary.contains("The table still uses its labelled NTES/schedule data, not this page."))
+        assertTrue("selected alternate removed the station table", E2E.count(stopsBy) > 0)
+        E2E.shot("public-source-check")
+    }
+
     // @flow refresh
     @Test
     fun refreshKeepsTheScreenCoherent() {

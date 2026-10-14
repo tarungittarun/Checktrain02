@@ -34,12 +34,20 @@ object PublicPageChecks {
         }
     }
 
-    fun fetch(http: Http, name: String, number: String, originDay: Long, now: Long): Result {
+    fun fetch(http: Http, name: String, number: String, originDay: Long, now: Long): Result =
+        fetch(name, number, originDay, now) { url ->
+            http.get(url, timeoutMillis = 4_000, retries = 0, budgetMillis = 4_000,
+                headers = mapOf("User-Agent" to "Mozilla/5.0 (Linux; Android 13; Mobile) Chrome/120 Safari/537.36",
+                    "Accept" to if (name == RAIL_YATRI) "application/json" else "text/html"))
+        }
+
+    /** Transport seam: prove each dropdown choice issues its own URL; an HTTP cache hit is
+     * disclosed rather than counted as a new observation. No Android sockets in the JVM tests. */
+    internal fun fetch(name: String, number: String, originDay: Long, now: Long,
+        get: (String) -> Http.Result): Result {
         val url = url(name, number, originDay, now)
             ?: return Result("Run outside the available 0–2 day query window; no request made.", now, false)
-        val reply = http.get(url, timeoutMillis = 4_000, retries = 0, budgetMillis = 4_000,
-            headers = mapOf("User-Agent" to "Mozilla/5.0 (Linux; Android 13; Mobile) Chrome/120 Safari/537.36",
-                "Accept" to if (name == RAIL_YATRI) "application/json" else "text/html"))
+        val reply = get(url)
         return when (reply) {
             is Http.Result.Failed -> Result("Request failed: ${reply.kind} · ${reply.message.take(90)}; no position.",
                 System.currentTimeMillis(), false)
