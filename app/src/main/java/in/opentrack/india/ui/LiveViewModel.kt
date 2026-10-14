@@ -502,6 +502,10 @@ class LiveViewModel(
                 refreshBody(previous)
             } finally {
                 _checking.postValue(false)
+                // Refresh also re-asks the explicitly selected comparison page. It is not on
+                // the official request's critical path and cannot replace NTES's Act or marker.
+                if (manual && mirrorActiveSource in PublicPageChecks.names)
+                    probeSource(mirrorActiveSource!!)
             }
         }
     }
@@ -1287,7 +1291,10 @@ class LiveViewModel(
         for (name in PublicPageChecks.names) {
             val result = publicChecks[name]
             sourceNames[name] = if (result == null) "none" to "manual check available" else
-                "unverified" to result.detail
+                "unverified" to (result.detail + " · checked " +
+                    RailTime.formatDate(RailTime.istEpochDay(result.checkedAt)) + " " +
+                    RailTime.formatClock(result.checkedAt) + " IST" +
+                    (if (now - result.checkedAt > 300_000L) " (old check; refresh to ask again)" else ""))
         }
         for ((name, ms) in manualProbeMs) {
             val status = sourceNames[name] ?: continue

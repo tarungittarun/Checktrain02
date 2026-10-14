@@ -59,6 +59,7 @@ class PublicPageChecksTest {
             "16227", day, now)
         assertTrue(orgResult.detail.contains("does not identify a selected origin date"))
         assertTrue(orgResult.detail.contains("not Google's WIMT phone app"))
+        assertTrue(orgResult.detail.contains("page update label 04:19"))
     }
 
     @Test fun `relay URL asks for origin-day offset rather than default today`() {

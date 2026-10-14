@@ -83,7 +83,7 @@ object PublicPageChecks {
         }.getOrNull()
         val age = stampMillis?.let { now - it }
         val identity = "returned $returnedNumber / origin $returnedDate (requested $number / $date)"
-        val clock = if (stamp.isBlank()) "no update clock" else "update $stamp"
+        val clock = if (stamp.isBlank()) "no update clock" else "update clock $stamp (not a station event time)"
         val upstreamLabel = "upstream $upstream"
         val claim = if (code.matches(Regex("[A-Z0-9]{2,6}"))) "$code $status" else "no station claim"
         val verdict = when {
@@ -117,12 +117,12 @@ object PublicPageChecks {
             Regex("(?i)\\b(?:reached destination|run complete)\\b").containsMatchIn(visible) -> "reached destination"
             else -> "no unambiguous run status in visible page"
         }
-        val updated = Regex("(?i)\\bLast Updated\\s*:?\\s*([^<]{1,38})")
+        val updated = Regex("(?i)\\b(?:Last\\s+)?Updated\\s*:?\\s*([^<]{1,38})")
             .find(visible)?.groupValues?.get(1)?.take(32)?.trim()
         val returned = selected?.let { "page-selected $it" } ?: "page does not identify a selected origin date"
         val wrong = selected != null && selected.replace('/', '-') != date
         return Result("$title: train $number · $returned (requested origin $date) · $status" +
-            (updated?.let { " · page says Last Updated ${it.take(32)}" } ?: "") +
+            (updated?.let { " · page update label ${it.take(32)}" } ?: "") +
             "; ${if (wrong) "wrong origin run" else "no event-level dated observation"}. " +
             "Schedule, page update clocks and projected times are not Act or measured position" +
             (if (name == ORG) "; not Google's WIMT phone app." else "."), now, true)
