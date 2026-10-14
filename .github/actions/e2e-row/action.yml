@@ -258,6 +258,9 @@ runs:
           RUN_TIMEOUT=$rt
           adb logcat -c || true
           local ec="/sdcard/Android/data/$APP_ID/files/cover-$label.ec"
+          # pm clear can remove this directory between passes; JaCoCo will not create its parent.
+          # Shell creates it before the instrumentation process opens the coverage file.
+          adb shell mkdir -p "/sdcard/Android/data/$APP_ID/files" || true
           adb shell rm -f "$ec" || true
           local sel=()
           # An empty `-e class` value is an error from the runner, not a request to run everything, so the

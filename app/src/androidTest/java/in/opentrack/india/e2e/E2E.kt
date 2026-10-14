@@ -27,10 +27,6 @@ object E2E {
 
     const val PKG = "in.opentrack.india"
 
-    // Key codes for the select-all fallback, spelled out because android.view.KeyEvent is not imported here.
-    private const val KEYCODE_A = 29
-    private const val META_CTRL_ON = 4096
-
     /** First launch after `pm clear`: extraction of the offline timetable, on a slow CI disk. */
     const val COLD_START_MS = 120_000L
     /** Anything that only reads the device database. */
@@ -73,49 +69,17 @@ object E2E {
         return true
     }
 
-    /**
-     * Put exactly [value] into a text field, whatever it held before.
-     *
-     * `UiObject2.setText` is only legal on a focused field whose selection is empty - on a field that
-     * already holds text it throws `IllegalArgumentException` - so the old content has to go first, and the
-     * obvious `setText("")` is not available for the job. The empty-string call in
-     * `endpointPersistsAcrossReopen` (restoring the default endpoint) and any second type into `fromBox`
-     * would otherwise fail on the harness rather than on the app.
-     *
-     * Two attempts, in the order a person would: select-all + delete, then backspace until empty with a
-     * bound, and an explicit error rather than a mysterious `IllegalArgumentException` if the field
-     * refuses both - because that failure is the harness's, and must not be read as the app's.
-     */
+    /** ACTION_SET_TEXT replaces the value atomically. Key events tried to select/delete first,
+     * but the emulator IME swallowed those and left every non-empty box unchanged. Verify the
+     * returned node rather than assuming UIAutomator's setText always succeeded. */
     fun setTextIn(o: UiObject2, value: String) {
         o.click()
-        // Select-all then delete, retried while text remains: `UiObject2` has no clearText() (only the
-        // deprecated UiObject did), and this is the gesture a person uses, so it works on every widget the
-        // app actually contains.
-        var tries = 0
-        while (o.hasText() && tries++ < 4) {
-            runCatching {
-                ui.pressKeyCode(KEYCODE_A, META_CTRL_ON)
-                ui.pressDelete()
-            }
-        }
-        // Backspaces as the last resort: an IME that ignores the shortcut still honours delete, and the
-        // field is bounded (a station name, a URL), so the loop terminates.
-        var guard = 0
-        while (o.hasText() && guard++ < 96) ui.pressDelete()
-        if (value.isNotEmpty()) {
-            if (o.hasText()) {
-                error("the harness could not empty the field before typing '$value' - a test-plumbing " +
-                    "problem, not an app bug; look at the screenshot for the keyboard state")
-            }
-            o.setText(value)
-        }
+        o.setText(value)
         ui.waitForIdle()
-    }
-
-    private fun UiObject2.hasText(): Boolean = try {
-        !text.isNullOrEmpty()
-    } catch (e: IllegalStateException) {
-        false // the node went away mid-edit; the caller's next find will see the new state
+        val actual = o.text.orEmpty()
+        check(actual == value || (value.isEmpty() && actual == o.hint.orEmpty())) {
+            "the field did not accept the replacement: expected '$value', got '$actual'"
+        }
     }
 
     fun clearField(name: String) {
@@ -157,8 +121,10 @@ object E2E {
             ?: error("no launcher activity in $PKG — the APK is not the one this suite was built for")
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
         ctx.startActivity(intent)
-        check(ui.wait(Until.hasObject(By.pkg(PKG).depth(0)), COLD_START_MS)) {
-            "the app window never appeared"
+        // The package root can match a departing activity or splash window. The Settings
+        // button belongs to MainActivity and proves the actual search screen was drawn.
+        check(ui.wait(Until.hasObject(res("settings")), COLD_START_MS)) {
+            "the search activity never appeared"
         }
     }
 
@@ -166,6 +132,9 @@ object E2E {
 
     /** Waits for the search screen to be interactive: the box exists AND the install progress is gone. */
     fun awaitSearchScreen() {
+        // Returning from tracking can leave search intentionally compact. Reveal it through the
+        // same Edit search control a traveller sees, not through an internal Activity hook.
+        if (visible("editSearch", 500)) tap("editSearch", 1_000)
         check(visible("fromBox", COLD_START_MS)) { "no board-at field on the search screen" }
         val deadline = System.currentTimeMillis() + COLD_START_MS
         while (System.currentTimeMillis() < deadline) {
