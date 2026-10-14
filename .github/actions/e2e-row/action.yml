@@ -333,10 +333,11 @@ runs:
           # annotation on the check itself MUST carry the first failure and device state; 0/9 without
           # these lines cost two runs and could not distinguish a hung harness from an app regression.
           if tail -1 /tmp/tests.txt | grep -q 'failed'; then
-            first=$(grep -m1 -E 'INSTRUMENTATION_FAILED|FAILURES!!!|Tests run:|^java\.|^junit\.|^android\.|^Process crashed|^Error:'               "/tmp/instrument-$label.log" | tr '\r\n' '  ' | cut -c1-180)
+            first=$(grep -m1 -E 'AssertionError|StaleObjectException|INSTRUMENTATION_FAILED|^Error:|^Process crashed' "/tmp/instrument-$label.log" | tr '\r\n' '  ' | cut -c1-180)
+            failures=$(grep -E '^[0-9]+\) |AssertionError: |StaleObjectException' "/tmp/instrument-$label.log" | head -14 | tr '\r\n' '  ' | cut -c1-700)
             tailmsg=$(tail -c 500 "/tmp/instrument-$label.log" | tr '\r\n' '  ' | cut -c1-180)
             crashes=$(adb shell logcat -d -b crash -v brief 2>/dev/null | tail -c 450 | tr '\r\n' '  ' | cut -c1-180)
-            echo "::error::$label rc=$rc ${secs}s lines=$(wc -l < "/tmp/instrument-$label.log") first=${first:-none} tail=${tailmsg:-none} crash=${crashes:-none}"
+            echo "::error::$label rc=$rc ${secs}s lines=$(wc -l < "/tmp/instrument-$label.log") first=${first:-none} failures=${failures:-none} tail=${tailmsg:-none} crash=${crashes:-none}"
           fi
         }
         # The cold-start flow is given its own pass rather than being left to the scheduler: inside the

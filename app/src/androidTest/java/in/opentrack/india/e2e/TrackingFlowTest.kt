@@ -126,38 +126,30 @@ class TrackingFlowTest {
         assertTrue("nothing marks the ends of the passenger's journey or the run itself", marks.isNotEmpty())
     }
 
-    // @flow segment-toggle
+    // @flow full-route-table
     @Test
-    fun fullRouteAndSegmentTogglesTheWindow() {
-        val before = E2E.count(stopsBy)
-        val note = E2E.text("rowsNote")
-        val label = E2E.text("toggle")
-        assertTrue("the window control has no label: '$label'", label.isNotBlank())
-        assertTrue("toggle does nothing", E2E.tap("toggle"))
-        val after = E2E.count(stopsBy)
-        val noteAfter = E2E.text("rowsNote")
-        assertTrue(
-            "toggling the row window left both the count ($before/$after) and the caption " +
-                "('$note' / '$noteAfter') unchanged",
-            after != before || noteAfter != note,
-        )
-        // A bounded list has to say which rows it is showing, otherwise it is a truncated list. The caption
-        // may legitimately be absent when the whole route fits on screen, so it is only required when the
-        // two windows actually differ in size.
-        if (after != before) {
-            assertTrue("the row window changed size with no caption explaining it", noteAfter.isNotBlank())
-        }
-        E2E.tap("toggle")
+    fun fullRouteIsPrimaryWithoutASeparateWindowControl() {
+        // The old segment/full-route toggle was removed at the owner's request. A device
+        // flow must test the shipped table, not demand that removed button back.
+        assertTrue("the old route-window toggle returned", E2E.find("toggle", 500) == null)
+        assertTrue("the full timetable has no station rows", E2E.count(stopsBy) > 1)
+        assertTrue("a hidden-row caption appeared on the full route", E2E.find("rowsNote", 500) == null)
     }
 
-    // @flow progress-bar
+    // @flow projected-leg-honesty
     @Test
-    fun progressIsInRangeAndWorded() {
-        val label = E2E.text("progressLabel")
-        assertTrue("the progress line is blank", label.isNotBlank())
-        val pct = Regex("(\\d{1,3})\\s*%").find(label)?.groupValues?.get(1)?.toIntOrNull()
-        if (pct != null) assertTrue("progress says $pct%: '$label'", pct in 0..100)
-        assertNotNull("no progress bar view", E2E.find("progressBar"))
+    fun inlineLegIfShownSaysThatItIsProjectedNotGps() {
+        // The old progress bar/label was removed. Only a verified live anchor may place
+        // the in-table marker; a schedule-only screen correctly has no moving train icon.
+        assertTrue("no station table to place the train in", E2E.count(stopsBy) > 0)
+        val marker = E2E.find("inlineLeg", 500)
+        if (marker != null) {
+            val caption = marker.contentDescription.orEmpty()
+            assertTrue("the train icon claims GPS or omits its projection: '$caption'",
+                caption.contains("not GPS", true) && caption.contains("estimated distance", true))
+        }
+        assertTrue("the position claims GPS rather than a published or projected state",
+            !E2E.text("provenance").contains("GPS", true))
     }
 
     // @flow chart-painted
@@ -234,11 +226,9 @@ class TrackingFlowTest {
     // @flow long-list-scroll
     @Test
     fun longRouteScrollsWithoutBlankRows() {
-        if (!E2E.text("toggle").contains("full", ignoreCase = true) || !E2E.tap("toggle")) {
-            // No full-route control means the window already is the whole route; the scroll still matters.
-            assertTrue("the table is not scrollable at all", E2E.count(stopsBy) >= 1)
-        }
-        val bar = E2E.find("stops") ?: return
+        // The full route is the default; there is no segment/full toggle to open first.
+        assertTrue("the table has no rendered halt", E2E.count(stopsBy) >= 1)
+        val bar = E2E.find("stops") ?: error("station table is not visible")
         val b = bar.visibleBounds
         var seen = 0
         var blank = 0
@@ -260,7 +250,10 @@ class TrackingFlowTest {
     @Test
     fun backKeepsTheSearchQuery() {
         E2E.tap("back")
-        assertTrue("back did not leave the tracking screen", E2E.visible("modeRow", E2E.LOCAL_MS))
+        assertTrue("back did not leave tracking for the results",
+            E2E.visible("editSearch", E2E.LOCAL_MS) || E2E.visible("modeRow", 500))
+        // Results deliberately hide the search form; query persistence must be checked after Edit.
+        if (E2E.visible("editSearch", 500)) E2E.tap("editSearch")
         assertTrue(
             "the query was thrown away on navigation: '${E2E.boxText("trainBox")}'",
             E2E.boxText("trainBox").isNotBlank() || E2E.boxText("fromBox").isNotBlank(),

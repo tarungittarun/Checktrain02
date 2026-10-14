@@ -97,15 +97,13 @@ class SettingsFlowTest {
         assertTrue(openSettings())
         val probe = "https://example.invalid/{trainNo}/{date}"
         assertTrue("the endpoint field cannot be typed into", typeInBoxField("overrideUrl", probe))
-        E2E.tap("save")
-        E2E.tap("back")
+        assertTrue("Save did not run", E2E.tap("save"))
         assertTrue("settings will not reopen", openSettings())
         val seen = fieldText("overrideUrl")
         assertTrue("the saved endpoint did not come back ('$seen')", seen.contains("example.invalid"))
         // Restore the default so a later row in this run is not testing the test.
         typeInBoxField("overrideUrl", "")
-        E2E.tap("save")
-        E2E.tap("back")
+        assertTrue("Save did not run", E2E.tap("save"))
     }
 
     // @flow column-hint
@@ -114,13 +112,11 @@ class SettingsFlowTest {
         assertTrue(openSettings())
         val hint = "1:code,2:name,3:sa,4:sd,5:aa,6:ad"
         assertTrue("the column map cannot be typed into", typeInBoxField("columnHint", hint))
-        E2E.tap("save")
-        E2E.tap("back")
+        assertTrue("Save did not run", E2E.tap("save"))
         assertTrue(openSettings())
         assertEquals("the column map did not round-trip", hint, fieldText("columnHint"))
         typeInBoxField("columnHint", "")
-        E2E.tap("save")
-        E2E.tap("back")
+        assertTrue("Save did not run", E2E.tap("save"))
     }
 
     // @flow endpoint-rejects-non-http

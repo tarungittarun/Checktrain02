@@ -211,6 +211,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun runSearch() {
         keepSearchOpen = false
+        // Otherwise the keyboard covers the result/validation sentence below the search card.
+        (getSystemService(INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager)
+            ?.hideSoftInputFromWindow(binding.root.windowToken, 0)
         val from = binding.fromBox.valueOrText()
         val to = binding.toBox.valueOrText()
         val train = binding.trainBox.valueOrText()
@@ -285,6 +288,7 @@ class MainActivity : AppCompatActivity() {
             TrainFinder.Reason.SAME_STATION -> getString(R.string.err_same_station)
         }
         statusHead = head
+        binding.resultsTitle.text = head
         binding.statusLine.visibility = View.VISIBLE
         binding.statusLine.text = composeStatus()
 

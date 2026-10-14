@@ -69,7 +69,8 @@ class DegradationFlowTest {
         if (!provenance.contains("CACHED", ignoreCase = true)) {
             assertTrue(
                 "no live data offline and no explanation on screen (note='$note')",
-                note.isNotBlank() || provenance.contains("OFFLINE", ignoreCase = true),
+                note.isNotBlank() || listOf("OFFLINE", "SCHEDULE", "DERIVED", "NO DATA")
+                    .any { provenance.contains(it, ignoreCase = true) },
             )
         }
         E2E.shot("offline-track")

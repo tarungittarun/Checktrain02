@@ -38,6 +38,9 @@ class TrainSearchFlowTest {
         assertTrue("the train panel showed no rows", rows.isNotEmpty())
         val chosen = rows[0].text.orEmpty()
         assertTrue("tapping a train row did nothing", E2E.tapSuggestion("trainBox", 0))
+        // A successful pick starts the search and collapses its fields under Edit search.
+        // Reveal them as a traveller would before asking UiAutomator for their visible text.
+        if (E2E.visible("editSearch", 500)) assertTrue(E2E.tap("editSearch"))
         assertTrue(
             "the field does not read back what was picked ('$chosen' -> '${E2E.boxText("trainBox")}')",
             E2E.boxText("trainBox").isNotBlank(),

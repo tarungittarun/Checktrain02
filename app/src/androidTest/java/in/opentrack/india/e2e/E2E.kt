@@ -56,10 +56,20 @@ object E2E {
 
     /** A tap on a control's centre. Works whether or not the node reports itself clickable. */
     fun tap(name: String, timeoutMs: Long = LOCAL_MS): Boolean {
-        val o = find(name, timeoutMs) ?: return false
-        o.click()
-        ui.waitForIdle()
-        return true
+        repeat(2) {
+            val o = find(name, timeoutMs) ?: return false
+            try {
+                o.click()
+                ui.waitForIdle()
+                return true
+            } catch (_: androidx.test.uiautomator.StaleObjectException) {
+                // A Save/Back click can finish its Activity while UiAutomator is still
+                // reading the clicked node. If it disappeared, the tap DID land.
+                ui.waitForIdle()
+                if (find(name, 250) == null) return true
+            }
+        }
+        return false
     }
 
     /** Types into a field the way a hardware keyboard does, after focusing it the way a finger does. */

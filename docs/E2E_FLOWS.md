@@ -41,8 +41,8 @@ railway happens to be reporting today says so, and its test asserts the invarian
 | `stop-table-columns` | tracking | Every halt row carries SCH times; the LIVE cell is either a reported minute or a dash — never a reprinted schedule minute | `TrackingFlowTest#liveCellIsAMinuteOrADashNeverTheTimetable` | all |
 | `distance-ladder` | tracking | Distance is 0 at the first halt, the route total at the last, and never decreases between | `TrackingFlowTest#distancesRunFromZeroToTheTotal` | all |
 | `boarding-alighting` | tracking | The two searched stations are tagged board / get off | `TrackingFlowTest#boardAndAlightAreMarked` | all |
-| `segment-toggle` | tracking | Show full route ⇄ Show my segment changes the row set, and the line under the table says how many rows are hidden | `TrackingFlowTest#fullRouteAndSegmentTogglesTheWindow` | all |
-| `progress-bar` | tracking | The progress label and bar are present, in range, and coherent with the headline | `TrackingFlowTest#progressIsInRangeAndWorded` | all |
+| `full-route-table` | tracking | Full station table is primary; no separate route-window toggle or hidden-row caption | `TrackingFlowTest#fullRouteIsPrimaryWithoutASeparateWindowControl` | all |
+| `projected-leg-honesty` | tracking | A train marker, when supported by a live anchor, names itself as a distance projection rather than GPS | `TrackingFlowTest#inlineLegIfShownSaysThatItIsProjectedNotGps` | all |
 | `chart-painted` | tracking | The position-against-timetable plot occupies real space with its legend, on every screen size | `TrackingFlowTest#chartHasGeometryAndLegend` | all |
 | `age-and-provenance` | tracking | The provenance and age chips are never blank; "live" cannot appear on a screen nothing fetched for | `TrackingFlowTest#ageChipNeverOverClaims` | all |
 | `source-disclosure` | tracking | Opening Info explains Act versus Est, position provenance, and that WIMT web cache is not the phone app | `TrackingFlowTest#sourceBlockExplainsTheAnswer` | all |
