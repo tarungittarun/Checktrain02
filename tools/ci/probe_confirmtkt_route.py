@@ -47,11 +47,34 @@ def probe(number):
         m = re.search(re.escape(word), visible, flags=re.I)
         if m:
             print(f'{number} visible around {word}: {visible[max(0,m.start()-90):m.start()+2100][:2200]}')
-    for word in ('stationCode', 'stnCode', 'trainRoute', 'actualArrival', 'actualDeparture', 'isHalt', 'runningStatus'):
+    # The page includes an embedded structured Schedule and nested intermediateStations. Capture
+    # fields, counts, ordering and sample rows so the Android parser is written against evidence.
+    import json
+    match = re.search(r'"Schedule"\s*:\s*\[', raw)
+    if match:
+        try:
+            rows, _ = json.JSONDecoder().raw_decode(raw[match.end()-1:])
+            print(f'{number} embedded Schedule: {len(rows)} rows; prefix=' +
+                  re.sub(r'\s+', ' ', raw[max(0,match.start()-200):match.start()])[:200])
+            if isinstance(rows, list):
+                for i, row in enumerate(rows):
+                    if not isinstance(row, dict):
+                        continue
+                    points = row.get('intermediateStations') or []
+                    plain = {k:v for k,v in row.items() if k in ('TrainNo', 'StationCode', 'StationName',
+                        'ArrivalTime', 'DepartureTime', 'Day', 'StopNumber', 'Distance', 'HaltMinutes')}
+                    print(f'{number} schedule[{i}] {json.dumps(plain, ensure_ascii=False)}; ' +
+                          f'intermediate={len(points)}')
+                    if points and (i < 2 or i == len(rows)-2):
+                        print(f'{number} intermediate[{i}] first/last = ' +
+                              json.dumps(points[:2]+points[-2:], ensure_ascii=False)[:1600])
+        except Exception as exc:
+            print(f'{number} embedded Schedule could not parse: {type(exc).__name__}: {str(exc)[:90]}')
+    for word in ('currentStnCode', 'latestDelay', 'actualArrival', 'actualDeparture'):
         hits = list(re.finditer(re.escape(word), raw, flags=re.I))
         if hits:
             print(f'{number} raw {word} count={len(hits)} contexts: ' +
-                  ' | '.join(re.sub(r'\s+', ' ', raw[max(0,h.start()-85):h.start()+160])
+                  ' | '.join(re.sub(r'\s+', ' ', raw[max(0,h.start()-75):h.start()+145])
                            for h in hits[:2]))
 
 
