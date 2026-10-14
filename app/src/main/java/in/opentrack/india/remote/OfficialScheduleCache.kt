@@ -17,6 +17,7 @@ object OfficialScheduleCache {
         put("stops", JSONArray().apply {
             for (s in route.stops) put(JSONObject().apply {
                 put("code", s.code); put("name", s.name); put("km", s.schedKm)
+                put("halt", s.isHalt)
                 s.arrivalMin?.let { put("arr", it) }
                 s.departureMin?.let { put("dep", it) }
             })
@@ -40,7 +41,7 @@ object OfficialScheduleCache {
             val dep = obj.optInt("dep").takeIf { obj.has("dep") && it >= 0 }
             StopRow(i + 1, code, obj.optString("name").ifBlank { code }, null,
                 null, null, arr, dep, ((dep ?: arr ?: 0) / 1440),
-                obj.optInt("km", -1), true)
+                obj.optInt("km", -1), obj.optString("halt", "true") != "false")
         }
         val codes = stops.map { it.code }
         if (codes.distinct().size != codes.size || stops.first().departureMin == null ||

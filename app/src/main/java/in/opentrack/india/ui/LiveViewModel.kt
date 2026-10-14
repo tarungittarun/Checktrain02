@@ -10,6 +10,8 @@ import `in`.opentrack.india.core.RailTime
 import `in`.opentrack.india.data.RailRepository
 import `in`.opentrack.india.remote.FeedProbe
 import `in`.opentrack.india.remote.RailGeoRoute
+import `in`.opentrack.india.remote.OfficialScheduleCache
+import `in`.opentrack.india.remote.NtesWire
 import `in`.opentrack.india.domain.PositionEngine
 import `in`.opentrack.india.domain.Suggestion
 import `in`.opentrack.india.domain.TrackModel
@@ -24,6 +26,7 @@ import `in`.opentrack.india.v2.crowd.StopReport
 import `in`.opentrack.india.core.BrowserFetch
 import `in`.opentrack.india.core.Http
 import `in`.opentrack.india.v2.mirror.ConfirmTktMirror
+import `in`.opentrack.india.v2.mirror.ConfirmTktSchedule
 import `in`.opentrack.india.v2.mirror.ErailRouteMirror
 import `in`.opentrack.india.v2.mirror.RunningStatusMirror
 import `in`.opentrack.india.v2.source.ErailPairParser
@@ -131,9 +134,9 @@ class LiveViewModel(
         val sourceStates: Map<String, Pair<String, String>> = emptyMap(),
         val lastUpdated: String? = null,
         val delayDetail: String? = null,
-        /** Static-only additional route codes, when RailGeo proved all dated official halts in order.
-         * Never used to locate the train or generate missing times. */
+        /** Static-only ordered route points, never used to locate the train or generate actuals. */
         val staticRoute: TrainRoute? = null,
+        val staticRouteSource: String? = null,
     )
 
     private val _ui = MutableLiveData<Ui?>()
@@ -175,6 +178,9 @@ class LiveViewModel(
     private var delayDetail: String? = null
     private var mirrorCrossChecked = false
     private var geoRoute: TrainRoute? = null
+    private var confirmHaltRoute: TrainRoute? = null
+    private var confirmStaticRoute: TrainRoute? = null
+    private var confirmScheduleAttemptAt = 0L
     private var geoAttemptAt = 0L
     private var officialStaticKnown = false
     private var mirrorSourceStates: Map<String, Pair<String, String>> = emptyMap()
@@ -500,9 +506,13 @@ class LiveViewModel(
             if (_ui.value == null) {
                 val now0 = System.currentTimeMillis()
                 val saved = repo.lastOfficial(trainNo, fromCode, toCode, originEpochDay)
+                // Validated ConfirmTkt timetable from an earlier opening can paint its halts and
+                // intermediate points BEFORE the first network request of this opening.
+                loadConfirmScheduleCache()
                 val savedStatic = repo.savedSchedule(trainNo, fromCode, toCode, originEpochDay)
                 val cachedRoute = saved?.route ?: savedStatic
                     ?: runCatching { repo.queries.route(trainNo) }.getOrNull()
+                    ?: confirmHaltRoute
                 if (cachedRoute != null) {
                     officialStaticKnown = saved != null || savedStatic != null
                     // Reopen today's validated full static route BEFORE asking any live source.
@@ -526,6 +536,9 @@ class LiveViewModel(
             // fluctuating network the chain held the screen for minutes while the mirror needed 14 s.
             // The 90 s throttle makes the later, post-buildUi calls no-ops.
             maybeCrowd()
+            // Independent static route request: it never waits for (or delays) the official POST.
+            // Its page clocks are not observed train actuals, even when the page says "running".
+            maybeConfirmSchedule()
             // And the route grows to the journey's real span once erail's page names the halts the
             // device timetable lacks (throttled + day-cached; never blocks the paint above).
             // A 0.5 s official answer makes both of these slow page probes unnecessary;
@@ -537,7 +550,8 @@ class LiveViewModel(
             val hasDeviceRoute = runCatching { repo.queries.route(trainNo) }.getOrNull() != null
             val fallbackRoute = if (!hasDeviceRoute &&
                 repo.savedSchedule(trainNo, fromCode, toCode, originEpochDay) == null) {
-                (liveIdentity ?: runCatching { identityFetch.identityOf(trainNo) }.getOrNull())
+                confirmHaltRoute ?: (liveIdentity ?:
+                    runCatching { identityFetch.identityOf(trainNo) }.getOrNull())
                     ?.takeIf { it.identity.number == trainNo }
                     ?.also { liveIdentity = it }
                     ?.let(::syntheticRoute)
@@ -565,6 +579,7 @@ class LiveViewModel(
                 // also missing after refresh". So before any endpoint-only view, re-read the offline
                 // route; the synthetic two-stop view is ONLY for trains the offline copy truly lacks.
                 val cachedRoute = runCatching { repo.queries.route(trainNo) }.getOrNull()
+                    ?: confirmHaltRoute
                 if (cachedRoute != null) {
                     val now = System.currentTimeMillis()
                     val answer = PositionEngine.locate(
@@ -661,6 +676,73 @@ class LiveViewModel(
     /** Historical RailGeo was reported to carry passing-point CODES in 2019; the CI runner cannot
      * handshake with it today. Try once, on the phone, AFTER the fast official answer (never on the
      * live request's critical path). An unmatched/changed schema only creates a diagnostic, not rows. */
+    /** Cache is keyed to the selected origin day; this is not the NTES observation cache. */
+    private fun loadConfirmScheduleCache() {
+        val prefs = app.getSharedPreferences("confirmtkt_static_routes", android.content.Context.MODE_PRIVATE)
+        val key = "$trainNo:$originEpochDay"
+        val now = System.currentTimeMillis()
+        val halts = OfficialScheduleCache.decode(prefs.getString("$key:halts", null),
+            trainNo, originEpochDay, fromCode, toCode, now)
+        val all = OfficialScheduleCache.decode(prefs.getString("$key:all", null),
+            trainNo, originEpochDay, fromCode, toCode, now)
+        if (halts != null && all != null && all.stops.filter { it.isHalt }.map { it.code } ==
+            halts.stops.map { it.code }) {
+            confirmHaltRoute = halts
+            confirmStaticRoute = all
+        }
+    }
+
+    /** Fetch embedded, dated *static* Schedule, independently of the fast official call. No
+     * visible running-status clock and no intermediate-passage time ever becomes an actual. */
+    private fun maybeConfirmSchedule() {
+        if (confirmStaticRoute != null) return
+        val now = System.currentTimeMillis()
+        if (now - confirmScheduleAttemptAt < 90_000L) return
+        confirmScheduleAttemptAt = now
+        viewModelScope.launch {
+            val day = NtesWire.dateForWire(originEpochDay)
+            val result = withContext(Dispatchers.IO) {
+                val body = ConfirmTktMirror.plainGet(ConfirmTktMirror.BASE + trainNo).first
+                body?.let { ConfirmTktSchedule.parse(it, trainNo, day, fromCode, toCode) }
+            } ?: run {
+                Diary.get()?.log("ROUTE", "ConfirmTkt dated static schedule unavailable for $trainNo/$day")
+                return@launch
+            }
+            confirmHaltRoute = result.halts
+            confirmStaticRoute = result.allStations
+            val at = System.currentTimeMillis()
+            val key = "$trainNo:$originEpochDay"
+            app.getSharedPreferences("confirmtkt_static_routes", android.content.Context.MODE_PRIVATE)
+                .edit().putString("$key:halts", OfficialScheduleCache.encode(result.halts, originEpochDay, at))
+                .putString("$key:all", OfficialScheduleCache.encode(result.allStations, originEpochDay, at))
+                .apply()
+            Diary.get()?.log("ROUTE", "ConfirmTkt $day: ${result.halts.stops.size} scheduled halts, " +
+                "${result.allStations.stops.size - result.halts.stops.size} unconfirmed stopping points")
+            val old = _ui.value
+            if (old == null || (!officialStaticKnown && old.route.stops.size < result.halts.stops.size &&
+                    old.route.stops.map { it.code.uppercase() }.let { existing ->
+                        result.halts.stops.map { it.code.uppercase() }.filter { it in existing } == existing
+                    })) {
+                // Only replace an incomplete NON-official timetable. If an NTES run has
+                // already landed, keep its position and its observation-based stop table.
+                val answer = PositionEngine.locate(PositionEngine.Request(result.halts,
+                    null, nowMinute(at), at, null))
+                lastAnswer = answer
+                _ui.value = buildUi(result.halts, answer, emptyList(), listOf(
+                    "ConfirmTkt dated static schedule — no independently observed actuals from this page."))
+            } else if (old != null) {
+                // BuildUi checks every known halt's order before it can attach these points.
+                val candidate = result.allStations.takeIf { full ->
+                    old.route.stops.map { it.code.uppercase() }.let { required ->
+                        full.stops.map { it.code.uppercase() }.filter { it in required } == required
+                    }
+                }
+                if (candidate != null && (old.staticRoute?.stops?.size ?: 0) < candidate.stops.size)
+                    _ui.value = old.copy(staticRoute = candidate, staticRouteSource = "ConfirmTkt")
+            }
+        }
+    }
+
     private fun maybeRailGeo(official: TrainRoute) {
         if (geoRoute != null && _ui.value?.staticRoute != null) return
         val now = System.currentTimeMillis()
@@ -1149,6 +1231,14 @@ class LiveViewModel(
                 "Next ${r.name}: estimated ${RailTime.formatRailMinute(r.showArr)} (not reported)"
             else "Next ${r.name}: arrival not confirmed"
         }
+        val staticRoute = listOfNotNull(geoRoute, confirmStaticRoute)
+            .filter { candidate ->
+                candidate.srcCode.equals(route.srcCode, true) &&
+                    candidate.dstCode.equals(route.dstCode, true) &&
+                    route.stops.map { it.code.uppercase() }.let { required ->
+                        candidate.stops.map { it.code.uppercase() }.filter { it in required } == required
+                    }
+            }.maxByOrNull { it.stops.size }
         return Ui(
             route = route, answer = if (selectedMirrorForTable) answer.copy(position = tablePos,
                 perStop = emptyMap()) else answer, model = withActuals,
@@ -1172,11 +1262,11 @@ class LiveViewModel(
             lastUpdated = (mirrorRefreshedAt.takeIf { it > 0 } ?: lastFetchAt.takeIf { it > 0 })
                 ?.let { (if (verified != null) "Verified " else "Last checked ") + clockAt(it) },
             delayDetail = receipt?.second,
-            staticRoute = geoRoute?.takeIf { geo ->
-                geo.srcCode.equals(route.srcCode, true) && geo.dstCode.equals(route.dstCode, true) &&
-                    route.stops.map { it.code.uppercase() }.let { required ->
-                        geo.stops.map { it.code.uppercase() }.filter { it in required } == required
-                    }
+            staticRoute = staticRoute,
+            staticRouteSource = when (staticRoute) {
+                geoRoute -> if (staticRoute == null) null else "RailGeo"
+                confirmStaticRoute -> if (staticRoute == null) null else "ConfirmTkt"
+                else -> null
             },
         )
     }

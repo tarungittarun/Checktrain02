@@ -64,7 +64,7 @@
     <string name="between_endpoints">Only the two endpoints from the train listing are known. Intermediate stations and their schedules have not been verified for this run. This is not a full route.</string>
     <string name="between_title">Static route · choose any pair</string>
     <string name="between_limit">Scheduled halts available now. Pass-through stations are not verified for this train; this is not a complete track map. Times below are schedule only, never actuals.</string>
-    <string name="between_complete">RailGeo supplied additional ordered route points, checked against the official halts. Their stopping status and completeness are unconfirmed. Times below are schedule only; a dash means no published time for that point.</string>
+    <string name="between_complete">%1$s supplied additional ordered route points. Their stopping status and completeness are unconfirmed. Times below are schedule only; a dash means no published halt time for that point.</string>
     <string name="between_from">First station</string>
     <string name="between_to">Second station</string>
     <string name="show_full_route">Show full route</string>

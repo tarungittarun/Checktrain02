@@ -30,6 +30,20 @@ class OfficialScheduleCacheTest {
             at + OfficialScheduleCache.MAX_AGE_MS + 1))
     }
 
+    @Test fun intermediatePointSurvivesReopenWithoutAcquiringInventedTimesOrHaltStatus() {
+        val extra = StopRow(3, "SDVL", "Soldevanahalli", null, null, null,
+            null, null, 0, -1, false)
+        val withPoint = route.copy(stops = route.stops.take(2) + listOf(extra) +
+            route.stops.drop(2).map { it.copy(seq = it.seq + 1) })
+        val raw = OfficialScheduleCache.encode(withPoint, day, at)
+        val decoded = OfficialScheduleCache.decode(raw, "20689", day, "YPR", "SMET", at + 1)!!
+        assertEquals(listOf("YPR", "TK", "SDVL", "ASK", "SMET"),
+            decoded.stops.map { it.code })
+        assertEquals(false, decoded.stops[2].isHalt)
+        assertNull(decoded.stops[2].arrivalMin)
+        assertNull(decoded.stops[2].departureMin)
+    }
+
     @Test fun corruptedScheduleCannotBecomeTheFirstPaint() {
         val raw = OfficialScheduleCache.encode(route, day, at)
         assertNull(OfficialScheduleCache.decode(raw.replace("\"TK\"", "\"YPR\""),

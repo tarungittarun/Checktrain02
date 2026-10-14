@@ -161,7 +161,7 @@ class RailRepository private constructor(
     ): Live? = withContext(Dispatchers.IO) {
         val route = queries.route(trainNo)
             ?: savedSchedule(trainNo, fromCode, toCode, originEpochDay)
-            ?: fallbackRoute?.takeIf { it.trainNo == trainNo && it.stops.size == 2 }
+            ?: fallbackRoute?.takeIf { it.trainNo == trainNo && it.stops.size >= 2 }
             ?: return@withContext null
         val nowMillis = System.currentTimeMillis()
         // rail-minute "now": minutes from the origin date's midnight, in IST

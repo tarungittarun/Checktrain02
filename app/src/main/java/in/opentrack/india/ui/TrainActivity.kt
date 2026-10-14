@@ -144,11 +144,9 @@ class TrainActivity : AppCompatActivity() {
         }
         val hasPassThrough = stops.any { !it.isHalt }
         layout.addView(TextView(this).apply {
-            text = getString(when {
-                stops.size <= 2 -> R.string.between_endpoints
-                hasPassThrough -> R.string.between_complete
-                else -> R.string.between_limit
-            })
+            text = if (hasPassThrough) getString(R.string.between_complete,
+                lastUi?.staticRouteSource ?: "Source") else getString(
+                if (stops.size <= 2) R.string.between_endpoints else R.string.between_limit)
             setTextColor(getColor(R.color.warn))
         })
         val options = stops.map { "${it.code} · ${it.name}" }
