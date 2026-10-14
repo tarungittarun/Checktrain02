@@ -19,6 +19,16 @@ class RouteBetweenTest {
         ), segments = emptyList(),
     )
 
+    @Test fun officialScheduleUpgradesOnlyTheHaltsItActuallyConfirms() {
+        val official = route.copy(stops = route.stops.map { if (it.code == "BBB")
+            it.copy(isHalt = true, arrivalMin = 645, departureMin = 646) else it })
+        val reconciled = RouteBetween.withVerifiedHalts(route, official)!!
+        assertTrue(reconciled.stops[1].isHalt)
+        assertEquals(645, reconciled.stops[1].arrivalMin)
+        assertEquals(listOf("AAA", "BBB", "CCC", "DDD"), reconciled.stops.map { it.code })
+        assertEquals(null, RouteBetween.withVerifiedHalts(route, official.copy(trainNo = "20689")))
+    }
+
     @Test fun arbitraryPairUsesTrainOrderWithoutReadingPosition() {
         assertEquals(listOf("AAA", "BBB", "CCC"),
             RouteBetween.inclusive(route, "CCC", "AAA").map { it.code })

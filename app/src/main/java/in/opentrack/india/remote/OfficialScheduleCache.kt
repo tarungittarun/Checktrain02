@@ -6,8 +6,9 @@ import `in`.opentrack.india.model.TrainRoute
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** Only a previously run/day/route-checked NTES static timetable. No actuals, no live provenance.
- * The data must be revalidated when reopened for a different selected boarding span. */
+/** A previously run/day/route-checked static timetable (NTES or ConfirmTkt), never actuals.
+ * Callers must keep sources in SEPARATE preference namespaces and revalidate the selected span.
+ * Passing points retain their unknown-halt status and unpublished times on reopen. */
 object OfficialScheduleCache {
     const val MAX_AGE_MS = 24 * 60 * 60_000L
 

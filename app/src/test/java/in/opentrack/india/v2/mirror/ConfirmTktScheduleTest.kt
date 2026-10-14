@@ -36,6 +36,26 @@ class ConfirmTktScheduleTest {
         assertEquals("SOLDEVANAHALLI", point.name)
     }
 
+    @Test fun secondCapturedTrainAlsoCarriesPointsWithoutInventingHaltMinutes() {
+        val second = """[{"TrainNo":20652,"StationCode":"TLGP","StationName":"Talguppa",
+            "ArrivalTime":"","DepartureTime":"05:20","Distance":"0.0","Day":1,
+            "intermediateStations":[{"StationCode":"KNLE","StationName":"KANALE",
+                "ArrivalTime":"05:26","DepartureTime":"05:26","Distance":"6.0"}]},
+            {"TrainNo":20652,"StationCode":"YPR","StationName":"Yesvantpur Jn",
+            "ArrivalTime":"11:10","DepartureTime":"11:12","Distance":"366.0","Day":1,
+            "intermediateStations":[{"StationCode":"MWM","StationName":"Malleswaram",
+                "ArrivalTime":"11:28","DepartureTime":"11:28","Distance":"368.0"}]},
+            {"TrainNo":20652,"StationCode":"SBC","StationName":"KSR Bengaluru",
+            "ArrivalTime":"12:00","DepartureTime":"","Distance":"371.0","Day":1,
+            "intermediateStations":[]}]"""
+        val page = html(second).replace("20689", "20652")
+        val route = ConfirmTktSchedule.parse(page, "20652", day, "TLGP", "SBC")!!
+        assertEquals(listOf("TLGP", "KNLE", "YPR", "MWM", "SBC"),
+            route.allStations.stops.map { it.code })
+        assertEquals(listOf("TLGP", "YPR", "SBC"), route.halts.stops.map { it.code })
+        assertNull(route.allStations.stops[3].arrivalMin)
+    }
+
     @Test fun mismatchedTrainDayCorridorAndDuplicatePointsNeverBecomeARoute() {
         assertNull(ConfirmTktSchedule.parse(html(), "20652", day, "YPR", "SMET"))
         assertNull(ConfirmTktSchedule.parse(html(), "20689", "13-Oct-2026", "YPR", "SMET"))

@@ -13,6 +13,7 @@ import `in`.opentrack.india.remote.RailGeoRoute
 import `in`.opentrack.india.remote.OfficialScheduleCache
 import `in`.opentrack.india.remote.NtesWire
 import `in`.opentrack.india.domain.PositionEngine
+import `in`.opentrack.india.domain.RouteBetween
 import `in`.opentrack.india.domain.Suggestion
 import `in`.opentrack.india.domain.TrackModel
 import `in`.opentrack.india.model.SourceKind
@@ -730,6 +731,7 @@ class LiveViewModel(
                 lastAnswer = answer
                 _ui.value = buildUi(result.halts, answer, emptyList(), listOf(
                     "ConfirmTkt dated static schedule — no independently observed actuals from this page."))
+                _error.value = null
             } else if (old != null) {
                 // BuildUi checks every known halt's order before it can attach these points.
                 val candidate = result.allStations.takeIf { full ->
@@ -738,7 +740,9 @@ class LiveViewModel(
                     }
                 }
                 if (candidate != null && (old.staticRoute?.stops?.size ?: 0) < candidate.stops.size)
-                    _ui.value = old.copy(staticRoute = candidate, staticRouteSource = "ConfirmTkt")
+                    _ui.value = old.copy(staticRoute = if (officialStaticKnown)
+                        RouteBetween.withVerifiedHalts(candidate, old.route) ?: candidate else candidate,
+                        staticRouteSource = "ConfirmTkt")
             }
         }
     }
@@ -1231,7 +1235,7 @@ class LiveViewModel(
                 "Next ${r.name}: estimated ${RailTime.formatRailMinute(r.showArr)} (not reported)"
             else "Next ${r.name}: arrival not confirmed"
         }
-        val staticRoute = listOfNotNull(geoRoute, confirmStaticRoute)
+        val staticCandidate = listOfNotNull(geoRoute, confirmStaticRoute)
             .filter { candidate ->
                 candidate.srcCode.equals(route.srcCode, true) &&
                     candidate.dstCode.equals(route.dstCode, true) &&
@@ -1239,6 +1243,10 @@ class LiveViewModel(
                         candidate.stops.map { it.code.uppercase() }.filter { it in required } == required
                     }
             }.maxByOrNull { it.stops.size }
+        val staticRoute = staticCandidate?.let { candidate ->
+            if (officialStaticKnown) RouteBetween.withVerifiedHalts(candidate, route) ?: candidate
+            else candidate
+        }
         return Ui(
             route = route, answer = if (selectedMirrorForTable) answer.copy(position = tablePos,
                 perStop = emptyMap()) else answer, model = withActuals,
@@ -1263,9 +1271,9 @@ class LiveViewModel(
                 ?.let { (if (verified != null) "Verified " else "Last checked ") + clockAt(it) },
             delayDetail = receipt?.second,
             staticRoute = staticRoute,
-            staticRouteSource = when (staticRoute) {
-                geoRoute -> if (staticRoute == null) null else "RailGeo"
-                confirmStaticRoute -> if (staticRoute == null) null else "ConfirmTkt"
+            staticRouteSource = when (staticCandidate) {
+                geoRoute -> if (staticCandidate == null) null else "RailGeo"
+                confirmStaticRoute -> if (staticCandidate == null) null else "ConfirmTkt"
                 else -> null
             },
         )
