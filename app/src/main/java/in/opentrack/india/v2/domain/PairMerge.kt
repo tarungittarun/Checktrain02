@@ -138,7 +138,11 @@ object PairMerge {
                 // the row renderer hides km when 0 - no fabricated distance (2.4)
                 distanceKm = 0,
                 runDays = null,
-                sourceTag = if (r.liveOnly || r.confirmedByLive) "via erail" else "timetable",
+                sourceTag = when {
+                    r.liveOnly -> "erail endpoints · route checked on open"
+                    r.confirmedByLive -> "via erail"
+                    else -> "timetable"
+                },
             )
         }
         return hits to (rows.size - renderable.size)

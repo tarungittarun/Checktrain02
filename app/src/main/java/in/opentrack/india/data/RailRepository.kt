@@ -11,6 +11,7 @@ import `in`.opentrack.india.model.SourceKind
 import `in`.opentrack.india.model.TrainRoute
 import `in`.opentrack.india.remote.ErailProvider
 import `in`.opentrack.india.remote.ProviderChain
+import `in`.opentrack.india.remote.OfficialScheduleCache
 import `in`.opentrack.india.remote.SnapshotStore
 import `in`.opentrack.india.sensor.SensorPositioner
 import kotlinx.coroutines.Dispatchers
@@ -48,6 +49,8 @@ class RailRepository private constructor(
         val originEpochDay: Long,
         /** why each live source that declined did so, in the sources' own sentences */
         val notes: List<String> = emptyList(),
+        /** Current request carried a separately validated official static schedule. */
+        val officialScheduleVerified: Boolean = false,
     ) {
         val provenance: SourceKind get() = answer.position.provenance
     }
@@ -122,6 +125,15 @@ class RailRepository private constructor(
             Live(route, answer, listOf("erail=manual-hit"), day)
         }
 
+    /** The previous dated official SCHEDULE can paint before any network request, including a train
+     * absent from the bundled database. It has no observed minutes and cannot locate a train. */
+    suspend fun savedSchedule(trainNo: String, from: String, to: String, day: Long): TrainRoute? =
+        withContext(Dispatchers.IO) {
+            val raw = context.getSharedPreferences("official_schedules", Context.MODE_PRIVATE)
+                .getString("$trainNo:$day", null)
+            OfficialScheduleCache.decode(raw, trainNo, day, from, to, System.currentTimeMillis())
+        }
+
     /** Instant last-known official run for a tunnel: a paired route + observations, never live. */
     suspend fun lastOfficial(trainNo: String, from: String, to: String, day: Long): Live? =
         withContext(Dispatchers.IO) {
@@ -144,8 +156,13 @@ class RailRepository private constructor(
     suspend fun live(
         trainNo: String, fromCode: String, toCode: String, originEpochDay: Long,
         previous: PositionEngine.TrainPositionInput? = null,
+        /** Live-list identity's two endpoint times when the bundled DB lacks this number. */
+        fallbackRoute: TrainRoute? = null,
     ): Live? = withContext(Dispatchers.IO) {
-        val route = queries.route(trainNo) ?: return@withContext null
+        val route = queries.route(trainNo)
+            ?: savedSchedule(trainNo, fromCode, toCode, originEpochDay)
+            ?: fallbackRoute?.takeIf { it.trainNo == trainNo && it.stops.size == 2 }
+            ?: return@withContext null
         val nowMillis = System.currentTimeMillis()
         // rail-minute "now": minutes from the origin date's midnight, in IST
         val nowRail = ((RailTime.istEpochDay(nowMillis) - originEpochDay) * RailTime.MINUTES_PER_DAY
@@ -163,7 +180,14 @@ class RailRepository private constructor(
         val snapshot = if (outcome.snapshot == null || outcome.snapshot.sourceKind == SourceKind.CACHED)
             store.loadOfficial(trainNo, originEpochDay, fromCode, toCode) ?: outcome.snapshot
         else outcome.snapshot
-        val effectiveRoute = snapshot?.reportedRoute ?: route
+        // Persist the STATIC schedule independently of the actuals. A live-only number must not
+        // collapse back to two endpoints next time the user opens it, even when no actual was given.
+        outcome.scheduleRoute?.let { scheduled ->
+            context.getSharedPreferences("official_schedules", Context.MODE_PRIVATE).edit()
+                .putString("$trainNo:$originEpochDay", OfficialScheduleCache.encode(
+                    scheduled, originEpochDay, System.currentTimeMillis())).apply()
+        }
+        val effectiveRoute = snapshot?.reportedRoute ?: outcome.scheduleRoute ?: route
         if (effectiveRoute !== route) Diary.get()?.log("ROUTE") {
             "official NTES schedule replaces device ${route.srcCode}->${route.dstCode} " +
                 "(${route.stops.size} stops) with ${effectiveRoute.srcCode}->${effectiveRoute.dstCode} " +
@@ -182,7 +206,8 @@ class RailRepository private constructor(
                 gps = gps,
             )
         )
-        Live(effectiveRoute, answer, outcome.tried, originEpochDay, outcome.notes)
+        Live(effectiveRoute, answer, outcome.tried, originEpochDay, outcome.notes,
+            officialScheduleVerified = outcome.scheduleRoute != null)
     }
 
     fun hasLocationPermission(): Boolean =

@@ -67,6 +67,25 @@ class NtesMobileFallbackTest {
     ]}"""
 
     @Test
+    fun `missing bundled number still gets dated static stops without promoting guesses to actuals`() {
+        val doc = JSONObject(observed16227.replace("\"ETA\":\"20:05 13-Oct\"", "\"ETA\":\"20:02 13-Oct\""))
+        assertTrue(NtesMobileFallback.matchesScheduleRun(doc, "16227", day, "MYS", "PANP"))
+        assertFalse(NtesMobileFallback.matchesScheduleRun(doc, "16227", day + 1, "MYS", "PANP"))
+        assertFalse(NtesMobileFallback.matchesScheduleRun(doc, "16227", day, "SBC", "SMET"))
+        assertFalse(NtesMobileFallback.matchesScheduleRun(doc.put("TrainNo", "99999"),
+            "16227", day, "MYS", "PANP"))
+        val synthetic = TrainRoute("16227", "from listing", "MYS", "MYS", "PANP", "PANP",
+            0, null, null, null, listOf(
+                StopRow(1, "MYS", "MYS", null, null, null, null, 1180, 0, 0, true),
+                StopRow(2, "PANP", "PANP", null, null, null, 1202, null, 0, 0, true),
+            ), emptyList())
+        val parsed = NtesWire.parse(observed16227)!!
+        val reconstructed = NtesRoute.fromStatus(parsed, synthetic)!!
+        assertEquals(listOf("MYS", "NHY", "PANP"), reconstructed.stops.map { it.code })
+        assertEquals(20 * 60 + 2, reconstructed.stops.last().arrivalMin)
+    }
+
+    @Test
     fun `captured no-header STNS accepts selected corridor and replaces contradictory device timetable`() {
         val doc = JSONObject(observed16227)
         val wrong = route() // device route starts SBC, not the official response's MYS

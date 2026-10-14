@@ -176,6 +176,7 @@ class LiveViewModel(
     private var mirrorCrossChecked = false
     private var geoRoute: TrainRoute? = null
     private var geoAttemptAt = 0L
+    private var officialStaticKnown = false
     private var mirrorSourceStates: Map<String, Pair<String, String>> = emptyMap()
     private var lastFetchAt = 0L
     private var mirrorNote: String? = null
@@ -499,8 +500,11 @@ class LiveViewModel(
             if (_ui.value == null) {
                 val now0 = System.currentTimeMillis()
                 val saved = repo.lastOfficial(trainNo, fromCode, toCode, originEpochDay)
-                val cachedRoute = saved?.route ?: runCatching { repo.queries.route(trainNo) }.getOrNull()
+                val savedStatic = repo.savedSchedule(trainNo, fromCode, toCode, originEpochDay)
+                val cachedRoute = saved?.route ?: savedStatic
+                    ?: runCatching { repo.queries.route(trainNo) }.getOrNull()
                 if (cachedRoute != null) {
+                    officialStaticKnown = saved != null || savedStatic != null
                     // Reopen today's validated full static route BEFORE asking any live source.
                     loadGeoCache(cachedRoute, repo)
                     val cached = saved?.answer ?: PositionEngine.locate(
@@ -526,11 +530,32 @@ class LiveViewModel(
             // device timetable lacks (throttled + day-cached; never blocks the paint above).
             // A 0.5 s official answer makes both of these slow page probes unnecessary;
             // defer them until after the official request actually fails.
+            // Crucial: an erail list can contain numbers absent from the bundled (older) DB.
+            // Previously repo.live() returned null BEFORE asking NTES in that case (20689).
+            // Use the dated live-list identity only as an endpoint scaffold; the official STNS
+            // must independently prove its train, day and passenger span before gaining any rows.
+            val hasDeviceRoute = runCatching { repo.queries.route(trainNo) }.getOrNull() != null
+            val fallbackRoute = if (!hasDeviceRoute &&
+                repo.savedSchedule(trainNo, fromCode, toCode, originEpochDay) == null) {
+                (liveIdentity ?: runCatching { identityFetch.identityOf(trainNo) }.getOrNull())
+                    ?.takeIf { it.identity.number == trainNo }
+                    ?.also { liveIdentity = it }
+                    ?.let(::syntheticRoute)
+            } else null
+            if (fallbackRoute != null && _ui.value == null) {
+                val at = System.currentTimeMillis()
+                val initial = PositionEngine.locate(
+                    PositionEngine.Request(fallbackRoute, null, nowMinute(at), at, null))
+                lastAnswer = initial
+                _ui.value = buildUi(fallbackRoute, initial, emptyList(),
+                    listOf("Only endpoint times available while checking the dated official station table."))
+            }
             val live = runCatching {
                 repo.live(
                     trainNo = trainNo, fromCode = fromCode, toCode = toCode,
                     originEpochDay = originEpochDay,
                     previous = previous?.let { PositionEngine.TrainPositionInput(it) },
+                    fallbackRoute = fallbackRoute,
                 )
             }.getOrNull()
             if (live == null) {
@@ -580,15 +605,17 @@ class LiveViewModel(
                 return
             }
             lastAnswer = live.answer
+            officialStaticKnown = officialStaticKnown || live.officialScheduleVerified ||
+                live.answer.position.provenance == SourceKind.PROVIDER_NTES
             _ui.value = buildUi(live.route, live.answer, live.tried, live.notes)
             _error.value = null
             maybeCrowd()
+            if (officialStaticKnown) maybeRailGeo(live.route)
             if (live.answer.position.provenance != SourceKind.PROVIDER_NTES) {
                 maybeMirror()
-                maybeRouteExtent()
+                if (!officialStaticKnown) maybeRouteExtent()
             } else {
                 _mirrorState.postValue("Official NTES answered; slow independent page probes skipped")
-                maybeRailGeo(live.route)
             }
         }
     }
@@ -720,8 +747,9 @@ class LiveViewModel(
                 saveExtentCache(got.halts)
             }
             val u = _ui.value ?: return@launch
-            // A late, partial erail halt list must not overwrite the complete official table.
-            if (u.answer.position.provenance == SourceKind.PROVIDER_NTES) return@launch
+            // A late, partial erail halt list must not overwrite a validated official schedule,
+            // including a schedule-only response with no actual minutes yet.
+            if (officialStaticKnown || u.answer.position.provenance == SourceKind.PROVIDER_NTES) return@launch
             val grown = extentRoute ?: return@launch
             _ui.postValue(buildUi(grown, u.answer, u.tried).copy(relayOk = u.relayOk))
             Diary.get()?.log("ROUTE") {

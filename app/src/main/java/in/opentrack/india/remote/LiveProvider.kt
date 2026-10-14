@@ -205,10 +205,15 @@ class NtesProvider(
     @Volatile
     private var note: String? = null
 
+    /** Same dated response can provide a safe schedule even without a confirmed actual. */
+    var verifiedSchedule: TrainRoute? = null
+        private set
+
     override fun failureNote(): String? = note
 
     override fun fetch(trainNo: String, route: TrainRoute, journeyEpochDay: Long): LiveSnapshot? {
         note = null
+        verifiedSchedule = null
         portDead(BrowserFetch.hostOf(baseUrl))?.let { note = it; return null }
         // If this device already found a request shape the feed answers, use it. Adoption is per-process and
         // per-network rather than baked into the build, because the difference between an answer and a closed
@@ -267,35 +272,33 @@ class NtesProvider(
             return null
         }
         val stns = doc.has("STNS")
-        if (stns && !NtesMobileFallback.matchesRun(doc, trainNo, journeyEpochDay,
-                selectedFrom ?: route.srcCode, selectedTo ?: route.dstCode)) {
-            note = "NTES answered with stops but did not prove this train and run date; " +
-                "its minutes are not safe to show as actuals."
+        val rawParsed = runCatching { NtesWire.parse(doc.toString()) }.getOrNull()
+        val officialRoute = if (stns && rawParsed != null) NtesRoute.fromStatus(rawParsed, route) else null
+        val scheduleMatched = stns && officialRoute != null &&
+            NtesMobileFallback.matchesScheduleRun(doc, trainNo, journeyEpochDay,
+                selectedFrom ?: route.srcCode, selectedTo ?: route.dstCode)
+        if (scheduleMatched) {
+            verifiedSchedule = officialRoute
+            Diary.get()?.log("ROUTE") {
+                "NTES dated static timetable for $trainNo: ${officialRoute!!.stops.size} scheduled halts " +
+                    "(${route.stops.size} on device); live actuals gated separately"
+            }
+        }
+        // Never align an unproven STNS table, and never turn a schedule cell into an actual.
+        if (stns && !scheduleMatched) {
+            note = "NTES supplied stops, but their train, day or ordered schedule could not be verified."
             Diary.get()?.log("NTES") {
-                "STNS refused: train/run date unproven; train=" + doc.optString("TrainNo").take(8) +
+                "STNS schedule refused; train=" + doc.optString("TrainNo").take(8) +
                     " run-field=" + doc.optString("StartDate").take(24) +
                     " update=" + doc.optString("LUPDT").take(40) +
-                    " first-rows=" + (doc.optJSONArray("STNS")?.let { array ->
-                        (0 until minOf(3, array.length())).mapNotNull { array.optJSONObject(it) }
-                            .joinToString(" | ") { row ->
-                                listOf("SC", "STA", "STD", "ETA", "ETD", "DARR", "DDEP")
-                                    .joinToString(",") { k -> "$k:${row.optString(k).take(24)}" }
-                            }
-                    } ?: "missing")
+                    " parsed-rows=${rawParsed?.rows?.size ?: 0}"
             }
             return null
         }
-        val rawParsed = runCatching { NtesWire.parse(doc.toString()) }.getOrNull()
-        val officialRoute = if (stns && rawParsed != null) NtesRoute.fromStatus(rawParsed, route) else null
-        // Never align official MYS->TLGP cells against an SBC->SMET device timetable.
-        if (stns && officialRoute == null) {
-            note = "NTES supplied stops, but their schedule could not be reconstructed safely."
-            Diary.get()?.log("NTES") {
-                val rows = rawParsed?.rows.orEmpty()
-                "STNS schedule incomplete; refusing unaligned actuals; count=${rows.size} " +
-                    "first=${rows.firstOrNull()?.code}:${rows.firstOrNull()?.schedDep} " +
-                    "last=${rows.lastOrNull()?.code}:${rows.lastOrNull()?.schedArr}"
-            }
+        if (stns && !NtesMobileFallback.matchesRun(doc, trainNo, journeyEpochDay,
+                selectedFrom ?: route.srcCode, selectedTo ?: route.dstCode)) {
+            note = "NTES supplied a dated static timetable, but no verified current-run actual minutes."
+            Diary.get()?.log("NTES", "STNS actuals refused; keeping verified static timetable only")
             return null
         }
         val parsed = if (stns && rawParsed != null && officialRoute != null) {
@@ -667,11 +670,14 @@ class ProviderChain(private val providers: List<LiveProvider>) {
          * timed out" is a more useful sentence than either half of it alone.
          */
         val notes: List<String> = emptyList(),
+        /** Static-only dated NTES schedule, even if no observed minute passed the actuals gate. */
+        val scheduleRoute: TrainRoute? = null,
     )
 
     fun fetch(trainNo: String, route: TrainRoute, journeyEpochDay: Long): Outcome {
         val tried = ArrayList<String>(providers.size)
         val notes = ArrayList<String>(providers.size)
+        var scheduleRoute: TrainRoute? = null
         for (p in providers) {
             var thrown: Throwable? = null
             val snap = try {
@@ -680,6 +686,7 @@ class ProviderChain(private val providers: List<LiveProvider>) {
                 thrown = e
                 null
             }
+            if (p is NtesProvider) scheduleRoute = p.verifiedSchedule
             tried += p.kind.name + (if (snap == null) "=miss" else "=hit")
             if (snap == null) {
                 // A provider is allowed to be silent about why it declined; a provider that *threw* must
@@ -690,9 +697,9 @@ class ProviderChain(private val providers: List<LiveProvider>) {
                 }
                 if (why != null && why.isNotBlank()) notes += "${p.kind.label}: $why"
             }
-            if (snap != null) return Outcome(snap, snap.sourceKind, tried, notes)
+            if (snap != null) return Outcome(snap, snap.sourceKind, tried, notes, scheduleRoute)
         }
-        return Outcome(null, SourceKind.NONE, tried, notes)
+        return Outcome(null, SourceKind.NONE, tried, notes, scheduleRoute)
     }
 
     companion object {

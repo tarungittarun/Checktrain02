@@ -186,7 +186,7 @@ class PairMergeTest {
         assertEquals(1380, hit.boardMinute)
         assertEquals(500 + 1440, hit.alightMinute)
         assertEquals("a 9h20 journey, not minus fourteen hours", 560, hit.durationMin)
-        assertEquals("via erail", hit.sourceTag)
+        assertEquals("erail endpoints · route checked on open", hit.sourceTag)
         assertEquals(20L, hit.originDateEpochDay)
         assertEquals(0, hidden)
     }
@@ -209,6 +209,6 @@ class PairMergeTest {
         val (hits, _) = PairMerge.toTrainHits(merged.rows, 700, originOf = { 0L })
         val byNo = hits.associateBy { it.trainNo }
         assertEquals("timetable", byNo.getValue("16226").sourceTag)
-        assertEquals("via erail", byNo.getValue("16221").sourceTag)
+        assertEquals("erail endpoints · route checked on open", byNo.getValue("16221").sourceTag)
     }
 }

@@ -76,6 +76,35 @@ internal object NtesMobileFallback {
         }
     }
 
+    /** A static timetable has a weaker evidence requirement than actuals, but must still prove
+     * train number (if published), origin day and the passenger's selected span. Never use this
+     * predicate to authenticate ETA/ETD as observed minutes. */
+    fun matchesScheduleRun(
+        doc: JSONObject, trainNo: String, runDay: Long, fromCode: String, toCode: String,
+    ): Boolean {
+        val rows = doc.optJSONArray("STNS") ?: return false
+        if (rows.length() < 3 || rows.length() > 1000) return false
+        val codes = (0 until rows.length()).map { i ->
+            rows.optJSONObject(i)?.optString("SC")?.trim()?.uppercase().orEmpty()
+        }
+        if (codes.any { !it.matches(Regex("[A-Z0-9]{1,6}")) } ||
+            codes.distinct().size != codes.size) return false
+        val first = codes.indexOf(fromCode.uppercase())
+        if (first < 0 || codes.indexOf(toCode.uppercase()) <= first) return false
+        val src = doc.optString("SRC").trim()
+        if (src.isNotBlank() && !src.equals(codes.first(), true)) return false
+        val explicitNo = listOf("TrainNo", "trainNo", "TrainNumber", "TRAIN_NO")
+            .map { doc.optString(it).trim() }.firstOrNull { it.isNotEmpty() }
+        if (explicitNo != null && explicitNo != trainNo) return false
+        val expected = NtesWire.dateForWire(runDay)
+        val topDate = listOf("StartDate", "startDate", "RunDate", "runDate", "JourneyDate")
+            .map { doc.optString(it).trim() }.firstOrNull { it.isNotEmpty() }
+        if (topDate != null && !topDate.equals(expected, true)) return false
+        val firstDeparture = rows.optJSONObject(0)?.optString("STD").orEmpty()
+        return if (CELL_DATE.find(firstDeparture) != null) dateInCell(firstDeparture, expected)
+        else topDate != null
+    }
+
     /** Match the train AND the run in the decrypted STNS reply. The official encrypted
      * ShowFullRunJson payload on the owner's R53 phone has STNS but apparently no top-level
      * StartDate: it answered 34,957 bytes in 0.4 s and our invented mandatory field dropped it.
