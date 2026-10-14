@@ -138,8 +138,7 @@ class StationSearchFlowTest {
         assertTrue(E2E.typeInBox("fromBox", "yes") && awaitAnySuggestion("fromBox"))
         E2E.tapSuggestion("fromBox", 0)
         assertTrue(E2E.typeInBox("toBox", "yes") && awaitAnySuggestion("toBox"))
-        E2E.tapSuggestion("toBox", 0)
-        E2E.tap("find")
+        assertTrue("get-off-at could not be selected", E2E.tapSuggestion("toBox", 0))
         val status = E2E.text("statusLine")
         val rows = E2E.resultRows()
         assertTrue("board==alight produced neither a refusal nor a list (status='$status', rows=$rows)",
@@ -191,8 +190,8 @@ class StationSearchFlowTest {
         assertTrue("could not pick 'yes'", E2E.tapSuggestion("fromBox", 0))
         assertTrue("get-off-at 'ndls' never resolved", E2E.typeInBox("toBox", "ndls"))
         assertTrue("no suggestion for 'ndls'", E2E.ui.wait(Until.findObject(By.res(E2E.PKG, "sugPrimary")), E2E.LOCAL_MS) != null)
+        // Selecting the second end starts the search; when results arrive Find collapses.
         assertTrue("could not pick 'ndls'", E2E.tapSuggestion("toBox", 0))
-        assertTrue("Find never ran", E2E.tap("find"))
         val answered = E2E.ui.wait(Until.hasObject(By.res(E2E.PKG, "resultsTitle")), E2E.NETWORK_MS)
         val metas = E2E.all(By.res(E2E.PKG, "hitMeta")).mapNotNull { it.text }
         val status = E2E.text("statusLine")

@@ -53,8 +53,8 @@ class TrainSearchFlowTest {
     @Test
     fun trainModeFindsByNumber() {
         assertTrue(E2E.typeInBox("trainBox", "12627") && awaitTrainSuggestion())
-        E2E.tapSuggestion("trainBox", 0)
-        assertTrue("Find never ran", E2E.tap("find"))
+        // Selecting a train starts the search and may immediately collapse Find.
+        assertTrue("the train suggestion did not launch a search", E2E.tapSuggestion("trainBox", 0))
         val answered = E2E.ui.wait(Until.hasObject(By.res(E2E.PKG, "hitNo")), E2E.NETWORK_MS) ||
             E2E.text("statusLine").isNotBlank() || E2E.resultRows() > 0
         assertTrue("a real train number produced neither a result nor a message", answered)
@@ -70,8 +70,7 @@ class TrainSearchFlowTest {
         E2E.tap("dayFwd")
         E2E.tap("dayFwd")
         assertTrue(E2E.typeInBox("trainBox", "12627") && awaitTrainSuggestion())
-        E2E.tapSuggestion("trainBox", 0)
-        E2E.tap("find")
+        assertTrue("the train row was not selected", E2E.tapSuggestion("trainBox", 0))
         val title = E2E.ui.wait(Until.hasObject(By.res(E2E.PKG, "resultsTitle")), E2E.NETWORK_MS)
         assertTrue(
             "an empty date range was met with silence (results header present=$title)",
