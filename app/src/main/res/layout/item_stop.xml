@@ -99,6 +99,15 @@
             android:layout_marginTop="4dp"
             android:maxLines="3"
             android:textColor="@color/warn" />
+
+        <TextView
+            android:id="@+id/stopReport"
+            style="@style/TextMicro"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:textColor="@color/warn"
+            android:visibility="gone" />
     </LinearLayout>
 
     <LinearLayout
@@ -122,6 +131,29 @@
             android:layout_marginTop="2dp"
             android:gravity="center_horizontal" />
     </LinearLayout>
+</LinearLayout>
+
+<LinearLayout
+    android:id="@+id/inlineLegGroup"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:visibility="gone">
+
+    <in.opentrack.india.ui.InlineLegView
+        android:id="@+id/inlineLeg"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content" />
+
+    <TextView
+        android:id="@+id/inlineLegCaption"
+        style="@style/TextMicro"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingStart="28dp"
+        android:paddingEnd="10dp"
+        android:paddingBottom="8dp"
+        android:textColor="@color/warn" />
 </LinearLayout>
 
 <LinearLayout

@@ -139,6 +139,20 @@ class TrackModelTest {
     // ------------------------------------------------------------- reported vs expected vs timetable
 
     @Test
+    fun aSingleReportedCellNeverConvertsTheOtherScheduledCellIntoAnActual() {
+        val m = model(pos = pos(2, 3, StopStatus.DEPARTED),
+            perStop = mapOf("MID" to LiveStopFields(actualArrivalMin = 606,
+                delayArrivalMin = 6)), now = 650)
+        assertEquals(TrackModel.MinuteSource.REPORTED, m.rows[1].source)
+        assertEquals(606, m.rows[1].showArr)
+        assertEquals(null, m.rows[1].showDep)
+        val depOnly = model(pos = pos(2, 3, StopStatus.DEPARTED),
+            perStop = mapOf("MID" to LiveStopFields(actualDepartureMin = 615)), now = 650)
+        assertEquals(null, depOnly.rows[1].showArr)
+        assertEquals(615, depOnly.rows[1].showDep)
+    }
+
+    @Test
     fun aReportedClockTimeIsPlacedOnTheDayItsScheduleBelongsTo() {
         // The day-2 bug, end to end: a feed answers "00:02" for a halt the table puts at 00:00 (+1d). Printed
         // as given, the two cells in one row are 24 hours apart and the delay reads "-1438".

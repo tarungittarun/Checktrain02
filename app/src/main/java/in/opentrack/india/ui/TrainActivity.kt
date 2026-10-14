@@ -392,6 +392,7 @@ class TrainActivity : AppCompatActivity() {
 
         stopAdapter.reports = ui.sourceLines[ui.activeSource] ?: ui.reports
         stopAdapter.setRoutePoints(RouteBetween.groupedPoints(ui.staticRoute, ui.route))
+        stopAdapter.setProjectedLeg(leg)
         renderSourceChips(ui)
         stopAdapter.highlightCode = ui.anchorCode
         if (ui.reports.isNotEmpty()) {
@@ -446,7 +447,10 @@ class TrainActivity : AppCompatActivity() {
     private fun bindSource(m: TrackModel.View, ui: LiveViewModel.Ui) {
         binding.sourceText.text = ui.sourceStates.entries.joinToString("\n") { (name, status) ->
             "$name: ${status.second}"
-        } + "\n\n" + sourceText(m, ui.tried)
+        } + "\nSch km = selected timetable's rounded station distance; map km = " +
+            "separate dated static route; the two may differ. Feed pf = provider platform " +
+            "report, not a guaranteed boarding platform. WIMT web cache is not the app's " +
+            "crowdsourced live location and may disagree with it.\n\n" + sourceText(m, ui.tried)
     }
 
     /** Everything the screen knows about the feed, as text — see the long-press handler above. */

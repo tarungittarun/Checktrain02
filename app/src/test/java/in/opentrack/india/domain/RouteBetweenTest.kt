@@ -43,6 +43,14 @@ class RouteBetweenTest {
             RouteBetween.groupedPoints(route.copy(trainNo = "99999"), halts))
     }
 
+    @Test fun aPointWithImpossibleMapKmKeepsItsNameButLosesItsNumber() {
+        val halts = route.copy(stops = route.stops.filter { it.isHalt }
+            .mapIndexed { i, s -> s.copy(seq = i + 1) })
+        val bad = route.copy(stops = route.stops.map { if (it.code == "BBB")
+            it.copy(schedKm = 29) else it })
+        assertEquals(-1, RouteBetween.groupedPoints(bad, halts)["AAA"]!!.single().schedKm)
+    }
+
     @Test fun trainIconIsAProjectionNotAReportedIntermediateArrival() {
         val halts = route.copy(stops = route.stops.filter { it.isHalt }
             .mapIndexed { i, s -> s.copy(seq = i + 1) })
@@ -54,6 +62,9 @@ class RouteBetweenTest {
         val projection = RouteBetween.projectLeg(halts, route, position(SourceKind.PROVIDER_NTES))!!
         assertEquals("Passing", projection.nearestPoint)
         assertEquals(10, projection.estimateKm)
+        assertEquals("AAA", projection.fromCode)
+        assertEquals("CCC", projection.toCode)
+        assertEquals(.5f, projection.points.single().fraction, .001f)
         assertEquals(null, RouteBetween.projectLeg(halts, route,
             position(SourceKind.OFFLINE_SCHEDULE)))
         assertEquals(null, RouteBetween.projectLeg(halts, route,

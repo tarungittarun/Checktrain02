@@ -19,7 +19,7 @@ import java.util.TimeZone
  * Do not silently promote this experimental endpoint into the background refresh path.
  */
 object WimtCandidate {
-    const val SOURCE = "Where is My Train (candidate)"
+    const val SOURCE = "WIMT web cache (candidate)"
     data class Result(val lines: Map<String, String>, val detail: String)
 
     fun fetch(
@@ -93,14 +93,14 @@ object WimtCandidate {
             if (arr != null || dep != null) {
                 lines[code] = "$code · " + listOfNotNull(arr?.let { "arrival $it" },
                     dep?.let { "departure $it" }).joinToString(" · ") +
-                    " · WIMT candidate report (not corroborated; not live position)"
+                    " · WIMT web-cache candidate, NOT the app's GPS or verified Act"
             }
         }
         val age = if (latestObservation == 0L) "no admissible observed-time candidates"
             else "last event update ${((nowMillis - latestObservation).coerceAtLeast(0L) / 60_000L)} min ago"
         return Result(lines, "${rows.length()} rows; ${lines.size} candidate stops; " +
             "$rejectedEta ETA rows and $rejectedAhead pre-update/future cells excluded; $age. " +
-            "Unofficial feed; no position or ETA inferred")
+            "Undocumented web cache may differ from WIMT app; no position or ETA inferred")
     }
 
     private fun updatedMillis(raw: String): Long? {

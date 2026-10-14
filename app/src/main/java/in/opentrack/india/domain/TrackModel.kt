@@ -168,7 +168,10 @@ object TrackModel {
             Stop(
                 seq = s.seq, code = s.code, name = s.name,
                 schedArr = s.arrivalMin, schedDep = s.departureMin,
-                showArr = actualArr ?: estArr, showDep = actualDep ?: estDep,
+                // A reported arrival does not turn an unreported scheduled departure into an
+                // "Act" minute (and vice versa). Row source is shared by both columns.
+                showArr = if (shown) actualArr else estArr,
+                showDep = if (shown) actualDep else estDep,
                 delay = delay,
                 source = when {
                     shown -> MinuteSource.REPORTED

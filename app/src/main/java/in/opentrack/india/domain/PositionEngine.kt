@@ -162,7 +162,12 @@ object PositionEngine {
             } else if (segment != null && legMin != null && legMin > 0 && eventMin != null) {
                 val elapsed = req.nowRailMinute - eventMin
                 if (elapsed > 0) {
-                    val expected = max(1, legMin + (delay ?: 0))
+                    // Lateness is already baked into the REPORTED departure eventMin.
+                    // Adding it again to the leg duration trapped 20689 at Birur: at
+                    // 13:21, seven minutes after its 13:14 departure on a 26-minute,
+                    // 24-km leg, 70 min of accumulated delay turned 7/26 into 7/96.
+                    // This is only a distance-by-time projection, never observed GPS.
+                    val expected = max(1, legMin)
                     // 0.97 cap: "arrived" is the feed's word to say, not ours.
                     fraction = min(0.97f, elapsed.toFloat() / expected.toFloat())
                     km = stop.schedKm + segment.legKm * fraction

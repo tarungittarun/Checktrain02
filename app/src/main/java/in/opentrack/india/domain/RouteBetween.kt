@@ -35,8 +35,17 @@ object RouteBetween {
             val from = halts.stops[i]
             val end = map.stops.indexOfFirst { it.code.equals(halts.stops[i + 1].code, true) }
             if (end <= start) return emptyMap()
-            val points = map.stops.subList(start + 1, end).map { it.copy(
-                actualArrivalMin = null, actualDepartureMin = null) }
+            val mapStart = map.stops[start].schedKm
+            val mapEnd = map.stops[end].schedKm
+            var lastKm = mapStart
+            val points = map.stops.subList(start + 1, end).map { point ->
+                val km = point.schedKm
+                val credible = km >= 0 && mapStart >= 0 && mapEnd > mapStart &&
+                    km in lastKm..mapEnd
+                if (credible) lastKm = km
+                point.copy(actualArrivalMin = null, actualDepartureMin = null,
+                    schedKm = if (credible) km else -1)
+            }
             if (points.isNotEmpty()) groups[from.code] = points
             start = end
         }
@@ -48,9 +57,11 @@ object RouteBetween {
 
     /** A *projected* train icon within the two NTES halts. Never display this as observed
      * GPS or as an actual passage through an intermediate point. Hide on stale/schedule-only data. */
+    data class LegPoint(val code: String, val name: String, val mapKm: Int, val fraction: Float)
     data class LegProjection(
         val from: String, val to: String, val fraction: Float,
         val nearestPoint: String?, val estimateKm: Int,
+        val fromCode: String, val toCode: String, val points: List<LegPoint>,
     )
 
     fun projectLeg(halts: TrainRoute, map: TrainRoute?, position: TrainPosition): LegProjection? {
@@ -65,18 +76,20 @@ object RouteBetween {
         val fraction = position.fraction.coerceIn(0f, 0.97f)
         // Map distances come from a separate static source, so interpolate on that source's OWN
         // leg axis. Official and map total km differ by a kilometre on 20652.
-        val points = followingPoints(map, halts, from.code).filter { !it.isHalt }
         val mapStart = map?.stops?.firstOrNull { it.code.equals(from.code, true) }?.schedKm ?: -1
         val mapEnd = map?.stops?.firstOrNull { it.code.equals(to.code, true) }?.schedKm ?: -1
+        val points = if (mapStart >= 0 && mapEnd > mapStart) followingPoints(map, halts, from.code)
+            .filter { !it.isHalt && it.schedKm in mapStart..mapEnd }
+            .map { LegPoint(it.code, it.name, it.schedKm,
+                (it.schedKm - mapStart).toFloat() / (mapEnd - mapStart)) } else emptyList()
         val projected = if (mapStart >= 0 && mapEnd > mapStart)
             mapStart + (mapEnd - mapStart) * fraction else -1f
-        val near = if (projected >= 0) points.filter {
-            it.schedKm in mapStart..mapEnd
-        }.minByOrNull { abs(it.schedKm - projected) }?.takeIf {
-            abs(it.schedKm - projected) <= maxOf(1.5f, (mapEnd - mapStart) * 0.15f)
-        }?.name else null
+        val near = if (projected >= 0) points.minByOrNull { abs(it.mapKm - projected) }
+            ?.takeIf { abs(it.mapKm - projected) <= maxOf(1.5f, (mapEnd - mapStart) * 0.15f) }
+            ?.name else null
         return LegProjection(from.name, to.name, fraction, near,
-            (from.schedKm + (to.schedKm - from.schedKm) * fraction).toInt())
+            (from.schedKm + (to.schedKm - from.schedKm) * fraction).toInt(),
+            from.code, to.code, points)
     }
 
     fun inclusive(route: TrainRoute, firstCode: String, secondCode: String): List<StopRow> {

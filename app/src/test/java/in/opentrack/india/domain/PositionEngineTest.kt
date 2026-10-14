@@ -112,11 +112,27 @@ class PositionEngineTest {
 
     @Test
     fun delayIsCarriedFromTheAnchorIntoTheLeg() {
-        // 14 min late at MID; the same leg is then 90 + 14 minutes long, so at +45 min we are *less*
-        // than half way — which is the honest reading, and the one a naive "schedule ratio" gets wrong.
+        // Delay is ALREADY present in the reported 10:24 departure. Adding 14 to the
+        // 90-minute leg would count it twice and slow the icon after departure.
         val a = locate(snap("MID", 2, StopStatus.DEPARTED, 624, 610, delay = 14), now = 669)
         assertEquals(14, a.position.delayMinutes)
-        assertEquals(45f / 104f, a.position.fraction, 1e-4f)
+        assertEquals(0.5f, a.position.fraction, 1e-4f)
+    }
+
+    @Test
+    fun seventyMinutesLateAtBirurIsNotAddedToTheBirurTarikereLegAgain() {
+        val short = route.copy(
+            stops = listOf(stop(1, "SRC", null, 555, 0),
+                stop(2, "MID", 722, 724, 206),
+                stop(3, "DST", 750, null, 230, halt = false)),
+            segments = listOf(SegmentRow(1, "SRC", "MID", 206, 167),
+                SegmentRow(2, "MID", "DST", 24, 26)), totalKm = 230)
+        val snap = snap("MID", 2, StopStatus.DEPARTED, 794, 724, delay = 70)
+        val result = PositionEngine.locate(PositionEngine.Request(short, snap,
+            801, t0 + 60_000L, null, null))
+        assertEquals(7f / 26f, result.position.fraction, 1e-4f)
+        assertEquals(206f + 24f * 7f / 26f, result.position.kmAlong, .01f)
+        assertEquals(820, result.position.etaNextMinute)
     }
 
     @Test

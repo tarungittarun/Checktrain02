@@ -10,6 +10,7 @@ import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import `in`.opentrack.india.R
 import `in`.opentrack.india.core.RailTime
+import `in`.opentrack.india.domain.RouteBetween
 import `in`.opentrack.india.domain.Suggestion
 import `in`.opentrack.india.domain.TitleCase
 import `in`.opentrack.india.domain.TrackModel
@@ -113,6 +114,13 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
 
     private var expandedCode: String? = null
     private var routePoints: Map<String, List<StopRow>> = emptyMap()
+    private var projectedLeg: RouteBetween.LegProjection? = null
+
+    fun setProjectedLeg(leg: RouteBetween.LegProjection?) {
+        if (projectedLeg == leg) return
+        projectedLeg = leg
+        notifyDataSetChanged()
+    }
 
     /** A group is attached to the preceding scheduled halt. No point becomes a timed halt. */
     fun setRoutePoints(groups: Map<String, List<StopRow>>) {
@@ -125,16 +133,27 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
     /** The halt the mirror's actuals say the train is at or making for - tinted, never silent. */
     var highlightCode: String? = null
 
-    /** Per-stop traveller-report sentences (ADR-006). Empty when the user has not opted in. */
+    /** Per-stop source annotations, including manual uncorroborated candidates. A source
+     * selection can leave the row objects unchanged, so explicitly rebind visible rows. */
     var reports: Map<String, String> = emptyMap()
+        set(value) {
+            if (field != value) {
+                field = value
+                notifyDataSetChanged()
+            }
+        }
 
     class Holder(view: View) : RecyclerView.ViewHolder(view) {
         val row: View = view.findViewById(R.id.stopRow)
         val intermediateGroup: LinearLayout = view.findViewById(R.id.intermediateGroup)
+        val inlineLegGroup: LinearLayout = view.findViewById(R.id.inlineLegGroup)
+        val inlineLeg: InlineLegView = view.findViewById(R.id.inlineLeg)
+        val inlineLegCaption: TextView = view.findViewById(R.id.inlineLegCaption)
         val dot: View = view.findViewById(R.id.stopDot)
         val name: TextView = view.findViewById(R.id.stopName)
         val meta: TextView = view.findViewById(R.id.stopMeta)
         val status: TextView = view.findViewById(R.id.stopStatus)
+        val report: TextView = view.findViewById(R.id.stopReport)
         val schedArr: TextView = view.findViewById(R.id.schedArr)
         val schedDep: TextView = view.findViewById(R.id.schedDep)
         val liveArr: TextView = view.findViewById(R.id.liveArr)
@@ -151,10 +170,10 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         holder.name.setTextColor(ctx.getColor(colorFor(s)))
         holder.meta.text = buildString {
             append(s.code)
-            if (s.showKm) append(" · ").append(s.kmFromOrigin).append(" km")
+            if (s.showKm) append(" · Sch ").append(s.kmFromOrigin).append(" km")
             if (s.isBoarding) append(" · ").append(ctx.getString(R.string.tag_board))
             else if (s.isAlighting) append(" · ").append(ctx.getString(R.string.tag_alight))
-            s.platform?.takeIf { it.isNotBlank() }?.let { append(" · plat ").append(it) }
+            s.platform?.takeIf { it.isNotBlank() }?.let { append(" · feed pf ").append(it) }
         }
         val verified = s.source == TrackModel.MinuteSource.REPORTED
         holder.status.text = when {
@@ -173,6 +192,8 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             s.source == TrackModel.MinuteSource.PROJECTED -> R.color.warn
             else -> R.color.text3
         }))
+        holder.report.text = reports[s.code].orEmpty()
+        holder.report.visibility = if (holder.report.text.isNullOrBlank()) View.GONE else View.VISIBLE
         // The owner's arrangement (round 45): each time column stacks SCHEDULED above ACTUAL/EXPECTED,
         // every minute prefixed so the two kinds can never be confused. A late actual burns red - and it
         // sits BELOW the schedule, which is the whole point: the eye compares them at one glance.
@@ -220,6 +241,17 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             }
         )
         val points = routePoints[s.code].orEmpty()
+        val leg = projectedLeg?.takeIf { it.fromCode.equals(s.code, true) }
+        holder.inlineLegGroup.visibility = if (leg == null) View.GONE else View.VISIBLE
+        holder.inlineLeg.projection = leg
+        if (leg != null) {
+            val caption = "~${leg.estimateKm} km along NTES route · elapsed-time projection " +
+                "from last halt; not GPS or a confirmed intermediate crossing. " +
+                "Points' map kilometres are from a separate static schedule."
+            holder.inlineLegCaption.text = caption
+            holder.inlineLeg.contentDescription = caption + " · ${leg.from} to ${leg.to} " +
+                "${(leg.fraction * 100).toInt()} percent of leg by estimated distance"
+        }
         holder.row.setOnClickListener(if (points.isEmpty()) null else View.OnClickListener {
             val previous = expandedCode
             expandedCode = if (previous == s.code) null else s.code
