@@ -257,9 +257,15 @@ class TrainActivity : AppCompatActivity() {
         binding.runDate.text = m.runDateLabel
         binding.lastUpdated.visibility = View.GONE // age is already in the badge; timestamp is in Info
         binding.lastUpdated.text = ui.lastUpdated
-        binding.sourceSummary.visibility = if (ui.activeSource ==
+        val publicCheck = ui.activeSource?.takeIf {
+            it in `in`.opentrack.india.v2.mirror.PublicPageChecks.names
+        }
+        binding.sourceSummary.visibility = if (publicCheck != null || ui.activeSource ==
             `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE) View.VISIBLE else View.GONE
-        binding.sourceSummary.text = if (ui.wimtWebPoint == null)
+        binding.sourceSummary.text = if (publicCheck != null)
+            (ui.sourceStates[publicCheck]?.second ?: "Not checked yet") +
+                "\nThe table still uses its labelled NTES/schedule data, not this page."
+        else if (ui.wimtWebPoint == null)
             "WIMT web: no recent route-checked point; row notes are not Act or phone-app GPS."
         else "WIMT web point · unverified; cache clock is not movement or phone-app GPS."
         binding.headline.text = m.headline
@@ -434,6 +440,11 @@ class TrainActivity : AppCompatActivity() {
             else append(sourceText(ui.model)).append("\n\n")
             ui.sourceStates.forEach { (name, status) ->
                 append(sourceName(name)).append(": ")
+                if (name in `in`.opentrack.india.v2.mirror.PublicPageChecks.names &&
+                    status.second != "manual check available") {
+                    append(status.second).append('\n')
+                    return@forEach
+                }
                 append(when (status.first) {
                     "live" -> "reported times available"
                     "candidate" -> if (name == `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE &&

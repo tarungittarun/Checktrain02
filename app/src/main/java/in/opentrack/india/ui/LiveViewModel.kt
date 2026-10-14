@@ -30,6 +30,7 @@ import `in`.opentrack.india.v2.mirror.ConfirmTktMirror
 import `in`.opentrack.india.v2.mirror.ConfirmTktSchedule
 import `in`.opentrack.india.v2.mirror.ErailRouteMirror
 import `in`.opentrack.india.v2.mirror.RunningStatusMirror
+import `in`.opentrack.india.v2.mirror.PublicPageChecks
 import `in`.opentrack.india.v2.mirror.WimtCandidate
 import `in`.opentrack.india.v2.source.ErailPairParser
 import `in`.opentrack.india.v2.source.ErailTransport
@@ -219,6 +220,7 @@ class LiveViewModel(
     private var wimtCandidate: WimtCandidate.Result? = null
     private var wimtCheckedAt = 0L
     private var manualProbeJob: Job? = null
+    private val publicChecks = mutableMapOf<String, PublicPageChecks.Result>()
     /** Phone-measured wall time for the selected source, not a synthetic network speed claim. */
     private val manualProbeMs = mutableMapOf<String, Long>()
 
@@ -240,7 +242,7 @@ class LiveViewModel(
             probeSource(name) // recheck; a cached candidate is not a new source answer
             return
         }
-        if (name in setOf(RunningStatusMirror.SOURCE, ConfirmTktMirror.SOURCE)) {
+        if (name in setOf(RunningStatusMirror.SOURCE, ConfirmTktMirror.SOURCE) || name in PublicPageChecks.names) {
             probeSource(name) // never mistake an earlier page for this tap's result
             return
         }
@@ -255,6 +257,24 @@ class LiveViewModel(
         Diary.get()?.log("SOURCE", "manual probe requested: $name")
         if (name == RunningStatusMirror.SOURCE || name == ConfirmTktMirror.SOURCE) {
             maybeMirror(force = true, preferred = name)
+        } else if (name in PublicPageChecks.names) {
+            // Manual checks always go to the selected public endpoint, even when NTES is healthy.
+            // Their reply is displayed, NEVER promoted into Act or the train marker.
+            val started = System.currentTimeMillis()
+            manualProbeJob = viewModelScope.launch {
+                _mirrorState.value = "Checking $name…"
+                val result = withContext(Dispatchers.IO) {
+                    PublicPageChecks.fetch(Http(app), name, trainNo, originEpochDay,
+                        System.currentTimeMillis())
+                }
+                if (_ui.value == null) return@launch
+                publicChecks[name] = result
+                manualProbeMs[name] = System.currentTimeMillis() - started
+                mirrorActiveSource = name
+                _ui.value?.let { u -> _ui.value = buildUi(u.route, lastAnswer ?: u.answer, u.tried) }
+                _mirrorState.value = result.detail
+                Diary.get()?.log("SOURCE", "$name: ${result.detail}")
+            }
         } else if (name == WimtCandidate.SOURCE) {
             val probeStarted = System.currentTimeMillis()
             manualProbeJob = viewModelScope.launch {
@@ -1264,6 +1284,11 @@ class LiveViewModel(
                 else if (liveIdentity != null) "unverified" to "identity only; no actual halt times"
                 else "none" to "no per-stop actuals"),
         )
+        for (name in PublicPageChecks.names) {
+            val result = publicChecks[name]
+            sourceNames[name] = if (result == null) "none" to "manual check available" else
+                "unverified" to result.detail
+        }
         for ((name, ms) in manualProbeMs) {
             val status = sourceNames[name] ?: continue
             sourceNames[name] = status.first to (status.second + " · checked in ${ms} ms")

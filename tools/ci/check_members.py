@@ -93,7 +93,7 @@ getOrPut getOrElse onFailure onSuccess awaitCancellable current isDisposed dispo
 # framework calls the render harness makes to paint a screen at another size: Context.createConfigurationContext,
 # DisplayMetrics.density, Layout.getLineWidth.
 # the live-feed client: javax.crypto, java.security, org.json and the stdlib calls on their results
-init doFinal indices optJSONObject opt optString has keys getJSONArray encodeToString decode nextBytes lines
+init doFinal indices optJSONObject optBoolean opt optString has keys getJSONArray encodeToString decode nextBytes lines
 setPrimaryClip
 # legacy-cipher factory (2026-10-12): SSLSocket suite lists and the delegate pattern
 enabledCipherSuites supportedCipherSuites defaultCipherSuites createSocket getOrDefault
