@@ -25,7 +25,7 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class TrackingFlowTest {
 
-    private val stopsBy = By.res(E2E.PKG, "id/stopName")
+    private val stopsBy = By.res(E2E.PKG, "stopName")
 
     @Before
     fun openTrain() {
@@ -35,20 +35,20 @@ class TrackingFlowTest {
         assertTrue(
             "12627 does not resolve in the offline timetable on this build — that is a data bug, not a test bug",
             E2E.typeInBox("trainBox", "12627") &&
-                E2E.ui.wait(Until.findObject(By.res(E2E.PKG, "id/sugPrimary")), E2E.LOCAL_MS) != null,
+                E2E.ui.wait(Until.findObject(By.res(E2E.PKG, "sugPrimary")), E2E.LOCAL_MS) != null,
         )
         E2E.tapSuggestion("trainBox", 0)
         E2E.tap("find")
         assertTrue(
             "no result row to open for a train that is in the timetable",
-            E2E.ui.wait(Until.hasObject(By.res(E2E.PKG, "id/hitGo")), E2E.NETWORK_MS),
+            E2E.ui.wait(Until.hasObject(By.res(E2E.PKG, "hitGo")), E2E.NETWORK_MS),
         )
         assertTrue("the Track button did not open the tracking screen", E2E.openTrackFromFirstResult())
         assertNotNull("no headline on the tracking screen", E2E.find("headline", E2E.NETWORK_MS))
     }
 
     private fun rowTexts(id: String): List<String> =
-        E2E.all(By.res(E2E.PKG, "id/$id")).map { it.text.orEmpty().trim() }
+        E2E.all(By.res(E2E.PKG, "$id")).map { it.text.orEmpty().trim() }
 
     // @flow track-open
     @Test

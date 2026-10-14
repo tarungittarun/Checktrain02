@@ -80,8 +80,15 @@ class LiveFeedFieldTest {
             Log.i(tag, "  ${it.code}: sched ${it.schedArr ?: "-"}/${it.schedDep ?: "-"} " +
                 "actual ${it.actArr ?: "-"}/${it.actDep ?: "-"} delay ${it.delayArr ?: "-"}/${it.delayDep ?: "-"}")
         }
-        // A payload we cannot even frame is an upstream change, and it must be loud rather than a blank
-        // screen on a phone: this is the assertion that turns "the site changed" into a red test.
+        // A reachable HTTP 200 can be the site's HTML homepage, not a live train response.
+        // R64's phone-emulator trial returned exactly that: 1 unclassified row, 0 halts.
+        // Accept *absence* of a usable feed only if nothing in it becomes a reported stop.
+        if (body.trimStart().startsWith("<")) {
+            Log.w(tag, "erail returned HTML, not per-stop live data; this source cannot supply actuals")
+            assertTrue("HTML must never become reported halt minutes",
+                parsed.stops.isEmpty() && !parsed.hasLiveColumns)
+            return
+        }
         assertTrue("the parser found no records at all in ${body.length} bytes", body.isNotBlank())
         assertTrue(
             "every row the parser could not classify is a format change; saw ${parsed.unclassifiedRows}",

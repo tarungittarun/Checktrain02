@@ -47,7 +47,9 @@ object E2E {
     fun arg(key: String, default: String = ""): String = args.getString(key) ?: default
     fun flag(key: String): Boolean = arg(key).equals("true", ignoreCase = true)
 
-    fun res(name: String): BySelector = By.res(PKG, "id/$name")
+    // By.res(package, id) adds `:id/` itself. Passing `id/fromBox` searches for
+    // `in.opentrack.india:id/id/fromBox` and made every device flow miss the entire UI.
+    fun res(name: String): BySelector = By.res(PKG, name)
     fun byText(text: String): BySelector = By.text(text)
     fun find(name: String, timeoutMs: Long = LOCAL_MS): UiObject2? =
         ui.wait(Until.findObject(res(name)), timeoutMs)
@@ -175,7 +177,7 @@ object E2E {
     }
 
     fun openTrackFromFirstResult(): Boolean {
-        val go = ui.findObjects(By.res(PKG, "id/hitGo")).firstOrNull() ?: return false
+        val go = ui.findObjects(By.res(PKG, "hitGo")).firstOrNull() ?: return false
         go.click()
         return visible("headline", NETWORK_MS) || visible("routeLabel", NETWORK_MS)
     }
@@ -223,7 +225,7 @@ object E2E {
     // like a broken test.
 
     fun boxField(box: String): UiObject2? =
-        ui.findObject(res(box))?.findObject(By.res(PKG, "id/suggestInput"))
+        ui.findObject(res(box))?.findObject(By.res(PKG, "suggestInput"))
 
     fun boxText(box: String): String = boxField(box)?.text.orEmpty().trim()
 
@@ -235,21 +237,21 @@ object E2E {
 
     /** The "Selected  SBC" chip a picked suggestion leaves behind — the resolved code, from the UI. */
     fun boxChip(box: String): String =
-        ui.findObject(res(box))?.findObject(By.res(PKG, "id/suggestChip"))?.text.orEmpty().trim()
+        ui.findObject(res(box))?.findObject(By.res(PKG, "suggestChip"))?.text.orEmpty().trim()
 
-    fun suggestionRows(): List<UiObject2> = all(By.res(PKG, "id/sugPrimary"))
+    fun suggestionRows(): List<UiObject2> = all(By.res(PKG, "sugPrimary"))
 
     /** Taps the nth suggestion row inside a box's own panel, so the two boxes cannot cross wires. */
     fun tapSuggestion(box: String, index: Int = 0): Boolean {
         val panel = ui.findObject(res(box))?.findObject(res("suggestPanel")) ?: return false
-        val rows = panel.findObjects(By.res(PKG, "id/sugPrimary"))
+        val rows = panel.findObjects(By.res(PKG, "sugPrimary"))
         val row = rows.getOrNull(index) ?: return false
         row.click()
         ui.waitForIdle()
         return true
     }
 
-    fun resultRows(): Int = all(By.res(PKG, "id/hitNo")).size
+    fun resultRows(): Int = all(By.res(PKG, "hitNo")).size
 
     /**
      * The system dialogs that mean the app died. A crash on a device often surfaces as a dialog rather
@@ -260,7 +262,7 @@ object E2E {
         val dialog = ui.findObject(By.textContains("keeps stopping"))
             ?: ui.findObject(By.textContains("won't respond"))
             ?: ui.findObject(By.textContains("isn't responding"))
-            ?: ui.findObject(By.res("android", "id/aerr_text"))
+            ?: ui.findObject(By.res("android", "aerr_text"))
         if (dialog != null) {
             shot("crash-$what")
             error("$what: the system says the app died (${dialog.text})")

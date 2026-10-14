@@ -50,6 +50,8 @@ jobs:
       # user's screen. This checker exists because reading the diff was not enough to catch it.
       - name: No patch-script escaping leaked into Kotlin strings
         run: python3 tools/ci/check_literals.py
+      - name: UiAutomator selectors must not double the resource-id prefix
+        run: python3 tools/ci/test_e2e_selectors.py
       - name: Workflow and action files parse the way Actions requires
         # The self-test runs first: a duplicate mapping key invalidates the whole file and the runner's only
         # comment is that the workflow is malformed, so this checker is what stands between a scripted edit

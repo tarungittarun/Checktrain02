@@ -31,7 +31,7 @@ class StationSearchFlowTest {
         val deadline = System.currentTimeMillis() + ms
         while (System.currentTimeMillis() < deadline) {
             val boxNode = E2E.ui.findObject(E2E.res(box))
-            if (boxNode?.findObject(By.res(E2E.PKG, "id/sugPrimary")) != null) return true
+            if (boxNode?.findObject(By.res(E2E.PKG, "sugPrimary")) != null) return true
             Thread.sleep(120)
         }
         return false
@@ -91,7 +91,7 @@ class StationSearchFlowTest {
         assertTrue("board-at never resolved", pick("fromBox", "yes"))
         assertTrue("get-off-at never resolved", pick("toBox", "ndls"))
         // Picking the second end runs the search on its own — the common case, both ends known.
-        val sawAnswer = E2E.ui.wait(Until.hasObject(By.res(E2E.PKG, "id/resultsTitle")), E2E.NETWORK_MS)
+        val sawAnswer = E2E.ui.wait(Until.hasObject(By.res(E2E.PKG, "resultsTitle")), E2E.NETWORK_MS)
         val status = E2E.text("statusLine")
         assertTrue(
             "both ends filled and the screen said nothing (answer=$sawAnswer, status='$status')",
@@ -182,14 +182,14 @@ class StationSearchFlowTest {
     @Test(timeout = 120_000) // a wedged feed must cost this test, never the whole class (600s cap)
     fun pairRowsNameTheirSource() {
         assertTrue("board-at 'yes' never resolved", E2E.typeInBox("fromBox", "yes"))
-        assertTrue("no suggestion for 'yes'", E2E.ui.wait(Until.findObject(By.res(E2E.PKG, "id/sugPrimary")), E2E.LOCAL_MS) != null)
+        assertTrue("no suggestion for 'yes'", E2E.ui.wait(Until.findObject(By.res(E2E.PKG, "sugPrimary")), E2E.LOCAL_MS) != null)
         assertTrue("could not pick 'yes'", E2E.tapSuggestion("fromBox", 0))
         assertTrue("get-off-at 'ndls' never resolved", E2E.typeInBox("toBox", "ndls"))
-        assertTrue("no suggestion for 'ndls'", E2E.ui.wait(Until.findObject(By.res(E2E.PKG, "id/sugPrimary")), E2E.LOCAL_MS) != null)
+        assertTrue("no suggestion for 'ndls'", E2E.ui.wait(Until.findObject(By.res(E2E.PKG, "sugPrimary")), E2E.LOCAL_MS) != null)
         assertTrue("could not pick 'ndls'", E2E.tapSuggestion("toBox", 0))
         assertTrue("Find never ran", E2E.tap("find"))
-        val answered = E2E.ui.wait(Until.hasObject(By.res(E2E.PKG, "id/resultsTitle")), E2E.NETWORK_MS)
-        val metas = E2E.all(By.res(E2E.PKG, "id/hitMeta")).mapNotNull { it.text }
+        val answered = E2E.ui.wait(Until.hasObject(By.res(E2E.PKG, "resultsTitle")), E2E.NETWORK_MS)
+        val metas = E2E.all(By.res(E2E.PKG, "hitMeta")).mapNotNull { it.text }
         val status = E2E.text("statusLine")
         assertTrue(
             "the pair search ended in silence (header=$answered, rows=${metas.size}, status='$status')",

@@ -27,7 +27,7 @@ class TrainSearchFlowTest {
     }
 
     private fun awaitTrainSuggestion(): Boolean =
-        E2E.ui.wait(Until.findObject(By.res(E2E.PKG, "id/sugPrimary")), E2E.LOCAL_MS) != null
+        E2E.ui.wait(Until.findObject(By.res(E2E.PKG, "sugPrimary")), E2E.LOCAL_MS) != null
 
     // @flow type-ahead-train
     @Test
@@ -51,7 +51,7 @@ class TrainSearchFlowTest {
         assertTrue(E2E.typeInBox("trainBox", "12627") && awaitTrainSuggestion())
         E2E.tapSuggestion("trainBox", 0)
         assertTrue("Find never ran", E2E.tap("find"))
-        val answered = E2E.ui.wait(Until.hasObject(By.res(E2E.PKG, "id/hitNo")), E2E.NETWORK_MS) ||
+        val answered = E2E.ui.wait(Until.hasObject(By.res(E2E.PKG, "hitNo")), E2E.NETWORK_MS) ||
             E2E.text("statusLine").isNotBlank() || E2E.resultRows() > 0
         assertTrue("a real train number produced neither a result nor a message", answered)
         E2E.shot("train-mode-results")
@@ -68,7 +68,7 @@ class TrainSearchFlowTest {
         assertTrue(E2E.typeInBox("trainBox", "12627") && awaitTrainSuggestion())
         E2E.tapSuggestion("trainBox", 0)
         E2E.tap("find")
-        val title = E2E.ui.wait(Until.hasObject(By.res(E2E.PKG, "id/resultsTitle")), E2E.NETWORK_MS)
+        val title = E2E.ui.wait(Until.hasObject(By.res(E2E.PKG, "resultsTitle")), E2E.NETWORK_MS)
         assertTrue(
             "an empty date range was met with silence (results header present=$title)",
             title || E2E.text("statusLine").isNotBlank() || E2E.resultRows() > 0,
@@ -85,7 +85,7 @@ class TrainSearchFlowTest {
         E2E.typeInBox("trainBox", "99999")
         // Below three characters the box is silent by design; at five digits either a list or a message.
         E2E.tap("find")
-        val answered = E2E.ui.wait(Until.hasObject(By.res(E2E.PKG, "id/hitNo")), E2E.LOCAL_MS) ||
+        val answered = E2E.ui.wait(Until.hasObject(By.res(E2E.PKG, "hitNo")), E2E.LOCAL_MS) ||
             E2E.text("statusLine").isNotBlank()
         assertTrue("a number that exists nowhere got no reply at all", answered)
         E2E.shot("bogus-train")
