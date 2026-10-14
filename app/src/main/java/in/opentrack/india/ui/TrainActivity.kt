@@ -171,7 +171,7 @@ class TrainActivity : AppCompatActivity() {
             result.text = selected.joinToString("\n") { stop ->
                 val arr = stop.arrivalMin?.let(RailTime::formatRailMinute) ?: "—"
                 val dep = stop.departureMin?.let(RailTime::formatRailMinute) ?: "—"
-                "${stop.code} · ${stop.name}  ${if (stop.isHalt) "halt" else "pass-through"}  " +
+                "${stop.code} · ${stop.name}  ${if (stop.isHalt) "scheduled halt" else "route point · halt unconfirmed"}  " +
                     "sch $arr / $dep"
             }
         }

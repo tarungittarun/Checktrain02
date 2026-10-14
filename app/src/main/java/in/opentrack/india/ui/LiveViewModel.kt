@@ -131,7 +131,7 @@ class LiveViewModel(
         val sourceStates: Map<String, Pair<String, String>> = emptyMap(),
         val lastUpdated: String? = null,
         val delayDetail: String? = null,
-        /** Static-only full-route codes, when RailGeo proved all dated official halts in order.
+        /** Static-only additional route codes, when RailGeo proved all dated official halts in order.
          * Never used to locate the train or generate missing times. */
         val staticRoute: TrainRoute? = null,
     )
@@ -675,7 +675,7 @@ class LiveViewModel(
             _ui.value?.let { u -> if (u.route.trainNo == trainNo) _ui.value = u.copy(staticRoute = grown) }
             Diary.get()?.log("ROUTE") {
                 "RailGeo validated ${grown.stops.size} ordered stations (${grown.stops.count { !it.isHalt }} " +
-                    "pass-through, no assumed times); official schedule ${official.stops.size} halts"
+                    "extra route points with unknown stopping status, no assumed times); official schedule ${official.stops.size} halts"
             }
         }
     }

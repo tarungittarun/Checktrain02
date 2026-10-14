@@ -7,7 +7,7 @@ import org.json.JSONObject
 
 /** A historical NTES full-route feed. Treat as untrusted until it contains EVERY independently
  * dated official scheduled halt in the same order with the same endpoints. It offers station codes,
- * not a trustworthy timetable at pass-through points. Never use it for live position. */
+ * not a trustworthy timetable or stopping classification for extra route points. Never use it for live position. */
 object RailGeoRoute {
     private val keys = listOf("STN", "STN_CODE", "stationCode", "station_code", "stnCode",
         "stn", "SC", "code", "station", "station_code_en")
