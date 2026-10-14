@@ -6,6 +6,7 @@ from estimates and the page proves the selected train/run. Prints only tiny HTML
 """
 import html
 from html.parser import HTMLParser
+import json
 import re
 import time
 import urllib.error
@@ -65,6 +66,39 @@ def probe(number, query=''):
         if m:
             snippet = re.sub(r'\s+', ' ', m.group(0))[:1200]
             print(f'  {code} tr sample: {snippet}', flush=True)
+    for m in list(re.finditer(r'"data_from"\s*:\s*"[^"]+"', raw))[:5]:
+        print(f'  provenance: {raw[max(0,m.start()-120):m.end()+100]}', flush=True)
+    data = re.search(r'<script[^>]+id="__NEXT_DATA__"[^>]*>([\s\S]*?)</script>', raw, re.I)
+    if data:
+        try:
+            doc = json.loads(data.group(1))
+            print('  NEXT_DATA root=' + str(list(doc)[:12]), flush=True)
+            hits = []
+            allow = ('data_from', 'station_code', 'actual_arrival_time', 'actual_departure_time',
+                     'actual_arrival', 'actual_departure', 'estimated_arrival_time', 'estimated_departure_time',
+                     'status', 'last_reported_station', 'current_station', 'station_name', 'sta', 'std',
+                     'eta', 'etd', 'arrival_time', 'departure_time', 'reached', 'train_start_date')
+            def walk(node, path='root', depth=0):
+                if depth > 8 or len(hits) >= 12:
+                    return
+                if isinstance(node, dict):
+                    selected = {k: str(v)[:80] for k,v in node.items()
+                                if k.lower() in allow and not isinstance(v, (dict, list))}
+                    if selected and ('data_from' in selected or 'station_code' in selected or
+                                     'actual_arrival_time' in selected or 'last_reported_station' in selected):
+                        hits.append((path, selected))
+                    for k,v in node.items():
+                        walk(v, path + '.' + k, depth + 1)
+                elif isinstance(node, list):
+                    for i, value in enumerate(node[:25]):
+                        walk(value, path + f'[{i}]', depth + 1)
+            walk(doc)
+            for path, fields in hits:
+                print(f'  structured {path}: {fields}', flush=True)
+        except (ValueError, TypeError) as exc:
+            print(f'  NEXT_DATA parse error: {exc}', flush=True)
+    else:
+        print('  NEXT_DATA not found', flush=True)
     print(f'  raw prefix={raw[:100]!r}', flush=True)
 
 
