@@ -9,6 +9,7 @@ import `in`.opentrack.india.App
 import `in`.opentrack.india.core.RailTime
 import `in`.opentrack.india.data.RailRepository
 import `in`.opentrack.india.remote.FeedProbe
+import `in`.opentrack.india.remote.RailGeoRoute
 import `in`.opentrack.india.domain.PositionEngine
 import `in`.opentrack.india.domain.Suggestion
 import `in`.opentrack.india.domain.TrackModel
@@ -130,6 +131,9 @@ class LiveViewModel(
         val sourceStates: Map<String, Pair<String, String>> = emptyMap(),
         val lastUpdated: String? = null,
         val delayDetail: String? = null,
+        /** Static-only full-route codes, when RailGeo proved all dated official halts in order.
+         * Never used to locate the train or generate missing times. */
+        val staticRoute: TrainRoute? = null,
     )
 
     private val _ui = MutableLiveData<Ui?>()
@@ -170,6 +174,8 @@ class LiveViewModel(
     private var delayDevice = 0
     private var delayDetail: String? = null
     private var mirrorCrossChecked = false
+    private var geoRoute: TrainRoute? = null
+    private var geoAttemptAt = 0L
     private var mirrorSourceStates: Map<String, Pair<String, String>> = emptyMap()
     private var lastFetchAt = 0L
     private var mirrorNote: String? = null
@@ -495,6 +501,8 @@ class LiveViewModel(
                 val saved = repo.lastOfficial(trainNo, fromCode, toCode, originEpochDay)
                 val cachedRoute = saved?.route ?: runCatching { repo.queries.route(trainNo) }.getOrNull()
                 if (cachedRoute != null) {
+                    // Reopen today's validated full static route BEFORE asking any live source.
+                    loadGeoCache(cachedRoute, repo)
                     val cached = saved?.answer ?: PositionEngine.locate(
                         PositionEngine.Request(cachedRoute, null, nowMinute(now0), now0, null),
                     )
@@ -578,7 +586,10 @@ class LiveViewModel(
             if (live.answer.position.provenance != SourceKind.PROVIDER_NTES) {
                 maybeMirror()
                 maybeRouteExtent()
-            } else _mirrorState.postValue("Official NTES answered; slow independent page probes skipped")
+            } else {
+                _mirrorState.postValue("Official NTES answered; slow independent page probes skipped")
+                maybeRailGeo(live.route)
+            }
         }
     }
 
@@ -618,6 +629,67 @@ class LiveViewModel(
                     (if (poll.relayOk) "answered" else "unreachable")
             }
         }
+    }
+
+    /** Historical RailGeo was reported to carry passing-point CODES in 2019; the CI runner cannot
+     * handshake with it today. Try once, on the phone, AFTER the fast official answer (never on the
+     * live request's critical path). An unmatched/changed schema only creates a diagnostic, not rows. */
+    private fun maybeRailGeo(official: TrainRoute) {
+        if (geoRoute != null && _ui.value?.staticRoute != null) return
+        val now = System.currentTimeMillis()
+        if (now - geoAttemptAt < 3_600_000L) return
+        geoAttemptAt = now
+        viewModelScope.launch {
+            val repo = repo() ?: return@launch
+            if (loadGeoCache(official, repo)) {
+                _ui.value?.let { _ui.value = it.copy(staticRoute = geoRoute) }
+                return@launch
+            }
+            val date = java.text.SimpleDateFormat("d MMM yyyy", java.util.Locale.ENGLISH).apply {
+                timeZone = java.util.TimeZone.getTimeZone("Asia/Kolkata")
+            }.format(java.util.Date(originEpochDay * 86_400_000L))
+            val url = "https://enquiry.indianrail.gov.in/ntes/RailGeo?action=getTrainSchedule" +
+                "&trainNo=$trainNo&trainStartDate=" + java.net.URLEncoder.encode(date, "UTF-8")
+            val response = withContext(Dispatchers.IO) {
+                Http(app).get(url, timeoutMillis = 3_500, retries = 0, budgetMillis = 3_500)
+            }
+            val body = (response as? Http.Result.Ok)?.body
+            if (body == null) {
+                Diary.get()?.log("ROUTE") { "RailGeo phone request: ${(response as Http.Result.Failed).message}" }
+                return@launch
+            }
+            val grown = withContext(Dispatchers.IO) {
+                RailGeoRoute.parse(body, official) { code -> repo.queries.station(code)?.name }
+            }
+            if (grown == null) {
+                Diary.get()?.log("ROUTE") {
+                    "RailGeo returned ${body.length}B but no validated full route for $trainNo; " +
+                        "schema prefix=${body.take(350).replace('\n', ' ')}"
+                }
+                return@launch
+            }
+            geoRoute = grown
+            app.getSharedPreferences("railgeo_routes", 0).edit()
+                .putString("$trainNo:$originEpochDay", body)
+                .putLong("$trainNo:$originEpochDay:at", System.currentTimeMillis()).apply()
+            _ui.value?.let { u -> if (u.route.trainNo == trainNo) _ui.value = u.copy(staticRoute = grown) }
+            Diary.get()?.log("ROUTE") {
+                "RailGeo validated ${grown.stops.size} ordered stations (${grown.stops.count { !it.isHalt }} " +
+                    "pass-through, no assumed times); official schedule ${official.stops.size} halts"
+            }
+        }
+    }
+
+    private fun loadGeoCache(base: TrainRoute, repo: RailRepository): Boolean {
+        val key = "$trainNo:$originEpochDay"
+        val prefs = app.getSharedPreferences("railgeo_routes", 0)
+        val savedAt = prefs.getLong("$key:at", 0L)
+        if (savedAt <= 0 || System.currentTimeMillis() - savedAt !in 0L..86_400_000L) return false
+        val body = prefs.getString(key, null) ?: return false
+        val grown = RailGeoRoute.parse(body, base) { code -> repo.queries.station(code)?.name }
+            ?: return false
+        geoRoute = grown
+        return true
     }
 
     /** One route-page attempt per 10 minutes; the answer itself is cached for a day in prefs. */
@@ -1072,6 +1144,12 @@ class LiveViewModel(
             lastUpdated = (mirrorRefreshedAt.takeIf { it > 0 } ?: lastFetchAt.takeIf { it > 0 })
                 ?.let { (if (verified != null) "Verified " else "Last checked ") + clockAt(it) },
             delayDetail = receipt?.second,
+            staticRoute = geoRoute?.takeIf { geo ->
+                geo.srcCode.equals(route.srcCode, true) && geo.dstCode.equals(route.dstCode, true) &&
+                    route.stops.map { it.code.uppercase() }.let { required ->
+                        geo.stops.map { it.code.uppercase() }.filter { it in required } == required
+                    }
+            },
         )
     }
 

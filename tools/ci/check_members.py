@@ -101,7 +101,7 @@ enabledCipherSuites supportedCipherSuites defaultCipherSuites createSocket getOr
 filterKeys
 # Android framework: static route pair selector uses two Spinner selections and Android's built-in
 # spinner layouts (not application resources). No project declaration can satisfy these names.
-selectedItemPosition simple_spinner_item simple_spinner_dropdown_item
+selectedItemPosition simple_spinner_item simple_spinner_dropdown_item getLong
 ifBlank maxByOrNull
 # pointing the screen at the train (2026-10-12): RecyclerView/LayoutManager positioning
 scrollToPositionWithOffset findViewByPosition smoothScrollTo

@@ -134,7 +134,7 @@ class TrainActivity : AppCompatActivity() {
     /** Route-only query: it never reads the live anchor, boarding span or estimated position.
      * Never imply that the current halt-only timetable is a complete track map. */
     private fun showStaticRouteBetween() {
-        val route = lastUi?.route ?: return
+        val route = lastUi?.staticRoute ?: lastUi?.route ?: return
         val stops = route.stops
         if (stops.size < 2) return
         val pad = (16 * resources.displayMetrics.density).toInt()

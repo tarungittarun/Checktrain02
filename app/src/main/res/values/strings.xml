@@ -62,7 +62,7 @@
     <string name="between_stations">Known stations between any two stops</string>
     <string name="between_title">Static route · choose any pair</string>
     <string name="between_limit">Scheduled halts available now. Pass-through stations are not verified for this train; this is not a complete track map. Times below are schedule only, never actuals.</string>
-    <string name="between_complete">Halt and pass-through stations available. Times below are schedule only; a dash means no published schedule for that point.</string>
+    <string name="between_complete">RailGeo supplied additional ordered pass-through codes, checked against the official halts. Completeness is not guaranteed. Times below are schedule only; a dash means no published time for that point.</string>
     <string name="between_from">First station</string>
     <string name="between_to">Second station</string>
     <string name="show_full_route">Show full route</string>
