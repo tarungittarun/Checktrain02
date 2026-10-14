@@ -263,8 +263,8 @@ class TrainActivity : AppCompatActivity() {
         binding.sourceSummary.visibility = if (publicCheck != null || ui.activeSource ==
             `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE) View.VISIBLE else View.GONE
         binding.sourceSummary.text = if (publicCheck != null)
-            (ui.sourceStates[publicCheck]?.second ?: "Not checked yet") +
-                "\nThe table still uses its labelled NTES/schedule data, not this page."
+            (ui.sourceStates[publicCheck]?.second ?: "Not checked yet").take(290) +
+                "\nThis source is shown separately; Sch is static, page excerpts are not Act. Info has details."
         else if (ui.wimtWebPoint == null)
             "WIMT web: no recent route-checked point; row notes are not Act or phone-app GPS."
         else "WIMT web point · unverified; cache clock is not movement or phone-app GPS."
@@ -371,6 +371,28 @@ class TrainActivity : AppCompatActivity() {
                     ((halt.arrivalMin ?: halt.departureMin)?.let(RailTime::formatRailMinute) ?: "—") +
                     " · arrival not confirmed"
             } ?: "Next halt not mapped; no live ETA"
+        }
+        if (publicCheck != null) {
+            val claim = ui.railYatriClaim
+            val station = claim?.let { c -> ui.route.stops.firstOrNull { it.code.equals(c.code, true) } }
+            binding.headline.text = if (claim != null && station != null)
+                "RailYatri reports ${claim.status} ${station.name} · passage time unknown"
+            else "${sourceName(publicCheck)}: no dated position for this run"
+            binding.provenance.text = if (claim != null)
+                "RAILYATRI · station claim only" else "${sourceName(publicCheck)} · comparison only"
+            binding.provenance.setBackgroundResource(R.drawable.bg_badge_schedule)
+            binding.provenance.setTextColor(getColor(R.color.warn))
+            binding.age.text = if (claim != null)
+                "provider updated ${RailTime.formatClock(claim.updateAt)} IST · upstream ${claim.upstream} · not an event time"
+            else "No validated passage time from selected source"
+            binding.delay.text = "— · no verified delay from ${sourceName(publicCheck)}"
+            binding.delay.setTextColor(getColor(R.color.warn))
+            binding.next.text = if (claim != null && station != null) {
+                val next = ui.route.stops.getOrNull(ui.route.stops.indexOf(station) + 1)
+                next?.let { "Next scheduled: ${it.name} · " +
+                    ((it.arrivalMin ?: it.departureMin)?.let(RailTime::formatRailMinute) ?: "—") +
+                    " · not a live ETA" } ?: "No next scheduled halt"
+            } else "No source-confirmed next stop · timetable below"
         }
         binding.note.visibility = if (m.note == null) View.GONE else View.VISIBLE
         m.note?.let { binding.note.text = it }

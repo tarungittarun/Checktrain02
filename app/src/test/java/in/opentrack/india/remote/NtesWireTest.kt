@@ -156,6 +156,24 @@ class NtesWireTest {
     }
 
     @Test
+    fun `future timetable rows cannot turn an arrival-only anchor into a departure`() {
+        val body = """{"S":[
+          {"STN":"MYS","DEP":"19.40","ATD":"19.40"},
+          {"STN":"SMET","ARR":"05.00+1","ATA":"04.53+1","DEP":"05.05+1","ATD":""},
+          {"STN":"KMSI","ARR":"05.29+1","DEP":"05.30+1"},
+          {"STN":"TLGP","ARR":"07.50+1"}]}"""
+        val arrived = NtesAdapter.toSnapshot(NtesWire.parse(body)!!, "16227", 20740L)!!
+        assertEquals("SMET", arrived.atCode)
+        assertEquals(StopStatus.ARRIVED, arrived.event)
+        assertNull(arrived.perStop["SMET"]!!.actualDepartureMin)
+        // A separate feed departure flag may be meaningful, but supplies NO Act minute.
+        val flagged = body.replace("\"ATD\":\"\"", "\"ATD\":\"\",\"DEPARTED\":true")
+        val departed = NtesAdapter.toSnapshot(NtesWire.parse(flagged)!!, "16227", 20740L)!!
+        assertEquals(StopStatus.DEPARTED, departed.event)
+        assertNull(departed.perStop["SMET"]!!.actualDepartureMin)
+    }
+
+    @Test
     fun `a timetable-only answer is not live`() {
         val p = checkNotNull(
             NtesWire.parse(

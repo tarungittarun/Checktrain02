@@ -217,8 +217,10 @@ class TrackingFlowTest {
         assertTrue("source returned no result: '$summary'",
             summary.contains("ixigo:") || summary.contains("Request failed:"))
         assertTrue("page result silently replaced official Act/position: '$summary'",
-            summary.contains("The table still uses its labelled NTES/schedule data, not this page."))
+            summary.contains("Sch is static, page excerpts are not Act."))
         assertTrue("selected alternate removed the station table", E2E.count(stopsBy) > 0)
+        assertTrue("page selection must not display NTES minutes as this page's Act",
+            rowTexts("liveArr").all { it == "—" })
         E2E.shot("public-source-check")
     }
 

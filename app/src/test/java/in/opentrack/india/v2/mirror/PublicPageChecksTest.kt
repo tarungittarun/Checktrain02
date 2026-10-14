@@ -25,7 +25,8 @@ class PublicPageChecksTest {
         assertTrue(r.detail.contains("origin 2026-10-14"))
         assertTrue(r.detail.contains("upstream ntes"))
         assertTrue(r.detail.contains("TKE departed"))
-        assertTrue(r.detail.contains("same run; station claim only"))
+        assertTrue(r.detail.contains("route not verified against selected timetable"))
+        assertEquals(null, r.stationClaim)
         assertTrue(r.detail.contains("not observed Act"))
         assertFalse(r.detail.contains("BDVT 04:40"))
     }
@@ -98,6 +99,48 @@ class PublicPageChecksTest {
         }
         assertFalse("unsupported run must not silently query today", requested)
         assertFalse(outside.pageAnswered)
+    }
+
+    @Test fun `fresh matched RailYatri tmt claim is displayed without inventing Act or GPS`() {
+        val tmt = relay.replace("\"data_from\":\"ntes\"", "\"data_from\":\"tmt\"")
+            .replace("\"current_station_code\":\"TKE\"", "\"current_station_code\":\"SMET\"")
+            .replace("\"data_from\":\"tmt\"", "\"source\":\"MYS\",\"destination\":\"TLGP\",\"data_from\":\"tmt\"")
+        val codes = setOf("MYS", "SMET", "KMSI", "TLGP")
+        val result = PublicPageChecks.parse(PublicPageChecks.RAIL_YATRI, tmt,
+            "16227", day, now, "MYS", "TLGP", codes)
+        assertEquals("SMET", result.stationClaim?.code)
+        assertEquals("departed", result.stationClaim?.status)
+        assertEquals("tmt", result.stationClaim?.upstream)
+        assertTrue(result.detail.contains("NOT a station event time"))
+        assertTrue(result.lines.isEmpty()) // ETA/ETD are not Act
+        assertEquals(null, PublicPageChecks.parse(PublicPageChecks.RAIL_YATRI, tmt,
+            "16227", day, now, "MYS", "TLGP", setOf("YPR")).stationClaim)
+        assertEquals(null, PublicPageChecks.parse(PublicPageChecks.RAIL_YATRI, tmt,
+            "16227", day, now, "YPR", "TLGP", codes).stationClaim)
+        assertEquals(null, PublicPageChecks.parse(PublicPageChecks.RAIL_YATRI, tmt,
+            "16227", day - 1, now, "MYS", "TLGP", codes).stationClaim)
+        assertEquals(null, PublicPageChecks.parse(PublicPageChecks.RAIL_YATRI,
+            tmt.replace("04:17:00", "04:09:00"), "16227", day, now, "MYS", "TLGP", codes).stationClaim)
+        val cached = PublicPageChecks.fetch(PublicPageChecks.RAIL_YATRI,
+            "16227", day, now, "MYS", "TLGP", codes) {
+            Http.Result.Ok(tmt, fromCache = true, ageMillis = 15 * 60_000L)
+        }
+        assertEquals(null, cached.stationClaim)
+    }
+
+    @Test fun `undated org page shows its actual printed rows only as comparison`() {
+        val page = """<h1>16227</h1><p>Last Updated: 05:08:34 AM</p>
+          <div>Journey Timeline</div>
+          <div>Birur Jn (RRB) • PF 2 ARRIVAL 03:37 AM 02:53 AM DEPARTURE 03:43 AM 02:55 AM</div>
+          <div>Tarikere (TKE) • PF 1 ARRIVAL 04:02 AM 03:43 AM DEPARTURE 04:05 AM 03:45 AM</div>
+          <div>Bhadravati (BDVT) ARRIVAL 04:20 AM 04:28 AM</div>"""
+        val result = PublicPageChecks.parse(PublicPageChecks.ORG, page,
+            "16227", day, now, knownCodes = setOf("RRB", "TKE", "BDVT"))
+        assertTrue(result.detail.contains("no event-level dated observation"))
+        assertEquals(null, result.stationClaim)
+        assertEquals(3, result.lines.size)
+        assertTrue(result.lines["RRB"]!!.contains("03:37"))
+        assertTrue(result.lines["BDVT"]!!.contains("NOT dated Act"))
     }
 
     @Test fun `relay URL asks for origin-day offset rather than default today`() {

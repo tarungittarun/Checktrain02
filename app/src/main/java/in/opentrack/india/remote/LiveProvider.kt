@@ -386,9 +386,12 @@ object NtesAdapter {
                     else -> null
                 },
             )
-            anchorEvent = when {
-                s.cancelled && anchorIdx == i -> StopStatus.CANCELLED_HERE
-                arrived && !departed && anchorIdx == i -> StopStatus.ARRIVED
+            // Future timetable rows must not overwrite the last *reported* event. On the
+            // owner's 16227 response SMET had an arrival but no departure minute: the old
+            // unconditional else silently changed ARRIVED into DEPARTED at the next row.
+            if (anchorIdx == i && (departed || arrived || s.cancelled)) anchorEvent = when {
+                s.cancelled -> StopStatus.CANCELLED_HERE
+                arrived && !departed -> StopStatus.ARRIVED
                 else -> StopStatus.DEPARTED
             }
         }

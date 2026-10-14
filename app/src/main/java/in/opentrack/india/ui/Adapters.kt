@@ -182,8 +182,14 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             s.platform?.takeIf { it.isNotBlank() }?.let { append(" · feed pf ").append(it) }
         }
         val verified = s.source == TrackModel.MinuteSource.REPORTED
+        val stationClaim = reports[s.code]?.startsWith("RailYatri root claims") == true
         holder.status.text = when {
+            stationClaim -> "RAILYATRI STATION CLAIM · passage time unknown"
             verified && s.showDep != null -> "LEFT · departure reported"
+            // A separate provider departed flag may be present without an ATD minute.
+            // Do not contradict the headline, and NEVER fill Act with scheduled departure.
+            verified && s.isAnchor && s.state == TrackModel.State.PASSED ->
+                "LEFT · departure flagged; minute not supplied"
             verified && s.showArr != null -> "ARRIVED · departure not reported"
             s.state == TrackModel.State.PASSED -> "TIMETABLE PAST · actual unknown"
             s.state == TrackModel.State.HERE -> "TIMETABLE AT STOP · train unconfirmed"
@@ -194,6 +200,7 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             else -> "SCHEDULED · not reported"
         }
         holder.status.setTextColor(ctx.getColor(when {
+            stationClaim -> R.color.warn
             verified -> R.color.live
             s.source == TrackModel.MinuteSource.PROJECTED -> R.color.warn
             else -> R.color.text3
@@ -240,7 +247,7 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             when {
                 s.state == TrackModel.State.HERE && verified && s.showArr != null && s.showDep == null ->
                     0x30FFC107.toInt()
-                s.code.equals(highlightCode, true) -> 0x30FFC107.toInt() // amber: where the train IS
+                s.code.equals(highlightCode, true) -> 0x30FFC107.toInt() // amber: last reported halt or an explicitly unverified source claim
                 s.isAnchor -> 0x2437C978.toInt()
                 s.isBoarding || s.isAlighting -> 0x0AFFFFFF
                 else -> 0x00000000
