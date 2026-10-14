@@ -172,8 +172,13 @@ class StationSearchFlowTest {
         E2E.tapSuggestion("fromBox", 0)
         assertTrue(E2E.typeInBox("toBox", "ndls") && awaitAnySuggestion("toBox"))
         E2E.tapSuggestion("toBox", 0)
+        // A result intentionally collapses the search form. Open Edit first: testing a
+        // hidden swap control is not testing whether the resolved station codes swap.
+        if (E2E.visible("editSearch", 500)) assertTrue(E2E.tap("editSearch"))
         val before = E2E.boxText("fromBox") to E2E.boxText("toBox")
-        assertTrue("no swap control", E2E.tap("swap"))
+        assertTrue("resolved stations vanished before swap: $before",
+            before.first.isNotBlank() && before.second.isNotBlank())
+        assertTrue("no swap control in the expanded search form", E2E.tap("swap"))
         val after = E2E.boxText("fromBox") to E2E.boxText("toBox")
         assertEquals("swap did not exchange the fields", before.second, after.first)
         assertEquals("swap did not exchange the fields", before.first, after.second)

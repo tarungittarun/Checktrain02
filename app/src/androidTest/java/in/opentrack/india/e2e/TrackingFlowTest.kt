@@ -157,13 +157,15 @@ class TrackingFlowTest {
         val table = E2E.find("stops")
         assertNotNull("the primary station table is absent", table)
         val bounds = table!!.visibleBounds
-        val screen = E2E.ui.findObjects(By.pkg(E2E.PKG)).firstOrNull()?.visibleBounds
+        // By.pkg returns descendants in accessibility order: firstOrNull can be the Back
+        // button (231x105), not the window. Compare against the actual device viewport.
+        val width = E2E.ui.displayWidth
+        val height = E2E.ui.displayHeight
         assertTrue("the station table has no usable size ($bounds)",
             bounds.width() > 100 && bounds.height() > 80)
-        if (screen != null) {
-            assertTrue("the station table overflows the screen: $bounds in $screen",
-                bounds.right <= screen.right + 1 && bounds.left >= screen.left - 1)
-        }
+        assertTrue("the station table overflows ${width}x$height: $bounds",
+            bounds.left >= 0 && bounds.right <= width &&
+                bounds.top >= 0 && bounds.bottom <= height)
         assertTrue("the table has no named station", E2E.count(stopsBy) > 0)
         E2E.shot("table-at-${E2E.widthDp()}dp")
     }

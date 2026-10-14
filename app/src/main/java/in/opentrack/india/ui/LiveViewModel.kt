@@ -138,6 +138,8 @@ class LiveViewModel(
         /** Static-only ordered route points, never used to locate the train or generate actuals. */
         val staticRoute: TrainRoute? = null,
         val staticRouteSource: String? = null,
+        /** WIMT's *web-cache* point, only after run/event/route gates; not phone-app GPS. */
+        val wimtWebPoint: WimtCandidate.WebPoint? = null,
     )
 
     private val _ui = MutableLiveData<Ui?>()
@@ -261,14 +263,17 @@ class LiveViewModel(
                 val route = u.staticRoute ?: u.route
                 val result = withContext(Dispatchers.IO) {
                     WimtCandidate.fetch(trainNo, originEpochDay, route.srcCode.uppercase(),
-                        route.dstCode.uppercase(), route.stops.map { it.code.uppercase() }.toSet())
+                        route.dstCode.uppercase(), route.stops.map { it.code.uppercase() }.toSet(),
+                        knownKms = u.route.stops.filter { it.isHalt && it.schedKm >= 0 }
+                            .associate { it.code.uppercase() to it.schedKm })
                 }
                 wimtCandidate = result
                 wimtCheckedAt = System.currentTimeMillis()
                 manualProbeMs[name] = wimtCheckedAt - probeStarted
-                // Only the annotations switch; never overwrite official Act cells or live position.
-                if (result.lines.isNotEmpty()) mirrorActiveSource = name
-                _mirrorState.postValue("$name: ${result.detail}; Act column stays with primary feed/timetable")
+                // Always show the chosen probe's own result. A failed point does not erase
+                // official actuals; a valid web point gets its own schedule-only table.
+                mirrorActiveSource = name
+                _mirrorState.postValue("$name: ${result.detail}")
                 val latest = _ui.value ?: u
                 _ui.value = buildUi(latest.route, lastAnswer ?: latest.answer, latest.tried)
                     .copy(relayOk = latest.relayOk)
@@ -1165,12 +1170,31 @@ class LiveViewModel(
         val selectedMirrorForTable = freshShift() && mirrorActiveSource in
             setOf(RunningStatusMirror.SOURCE, ConfirmTktMirror.SOURCE, "last known") &&
             mirrorStops[mirrorActiveSource].orEmpty().isNotEmpty()
-        val tablePos = if (selectedMirrorForTable) pos.copy(
-            provenance = SourceKind.OFFLINE_SCHEDULE, anchorSeq = 0, nextSeq = 0,
-            fraction = 0f, delayMinutes = null, etaNextMinute = null) else pos
+        val webPoint = wimtCandidate?.webPoint?.takeIf { p ->
+            mirrorActiveSource == WimtCandidate.SOURCE &&
+                now - p.eventAtMillis in 0L..600_000L &&
+                now - p.cacheAtMillis in 0L..120_000L &&
+                route.stops.indexOfFirst { it.code.equals(p.followingHalt, true) } ==
+                    route.stops.indexOfFirst { it.code.equals(p.precedingHalt, true) } + 1 &&
+                route.stops.any { it.code.equals(p.precedingHalt, true) }
+        }
+        val webAnchor = webPoint?.let { p -> route.stops.firstOrNull {
+            it.code.equals(p.precedingHalt, true) } }
+        val tablePos = when {
+            webPoint != null && webAnchor != null -> pos.copy(
+                provenance = SourceKind.PROVIDER_OVERRIDE, anchorSeq = webAnchor.seq,
+                nextSeq = route.stops.first { it.code.equals(webPoint.followingHalt, true) }.seq,
+                fraction = 0f, kmAlong = webAnchor.schedKm.toFloat(),
+                status = `in`.opentrack.india.model.StopStatus.DEPARTED,
+                delayMinutes = null, etaNextMinute = null)
+            selectedMirrorForTable -> pos.copy(
+                provenance = SourceKind.OFFLINE_SCHEDULE, anchorSeq = 0, nextSeq = 0,
+                fraction = 0f, delayMinutes = null, etaNextMinute = null)
+            else -> pos
+        }
         val model = TrackModel.build(
             route = route, pos = tablePos,
-            perStop = if (selectedMirrorForTable) emptyMap() else answer.perStop,
+            perStop = if (selectedMirrorForTable || webPoint != null) emptyMap() else answer.perStop,
             nowRailMinute = nowRail,
             boardSeq = route.stops.firstOrNull { it.code.equals(fromCode, true) }?.seq
                 ?: route.stops.firstOrNull()?.seq ?: 1,
@@ -1182,8 +1206,9 @@ class LiveViewModel(
             // on — no network, a timeout, a refusal, or the case this endpoint really is: it answered about
             // the train and published no arrival or departure minute at all. "No live report reached this
             // device" is the last resort, for when no source had anything more specific to say.
-            note = positionNote
-                ?: notes.firstOrNull { it.isNotBlank() } ?: answer.note
+            note = (if (webPoint != null) "Web-cache point, not the WIMT phone app; " +
+                "its passage minute may be inferred. Other stations are timetable only." else null)
+                ?: positionNote ?: notes.firstOrNull { it.isNotBlank() } ?: answer.note
                 ?: if (pos.provenance.live) null
                 else "No live report reached this device — every minute below is the timetable, " +
                     "not the train.",
@@ -1229,8 +1254,8 @@ class LiveViewModel(
             ConfirmTktMirror.SOURCE to (mirrorSourceStates[ConfirmTktMirror.SOURCE]
                 ?: ("none" to "not answered yet")),
             WimtCandidate.SOURCE to (wimtCandidate?.let {
-                (if (it.lines.isNotEmpty()) "candidate" else "unverified") to
-                    "${it.detail}; annotations only"
+                (if (webPoint != null) "candidate" else "unverified") to
+                    "${it.detail}; web point is not phone-app GPS or a verified stop Act"
             } ?: ("none" to "manual check available; not a verified source")),
             "erail" to (if (manualErail != null) "live" to (manualErailDetail ?: "verified manual result")
                 else if (manualErailDetail != null) "unverified" to manualErailDetail!!
@@ -1270,15 +1295,17 @@ class LiveViewModel(
             else candidate
         }
         return Ui(
-            route = route, answer = if (selectedMirrorForTable) answer.copy(position = tablePos,
-                perStop = emptyMap()) else answer, model = withActuals,
+            route = route, answer = if (selectedMirrorForTable || webPoint != null)
+                answer.copy(position = tablePos, perStop = emptyMap()) else answer,
+            model = withActuals,
             boarding = withActuals.rows.firstOrNull { it.isBoarding },
             alighting = withActuals.rows.firstOrNull { it.isAlighting },
             nowRailMinute = nowRail, tried = tried, loading = false,
             reports = if (mirrorActiveSource == WimtCandidate.SOURCE) wimtCandidate?.lines.orEmpty()
                 else mirrorSourceLines[mirrorActiveSource] ?: _ui.value?.reports ?: emptyMap(),
             relayOk = _ui.value?.relayOk ?: true,
-            anchorCode = if (verified != null) lastReported?.code else null,
+            anchorCode = if (webPoint != null) webPoint.precedingHalt
+                else if (verified != null) lastReported?.code else null,
             actualsHeadline = verified?.first?.let { if (selected == "last known")
                 "Last known at ${clockAt(mirrorRefreshedAt)} · $it" else it },
             actualsNext = if (verified != null) nextStatement else null,
@@ -1299,6 +1326,7 @@ class LiveViewModel(
                 confirmStaticRoute -> if (staticCandidate == null) null else "ConfirmTkt"
                 else -> null
             },
+            wimtWebPoint = webPoint,
         )
     }
 

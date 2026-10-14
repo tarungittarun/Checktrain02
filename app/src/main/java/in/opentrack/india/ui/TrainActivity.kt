@@ -248,7 +248,9 @@ class TrainActivity : AppCompatActivity() {
         binding.lastUpdated.text = ui.lastUpdated
         binding.sourceSummary.visibility = if (ui.activeSource ==
             `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE) View.VISIBLE else View.GONE
-        binding.sourceSummary.text = "WIMT web notes are unverified; they do not set Act or position."
+        binding.sourceSummary.text = if (ui.wimtWebPoint == null)
+            "WIMT web: no recent route-checked point; row notes are not Act or phone-app GPS."
+        else "WIMT web point only · not the WIMT phone app or GPS; passage time uncorroborated."
         binding.headline.text = m.headline
         // NTES publishes last-reported halt events, not a measured moving coordinate.
         // No time-interpolated icon belongs in an actual-position-only view.
@@ -326,10 +328,37 @@ class TrainActivity : AppCompatActivity() {
             binding.delay.setTextColor(getColor(if (late > 2) R.color.late else R.color.live))
         }
         if (ui.actualsHeadline != null) ui.sourcesLine?.let { binding.age.text = it }
+        ui.wimtWebPoint?.let { point ->
+            val pointName = ui.staticRoute?.stops?.firstOrNull {
+                it.code.equals(point.code, true) }?.name ?: point.code
+            val nextHalt = ui.route.stops.firstOrNull {
+                it.code.equals(point.followingHalt, true) }
+            // This is a separately dated *web-cache claim*, not a GPS coordinate or
+            // a future arrival. The old official Act cells are deliberately not shown
+            // while this source is selected (buildUi constructs a static-only table).
+            binding.headline.text = "WIMT web reports near $pointName · ${point.routeKm.toInt()} route km"
+            binding.provenance.text = "WIMT WEB · position candidate"
+            binding.provenance.setBackgroundResource(R.drawable.bg_badge_schedule)
+            binding.provenance.setTextColor(getColor(R.color.warn))
+            binding.age.text = "point time ${RailTime.formatClock(point.eventAtMillis)} IST · " +
+                "cache checked ${RailTime.formatClock(point.cacheAtMillis)}"
+            binding.delay.text = "— · not verified"
+            binding.delay.setTextColor(getColor(R.color.warn))
+            binding.next.text = nextHalt?.let { halt ->
+                "Next scheduled: ${halt.name} · " +
+                    ((halt.arrivalMin ?: halt.departureMin)?.let(RailTime::formatRailMinute) ?: "—") +
+                    " · arrival not confirmed"
+            } ?: "Next halt not mapped; no live ETA"
+        }
         binding.note.visibility = if (m.note == null) View.GONE else View.VISIBLE
         m.note?.let { binding.note.text = it }
 
-        stopAdapter.reports = ui.sourceLines[ui.activeSource] ?: ui.reports
+        val sourceReports = ui.sourceLines[ui.activeSource] ?: ui.reports
+        stopAdapter.reports = ui.wimtWebPoint?.let { p ->
+            sourceReports + (p.precedingHalt to
+                "WIMT web cache claims ${p.code} at ${p.routeKm.toInt()} km " +
+                    "(${RailTime.formatClock(p.eventAtMillis)} IST); unverified point after this halt, not Act/GPS")
+        } ?: sourceReports
         stopAdapter.setRoutePoints(RouteBetween.groupedPoints(ui.staticRoute, ui.route))
         stopAdapter.setProjectedLeg(leg)
         renderSourceChips(ui)
@@ -380,12 +409,19 @@ class TrainActivity : AppCompatActivity() {
     /** One useful line per source; full machine diagnostics remain on badge long-press. */
     private fun bindSource(ui: LiveViewModel.Ui) {
         sourceDetails = buildString {
+            ui.wimtWebPoint?.let { p ->
+                append("WIMT web cache candidate: ${p.code} at ${p.routeKm} route km, " +
+                    "point time ${RailTime.formatClock(p.eventAtMillis)} IST. " +
+                    "Not WIMT phone-app GPS, not independently verified Act.\n\n")
+            }
             append(sourceText(ui.model)).append("\n\n")
             ui.sourceStates.forEach { (name, status) ->
                 append(sourceName(name)).append(": ")
                 append(when (status.first) {
                     "live" -> "reported times available"
-                    "candidate" -> "web-cache notes only; not verified actuals"
+                    "candidate" -> if (name == `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE &&
+                        ui.wimtWebPoint != null) "recent unverified web point; stop times are static"
+                        else "web-cache notes only; not verified actuals"
                     "none", "unverified" -> {
                         val rows = Regex("(\\d+) (?:page )?rows").find(status.second)?.groupValues?.get(1)
                         if (rows != null) "$rows page rows, no verified times" else
@@ -455,6 +491,9 @@ class TrainActivity : AppCompatActivity() {
                     " · log " + (if (diary?.enabled == true) "on" else "off") + "\n",
             )
             append("train ${m.trainNo} · ${m.runDateLabel} · seen ${RailTime.formatClock(System.currentTimeMillis())} IST\n")
+            u.wimtWebPoint?.let { p -> append("WIMT WEB CACHE CANDIDATE " +
+                "${p.code} ${p.routeKm}km event ${RailTime.formatClock(p.eventAtMillis)} " +
+                "cache ${RailTime.formatClock(p.cacheAtMillis)} IST; not phone-app GPS or verified Act\n") }
             // Filtered rather than concatenated: an empty feed-stamp used to leave "· " hanging at the end of
             // the line, which is the sort of detail that makes a diagnostic look unfinished in a screenshot.
             append(listOf(

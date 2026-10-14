@@ -46,6 +46,44 @@ class WimtCandidateTest {
             .lines.isEmpty())
     }
 
+    @Test fun `web point requires its own recent event and independent route brackets`() {
+        val event = 1792014679L // 15 Oct, 03:21 IST: BLKR's own arrival field
+        val at = event * 1000 + 120_000L
+        val sample = """{
+          "start_date":"14-10-2026","source_station":"MYS","destination_station":"TLGP",
+          "lastUpdateIsoDate":"2026-10-15T03:22:00.000000+05:30",
+          "curStn":"BLKR","distance":338.285,
+          "days_schedule":[
+            {"station_code":"ASK","distance":302.9,"departed":true},
+            {"station_code":"BLKR","curStn":true,"stops":false,
+             "actual_arrival_tm":1792014679,"actual_departure_tm":1792014709},
+            {"station_code":"RRB","source":"eta","distance":348.8}
+          ]
+        }""".trimIndent()
+        val kms = linkedMapOf("ASK" to 304, "RRB" to 349)
+        val point = WimtCandidate.parse(sample, day, "MYS", "TLGP", at,
+            knownKms = kms).webPoint!!
+        assertEquals("BLKR", point.code)
+        assertEquals("ASK", point.precedingHalt)
+        assertEquals("RRB", point.followingHalt)
+        assertEquals(event * 1000, point.eventAtMillis)
+        assertTrue("contradictory departure-before-arrival cannot locate a train",
+            WimtCandidate.parse(sample.replace("1792014709", "1792011780"),
+                day, "MYS", "TLGP", at, knownKms = kms).webPoint == null)
+        assertTrue("a cache timestamp cannot revive an old event",
+            WimtCandidate.parse(sample.replace("03:22:00", "03:33:00"),
+                day, "MYS", "TLGP", at + 10 * 60_000, knownKms = kms).webPoint == null)
+        assertTrue(WimtCandidate.parse(sample.replace("\"distance\":338.285", "\"distance\":400.0"),
+            day, "MYS", "TLGP", at, knownKms = kms).webPoint == null)
+        assertTrue(WimtCandidate.parse(sample.replace("\"curStn\":true", "\"curStn\":false"),
+            day, "MYS", "TLGP", at, knownKms = kms).webPoint == null)
+        assertTrue(WimtCandidate.parse(sample.replace("\"stops\":false", "\"source\":\"eta\""),
+            day, "MYS", "TLGP", at, knownKms = kms).webPoint == null)
+        assertTrue(WimtCandidate.parse(sample, day, "MYS", "TLGP", at).webPoint == null)
+        assertTrue(WimtCandidate.parse(sample, day - 1, "MYS", "TLGP", at,
+            knownKms = kms).webPoint == null)
+    }
+
     @Test fun `manual fetch is exactly one GET and transports its run date`() {
         var calls = 0
         val r = WimtCandidate.fetch("20689", day, "YPR", "SMET", setOf("YPR"), now) { url ->

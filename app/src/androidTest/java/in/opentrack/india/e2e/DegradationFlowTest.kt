@@ -32,7 +32,11 @@ class DegradationFlowTest {
             E2E.ui.wait(Until.findObject(E2E.res("sugPrimary")), E2E.LOCAL_MS) != null
         assertTrue("no suggestion at three letters offline: ${E2E.debugSearch("fromBox")}", offered)
         E2E.tapSuggestion("fromBox", 0)
+        // An offline station result can finish just as this test switches modes and
+        // compact the form. Edit search explicitly pins it open for the train query.
+        if (E2E.visible("editSearch", 2_000)) E2E.tap("editSearch")
         val switched = E2E.tap("modeTrain")
+        if (E2E.visible("editSearch", 500)) E2E.tap("editSearch")
         val typed = switched && E2E.typeInBox("trainBox", "12627")
         val trainOffered = typed &&
             E2E.ui.wait(Until.findObject(E2E.res("sugPrimary")), E2E.LOCAL_MS) != null

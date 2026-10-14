@@ -11,8 +11,9 @@ import java.util.Locale
 import java.util.TimeZone
 
 /**
- * Manual, read-only look at an UNDOCUMENTED Where is My Train response. These are candidate
- * historical reports, not certified actuals and never position/ETA inputs. In the captured
+ * Manual, read-only look at an UNDOCUMENTED Where is My Train web-cache response. These are
+ * unverified historical notes. A strictly dated web point may be shown as a separate,
+ * explicitly uncorroborated *candidate*, never as certified Act, phone-app GPS or an ETA. In the captured
  * 20689 response even future rows had fields named actual_* with source=eta; a departed row's
  * updated_at could precede its claimed departure. Both must be excluded separately.
  *
@@ -20,11 +21,19 @@ import java.util.TimeZone
  */
 object WimtCandidate {
     const val SOURCE = "WIMT web cache (candidate)"
-    data class Result(val lines: Map<String, String>, val detail: String)
+    /** Only a claimed web-cache location. The field is not a GPS/cell measurement and its root
+     * timestamp is a cache timestamp, NOT the time the train passed this point. */
+    data class WebPoint(
+        val code: String, val routeKm: Double, val eventAtMillis: Long,
+        val cacheAtMillis: Long, val precedingHalt: String, val followingHalt: String,
+    )
+    data class Result(val lines: Map<String, String>, val detail: String,
+                      val webPoint: WebPoint? = null)
 
     fun fetch(
         number: String, epochDay: Long, from: String, to: String,
         knownCodes: Set<String>, nowMillis: Long = System.currentTimeMillis(),
+        knownKms: Map<String, Int> = emptyMap(),
         get: (String) -> Pair<String?, String> = ::getOnce,
     ): Result {
         if (!number.matches(Regex("\\d{4,5}")) ||
@@ -40,11 +49,11 @@ object WimtCandidate {
             "${it.key}=${URLEncoder.encode(it.value, "UTF-8")}" }
         val (body, why) = get(url)
         if (body == null) return Result(emptyMap(), "no response ($why)")
-        return parse(body, epochDay, from, to, nowMillis, knownCodes)
+        return parse(body, epochDay, from, to, nowMillis, knownCodes, knownKms)
     }
 
     fun parse(body: String, epochDay: Long, from: String, to: String, nowMillis: Long,
-              knownCodes: Set<String> = emptySet()): Result {
+              knownCodes: Set<String> = emptySet(), knownKms: Map<String, Int> = emptyMap()): Result {
         val root = runCatching { JSONObject(body) }.getOrNull()
             ?: return Result(emptyMap(), "unreadable JSON; no minutes accepted")
         val expectedDate = SimpleDateFormat("dd-MM-yyyy", Locale.ENGLISH).apply {
@@ -98,9 +107,64 @@ object WimtCandidate {
         }
         val age = if (latestObservation == 0L) "no admissible observed-time candidates"
             else "last event update ${((nowMillis - latestObservation).coerceAtLeast(0L) / 60_000L)} min ago"
+        val webPoint = positionCandidate(root, rows, epochDay, nowMillis, knownKms)
+        val pointNote = if (webPoint == null) "no fresh, route-bracketed web position event"
+            else "web point ${webPoint.code} at ${RailTime.formatClock(webPoint.eventAtMillis)} IST " +
+                "(${(nowMillis - webPoint.eventAtMillis) / 60_000L} min old); not GPS or the WIMT phone app"
         return Result(lines, "${rows.length()} rows; ${lines.size} candidate stops; " +
             "$rejectedEta ETA rows and $rejectedAhead pre-update/future cells excluded; $age. " +
-            "Undocumented web cache may differ from WIMT app; no position or ETA inferred")
+            "$pointNote. Undocumented web cache; no future ETA inferred", webPoint)
+    }
+
+    /** A root timestamp is minted on every HTTP answer. Only the dated CURRENT point's
+     * own event minute may make a position candidate, and it must be between two halts
+     * whose order and distances the separately checked static schedule confirms. The
+     * web point remains a claim by this cache, not verified cell/GPS or a stop actual. */
+    private fun positionCandidate(root: JSONObject, rows: org.json.JSONArray, day: Long,
+                                  now: Long, knownKms: Map<String, Int>): WebPoint? {
+        if (knownKms.size < 2) return null
+        val stamp = updatedMillis(root.optString("lastUpdateIsoDate")) ?: return null
+        if (now - stamp !in 0L..120_000L) return null
+        val code = root.optString("curStn").uppercase(Locale.ENGLISH)
+        if (!code.matches(Regex("[A-Z0-9]{1,6}"))) return null
+        val km = root.optDouble("distance", Double.NaN)
+        if (!km.isFinite() || km < 0) return null
+        val current = (0 until rows.length()).firstOrNull { i ->
+            val row = rows.optJSONObject(i)
+            row?.optString("station_code")?.equals(code, true) == true &&
+                row.optBoolean("curStn", false) &&
+                !row.optString("source").equals("eta", true)
+        } ?: return null
+        val row = rows.optJSONObject(current) ?: return null
+        // An `actual_departure_tm` can be the *scheduled* time even BEFORE the arrival
+        // on non-stops (BLKR on 16227). Never use it as the observation clock.
+        val eventSeconds = row.optLong("actual_arrival_tm", 0L)
+        if (eventSeconds <= 0 || eventSeconds > Long.MAX_VALUE / 1000L) return null
+        val event = eventSeconds * 1000L
+        val departedAt = row.optLong("actual_departure_tm", 0L)
+        // In the observed BLKR capture this field was 48 minutes BEFORE arrival.
+        // Even a freshly minted cache clock must not rehabilitate a contradictory row.
+        if (departedAt > 0 && (departedAt < eventSeconds ||
+                departedAt > (now + 30_000L) / 1000L)) return null
+        updatedMillis(row.optString("updated_at"))?.let { updated ->
+            if (event > updated + 30_000L || updated > now + 120_000L) return null
+        }
+        if (RailTime.istEpochDay(event) !in day..day + 3 || now - event !in 0L..600_000L ||
+            stamp + 120_000L < event) return null
+        val prev = if ((knownKms[code] ?: -1) >= 0) current else
+            (current - 1 downTo 0).firstOrNull { i ->
+                (knownKms[rows.optJSONObject(i)?.optString("station_code")
+                    ?.uppercase(Locale.ENGLISH) ?: ""] ?: -1) >= 0
+            } ?: return null
+        val next = (current + 1 until rows.length()).firstOrNull { i ->
+            (knownKms[rows.optJSONObject(i)?.optString("station_code")?.uppercase(Locale.ENGLISH) ?: ""] ?: -1) >= 0
+        } ?: return null
+        val before = rows.optJSONObject(prev)?.optString("station_code")?.uppercase(Locale.ENGLISH) ?: return null
+        val after = rows.optJSONObject(next)?.optString("station_code")?.uppercase(Locale.ENGLISH) ?: return null
+        val a = knownKms[before] ?: return null
+        val b = knownKms[after] ?: return null
+        if (a < 0 || b <= a || km !in a.toDouble()..b.toDouble()) return null
+        return WebPoint(code, km, event, stamp, before, after)
     }
 
     private fun updatedMillis(raw: String): Long? {
