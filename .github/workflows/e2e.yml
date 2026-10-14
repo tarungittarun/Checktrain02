@@ -89,6 +89,14 @@ jobs:
           cat route-trial.txt >> "$GITHUB_STEP_SUMMARY"
           { echo 'Bounded route trial (not verified actuals):'; echo '```'; cat route-trial.txt; echo '```'; } > route-trial-comment.txt
           gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/comments" -f body="$(cat route-trial-comment.txt)"
+      - name: Capture independent page route and actual-versus-estimate labels
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 tools/ci/probe_confirmtkt_route.py | tee confirmtkt-route-trial.txt
+          { echo 'ConfirmTkt route trial (not verified actuals):'; echo '```'; cat confirmtkt-route-trial.txt; echo '```'; } > confirmtkt-route-comment.txt
+          gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/comments" -f body="$(cat confirmtkt-route-comment.txt)"
       - name: Ask the live feed what it answers today
         continue-on-error: true
         env:
