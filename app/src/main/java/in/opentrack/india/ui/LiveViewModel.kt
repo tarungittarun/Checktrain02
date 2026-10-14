@@ -30,6 +30,7 @@ import `in`.opentrack.india.v2.mirror.ConfirmTktMirror
 import `in`.opentrack.india.v2.mirror.ConfirmTktSchedule
 import `in`.opentrack.india.v2.mirror.ErailRouteMirror
 import `in`.opentrack.india.v2.mirror.RunningStatusMirror
+import `in`.opentrack.india.v2.mirror.WimtCandidate
 import `in`.opentrack.india.v2.source.ErailPairParser
 import `in`.opentrack.india.v2.source.ErailTransport
 import `in`.opentrack.india.v2.source.PairParse
@@ -214,6 +215,8 @@ class LiveViewModel(
     private var manualErail: PositionEngine.Answer? = null
     private var manualErailAt = 0L
     private var manualErailDetail: String? = null
+    private var wimtCandidate: WimtCandidate.Result? = null
+    private var wimtCheckedAt = 0L
     private var manualProbeJob: Job? = null
 
     /** Explicit selection is a *fetch*, even when the official feed is healthy. Only a
@@ -236,6 +239,18 @@ class LiveViewModel(
             } else probeSource(name)
             return
         }
+        if (name == WimtCandidate.SOURCE) {
+            if (wimtCandidate == null || System.currentTimeMillis() - wimtCheckedAt > 120_000L) {
+                probeSource(name)
+            } else {
+                // Station annotations only. The Act column and position continue to show NTES;
+                // WIMT's undocumented fields do not meet the bar for verified actuals.
+                mirrorActiveSource = name
+                val u = _ui.value ?: return
+                _ui.postValue(buildUi(u.route, lastAnswer ?: u.answer, u.tried).copy(relayOk = u.relayOk))
+            }
+            return
+        }
         if (name in setOf(RunningStatusMirror.SOURCE, ConfirmTktMirror.SOURCE)) {
             if (freshShift() && mirrorStops[name].orEmpty().isNotEmpty()) {
                 mirrorActiveSource = name
@@ -255,6 +270,24 @@ class LiveViewModel(
         Diary.get()?.log("SOURCE", "manual probe requested: $name")
         if (name == RunningStatusMirror.SOURCE || name == ConfirmTktMirror.SOURCE) {
             maybeMirror(force = true, preferred = name)
+        } else if (name == WimtCandidate.SOURCE) {
+            manualProbeJob = viewModelScope.launch {
+                _mirrorState.postValue("Checking WIMT candidate independently; official actuals stay on screen…")
+                val u = _ui.value ?: return@launch
+                val route = u.staticRoute ?: u.route
+                val result = withContext(Dispatchers.IO) {
+                    WimtCandidate.fetch(trainNo, originEpochDay, route.srcCode.uppercase(),
+                        route.dstCode.uppercase(), route.stops.map { it.code.uppercase() }.toSet())
+                }
+                wimtCandidate = result
+                wimtCheckedAt = System.currentTimeMillis()
+                // Only the annotations switch; never overwrite official Act cells or live position.
+                if (result.lines.isNotEmpty()) mirrorActiveSource = name
+                _mirrorState.postValue("$name: ${result.detail}; Act column stays with primary feed/timetable")
+                _ui.postValue(buildUi(u.route, lastAnswer ?: u.answer, u.tried)
+                    .copy(relayOk = u.relayOk))
+                Diary.get()?.log("SOURCE", "$name: ${result.detail}")
+            }
         } else if (name == "erail") {
             manualProbeJob = viewModelScope.launch {
                 _mirrorState.postValue("Checking erail independently; keeping the official view until verified…")
@@ -1235,6 +1268,10 @@ class LiveViewModel(
                 ?: ("none" to "not answered yet")),
             ConfirmTktMirror.SOURCE to (mirrorSourceStates[ConfirmTktMirror.SOURCE]
                 ?: ("none" to "not answered yet")),
+            WimtCandidate.SOURCE to (wimtCandidate?.let {
+                (if (it.lines.isNotEmpty()) "candidate" else "unverified") to
+                    "${it.detail}; annotations only"
+            } ?: ("none" to "manual check available; not a verified source")),
             "erail" to (if (manualErail != null) "live" to (manualErailDetail ?: "verified manual result")
                 else if (manualErailDetail != null) "unverified" to manualErailDetail!!
                 else if (answer.position.provenance == SourceKind.PROVIDER && ntesActualCount > 0)
@@ -1245,7 +1282,8 @@ class LiveViewModel(
         val selectable = linkedMapOf<String, Map<String, String>>()
         if ("last known" in mirrorSourceLines) sourceNames["last known"] =
             "last-known" to "cached for this run; not a new observation"
-        for (name in sourceNames.keys) selectable[name] = mirrorSourceLines[name].orEmpty()
+        for (name in sourceNames.keys) selectable[name] = if (name == WimtCandidate.SOURCE)
+            wimtCandidate?.lines.orEmpty() else mirrorSourceLines[name].orEmpty()
         val selected = mirrorActiveSource ?: if (answer.position.provenance == SourceKind.PROVIDER)
             "erail" else "NTES (official)"
         val lastReported = withActuals.rows.lastOrNull { it.source == TrackModel.MinuteSource.REPORTED }
@@ -1273,7 +1311,8 @@ class LiveViewModel(
             boarding = withActuals.rows.firstOrNull { it.isBoarding },
             alighting = withActuals.rows.firstOrNull { it.isAlighting },
             nowRailMinute = nowRail, tried = tried, loading = false,
-            reports = mirrorSourceLines[mirrorActiveSource] ?: _ui.value?.reports ?: emptyMap(),
+            reports = if (mirrorActiveSource == WimtCandidate.SOURCE) wimtCandidate?.lines.orEmpty()
+                else mirrorSourceLines[mirrorActiveSource] ?: _ui.value?.reports ?: emptyMap(),
             relayOk = _ui.value?.relayOk ?: true,
             anchorCode = if (verified != null) lastReported?.code else null,
             actualsHeadline = verified?.first?.let { if (selected == "last known")

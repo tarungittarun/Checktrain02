@@ -276,7 +276,7 @@ class TrainActivity : AppCompatActivity() {
                 override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
                     val name = names.getOrNull(pos) ?: return
                     if (name != lastUi?.activeSource) {
-                        if (states[name]?.first !in listOf("live", "last-known")) {
+                        if (states[name]?.first !in listOf("live", "last-known", "candidate")) {
                             Toast.makeText(this@TrainActivity,
                                 "Checking $name independently; current view stays until verified",
                                 Toast.LENGTH_SHORT).show()
@@ -311,7 +311,9 @@ class TrainActivity : AppCompatActivity() {
         val confirmedStops = m.rows.count { it.source == TrackModel.MinuteSource.REPORTED }
         binding.sourceSummary.text =
             "${ui.sourceStates.size} source slots · $verifiedFeeds live source(s) · " +
-                "$confirmedStops stops with reported minutes · tap Source"
+                "$confirmedStops stops with reported minutes · tap Source" +
+                (if (ui.activeSource == `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE)
+                    " · WIMT annotations only; Act/position remain primary feed or timetable" else "")
         binding.headline.text = m.headline
         val leg = if (ui.answer.position.provenance ==
             `in`.opentrack.india.model.SourceKind.PROVIDER_NTES)
