@@ -58,11 +58,40 @@ object RouteBetween {
     /** A *projected* train icon within the two NTES halts. Never display this as observed
      * GPS or as an actual passage through an intermediate point. Hide on stale/schedule-only data. */
     data class LegPoint(val code: String, val name: String, val mapKm: Int, val fraction: Float)
+    enum class MarkerKind { PROJECTED, WEB_CACHE_CANDIDATE }
     data class LegProjection(
         val from: String, val to: String, val fraction: Float,
         val nearestPoint: String?, val estimateKm: Int,
         val fromCode: String, val toCode: String, val points: List<LegPoint>,
+        val markerKind: MarkerKind = MarkerKind.PROJECTED,
     )
+
+    /** Position already passed the dated web-event checks. This ONLY scales the cache's km
+     * claim to the independent scheduled halt distance axis. It proves neither passage
+     * through a point nor GPS; the model keeps Act cells and ETAs out of this view. */
+    fun webCacheLeg(halts: TrainRoute, map: TrainRoute?, fromCode: String,
+                    toCode: String, routeKm: Double): LegProjection? {
+        val index = halts.stops.indexOfFirst { it.code.equals(fromCode, true) }
+        if (index < 0 || index + 1 >= halts.stops.size ||
+            !halts.stops[index + 1].code.equals(toCode, true)) return null
+        val from = halts.stops[index]
+        val to = halts.stops[index + 1]
+        // The finite, in-range check also rejects NaN and infinity without relying on
+        // Android/Java API-specific Double.isFinite implementations.
+        if (from.schedKm < 0 || to.schedKm <= from.schedKm ||
+            routeKm !in from.schedKm.toDouble()..to.schedKm.toDouble()) return null
+        val fraction = ((routeKm - from.schedKm) / (to.schedKm - from.schedKm)).toFloat()
+        val mapStart = map?.stops?.firstOrNull { it.code.equals(fromCode, true) }?.schedKm ?: -1
+        val mapEnd = map?.stops?.firstOrNull { it.code.equals(toCode, true) }?.schedKm ?: -1
+        val points = followingPoints(map, halts, fromCode).filter { it.schedKm >= 0 }
+            .mapNotNull { point ->
+                if (mapStart < 0 || mapEnd <= mapStart || point.schedKm !in mapStart..mapEnd) null
+                else LegPoint(point.code, point.name, point.schedKm,
+                    (point.schedKm - mapStart).toFloat() / (mapEnd - mapStart))
+            }
+        return LegProjection(from.name, to.name, fraction, null, routeKm.toInt(),
+            from.code, to.code, points, MarkerKind.WEB_CACHE_CANDIDATE)
+    }
 
     fun projectLeg(halts: TrainRoute, map: TrainRoute?, position: TrainPosition): LegProjection? {
         if (!position.provenance.live || position.ageSeconds > PositionEngine.STALE_MS / 1000 ||

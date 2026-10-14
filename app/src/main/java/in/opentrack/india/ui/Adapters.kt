@@ -251,10 +251,14 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         holder.inlineLegGroup.visibility = if (leg == null) View.GONE else View.VISIBLE
         holder.inlineLeg.projection = leg
         if (leg != null) {
-            val caption = "Projected between ${leg.from} and ${leg.to} · not GPS"
+            val web = leg.markerKind == RouteBetween.MarkerKind.WEB_CACHE_CANDIDATE
+            val caption = if (web)
+                "WIMT web cache · ${leg.estimateKm} route km · unverified, not phone-app GPS"
+                else "Projected between ${leg.from} and ${leg.to} · not GPS"
             holder.inlineLegCaption.text = caption
             holder.inlineLeg.contentDescription = caption + " · ${leg.from} to ${leg.to} " +
-                "${(leg.fraction * 100).toInt()} percent of leg by estimated distance"
+                "${(leg.fraction * 100).toInt()} percent of scheduled leg by " +
+                (if (web) "web-cache km claim" else "estimated distance")
         }
         holder.row.setOnClickListener(if (points.isEmpty()) null else View.OnClickListener {
             val previous = expandedCode

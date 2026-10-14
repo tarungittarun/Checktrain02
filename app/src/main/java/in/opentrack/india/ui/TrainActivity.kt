@@ -252,9 +252,13 @@ class TrainActivity : AppCompatActivity() {
             "WIMT web: no recent route-checked point; row notes are not Act or phone-app GPS."
         else "WIMT web point only · not the WIMT phone app or GPS; passage time uncorroborated."
         binding.headline.text = m.headline
-        // NTES publishes last-reported halt events, not a measured moving coordinate.
-        // No time-interpolated icon belongs in an actual-position-only view.
-        val leg: RouteBetween.LegProjection? = null
+        // No NTES time-interpolated icon in position-only mode. A separate amber
+        // marker can scale a fresh, explicitly UNVERIFIED WIMT web-cache km claim
+        // onto two official scheduled halts; it never invents an ETA or Act cell.
+        val leg = ui.wimtWebPoint?.let { p ->
+            RouteBetween.webCacheLeg(ui.route, ui.staticRoute,
+                p.precedingHalt, p.followingHalt, p.routeKm)
+        }
         val (badgeBg, badgeText) = when (m.tone) {
             TrackModel.Tone.LIVE_OK, TrackModel.Tone.LIVE_EARLY ->
                 R.drawable.bg_badge_live to R.color.live

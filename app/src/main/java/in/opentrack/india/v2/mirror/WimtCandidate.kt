@@ -127,12 +127,12 @@ object WimtCandidate {
         if (now - stamp !in 0L..120_000L) return null
         val code = root.optString("curStn").uppercase(Locale.ENGLISH)
         if (!code.matches(Regex("[A-Z0-9]{1,6}"))) return null
-        val km = root.optDouble("distance", Double.NaN)
-        if (!km.isFinite() || km < 0) return null
+        val km = (root.opt("distance") as? Number)?.toDouble() ?: return null
+        if (!(km >= 0.0 && km < 100_000.0)) return null
         val current = (0 until rows.length()).firstOrNull { i ->
             val row = rows.optJSONObject(i)
             row?.optString("station_code")?.equals(code, true) == true &&
-                row.optBoolean("curStn", false) &&
+                row.opt("curStn") == true &&
                 !row.optString("source").equals("eta", true)
         } ?: return null
         val row = rows.optJSONObject(current) ?: return null

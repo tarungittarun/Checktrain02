@@ -12,9 +12,9 @@ import android.view.View
 import `in`.opentrack.india.R
 import `in`.opentrack.india.domain.RouteBetween
 
-/** The same projected leg as the top card, now on the table's rail between its two halt rows.
- * Intermediate ticks are placed by their STATIC MAP distances; the train's blue glyph is
- * elapsed-time interpolation of NTES, never a phone/GPS observation or a station crossing. */
+/** A proportional marker inside a table leg. A blue projected marker is NOT GPS; an amber
+ * web-cache candidate is a separate, unverified source claim, also NOT GPS. Neither animates
+ * travel with wall-clock time. Ticks are static map distances, never station pass events. */
 class InlineLegView @JvmOverloads constructor(
     context: Context, attrs: AttributeSet? = null, defStyle: Int = 0,
 ) : View(context, attrs, defStyle) {
@@ -49,7 +49,9 @@ class InlineLegView @JvmOverloads constructor(
         paint.strokeWidth = dp(3f)
         paint.color = context.getColor(R.color.stroke)
         canvas.drawLine(x, top, x, end, paint)
-        paint.color = context.getColor(R.color.live)
+        val markerColor = context.getColor(if (leg.markerKind ==
+            RouteBetween.MarkerKind.WEB_CACHE_CANDIDATE) R.color.warn else R.color.live)
+        paint.color = markerColor
         canvas.drawLine(x, top, x, top + span * leg.fraction, paint)
         paint.color = context.getColor(R.color.text2)
         paint.textSize = dp(11f)
@@ -66,7 +68,7 @@ class InlineLegView @JvmOverloads constructor(
         if (isShown && pulseStartedAt > 0L && elapsed < 7_200L &&
             (Build.VERSION.SDK_INT < 26 || ValueAnimator.areAnimatorsEnabled())) {
             val phase = (elapsed % 2400L) / 2400f
-            paint.color = context.getColor(R.color.accent)
+            paint.color = markerColor
             paint.style = Paint.Style.STROKE
             paint.strokeWidth = dp(1.5f)
             paint.alpha = ((1f - phase) * 80).toInt()
@@ -76,7 +78,7 @@ class InlineLegView @JvmOverloads constructor(
             postInvalidateDelayed(120L)
         }
         carriage.set(x - dp(13f), y - dp(11f), x + dp(13f), y + dp(10f))
-        paint.color = context.getColor(R.color.accent)
+        paint.color = markerColor
         canvas.drawRoundRect(carriage, dp(5f), dp(5f), paint)
         paint.color = context.getColor(R.color.ink_on_accent)
         canvas.drawRoundRect(x - dp(9f), y - dp(7f), x + dp(9f), y + dp(1f),

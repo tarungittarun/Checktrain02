@@ -71,6 +71,19 @@ class RouteBetweenTest {
             position(SourceKind.PROVIDER_NTES, 601)))
     }
 
+    @Test fun webCacheMarkerUsesOnlyAnInBracketKmAndCannotCreateAnArrival() {
+        val halts = route.copy(stops = route.stops.filter { it.isHalt }
+            .mapIndexed { i, s -> s.copy(seq = i + 1) })
+        val leg = RouteBetween.webCacheLeg(halts, route, "AAA", "CCC", 10.0)!!
+        assertEquals(RouteBetween.MarkerKind.WEB_CACHE_CANDIDATE, leg.markerKind)
+        assertEquals(.5f, leg.fraction, .001f)
+        assertEquals("BBB", leg.points.single().code)
+        assertEquals(null, RouteBetween.webCacheLeg(halts, route, "AAA", "DDD", 10.0))
+        assertEquals(null, RouteBetween.webCacheLeg(halts, route, "AAA", "CCC", 21.0))
+        assertEquals(null, RouteBetween.webCacheLeg(halts, route, "AAA", "CCC", Double.NaN))
+        assertEquals(null, halts.stops[1].actualArrivalMin)
+    }
+
     @Test fun arbitraryPairUsesTrainOrderWithoutReadingPosition() {
         assertEquals(listOf("AAA", "BBB", "CCC"),
             RouteBetween.inclusive(route, "CCC", "AAA").map { it.code })
