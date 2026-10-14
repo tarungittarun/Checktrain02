@@ -19,7 +19,15 @@ class InlineLegView @JvmOverloads constructor(
     context: Context, attrs: AttributeSet? = null, defStyle: Int = 0,
 ) : View(context, attrs, defStyle) {
     var projection: RouteBetween.LegProjection? = null
-        set(value) { field = value; requestLayout(); invalidate() }
+        set(value) {
+            if (field == value) return
+            field = value
+            pulseStartedAt = if (value != null) SystemClock.uptimeMillis() else 0L
+            requestLayout()
+            invalidate()
+        }
+
+    private var pulseStartedAt = 0L
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val carriage = RectF()
@@ -54,8 +62,10 @@ class InlineLegView @JvmOverloads constructor(
         val y = top + span * leg.fraction
         // A soft stationary halo says "this estimate is on screen"; the marker does NOT
         // travel with wall-clock time. Only a new NTES answer may change its fraction.
-        if (isShown && (Build.VERSION.SDK_INT < 26 || ValueAnimator.areAnimatorsEnabled())) {
-            val phase = (SystemClock.uptimeMillis() % 2400L) / 2400f
+        val elapsed = SystemClock.uptimeMillis() - pulseStartedAt
+        if (isShown && pulseStartedAt > 0L && elapsed < 7_200L &&
+            (Build.VERSION.SDK_INT < 26 || ValueAnimator.areAnimatorsEnabled())) {
+            val phase = (elapsed % 2400L) / 2400f
             paint.color = context.getColor(R.color.accent)
             paint.style = Paint.Style.STROKE
             paint.strokeWidth = dp(1.5f)
@@ -63,7 +73,7 @@ class InlineLegView @JvmOverloads constructor(
             canvas.drawCircle(x, y, dp(16f + phase * 10f), paint)
             paint.style = Paint.Style.FILL
             paint.alpha = 255
-            postInvalidateDelayed(80L)
+            postInvalidateDelayed(120L)
         }
         carriage.set(x - dp(13f), y - dp(11f), x + dp(13f), y + dp(10f))
         paint.color = context.getColor(R.color.accent)

@@ -45,19 +45,19 @@ railway happens to be reporting today says so, and its test asserts the invarian
 | `progress-bar` | tracking | The progress label and bar are present, in range, and coherent with the headline | `TrackingFlowTest#progressIsInRangeAndWorded` | all |
 | `chart-painted` | tracking | The position-against-timetable plot occupies real space with its legend, on every screen size | `TrackingFlowTest#chartHasGeometryAndLegend` | all |
 | `age-and-provenance` | tracking | The provenance and age chips are never blank; "live" cannot appear on a screen nothing fetched for | `TrackingFlowTest#ageChipNeverOverClaims` | all |
-| `source-disclosure` | tracking | Expanding the data-source block names the source, the feed's own stamp when it has one, and which providers were tried | `TrackingFlowTest#sourceBlockExplainsTheAnswer` | all |
+| `source-disclosure` | tracking | Opening Info explains Act versus Est, position provenance, and that WIMT web cache is not the phone app | `TrackingFlowTest#sourceBlockExplainsTheAnswer` | all |
 | `refresh` | tracking | Refresh re-runs the chain and the screen updates without losing the route | `TrackingFlowTest#refreshKeepsTheScreenCoherent` | all |
-| `auto-refresh` | tracking | The Auto button toggles between a stated interval and off, and the choice is remembered | `TrackingFlowTest#autoToggleChangesItsOwnLabel` | all |
+| `manual-refresh-only` | tracking | Refresh is available but neither Auto nor the separate intermediate-route button remains | `TrackingFlowTest#tableHasOnlyManualRefreshAndExpandableRoutePoints` | all |
 | `long-list-scroll` | tracking | A several-hundred-halt route scrolls to the end with rows still readable (recycling correctness) | `TrackingFlowTest#longRouteScrollsWithoutBlankRows` | all |
 | `back-nav` | tracking → search | Back returns to the search screen with the previous query intact | `TrackingFlowTest#backKeepsTheSearchQuery` | all |
 | `density-change` | tracking | The screen is coherent at every density the fleet runs (no overflow, no clipped plot) — the axis Robolectric cannot fake, since it ignores `fontScale` | `TrackingFlowTest#chartHasGeometryAndLegend` | large, density |
-| `settings-open` | settings | The screen shows the install state, the endpoint field, the column map and the refresh choice | `SettingsFlowTest#everyControlIsReachableAndBackReturns` | all |
+| `settings-open` | settings | The screen shows the install state, endpoint field and column map | `SettingsFlowTest#everyControlIsReachableAndBackReturns` | all |
 | `diag-log-collector` | settings | The diagnostic log is inert until the user turns it on, says so on screen once they do, and is emptied by Clear without losing the switch | `SettingsFlowTest#diagnosticCollectorIsInertThenLiveThenEmpty` | all |
 | `endpoint-save-reload` | settings | A typed endpoint survives Save and reopening | `SettingsFlowTest#endpointPersistsAcrossReopen` | all |
 | `endpoint-rejects-non-http` | settings | A non-URL endpoint is not tried silently: the tracking screen says the configured endpoint was skipped | `SettingsFlowTest#junkEndpointSaysSo` | all |
 | `column-hint` | settings | A column map is accepted and persisted (the escape hatch for a feed format change must be reachable) | `SettingsFlowTest#columnHintPersists` | all |
 | `clear-cache` | settings | Clear live cache is followed by an offline screen that admits it has no snapshot | `SettingsFlowTest#clearingCacheIsVisibleOnTheTrackScreen` | all |
-| `auto-refresh-choice` | settings | The auto-refresh choice persists and is reflected on the tracking screen | `SettingsFlowTest#refreshChoicePersists` | all |
+| `manual-refresh-only-settings` | settings | Auto chooser is gone, source override remains | `SettingsFlowTest#settingsHasNoAutoRefreshChoice` | all |
 | `airplane-search` | search | With the radio off, search still answers from the device — the whole point of offline-first | `DegradationFlowTest#searchWorksWithNoNetwork` | api34, min24 |
 | `airplane-track` | tracking | With no network and no snapshot the screen says there is no live report and never claims "live" | `DegradationFlowTest#trackScreenAdmitsNoLiveReport` | api34, min24 |
 | `location-denied` | tracking | With no location permission the app works and never presents a GPS-derived position | `DegradationFlowTest#noLocationPermissionIsNotAnError` | all |
@@ -83,7 +83,6 @@ this workflow cannot reach, and what it would take:
 | "Recent searches" reopen | `Prefs.pushRecent`/`prefsRecent` exist, and the *persistence* is covered by JVM tests, but no UI exposes the list yet, so there is no flow to drive | add the row to the search screen, then a test |
 | Telephony state changes mid-refresh | `svc data` toggling is covered (`airplane-*`); the radio *dropping* a connection mid-request is a modem event | a rootable device with `svc` race conditions |
 | Font scales beyond `large`, right-to-left locales, 120 % display size | `resConfigs "en"` and a `large`-only scale pass exist in the layout checks; the rest is not claimed | extend `LargeScreenRenderTest`'s matrix, which is JVM-side and cheap |
-| Battery saver / Doze throttling the 60 s auto-refresh | Doze cannot be entered reliably on a CI emulator in a few minutes | `cmd deviceidle` runs on a self-hosted runner |
 | Per-provider latency budget on flaky networks | The `Http` timeouts are pinned against a local server in JVM tests; `tc netem` shaping on the runner host is a bigger project | `tc` in a privileged container |
 
 ## What "100 %" means here, stated plainly

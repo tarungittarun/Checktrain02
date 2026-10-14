@@ -196,15 +196,15 @@ class TrackingFlowTest {
     // @flow source-disclosure
     @Test
     fun sourceBlockExplainsTheAnswer() {
-        E2E.tap("sourceToggle")
-        assertTrue("the data-source block never appears", E2E.visible("sourceCard", E2E.LOCAL_MS))
-        val text = E2E.text("sourceText")
-        assertTrue("the disclosure is blank", text.isNotBlank())
-        assertTrue("the disclosure does not name the position source: '$text'",
-            text.contains("Position source", ignoreCase = true))
-        assertTrue("the disclosure never says which providers were tried: '$text'",
-            text.contains("roviders tried", ignoreCase = true))
+        assertTrue("source Info is missing", E2E.tap("sourceToggle"))
+        val detail = E2E.ui.wait(Until.findObject(By.textContains("Act = reported")), E2E.LOCAL_MS)
+        assertNotNull("source explanation never appeared", detail)
+        val text = detail!!.text.orEmpty()
+        assertTrue("the explanation omits provenance: '$text'", text.contains("Position:"))
+        assertTrue("the explanation confuses web notes with actuals: '$text'",
+            text.contains("WIMT web cache is not the WIMT phone app"))
         E2E.shot("source-disclosure")
+        E2E.ui.pressBack()
     }
 
     // @flow refresh
@@ -220,16 +220,14 @@ class TrackingFlowTest {
         assertTrue("a refresh left the age chip blank", E2E.text("age").isNotBlank())
     }
 
-    // @flow auto-refresh
+    // @flow manual-refresh-only
     @Test
-    fun autoToggleChangesItsOwnLabel() {
-        val before = E2E.text("autoBtn")
-        assertTrue("the auto-refresh control has no label", before.isNotBlank())
-        assertTrue(E2E.tap("autoBtn"))
-        val after = E2E.text("autoBtn")
-        assertTrue("the auto control still says '$after' after a tap", after != before)
-        E2E.tap("autoBtn")
-        assertEquals("tapping twice did not return to the first label", before, E2E.text("autoBtn"))
+    fun tableHasOnlyManualRefreshAndExpandableRoutePoints() {
+        assertTrue("Refresh must remain available", E2E.visible("refresh"))
+        assertTrue("Auto was meant to be removed", E2E.find("autoSwitch", 1_000) == null)
+        assertTrue("route points must be inside the table, not a separate button",
+            E2E.find("betweenStations", 1_000) == null)
+        assertTrue("the station table vanished", E2E.count(stopsBy) > 0)
     }
 
     // @flow long-list-scroll

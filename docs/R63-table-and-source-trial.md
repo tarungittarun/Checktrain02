@@ -1,6 +1,6 @@
 # R63 · tracking table and independent-source trial (14 October 2026)
 
-The top of the tracking screen no longer duplicates the projected leg, Auto controls, or the separate route-pair dialog. The full stop list remains scrollable; tapping any halt with known intervening map points expands that segment in place. Expanded map points show names and credible map distance, **not** made-up times or stopping claims. Refresh is manual; after a fresh live answer it re-centres the current halt/leg even if the anchor code has not changed. A stationary, low-opacity halo animates around the projected marker; its fraction never advances merely because time passes. The icon is only shown on a fresh departed NTES leg with usable distances and is explicitly not GPS.
+The top of the tracking screen no longer duplicates the projected leg, Auto controls, or the separate route-pair dialog. The full stop list remains scrollable; tapping any halt with known intervening map points expands that segment in place. Expanded map points show names and credible map distance, **not** made-up times or stopping claims. Refresh is manual; after a fresh live answer it re-centres the current halt/leg even if the anchor code has not changed. A stationary, low-opacity halo pulses three times after a new projection, then stops; its fraction never advances merely because time passes. The icon is only shown on a fresh departed NTES leg with usable distances and is explicitly not GPS.
 
 ## Latency versus usefulness
 

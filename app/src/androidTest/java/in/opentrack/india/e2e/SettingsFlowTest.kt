@@ -38,7 +38,7 @@ class SettingsFlowTest {
         assertTrue("the Data source button does not open settings", openSettings())
         for (
             id in listOf(
-                "state", "overrideUrl", "columnHint", "refreshChoices", "save", "clear", "about",
+                "state", "overrideUrl", "columnHint", "save", "clear", "about",
                 "diagToggle", "diagShare", "diagSave", "diagClear", "diagState",
             )
         ) {
@@ -160,19 +160,12 @@ class SettingsFlowTest {
         E2E.shot("after-clear")
     }
 
-    // @flow auto-refresh-choice
+    // @flow manual-refresh-only-settings
     @Test
-    fun refreshChoicePersists() {
+    fun settingsHasNoAutoRefreshChoice() {
         assertTrue(openSettings())
-        val before = E2E.text("refreshChoices")
-        assertTrue("the auto-refresh control shows no current choice", before.isNotBlank())
-        assertTrue(E2E.tap("refreshChoices"))
-        val after = E2E.text("refreshChoices")
-        assertNotEquals("the refresh choice does not respond", before, after)
-        E2E.tap("save")
-        E2E.tap("back")
-        assertTrue(openSettings())
-        assertEquals("the refresh choice did not survive Save", after, E2E.text("refreshChoices"))
+        assertTrue("Auto chooser was meant to be removed", E2E.find("refreshChoices", 1_000) == null)
+        assertTrue("the source override must remain available", E2E.visible("overrideUrl"))
     }
 
     // Settings fields are plain EditTexts, not SuggestBoxes, so they need their own accessors.
