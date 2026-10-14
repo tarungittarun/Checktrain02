@@ -720,7 +720,11 @@ class LiveViewModel(
             Diary.get()?.log("ROUTE", "ConfirmTkt $day: ${result.halts.stops.size} scheduled halts, " +
                 "${result.allStations.stops.size - result.halts.stops.size} unconfirmed stopping points")
             val old = _ui.value
-            if (old == null || (!officialStaticKnown && old.route.stops.size < result.halts.stops.size &&
+            if (old == null || (!officialStaticKnown &&
+                    !old.answer.position.provenance.live &&
+                    old.answer.perStop.values.none {
+                        it.actualArrivalMin != null || it.actualDepartureMin != null
+                    } && old.route.stops.size < result.halts.stops.size &&
                     old.route.stops.map { it.code.uppercase() }.let { existing ->
                         result.halts.stops.map { it.code.uppercase() }.filter { it in existing } == existing
                     })) {
