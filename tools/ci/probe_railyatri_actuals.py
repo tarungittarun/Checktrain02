@@ -102,8 +102,42 @@ def probe(number, query=''):
     print(f'  raw prefix={raw[:100]!r}', flush=True)
 
 
+def api_probe(number, day=0):
+    url = (f'https://livestatus.railyatri.in/api/v3/train_eta_data/{number}/{day}.json'
+           f'?start_day={day}&user_id=-1&device_type_id=4&change_name=seo_train_name'
+           '&lat=&lng=&claim_on_train=false')
+    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 Chrome/124 Safari/537.36',
+                                               'Accept': 'application/json'})
+    start = time.monotonic()
+    try:
+        with urllib.request.urlopen(req, timeout=7) as r:
+            raw = r.read(260_000).decode('utf-8', 'replace')
+            doc = json.loads(raw)
+            if not isinstance(doc, dict):
+                print(f'  {number}/{day} API: non-object {len(raw)}B', flush=True)
+                return
+            keys = ('success','train_number','train_start_date','source','destination','data_from',
+                    'status_as_of','update_time','status','current_station_code','actual_arrival_time')
+            summary = {k:doc.get(k) for k in keys if k in doc}
+            print(f'  {number}/{day} API: HTTP {r.status} {len(raw)}B {time.monotonic()-start:.1f}s ' +
+                  f'{summary} rootKeys={list(doc)[:32]}', flush=True)
+            for group in ('previous_stations', 'upcoming_stations'):
+                rows = doc.get(group) or []
+                print(f'    {group} count={len(rows)}', flush=True)
+                for row in rows[-3:] if group == 'previous_stations' else rows[:2]:
+                    if isinstance(row, dict):
+                        print('    ' + str({k:row.get(k) for k in ('station_code','sta','std','eta','etd',
+                            'arrival_delay','departure_delay','status','data_from','actual_arrival_time',
+                            'actual_departure_time') if k in row}), flush=True)
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
+        print(f'  {number}/{day} API: {type(exc).__name__}: {str(exc)[:120]} in {time.monotonic()-start:.1f}s', flush=True)
+
+
 if __name__ == '__main__':
     print('RailYatri trial. A future row can say "Departed at": it is NOT an observed event on that basis.', flush=True)
     probe('20652')
     probe('20689')
     probe('20652', '?start_day=1&start_date=20261013')
+    for number in ('20652', '20689', '16556'):
+        api_probe(number)
+    api_probe('20652', 1)
