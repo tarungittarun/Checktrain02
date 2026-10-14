@@ -38,7 +38,6 @@ import `in`.opentrack.india.v2.source.PairWire
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -218,6 +217,8 @@ class LiveViewModel(
     private var wimtCandidate: WimtCandidate.Result? = null
     private var wimtCheckedAt = 0L
     private var manualProbeJob: Job? = null
+    /** Phone-measured wall time for the selected source, not a synthetic network speed claim. */
+    private val manualProbeMs = mutableMapOf<String, Long>()
 
     /** Explicit selection is a *fetch*, even when the official feed is healthy. Only a
      * same-run, past-stop verified response can replace its table. On refusal the official
@@ -271,6 +272,7 @@ class LiveViewModel(
         if (name == RunningStatusMirror.SOURCE || name == ConfirmTktMirror.SOURCE) {
             maybeMirror(force = true, preferred = name)
         } else if (name == WimtCandidate.SOURCE) {
+            val probeStarted = System.currentTimeMillis()
             manualProbeJob = viewModelScope.launch {
                 _mirrorState.postValue("Checking WIMT candidate independently; official actuals stay on screen…")
                 val u = _ui.value ?: return@launch
@@ -281,14 +283,17 @@ class LiveViewModel(
                 }
                 wimtCandidate = result
                 wimtCheckedAt = System.currentTimeMillis()
+                manualProbeMs[name] = wimtCheckedAt - probeStarted
                 // Only the annotations switch; never overwrite official Act cells or live position.
                 if (result.lines.isNotEmpty()) mirrorActiveSource = name
                 _mirrorState.postValue("$name: ${result.detail}; Act column stays with primary feed/timetable")
-                _ui.postValue(buildUi(u.route, lastAnswer ?: u.answer, u.tried)
-                    .copy(relayOk = u.relayOk))
+                val latest = _ui.value ?: u
+                _ui.value = buildUi(latest.route, lastAnswer ?: latest.answer, latest.tried)
+                    .copy(relayOk = latest.relayOk)
                 Diary.get()?.log("SOURCE", "$name: ${result.detail}")
             }
         } else if (name == "erail") {
+            val probeStarted = System.currentTimeMillis()
             manualProbeJob = viewModelScope.launch {
                 _mirrorState.postValue("Checking erail independently; keeping the official view until verified…")
                 val u = _ui.value ?: return@launch
@@ -301,9 +306,11 @@ class LiveViewModel(
                     manualErailAt = System.currentTimeMillis()
                     mirrorActiveSource = name
                 }
+                manualProbeMs[name] = System.currentTimeMillis() - probeStarted
                 _mirrorState.postValue("erail: $manualErailDetail")
-                _ui.postValue(buildUi(u.route, manualErail ?: (lastAnswer ?: u.answer), u.tried)
-                    .copy(relayOk = u.relayOk))
+                val latest = _ui.value ?: u
+                _ui.value = buildUi(latest.route, manualErail ?: (lastAnswer ?: latest.answer), latest.tried)
+                    .copy(relayOk = latest.relayOk)
                 Diary.get()?.log("SOURCE", "manual erail: $manualErailDetail")
             }
         } else _mirrorState.postValue("$name: no verified per-stop endpoint is configured")
@@ -417,10 +424,12 @@ class LiveViewModel(
     /** The direct wire's 403 is a fact for minutes, not for every refresh: skip it while fresh. */
     private var directDeadUntil = 0L
 
-    private var pollJob: Job? = null
     private var liveRefreshJob: Job? = null
     private var lastAnswer: PositionEngine.Answer? = null
-    private var auto = true
+    private var started = false
+    /** Emitted only after a fresh live answer, never after a cached/timetable repaint. */
+    private val _liveReceipt = MutableLiveData<Long>()
+    val liveReceipt: LiveData<Long> = _liveReceipt
 
     val originDate: Long get() = originEpochDay
     val trainNumber: String get() = trainNo
@@ -433,27 +442,10 @@ class LiveViewModel(
     private suspend fun repo(): RailRepository? = app.repository()
 
     fun start() {
+        if (started) return
+        started = true
         refresh()
         fetchLiveIdentity()
-        startPolling()
-    }
-
-    private fun startPolling() {
-        if (!auto || pollJob != null) return
-        pollJob = viewModelScope.launch {
-            val seconds = repo()?.prefs?.autoRefreshSeconds ?: 60
-            if (seconds <= 0) return@launch
-            Diary.get()?.log("UI", "auto refresh loop: every ${seconds}s")
-            while (isActive && auto) {
-                delay(seconds * 1000L)
-                refresh()
-            }
-        }
-    }
-
-    fun stop() {
-        pollJob?.cancel()
-        pollJob = null
     }
 
     /**
@@ -479,22 +471,7 @@ class LiveViewModel(
         }
     }
 
-    fun setAutoRefresh(enabled: Boolean) {
-        if (auto == enabled) return
-        auto = enabled
-        if (enabled) {
-            Diary.get()?.log("UI", "auto refresh ON - polling loop restarted")
-            startPolling()
-        } else {
-            pollJob?.cancel()
-            pollJob = null
-            Diary.get()?.log("UI", "auto refresh OFF - polling loop cancelled; only manual Refresh asks")
-        }
-    }
-
-    /** [manual] is only about the log: a tap and an auto tick take the same path, and knowing which one
-     * produced a result is what makes a timing question (does a second request interfere with the first?)
-     * answerable from a file instead of from a guess. */
+    /** Initial open or explicit Refresh; there is no timer or background polling. */
     fun refresh(manual: Boolean = false) {
         // Three taps in one second on the owner's R53 phone launched three copies of the
         // same official POST. Keep one live chain in flight; the independent mirror is
@@ -503,12 +480,8 @@ class LiveViewModel(
             Diary.get()?.log("UI", "refresh already running; duplicate tick/tap ignored")
             return
         }
-        if (!manual && !auto) {
-            Diary.get()?.log("UI", "auto tick refused - the switch is off; only a manual Refresh asks")
-            return
-        }
         lastFetchAt = System.currentTimeMillis()
-        Diary.get()?.log("UI", if (manual) "refresh tapped by the user" else "refresh (auto tick)")
+        Diary.get()?.log("UI", if (manual) "refresh tapped by the user" else "first train load")
         _checking.postValue(true)
         if (manual) {
             // The traveller pressed the button. A background experiment that is holding a socket to find out
@@ -658,6 +631,7 @@ class LiveViewModel(
                 live.answer.position.provenance == SourceKind.PROVIDER_NTES
             _ui.value = buildUi(live.route, live.answer, live.tried, live.notes)
             _error.value = null
+            if (live.answer.position.provenance.live) _liveReceipt.value = System.currentTimeMillis()
             maybeCrowd()
             if (officialStaticKnown) maybeRailGeo(live.route)
             if (live.answer.position.provenance != SourceKind.PROVIDER_NTES) {
@@ -1066,6 +1040,7 @@ class LiveViewModel(
                 mirrorActiveSource = if (verifiedPrimary.isNotEmpty()) RunningStatusMirror.SOURCE
                     else if (verifiedCk.isNotEmpty()) ConfirmTktMirror.SOURCE else null
             mirrorRefreshedAt = System.currentTimeMillis()
+            if (preferred != null) manualProbeMs[preferred] = mirrorRefreshedAt - nowWall
             mirrorShiftAt = mirrorRefreshedAt
             cacheTrainNo = trainNo
             val overlaid = overlayActuals(base, verifiedPrimary, nowRail)
@@ -1091,7 +1066,9 @@ class LiveViewModel(
                     "0 verified same-run actuals (${direct.why.take(45)}); kept NTES."
             } else if (verifiedPrimary.isNotEmpty()) "Verified actuals · $mirrorSources"
                 else "No verified actual arrival/departure this refresh — showing timetable only")
-            _ui.postValue(buildUi(u.route, u.answer, u.tried).copy(relayOk = u.relayOk))
+            val latest = _ui.value ?: u
+            _ui.value = buildUi(latest.route, lastAnswer ?: latest.answer, latest.tried)
+                .copy(relayOk = latest.relayOk)
             if (verifiedPrimary.isNotEmpty()) saveMirrorCache(mirrorSourceLines[RunningStatusMirror.SOURCE].orEmpty())
             Diary.get()?.log("MIRROR") {
                 "manual=${preferred ?: "no"}; direct=${direct.why.take(45)}; " +
@@ -1279,6 +1256,10 @@ class LiveViewModel(
                 else if (liveIdentity != null) "unverified" to "identity only; no actual halt times"
                 else "none" to "no per-stop actuals"),
         )
+        for ((name, ms) in manualProbeMs) {
+            val status = sourceNames[name] ?: continue
+            sourceNames[name] = status.first to (status.second + " · checked in ${ms} ms")
+        }
         val selectable = linkedMapOf<String, Map<String, String>>()
         if ("last known" in mirrorSourceLines) sourceNames["last known"] =
             "last-known" to "cached for this run; not a new observation"

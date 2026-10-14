@@ -9,12 +9,9 @@ import android.widget.AdapterView
 import android.widget.TextView
 import android.widget.ArrayAdapter
 import android.widget.Toast
-import android.widget.LinearLayout
-import android.widget.ScrollView
-import android.widget.Spinner
 import android.view.View
-import androidx.appcompat.app.AlertDialog
 import `in`.opentrack.india.domain.RouteBetween
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -44,12 +41,11 @@ class TrainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityTrainBinding
     private lateinit var vm: LiveViewModel
     private lateinit var stopAdapter: StopAdapter
-    private var fullRoute = false
-
-    /** The last anchor the screen pointed at - the scroll fires when it CHANGES, never on every tick. */
+    /** A new anchor scrolls once; a manual successful refresh scrolls even at the SAME anchor. */
     private var lastAnchor: String? = null
-    private var autoOn = true
-    private var sourceShown = false
+    private var focusAfterRefresh = false
+    private var receiptReady = false
+    private var sourceDetails = "No sources checked yet."
     private var lastUi: LiveViewModel.Ui? = null
     private var chainBusy = false
     private var mirrorBusy = false
@@ -78,24 +74,31 @@ class TrainActivity : AppCompatActivity() {
         stopAdapter = StopAdapter()
         binding.stops.layoutManager = LinearLayoutManager(this)
         binding.stops.adapter = stopAdapter
-        binding.buildStamp.text = BuildStamp.ROUND
 
-        binding.refresh.setOnClickListener { vm.refresh(manual = true) }
-        binding.autoSwitch.setOnCheckedChangeListener(null)
-        binding.autoSwitch.isChecked = autoOn
-        binding.autoSwitch.setOnCheckedChangeListener { _, checked ->
-            autoOn = checked
-            vm.setAutoRefresh(checked)
+        binding.refresh.setOnClickListener {
+            focusAfterRefresh = true
+            vm.refresh(manual = true)
+        }
+        vm.liveReceipt.observe(this) {
+            if (focusAfterRefresh) {
+                receiptReady = true
+                binding.stops.post {
+                    if (receiptReady) {
+                        focusCurrentLeg()
+                        receiptReady = false
+                        focusAfterRefresh = false
+                    }
+                }
+            }
         }
         binding.sourceToggle.setOnClickListener {
-            sourceShown = !sourceShown
-            binding.sourceCard.visibility = if (sourceShown) View.VISIBLE else View.GONE
-            binding.sourceToggle.setText(
-                if (sourceShown) R.string.hide_source else R.string.show_source
-            )
+            AlertDialog.Builder(this)
+                .setTitle("Sources · ${BuildStamp.ROUND}")
+                .setMessage(sourceDetails)
+                .setPositiveButton("Close", null)
+                .show()
         }
         binding.back.setOnClickListener { finish() }
-        binding.betweenStations.setOnClickListener { showStaticRouteBetween() }
         // Long-press the provenance badge to copy a live-feed report. It lives on that chip rather than in
         // Settings because the chip is what a traveller looks at when the screen is not telling the truth as
         // they know it — and the copied text is precisely what turns "it doesn't work" into something fixable
@@ -115,15 +118,13 @@ class TrainActivity : AppCompatActivity() {
         // the top card then carries the same sentence (badge + source row + refreshed stamp), and one
         // copy on screen is the owner's round-47 point: everything read at once, nothing said twice.
         vm.mirrorState.observe(this) { st ->
-            mirrorBusy = st?.startsWith("Checking independent feeds") == true ||
-                st?.startsWith("Checking erail independently") == true
+            mirrorBusy = st?.startsWith("Checking") == true || st?.startsWith("Already checking") == true
             renderChecking()
-            val duplicate = st != null && st.startsWith("Actuals ·")
-            binding.mirrorState.visibility = if (st == null || duplicate) View.GONE else View.VISIBLE
-            st?.let {
-                binding.mirrorState.text = it
-                Diary.get()?.log("UISTATE") { "sources box: $it" }
-            }
+            val useful = st != null && !st.startsWith("Actuals ·") &&
+                !st.startsWith("Official NTES answered")
+            binding.mirrorState.visibility = if (useful) View.VISIBLE else View.GONE
+            if (useful) binding.mirrorState.text = simpleSourceStatus(st!!)
+            st?.let { Diary.get()?.log("UISTATE") { "sources box: $it" } }
         }
         vm.error.observe(this) { msg ->
             errorText = msg
@@ -131,77 +132,7 @@ class TrainActivity : AppCompatActivity() {
         }
     }
 
-    /** Route-only query: it never reads the live anchor, boarding span or estimated position.
-     * Never imply that the current halt-only timetable is a complete track map. */
-    private fun showStaticRouteBetween() {
-        val route = lastUi?.staticRoute ?: lastUi?.route ?: return
-        val stops = route.stops
-        if (stops.size < 2) return
-        val pad = (16 * resources.displayMetrics.density).toInt()
-        val layout = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(pad, pad, pad, pad)
-        }
-        val hasPassThrough = stops.any { !it.isHalt }
-        layout.addView(TextView(this).apply {
-            text = if (hasPassThrough) getString(R.string.between_complete,
-                lastUi?.staticRouteSource ?: "Source") else getString(
-                if (stops.size <= 2) R.string.between_endpoints else R.string.between_limit)
-            setTextColor(getColor(R.color.warn))
-        })
-        val options = stops.map { "${it.code} · ${it.name}" }
-        fun spinner(label: Int): Spinner {
-            layout.addView(TextView(this).apply {
-                text = getString(label)
-                setPadding(0, pad / 2, 0, 0)
-            })
-            return Spinner(this).also { sp ->
-                sp.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, options)
-                layout.addView(sp)
-            }
-        }
-        val from = spinner(R.string.between_from)
-        val to = spinner(R.string.between_to)
-        val result = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(0, pad / 2, 0, pad)
-        }
-        layout.addView(ScrollView(this).apply {
-            addView(result)
-            layoutParams = LinearLayout.LayoutParams(-1,
-                (resources.displayMetrics.heightPixels * 0.42f).toInt())
-        })
-        fun update() {
-            val selected = RouteBetween.inclusive(route,
-                stops[from.selectedItemPosition].code, stops[to.selectedItemPosition].code)
-            result.removeAllViews()
-            for (stop in selected) {
-                result.addView(TextView(this).apply {
-                    val arr = stop.arrivalMin?.let(RailTime::formatRailMinute) ?: "—"
-                    val dep = stop.departureMin?.let(RailTime::formatRailMinute) ?: "—"
-                    text = if (stop.isHalt)
-                        "${stop.name} · ${stop.code}\nScheduled halt · Sch $arr / $dep"
-                    else "${stop.name} · ${stop.code}\nRoute point · halt unconfirmed · no published halt time"
-                    textSize = 14f
-                    setTextColor(getColor(if (stop.isHalt) R.color.text1 else R.color.text2))
-                    setPadding(0, pad / 2, 0, pad / 2)
-                })
-            }
-        }
-        val change = object : AdapterView.OnItemSelectedListener {
-            override fun onNothingSelected(parent: AdapterView<*>?) = Unit
-            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) = update()
-        }
-        from.onItemSelectedListener = change
-        to.onItemSelectedListener = change
-        to.setSelection(stops.lastIndex)
-        AlertDialog.Builder(this).setTitle(R.string.between_title).setView(layout)
-            .setPositiveButton(android.R.string.ok, null).show()
-            .window?.setBackgroundDrawableResource(R.drawable.bg_card)
-    }
-
-    /** The first HTTP ladder can finish in three seconds while mirror page checks take twenty.
-     * Keep the visible progress alive for both; an OFF auto switch controls *future* ticks, not this one. */
+    /** Keep progress visible only while a requested source is actually fetching. */
     private fun renderChecking() {
         val busy = chainBusy || mirrorBusy
         binding.checkingBar.visibility = if (busy) View.VISIBLE else View.GONE
@@ -251,7 +182,9 @@ class TrainActivity : AppCompatActivity() {
                 override fun getView(position: Int, convertView: View?, parent: android.view.ViewGroup): View {
                     val view = super.getView(position, convertView, parent)
                     (view as TextView).apply {
-                        text = names[position]
+                        text = sourceName(names[position]) + "  ▾"
+                        textSize = 14f
+                        maxLines = 1
                         setTextColor(getColor(R.color.text1))
                     }
                     return view
@@ -260,13 +193,21 @@ class TrainActivity : AppCompatActivity() {
                 override fun getDropDownView(position: Int, convertView: View?, parent: android.view.ViewGroup): View {
                     val view = super.getDropDownView(position, convertView, parent)
                     val name = names[position]
-                    val (state, detail) = states[name] ?: ("last-known" to "last known")
+                    val (state, _) = states[name] ?: ("last-known" to "last known")
                     (view as TextView).apply {
-                        text = "$name · $detail"
+                        val density = resources.displayMetrics.density
+                        setPadding((12 * density).toInt(), (12 * density).toInt(),
+                            (12 * density).toInt(), (12 * density).toInt())
+                        textSize = 14f
+                        text = sourceName(name) + " · " + when (state) {
+                            "live" -> "times available"
+                            "candidate" -> "compare only"
+                            "none" -> "tap to check"
+                            else -> "tap to check"
+                        }
                         setTextColor(getColor(when (state) {
                             "live" -> R.color.live
-                            "none" -> R.color.late
-                            else -> R.color.warn
+                            else -> R.color.text1
                         }))
                     }
                     return view
@@ -278,7 +219,7 @@ class TrainActivity : AppCompatActivity() {
                     if (name != lastUi?.activeSource) {
                         if (states[name]?.first !in listOf("live", "last-known", "candidate")) {
                             Toast.makeText(this@TrainActivity,
-                                "Checking $name independently; current view stays until verified",
+                                "Checking ${sourceName(name)}…",
                                 Toast.LENGTH_SHORT).show()
                             val previous = names.indexOf(lastUi?.activeSource)
                             if (previous >= 0) binding.sourceSpinner.setSelection(previous, false)
@@ -301,32 +242,17 @@ class TrainActivity : AppCompatActivity() {
     private fun bind(ui: LiveViewModel.Ui) {
         val m = ui.model
         binding.trainNo.text = m.trainNo
-        binding.betweenStations.setText(if ((ui.staticRoute ?: ui.route).stops.size <= 2)
-            R.string.between_endpoints_button else R.string.between_stations)
         binding.routeLabel.text = m.routeLabel
         binding.runDate.text = m.runDateLabel
-        binding.lastUpdated.visibility = if (ui.lastUpdated == null) View.GONE else View.VISIBLE
+        binding.lastUpdated.visibility = View.GONE // age is already in the badge; timestamp is in Info
         binding.lastUpdated.text = ui.lastUpdated
-        val verifiedFeeds = ui.sourceStates.count { it.value.first == "live" }
-        val confirmedStops = m.rows.count { it.source == TrackModel.MinuteSource.REPORTED }
-        binding.sourceSummary.text =
-            "${ui.sourceStates.size} source slots · $verifiedFeeds live source(s) · " +
-                "$confirmedStops stops with reported minutes · tap Source" +
-                (if (ui.activeSource == `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE)
-                    " · WIMT annotations only; Act/position remain primary feed or timetable" else "")
+        binding.sourceSummary.visibility = if (ui.activeSource ==
+            `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE) View.VISIBLE else View.GONE
+        binding.sourceSummary.text = "WIMT web notes are unverified; they do not set Act or position."
         binding.headline.text = m.headline
         val leg = if (ui.answer.position.provenance ==
             `in`.opentrack.india.model.SourceKind.PROVIDER_NTES)
             RouteBetween.projectLeg(ui.route, ui.staticRoute, ui.answer.position) else null
-        binding.legSection.visibility = if (leg != null) View.VISIBLE else View.GONE
-        if (leg != null) {
-            binding.legPosition.fraction = leg.fraction
-            binding.legCaption.text = "Projected from last NTES report · ${leg.from} → ${leg.to}" +
-                (leg.nearestPoint?.let { " · near $it (static map estimate)" } ?: "") +
-                " · not GPS or a station arrival"
-            binding.legPosition.contentDescription = binding.legCaption.text
-        }
-
         val (badgeBg, badgeText) = when (m.tone) {
             TrackModel.Tone.LIVE_OK, TrackModel.Tone.LIVE_EARLY ->
                 R.drawable.bg_badge_live to R.color.live
@@ -411,12 +337,11 @@ class TrainActivity : AppCompatActivity() {
         val to = win.last.coerceIn(from, (m.rows.size - 1).coerceAtLeast(0))
         stopAdapter.submitList(m.rows.subList(from, to + 1)) {
             val anchor = ui.anchorCode
-            if (anchor != null && anchor != lastAnchor) {
-                val idx = m.rows.subList(from, to + 1).indexOfFirst { it.code.equals(anchor, true) }
-                if (idx >= 0) {
-                    lastAnchor = anchor
-                    (binding.stops.layoutManager as LinearLayoutManager).scrollToPositionWithOffset(idx, 160)
-                }
+            if (anchor != null && anchor != lastAnchor) focusCurrentLeg()
+            if (receiptReady) {
+                focusCurrentLeg()
+                receiptReady = false
+                focusAfterRefresh = false
             }
         }
         val hidden = m.rows.size - (to - from + 1)
@@ -425,7 +350,7 @@ class TrainActivity : AppCompatActivity() {
             binding.rowsNote.text = getString(R.string.rows_window, from + 1, to + 1, m.rows.size)
         }
 
-        bindSource(m, ui)
+        bindSource(ui)
 
         // The frontend captures itself (the owner's ask, 2026-10-12): what this screen shows goes
         // into the diary as elements, and the window photographs itself to the app's own private
@@ -439,18 +364,59 @@ class TrainActivity : AppCompatActivity() {
         UiShot.snap(this, "track")
     }
 
-    /**
-     * The provenance strip that used to sit under the buttons as `provider override – provider – cached –`
-     * is now a disclosure, because it is diagnostic rather than decisional — but it stays reachable in two
-     * taps, which is what makes a claim like "this came from cache" auditable instead of vibes.
-     */
-    private fun bindSource(m: TrackModel.View, ui: LiveViewModel.Ui) {
-        binding.sourceText.text = ui.sourceStates.entries.joinToString("\n") { (name, status) ->
-            "$name: ${status.second}"
-        } + "\nSch km = selected timetable's rounded station distance; map km = " +
-            "separate dated static route; the two may differ. Feed pf = provider platform " +
-            "report, not a guaranteed boarding platform. WIMT web cache is not the app's " +
-            "crowdsourced live location and may disagree with it.\n\n" + sourceText(m, ui.tried)
+    /** One useful line per source; full machine diagnostics remain on badge long-press. */
+    private fun bindSource(ui: LiveViewModel.Ui) {
+        sourceDetails = buildString {
+            append(sourceText(ui.model)).append("\n\n")
+            ui.sourceStates.forEach { (name, status) ->
+                append(sourceName(name)).append(": ")
+                append(when (status.first) {
+                    "live" -> "reported times available"
+                    "candidate" -> "web-cache notes only; not verified actuals"
+                    "none", "unverified" -> {
+                        val rows = Regex("(\\d+) (?:page )?rows").find(status.second)?.groupValues?.get(1)
+                        if (rows != null) "$rows page rows, no verified times" else
+                            if (status.second.contains("not answered") ||
+                                status.second.contains("manual check available")) "tap to check"
+                            else "no verified times available"
+                    }
+                    else -> "last known; not a new report"
+                })
+                Regex("checked in (\\d+) ms").find(status.second)?.groupValues?.get(1)?.let {
+                    append(" · ").append(it).append(" ms")
+                }
+                append('\n')
+            }
+            append("\nWIMT web cache is not the WIMT phone app. ")
+            append("Station distances can differ between timetables and maps.")
+            ui.lastUpdated?.let { append("\n").append(it) }
+        }
+    }
+
+    private fun sourceName(name: String): String = when (name) {
+        `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE -> "WIMT web"
+        "NTES (official)" -> "NTES · official"
+        else -> name
+    }
+
+    private fun simpleSourceStatus(status: String): String = when {
+        status.startsWith("Checking") || status.startsWith("Already checking") -> "Checking source…"
+        status.startsWith("No verified actual") ||
+            status.contains("0 independently corroborated") || status.contains("0 verified") ->
+            "No independently confirmed times; current view stays."
+        status.startsWith("WIMT") -> "WIMT web checked; notes are not verified actuals."
+        else -> "Source checked. Open Info for details."
+    }
+
+    /** Bring the current reported halt/leg to the top without manufacturing a position. */
+    private fun focusCurrentLeg() {
+        val ui = lastUi ?: return
+        val anchor = ui.anchorCode ?: ui.model.rows.firstOrNull { it.isAnchor }?.code ?: return
+        val idx = stopAdapter.currentList.indexOfFirst { it.code.equals(anchor, true) }
+        if (idx < 0) return
+        lastAnchor = anchor
+        (binding.stops.layoutManager as LinearLayoutManager).scrollToPositionWithOffset(
+            idx, resources.getDimensionPixelSize(R.dimen.gap_s))
     }
 
     /** Everything the screen knows about the feed, as text — see the long-press handler above. */
@@ -521,36 +487,14 @@ class TrainActivity : AppCompatActivity() {
         vm.start()
     }
 
-    override fun onStop() {
-        vm.stop()
-        super.onStop()
-    }
-
     companion object {
-        /**
-         * What the disclosure says. It is a companion function rather than a line of the Activity because the
-         * test-source render harness has to paint the same sentence: while it was written out twice, the two
-         * drifted, and a preview of this app claimed the provenance strip listed the size of the shipped
-         * timetable, which it never does. One composition, so a screenshot cannot lie.
-         */
-        fun sourceText(m: TrackModel.View, tried: List<String>): String = buildString {
-            append("Position source: ${m.provenanceLabel} · ${m.ageLabel}")
-            // The provider's own clock, when it publishes one. Kept out of the age chip because that chip is
-            // a few centimetres wide on a phone held at arm's length, and a clipped timestamp is worse than
-            // a missing one.
+        /** Plain-language key for the optional source explanation, separate from feed diagnostics. */
+        fun sourceText(m: TrackModel.View): String = buildString {
+            append("Act = reported. Est = predicted, not an arrival report. ")
+            append("The blue train is a projection from NTES, not GPS.\n")
+            append("Position: ${m.provenanceLabel} · ${m.ageLabel}")
             if (m.feedStampLabel.isNotEmpty()) append(" · ${m.feedStampLabel}")
-            append("\nProviders tried this refresh: ")
-            append(
-                if (tried.isEmpty()) "none — answered from the on-device timetable"
-                else tried.joinToString(", ") { it.replace("_", " ").lowercase() }
-            )
-            append("\n${m.runDateLabel} · ${m.rows.size} stops loaded · ")
-            append(if (m.hasDistances) "distances from the offline reference data"
-            else "no distance data for this train")
-            // Said here rather than in Settings because this card is where the app admits what it could not
-            // get, and the gesture that turns that admission into a report someone can act on has to be
-            // mentioned exactly once, in the place where the user is already reading about the feed.
-            append("\nLong-press the badge above to copy all of this as a report")
+            append("\nLong-press the source badge to copy a detailed report.")
         }
 
         /** The tag the CI rows and a bug report both grep for. */

@@ -132,6 +132,12 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
 
     /** The halt the mirror's actuals say the train is at or making for - tinted, never silent. */
     var highlightCode: String? = null
+        set(value) {
+            if (field != value) {
+                field = value
+                notifyDataSetChanged() // the timetable rows themselves may be unchanged
+            }
+        }
 
     /** Per-stop source annotations, including manual uncorroborated candidates. A source
      * selection can leave the row objects unchanged, so explicitly rebind visible rows. */
@@ -245,9 +251,7 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         holder.inlineLegGroup.visibility = if (leg == null) View.GONE else View.VISIBLE
         holder.inlineLeg.projection = leg
         if (leg != null) {
-            val caption = "~${leg.estimateKm} km along NTES route · elapsed-time projection " +
-                "from last halt; not GPS or a confirmed intermediate crossing. " +
-                "Points' map kilometres are from a separate static schedule."
+            val caption = "Projected between ${leg.from} and ${leg.to} · not GPS"
             holder.inlineLegCaption.text = caption
             holder.inlineLeg.contentDescription = caption + " · ${leg.from} to ${leg.to} " +
                 "${(leg.fraction * 100).toInt()} percent of leg by estimated distance"
@@ -272,9 +276,9 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         if (holder.intermediateGroup.visibility == View.VISIBLE) {
             for (point in points) {
                 holder.intermediateGroup.addView(TextView(ctx).apply {
-                    text = "• ${RowText.of(point.name)} (${point.code}) · " +
-                        (if (point.isHalt) "scheduled halt" else "route point · halt unconfirmed") +
-                        (if (point.schedKm >= 0) " · map ${point.schedKm} km" else "")
+                    // Static map points are not evidence that a train stopped or passed here.
+                    text = "• ${RowText.of(point.name)}" +
+                        (if (point.schedKm >= 0) " · ${point.schedKm} km" else " · distance unknown")
                     setTextColor(ctx.getColor(if (point.isHalt) R.color.text1 else R.color.text2))
                     textSize = 13f
                     val pad = (5 * ctx.resources.displayMetrics.density).toInt()

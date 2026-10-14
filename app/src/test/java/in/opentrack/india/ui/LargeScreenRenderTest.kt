@@ -135,7 +135,6 @@ class LargeScreenRenderTest {
         )
         val shot = Render.render(R.layout.activity_train, widthDp = WIDTH, heightDp = 900f, textScale = FONT) {
             Render.track(root = it, m = m, pos = pos, now = NOW)
-            it.findViewById<View>(R.id.sourceCard)?.visibility = View.VISIBLE
         }
         assertHeaderIntact(shot)
         val rows = assertTableIntact(shot)

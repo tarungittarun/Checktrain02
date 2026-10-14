@@ -28,11 +28,6 @@ class Prefs(context: Context) {
         get() = sp.getString(KEY_COLUMN_HINT, "").orEmpty()
         set(v) = sp.edit().putString(KEY_COLUMN_HINT, v).apply()
 
-    /** 0 disables polling: on a train, a background refresh loop is mostly a battery drain. */
-    var autoRefreshSeconds: Int
-        get() = sp.getInt(KEY_REFRESH, 60)
-        set(v) = sp.edit().putInt(KEY_REFRESH, v.coerceIn(0, 3600)).apply()
-
     /**
      * Whether the user has asked for a diagnostic log. Persisted, because a log left on across a restart is
      * how a bug that only happens on the first request after boot ever gets caught.
@@ -99,7 +94,6 @@ class Prefs(context: Context) {
         private const val KEY_OVERRIDE = "overrideUrl"
         private const val KEY_COLUMN_HINT = "columnHint"
         private const val KEY_DIARY = "diary"
-    private const val KEY_REFRESH = "refreshSeconds"
         private const val KEY_LAST_FROM = "lastFrom"
         private const val KEY_LAST_TO = "lastTo"
         private const val KEY_LAST_TRAIN = "lastTrain"

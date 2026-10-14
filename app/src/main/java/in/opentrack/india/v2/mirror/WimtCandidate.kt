@@ -93,7 +93,7 @@ object WimtCandidate {
             if (arr != null || dep != null) {
                 lines[code] = "$code · " + listOfNotNull(arr?.let { "arrival $it" },
                     dep?.let { "departure $it" }).joinToString(" · ") +
-                    " · WIMT web-cache candidate, NOT the app's GPS or verified Act"
+                    " · WIMT web note (unverified, not Act)"
             }
         }
         val age = if (latestObservation == 0L) "no admissible observed-time candidates"

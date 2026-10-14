@@ -223,9 +223,8 @@ object Render {
     }
 
     /**
-     * The tracking screen's bindings, in one place so both the layout test and the shipped-data test paint
-     * the same screen. These are the same ten assignments [TrainActivity] makes; the *values* come from
-     * [TrackModel], which is what keeps the two from telling different stories.
+     * The tracking screen's core bindings, in one place so the layout and shipped-data tests paint
+     * the same table and headline. LiveViewModel-only source states belong to the Activity's Info dialog.
      */
     fun track(root: View, m: TrackModel.View, pos: TrainPosition?, now: Int, note: String? = null) {
         text(root, R.id.trainNo, m.trainNo)
@@ -236,7 +235,6 @@ object Render {
         text(root, R.id.age, m.ageLabel)
         // The same composition the Activity uses, so no fixture has to invent this sentence (and cannot
         // quietly put facts on a screen that the app never shows there).
-        text(root, R.id.sourceText, TrainActivity.sourceText(m, emptyList()))
         text(root, R.id.delay, m.delayLabel)
         text(root, R.id.next, m.nextLabel)
         // progress bar and chart removed (round 42): the owner judged them clutter; the render

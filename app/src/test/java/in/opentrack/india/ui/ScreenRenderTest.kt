@@ -132,6 +132,17 @@ class ScreenRenderTest {
         // it can only be checked on a laid-out screen.
         assertNotClipped(shot.root.findViewById(R.id.routeLabel), "routeLabel ('${shot.text(R.id.routeLabel)}')")
 
+        assertEquals("Auto must not exist", 0,
+            shot.context.resources.getIdentifier("autoSwitch", "id", shot.context.packageName))
+        assertEquals("the separate route button must not exist", 0,
+            shot.context.resources.getIdentifier("betweenStations", "id", shot.context.packageName))
+        assertTrue("source dropdown must be visible",
+            shot.root.findViewById<View>(R.id.sourceSpinner).height > 0)
+        assertTrue("source information remains reachable without shrinking the table",
+            shot.root.findViewById<View>(R.id.sourceToggle).height > 0)
+        assertEquals("Refresh should be compact", 40,
+            (shot.root.findViewById<View>(R.id.refresh).height /
+                shot.context.resources.displayMetrics.density).toInt())
         assertEquals("every stop must be in the list", 9, Render.rowCount(shot.root))
         val list = shot.root.findViewById<RecyclerView>(R.id.stops)!!
         for (i in 0 until list.childCount) {
@@ -178,11 +189,7 @@ Render.save("02-track-live", shot.bitmap)
         // measures its child unbounded, so this is the same content scrolled to the bottom.
         val shot = Render.render(R.layout.activity_train, heightDp = 1480f) { root ->
             Render.track(root, m, p, 432)
-            root.findViewById<View>(R.id.sourceCard)?.visibility = View.VISIBLE
-            // `sourceText` is written by `Render.track` through `TrainActivity.sourceText`, so this fixture
-            // no longer gets to say whatever it likes about what the strip contains. It used to print a
-            // timetable-size line that the app does not put there.
-            Unit
+            // The Info dialog is intentionally NOT in this layout: the stop table keeps its height.
         }
         assertEquals(9, Render.rowCount(shot.root))
         Render.save("03-track-full", shot.bitmap)
@@ -298,25 +305,13 @@ Render.save("01-track-schedule", shot.bitmap)
                 "No accounts, no API keys, no ads, no analytics. Live status is fetched directly from a " +
                 "public Indian Railways enquiry endpoint; everything else — station search, the ±24 h " +
                 "train list and every timetable — is answered here.")
-            // The spinner's rows are built by the Activity from an ArrayAdapter over `item_spinner_choice`;
-            // doing the same here is what proves that layout inflates and lays out at all.
-            root.findViewById<android.widget.Spinner>(R.id.refreshChoices)?.apply {
-                adapter = android.widget.ArrayAdapter(
-                    context, R.layout.item_spinner_choice, listOf("30 s", "1 min", "5 min", "10 min")
-                )
-                setSelection(1)
-            }
         }
-        listOf(R.id.state, R.id.overrideUrl, R.id.columnHint, R.id.refreshChoices, R.id.save, R.id.clear,
+        listOf(R.id.state, R.id.overrideUrl, R.id.columnHint, R.id.save, R.id.clear,
             R.id.back, R.id.about).forEach { id ->
             assertNotNull("SettingsActivity binds ${name(shot, id)}, the layout does not have it",
                 shot.root.findViewById<View>(id))
         }
         assertTrue("settings painted ${shot.distinct()} colours", shot.distinct() > 8)
-        val spinner = shot.root.findViewById<android.widget.Spinner>(R.id.refreshChoices)!!
-        assertTrue("the auto-refresh chooser drew no row", spinner.childCount > 0)
-        assertEquals("the chooser should show the selected label", "1 min",
-            (spinner.getChildAt(0) as? TextView)?.text?.toString())
         Render.save("04-settings", shot.bitmap)
     }
 

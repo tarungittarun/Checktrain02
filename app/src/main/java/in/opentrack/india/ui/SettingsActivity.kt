@@ -3,7 +3,6 @@ package `in`.opentrack.india.ui
 import `in`.opentrack.india.R
 import android.content.Intent
 import android.os.Bundle
-import android.widget.ArrayAdapter
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -73,17 +72,9 @@ class SettingsActivity : AppCompatActivity() {
 
         binding.overrideUrl.setText(prefs.overrideUrl)
         binding.columnHint.setText(prefs.columnHint)
-        // Own layout rather than `simple_list_item_1`: the framework row brings a system text size and
-        // padding, which would be the only type on this screen not drawn from the project's ladder.
-        binding.refreshChoices.adapter = ArrayAdapter(
-            this, R.layout.item_spinner_choice, REFRESH_LABELS
-        )
-        binding.refreshChoices.setSelection(refreshIndex(prefs.autoRefreshSeconds))
-
         binding.save.setOnClickListener {
             prefs.overrideUrl = binding.overrideUrl.text.toString().trim()
             prefs.columnHint = binding.columnHint.text.toString().trim()
-            prefs.autoRefreshSeconds = REFRESH_SECONDS[binding.refreshChoices.selectedItemPosition]
             Toast.makeText(this, "Saved", Toast.LENGTH_SHORT).show()
             finish()
         }
@@ -191,14 +182,4 @@ class SettingsActivity : AppCompatActivity() {
     private fun toast(message: String) = Toast.makeText(this, message, Toast.LENGTH_LONG).show()
     private fun toast(res: Int) = Toast.makeText(this, res, Toast.LENGTH_LONG).show()
 
-    companion object {
-        private val REFRESH_SECONDS = intArrayOf(0, 30, 60, 300, 900)
-        private val REFRESH_LABELS = arrayOf(
-            "Manual refresh only", "Every 30 seconds", "Every minute", "Every 5 minutes",
-            "Every 15 minutes"
-        )
-
-        private fun refreshIndex(seconds: Int): Int =
-            REFRESH_SECONDS.indexOf(seconds).takeIf { it >= 0 } ?: 2
-    }
 }

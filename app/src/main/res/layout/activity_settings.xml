@@ -118,24 +118,6 @@
                 android:inputType="text"
                 android:textSize="14sp" />
 
-            <TextView
-                style="@style/FieldLabel"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="18dp"
-                android:text="@string/settings_refresh_title" />
-
-            <Spinner
-                android:id="@+id/refreshChoices"
-                android:popupBackground="@color/surface2"
-                android:dropDownWidth="match_parent"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
-                android:background="@drawable/bg_field"
-                android:minHeight="48dp"
-                android:paddingStart="12dp"
-                android:paddingEnd="12dp" />
 
             <LinearLayout
                 android:layout_width="match_parent"
