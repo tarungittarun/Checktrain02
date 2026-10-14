@@ -90,6 +90,24 @@ class PositionEngineTest {
     }
 
     @Test
+    fun arrivalOnlyDoesNotBecomeDepartureWhenScheduledHaltEnds() {
+        val a = locate(snap("MID", 2, StopStatus.ARRIVED, 600, 600,
+            perStop = mapOf("MID" to LiveStopFields(actualArrivalMin = 600))), now = 625)
+        assertEquals(StopStatus.ARRIVED, a.position.status)
+        assertEquals(2, a.position.anchorSeq)
+        assertEquals(0f, a.position.fraction, 1e-6f)
+        assertNull(a.position.etaNextMinute)
+        assertTrue(a.note.orEmpty().contains("departure not reported"))
+        val screen = TrackModel.build(route, a.position,
+            mapOf("MID" to LiveStopFields(actualArrivalMin = 600)), 625,
+            boardSeq = 1, alightSeq = 3, runEpochDay = 19949L,
+            note = a.note, positionOnly = true)
+        assertTrue(screen.headline.contains("arrived at Mid Jn"))
+        assertFalse(screen.headline.contains("departed"))
+        assertNull(screen.rows.first { it.code == "MID" }.showDep)
+    }
+
+    @Test
     fun pastTheHaltTheMarkerStartsMoving() {
         val a = locate(snap("MID", 2, StopStatus.DEPARTED, 610, 610), now = 655)
         assertEquals(StopStatus.DEPARTED, a.position.status)

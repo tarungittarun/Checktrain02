@@ -131,13 +131,14 @@ object PositionEngine {
             0,
             (stop.departureMin ?: stop.arrivalMin ?: 0) - (stop.arrivalMin ?: stop.departureMin ?: 0)
         )
-        val stillHalted = snap.event == StopStatus.ARRIVED &&
-            (snap.eventMinute == null || req.nowRailMinute - snap.eventMinute <= haltMin)
-
-        var status = when {
-            snap.event == StopStatus.CANCELLED_HERE -> StopStatus.CANCELLED_HERE
-            stillHalted || snap.event == StopStatus.APPROACHING -> StopStatus.ARRIVED
-            else -> StopStatus.DEPARTED
+        // An observed arrival does NOT become an observed departure when the scheduled
+        // halt duration expires. The owner's 16227 had SMET Act arrival 04:53, no ATD,
+        // and the old clock-only promotion said "departed" at 05:08.
+        var status = when (snap.event) {
+            StopStatus.CANCELLED_HERE -> StopStatus.CANCELLED_HERE
+            StopStatus.ARRIVED, StopStatus.APPROACHING -> StopStatus.ARRIVED
+            StopStatus.DEPARTED -> StopStatus.DEPARTED
+            else -> StopStatus.UNKNOWN
         }
         var anchorSeq = anchor
         var fraction = 0f
@@ -155,6 +156,11 @@ object PositionEngine {
         val segment = route.segmentAfter(anchor)
         val legMin = segment?.legMin
         val eventMin = snap.eventMinute
+        if (status == StopStatus.ARRIVED && eventMin != null &&
+            req.nowRailMinute - eventMin > haltMin) {
+            eta = null
+            note = "Last reported arrival at ${stop.code}; departure not reported, current position unknown"
+        }
         if (status == StopStatus.DEPARTED) {
             eta = null
             if (provenance == SourceKind.CACHED) {

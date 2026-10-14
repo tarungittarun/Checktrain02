@@ -323,6 +323,8 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
     }
 
     private fun tagColorFor(s: TrackModel.Stop): Int = when {
+        s.state == TrackModel.State.HERE && s.source == TrackModel.MinuteSource.REPORTED &&
+            s.showArr != null && s.showDep == null -> R.color.warn
         s.state == TrackModel.State.HERE && s.source == TrackModel.MinuteSource.REPORTED -> R.color.accent
         s.state == TrackModel.State.CANCELLED || s.state == TrackModel.State.SKIPPED -> R.color.late
         s.state == TrackModel.State.NEXT -> R.color.text1
@@ -333,7 +335,8 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
     }
 
     private fun dotFor(s: TrackModel.Stop): Int = when (s.state) {
-        TrackModel.State.HERE -> if (s.source == TrackModel.MinuteSource.REPORTED)
+        TrackModel.State.HERE -> if (s.source == TrackModel.MinuteSource.REPORTED &&
+            !(s.showArr != null && s.showDep == null))
             R.drawable.dot_here else R.drawable.dot_later
         TrackModel.State.PASSED -> if (s.source == TrackModel.MinuteSource.REPORTED)
             R.drawable.dot_passed else R.drawable.dot_later
@@ -343,6 +346,8 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
 
     private fun colorFor(s: TrackModel.Stop): Int = when {
         s.state == TrackModel.State.CANCELLED || s.state == TrackModel.State.SKIPPED -> R.color.late
+        s.state == TrackModel.State.HERE && s.source == TrackModel.MinuteSource.REPORTED &&
+            s.showArr != null && s.showDep == null -> R.color.warn
         s.state == TrackModel.State.HERE && s.source == TrackModel.MinuteSource.REPORTED -> R.color.accent
         s.source == TrackModel.MinuteSource.SCHEDULE -> R.color.text2
         s.state == TrackModel.State.LATER -> R.color.text2
