@@ -144,7 +144,11 @@ class TrainActivity : AppCompatActivity() {
         }
         val hasPassThrough = stops.any { !it.isHalt }
         layout.addView(TextView(this).apply {
-            text = getString(if (hasPassThrough) R.string.between_complete else R.string.between_limit)
+            text = getString(when {
+                stops.size <= 2 -> R.string.between_endpoints
+                hasPassThrough -> R.string.between_complete
+                else -> R.string.between_limit
+            })
             setTextColor(getColor(R.color.warn))
         })
         val options = stops.map { "${it.code} · ${it.name}" }
@@ -288,6 +292,8 @@ class TrainActivity : AppCompatActivity() {
     private fun bind(ui: LiveViewModel.Ui) {
         val m = ui.model
         binding.trainNo.text = m.trainNo
+        binding.betweenStations.setText(if ((ui.staticRoute ?: ui.route).stops.size <= 2)
+            R.string.between_endpoints_button else R.string.between_stations)
         binding.routeLabel.text = m.routeLabel
         binding.runDate.text = m.runDateLabel
         binding.lastUpdated.visibility = if (ui.lastUpdated == null) View.GONE else View.VISIBLE
