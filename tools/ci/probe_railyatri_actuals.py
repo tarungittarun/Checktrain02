@@ -135,9 +135,12 @@ def api_probe(number, day=0):
 
 if __name__ == '__main__':
     print('RailYatri trial. A future row can say "Departed at": it is NOT an observed event on that basis.', flush=True)
+    # Same run as the owner's 03:10 16227 diary, not just unrelated fast pages.
+    probe('16227', '?start_day=1&start_date=20261014')
     probe('20652')
     probe('20689')
     probe('20652', '?start_day=1&start_date=20261013')
     for number in ('20652', '20689', '16556'):
         api_probe(number)
     api_probe('20652', 1)
+    api_probe('16227', 1)

@@ -279,21 +279,34 @@ class TrainActivity : AppCompatActivity() {
         // sentences ("Should be past Shimoga Town") contradicted the confirmed departure and read as
         // wrong data (paste #25). The badge earns its colour from the measured lateness.
         if (ui.actualsHeadline == null && !m.isLive) {
-            binding.headline.text = "Live position unverified — timetable only"
-            binding.provenance.text = "SCHEDULE · no verified actuals"
+            val savedReport = ui.answer.position.provenance ==
+                `in`.opentrack.india.model.SourceKind.CACHED &&
+                m.rows.any { it.source == TrackModel.MinuteSource.REPORTED }
+            if (savedReport) {
+                // A timeout did not erase the historical official observation. It is
+                // last-known, never today's *current* location or a new live receipt.
+                binding.headline.text = m.headline
+                binding.provenance.text = m.provenanceLabel
+                binding.age.text = m.ageLabel
+                binding.delay.text = "Last reported: ${m.delayLabel}"
+                binding.next.text = m.nextLabel
+            } else {
+                binding.headline.text = "Live position unverified — timetable only"
+                binding.provenance.text = "SCHEDULE · no verified actuals"
+                binding.age.text = ui.lastUpdated ?: "Not checked yet"
+                binding.delay.text = "— · no verified delay"
+                val nextSchedule = m.rows.firstOrNull {
+                    (it.schedArr ?: it.schedDep ?: Int.MIN_VALUE) > ui.nowRailMinute
+                }
+                binding.next.text = nextSchedule?.let {
+                    "Scheduled: ${it.name} · " +
+                        (it.schedArr ?: it.schedDep)?.let(RailTime::formatRailMinute) +
+                        " (not a live ETA)"
+                } ?: "No live next-stop ETA"
+            }
             binding.provenance.setBackgroundResource(R.drawable.bg_badge_schedule)
             binding.provenance.setTextColor(getColor(R.color.warn))
-            binding.age.text = ui.lastUpdated ?: "Not checked yet"
-            binding.delay.text = "— · no verified delay"
             binding.delay.setTextColor(getColor(R.color.warn))
-            val nextSchedule = m.rows.firstOrNull {
-                (it.schedArr ?: it.schedDep ?: Int.MIN_VALUE) > ui.nowRailMinute
-            }
-            binding.next.text = nextSchedule?.let {
-                "Scheduled: ${it.name} · " +
-                    (it.schedArr ?: it.schedDep)?.let(RailTime::formatRailMinute) +
-                    " (not a live ETA)"
-            } ?: "No live next-stop ETA"
         }
         if (ui.actualsHeadline != null) {
             binding.headline.text = ui.actualsHeadline

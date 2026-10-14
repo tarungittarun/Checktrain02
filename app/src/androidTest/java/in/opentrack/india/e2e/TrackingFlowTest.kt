@@ -138,17 +138,13 @@ class TrackingFlowTest {
 
     // @flow projected-leg-honesty
     @Test
-    fun inlineLegIfShownSaysThatItIsProjectedNotGps() {
-        // The old progress bar/label was removed. Only a verified live anchor may place
-        // the in-table marker; a schedule-only screen correctly has no moving train icon.
+    fun actualPositionOnlyDoesNotRenderInterpolatedTrain() {
+        // NTES supplies stop events, not a measured moving coordinate. No icon may
+        // claim a fractional location along the next leg on this screen.
         assertTrue("no station table to place the train in", E2E.count(stopsBy) > 0)
-        val marker = E2E.find("inlineLeg", 500)
-        if (marker != null) {
-            val caption = marker.contentDescription.orEmpty()
-            assertTrue("the train icon claims GPS or omits its projection: '$caption'",
-                caption.contains("not GPS", true) && caption.contains("estimated distance", true))
-        }
-        assertTrue("the position claims GPS rather than a published or projected state",
+        assertTrue("time-interpolated train icon appeared in position-only mode",
+            E2E.find("inlineLeg", 500) == null)
+        assertTrue("a railway feed was labelled device GPS",
             !E2E.text("provenance").contains("GPS", true))
     }
 

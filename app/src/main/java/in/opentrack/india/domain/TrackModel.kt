@@ -225,7 +225,10 @@ object TrackModel {
         val covered = (coveredKm - boardKm).coerceAtLeast(0)
         val progressLabel: String
         val progressPct: Int
-        if (hasDistances) {
+        if (positionOnly && !live && pos.provenance != SourceKind.CACHED) {
+            progressPct = 0
+            progressLabel = "Position unknown · timetable only"
+        } else if (hasDistances) {
             progressPct = if (totalKm > 0) ((covered * 100) / totalKm).coerceIn(0, 100) else 0
             progressLabel = if (positionOnly && !live && pos.provenance != SourceKind.CACHED)
                 "Position unknown · $totalKm km scheduled route"
@@ -249,7 +252,9 @@ object TrackModel {
                 val span = (route.stops.indexOfLast { it.seq == alightSeq } -
                     (route.stops.indexOfFirst { it.seq == boardSeq }).coerceAtLeast(0)).coerceAtLeast(1)
                 progressPct = ((done * 100) / span).coerceIn(0, 100)
-                progressLabel = "$done of $span stops covered · distances unavailable offline"
+                progressLabel = if (positionOnly)
+                    "Last reported halt · $done of $span scheduled stops · distances unavailable"
+                else "$done of $span stops covered · distances unavailable offline"
             }
         }
 
@@ -286,7 +291,8 @@ object TrackModel {
                 "Last reported: $event ${TitleCase.of(anchor.name)}$time · current position unknown"
             } else headline(route, pos, anchor, next, live, nowRailMinute),
             tone = tone(pos, live),
-            provenanceLabel = pos.provenance.label,
+            provenanceLabel = if (positionOnly && pos.provenance == SourceKind.PROVIDER_NTES)
+                "NTES · last reported halt" else pos.provenance.label,
             feedStampLabel = pos.feedStampMillis?.let { "feed stamped ${RailTime.formatClock(it)} IST" } ?: "",
             isLive = live,
             // "1 min ago" on a screen with nothing to fetch is a small untruth with a big reach: the age

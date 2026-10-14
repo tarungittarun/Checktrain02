@@ -95,9 +95,9 @@ class TrackModelTest {
         )
         val m = TrackModel.build(r, p, rows, 1435, 1, 3, 19949L, null,
             positionOnly = true)
-        assertTrue(m.headline.contains("Last reported: departed Src Jn"))
+        assertTrue(m.headline.contains("Last reported: departed SRC Jn"))
         assertTrue(m.headline.contains("current position unknown"))
-        assertEquals("Next scheduled: Mid Jn · 00:00 (+1d) · arrival not confirmed", m.nextLabel)
+        assertEquals("Next scheduled: MID Jn · 00:00 (+1d) · arrival not confirmed", m.nextLabel)
         assertEquals(TrackModel.MinuteSource.SCHEDULE, m.rows[1].source)
         assertEquals(TrackModel.MinuteSource.REPORTED, m.rows[0].source)
         assertEquals(0, m.progressPct)

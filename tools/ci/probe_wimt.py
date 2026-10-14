@@ -56,5 +56,6 @@ def probe(number, start, end):
 
 if __name__ == '__main__':
     print('UNOFFICIAL API trial only: do not integrate or interpret unexplained fields as actuals.', flush=True)
+    probe('16227', 'MYS', 'TLGP')
     probe('20689', 'YPR', 'SMET')
     probe('20652', 'TLGP', 'SBC')
