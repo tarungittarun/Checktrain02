@@ -1295,9 +1295,9 @@ class LiveViewModel(
             else candidate
         }
         return Ui(
-            route = route, answer = if (selectedMirrorForTable || webPoint != null)
-                answer.copy(position = tablePos, perStop = emptyMap()) else answer,
-            model = withActuals,
+            // Keep the original official answer in state. The selected source's table-only
+            // anchor must NEVER become the next refresh's official position or cross-check.
+            route = route, answer = answer, model = withActuals,
             boarding = withActuals.rows.firstOrNull { it.isBoarding },
             alighting = withActuals.rows.firstOrNull { it.isAlighting },
             nowRailMinute = nowRail, tried = tried, loading = false,
