@@ -162,10 +162,11 @@ for p in "${PKGS[@]}"; do
         # Not every API level published an x86_64 google_apis image (android-24 is a common offender), and
         # a 32-bit system image runs the app just as well for these purposes. Falling back keeps the minSdk
         # row a real row instead of a packaging accident in the image list.
-        echo "::notice::no system image for $IMG/$ABI at api ${API} - falling back to x86"
+        firstImageWhy=$(sdkmanager_says | tr '\n' ' ' | cut -c1-300)
+        echo "::notice::x86_64 image install did not complete (${firstImageWhy:-no diagnostic}); trying x86"
         ABI=x86
         if ! install_pkg "system-images;android-${API};${IMG};x86"; then
-          echo "::error::sdkmanager could not install any system image for api ${API} (${IMG})"
+          echo "::error::sdkmanager could not install api ${API}/${IMG} image: x86_64=${firstImageWhy:-unknown}; x86=$(sdkmanager_says | tr '\n' ' ' | cut -c1-300)"
           tail -25 /tmp/sdkmanager.log
           exit 3
         fi
