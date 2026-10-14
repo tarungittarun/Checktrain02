@@ -2,6 +2,7 @@ package `in`.opentrack.india.ui
 
 import android.view.View
 import android.view.ViewGroup
+import android.widget.Button
 import android.widget.TextView
 import `in`.opentrack.india.R
 import org.junit.Assert.assertEquals
@@ -119,6 +120,29 @@ class SuggestFlowTest {
         assertTrue("the row should say it found nothing, but reads '${rowText(from, 0)}'",
             rowText(from, 0).contains("matches", ignoreCase = true) ||
                 rowText(from, 0).contains("installing", ignoreCase = true))
+    }
+
+    @Test
+    fun aCompletedNoMatchSearchKeepsItsFeedbackVisibleAfterReady() {
+        val activity = Robolectric.buildActivity(MainActivity::class.java).setup().get()
+        activity.findViewById<Button>(R.id.modeTrain).performClick()
+        val train = box(activity, R.id.trainBox)
+        type(train, "99999")
+        activity.findViewById<Button>(R.id.find).performClick()
+        val status = activity.findViewById<TextView>(R.id.statusLine)
+        val looper = shadowOf(android.os.Looper.getMainLooper())
+        repeat(150) {
+            looper.idleFor(100, TimeUnit.MILLISECONDS)
+            if (status.text.toString().contains("no direct train", ignoreCase = true) ||
+                status.text.toString().contains("matches", ignoreCase = true)) {
+                // Let the subsequent Phase.Ready observer run; it used to hide this answer.
+                looper.idleFor(100, TimeUnit.MILLISECONDS)
+                assertEquals("the completed search hid its explanation", View.VISIBLE, status.visibility)
+                return
+            }
+            Thread.sleep(25)
+        }
+        throw AssertionError("no completed answer for 99999: '${status.text}'")
     }
 
     @Test

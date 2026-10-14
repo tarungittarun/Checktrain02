@@ -81,6 +81,7 @@ class MainActivity : AppCompatActivity() {
         vm.phase.observe(this) { renderPhase(it) }
         vm.results.observe(this) { it?.let { r -> renderReport(r) } }
         vm.liveNote.observe(this) {
+            if (vm.results.value != null) binding.statusLine.visibility = View.VISIBLE
             binding.statusLine.text = composeStatus()
             // the merged screen, re-stated once the live answer lands: the upgrade is part of the record
             vm.results.value?.let { r ->
@@ -242,7 +243,9 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             is MainViewModel.Phase.Ready -> {
-                binding.statusLine.visibility = View.GONE
+                // A completed search also ends in Ready. Do not hide the very answer that
+                // renderReport just wrote (especially "no trains" and unknown-station advice).
+                binding.statusLine.visibility = if (vm.results.value == null) View.GONE else View.VISIBLE
                 binding.dataChip.visibility = View.VISIBLE
                 binding.dataChip.text = phase.dataVersion
                 binding.find.isEnabled = true
