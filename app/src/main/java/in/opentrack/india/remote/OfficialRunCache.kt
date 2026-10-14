@@ -56,7 +56,9 @@ internal object OfficialRunCache {
             )
         }
         val codes = stops.map { it.code.uppercase() }
-        if (codes.any { !it.matches(Regex("[A-Z0-9]{2,6}")) } || codes.distinct().size != codes.size ||
+        if (// Real NTES routes include one-letter station codes (e.g. Y on 16227). Rejecting
+        // those made a freshly saved 29-halt official run unreadable on the next timeout.
+        codes.any { !it.matches(Regex("[A-Z0-9]{1,6}")) } || codes.distinct().size != codes.size ||
             stops.first().departureMin == null || stops.last().arrivalMin == null) return null
         val a = codes.indexOf(from.uppercase())
         if (a < 0 || codes.indexOf(to.uppercase()) <= a) return null

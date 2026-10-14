@@ -7,6 +7,7 @@ on:
       - '.github/workflows/actual-source-trial.yml'
       - 'tools/ci/probe_railyatri_actuals.py'
       - 'tools/ci/probe_wimt.py'
+      - 'tools/ci/probe_position_feeds.py'
 
 permissions:
   contents: write
@@ -23,5 +24,6 @@ jobs:
         run: |
           python3 tools/ci/probe_railyatri_actuals.py | tee railyatri-actuals-trial.txt
           python3 tools/ci/probe_wimt.py | tee wimt-actuals-trial.txt
-          { echo 'Read-only source trials (page rows and predictions are NOT proof of actuals):'; echo '```'; cat railyatri-actuals-trial.txt wimt-actuals-trial.txt; echo '```'; } > source-comment.txt
+          python3 tools/ci/probe_position_feeds.py | tee position-feeds-trial.txt
+          { echo 'Read-only source trials (page rows and predictions are NOT proof of actuals):'; echo '```'; cat railyatri-actuals-trial.txt wimt-actuals-trial.txt position-feeds-trial.txt; echo '```'; } > source-comment.txt
           gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/comments" -f body="$(cat source-comment.txt)"

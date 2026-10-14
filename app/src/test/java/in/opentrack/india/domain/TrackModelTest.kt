@@ -85,6 +85,27 @@ class TrackModelTest {
     }
 
     @Test
+    fun positionOnlyShowsReportedHaltWhileFutureRemainsStatic() {
+        val r = overnightRoute()
+        val p = pos(1, 2, StopStatus.DEPARTED, fraction = .75f,
+            kmAlong = 75f, delay = 7, kind = SourceKind.PROVIDER_NTES)
+        val rows = mapOf(
+            "SRC" to LiveStopFields(actualDepartureMin = 1387, delayDepartureMin = 7),
+            "MID" to LiveStopFields(actualArrivalMin = 1447, delayArrivalMin = 7),
+        )
+        val m = TrackModel.build(r, p, rows, 1435, 1, 3, 19949L, null,
+            positionOnly = true)
+        assertTrue(m.headline.contains("Last reported: departed Src Jn"))
+        assertTrue(m.headline.contains("current position unknown"))
+        assertEquals("Next scheduled: Mid Jn · 00:00 (+1d) · arrival not confirmed", m.nextLabel)
+        assertEquals(TrackModel.MinuteSource.SCHEDULE, m.rows[1].source)
+        assertEquals(TrackModel.MinuteSource.REPORTED, m.rows[0].source)
+        assertEquals(0, m.progressPct)
+        assertEquals(-1, m.schedulePct)
+        assertFalse(m.progressLabel.contains("km left"))
+    }
+
+    @Test
     fun cachedOfficialPastStopNeverClaimsLivePositionOrForecast() {
         val r = overnightRoute()
         val reported = mapOf("SRC" to LiveStopFields(actualDepartureMin = 1387,

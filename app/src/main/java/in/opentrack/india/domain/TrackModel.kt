@@ -132,6 +132,8 @@ object TrackModel {
         alightSeq: Int,
         runEpochDay: Long,
         note: String?,
+        /** Only observed station events locate the train; other cells are the timetable. */
+        positionOnly: Boolean = false,
     ): View {
         val live = pos.provenance.live
         val board = route.stops.firstOrNull { it.seq == boardSeq }
@@ -147,18 +149,22 @@ object TrackModel {
         val stops = route.stops.mapIndexed { index, s ->
             val liveFields = perStop[s.code]
             // A cached report is a past observation, not permission to keep forecasting.
-            val carried = if (pos.provenance == SourceKind.CACHED ||
+            val carried = if (positionOnly || pos.provenance == SourceKind.CACHED ||
                 (live && s.seq != pos.nextSeq)) null else overlay.getOrNull(index)
             // Aligned to the scheduled minute before use: the feed answers with a clock, the table counts
             // from the run's first halt, and without this a halt on day 2 put "00:20" under "00:30 (+1d)" —
             // two cells in one row that a traveller has to subtract 24 hours between. The alignment is what
             // `LargeScreenRenderTest`'s picture showed happening; see `RailTime.alignClock`.
-            val actualArr = RailTime.alignClock(liveFields?.actualArrivalMin, s.arrivalMin)
-            val actualDep = RailTime.alignClock(liveFields?.actualDepartureMin, s.departureMin)
+            // Even a feed field named 'actual' may be a future prediction. Never put it
+            // under Act for an unreached stop. Past reported events remain historical facts.
+            val reached = !positionOnly || (pos.anchorSeq > 0 && s.seq <= pos.anchorSeq)
+            val actualArr = if (reached) RailTime.alignClock(liveFields?.actualArrivalMin, s.arrivalMin) else null
+            val actualDep = if (reached) RailTime.alignClock(liveFields?.actualDepartureMin, s.departureMin) else null
             // Official ETA/ETD at a future stop are predictions, not historical delay.
             // Only the immediate next stop earns a forecast; later rows remain pure Sch.
-            val delay = (if (!live || s.seq <= pos.anchorSeq || s.seq == pos.nextSeq)
-                liveFields?.let { it.delayArrivalMin ?: it.delayDepartureMin } else null) ?: carried
+            val delay = (if (positionOnly && s.seq > pos.anchorSeq) null
+                else if (!live || s.seq <= pos.anchorSeq || s.seq == pos.nextSeq)
+                    liveFields?.let { it.delayArrivalMin ?: it.delayDepartureMin } else null) ?: carried
             // Confirmed time where the feed reported one; otherwise the schedule, nudged by the delay
             // we are allowed to carry forward (which delayProfile restricts to stops still ahead).
             val estArr = s.arrivalMin?.let { it + (delay ?: 0) }
@@ -209,7 +215,9 @@ object TrackModel {
         // position put it there; otherwise interpolate the anchor->next leg by the same fraction the
         // chart uses, so the bar, the sentence and the plot agree.
         val coveredKm = when {
+            positionOnly && !live && pos.provenance != SourceKind.CACHED -> 0
             anchor == null -> 0
+            positionOnly && pos.provenance != SourceKind.DERIVED_GPS -> anchor.kmFromOrigin.coerceAtLeast(0)
             pos.kmAlong > 0f -> pos.kmAlong.toInt()
             else -> anchor.kmFromOrigin + ((next?.kmFromOrigin ?: anchor.kmFromOrigin) - anchor.kmFromOrigin)
                 .times(pos.fraction.coerceIn(0f, 1f)).toInt()
@@ -219,7 +227,11 @@ object TrackModel {
         val progressPct: Int
         if (hasDistances) {
             progressPct = if (totalKm > 0) ((covered * 100) / totalKm).coerceIn(0, 100) else 0
-            progressLabel = "$covered of $totalKm km" +
+            progressLabel = if (positionOnly && !live && pos.provenance != SourceKind.CACHED)
+                "Position unknown · $totalKm km scheduled route"
+            else if (positionOnly && pos.provenance != SourceKind.DERIVED_GPS)
+                "Last reported halt · $covered of $totalKm scheduled km"
+            else "$covered of $totalKm km" +
                 (if (pos.fraction > 0f && pos.kmAlong > 0f) " · ${(totalKm - covered).coerceAtLeast(0)} km left" else "")
         } else {
             if (route.segments.isEmpty()) {
@@ -245,7 +257,7 @@ object TrackModel {
         // measure different journeys and the gap between them is meaningless.
         val seg = stops.filter { it.seq >= boardSeq && it.seq <= alightSeq }
         val schedAnchor = seg.lastOrNull { (it.schedDep ?: it.schedArr ?: Int.MAX_VALUE) <= nowRailMinute }
-        val schedulePct = if (hasDistances && totalKm > 0) {
+        val schedulePct = if (positionOnly) -1 else if (hasDistances && totalKm > 0) {
             ((schedAnchor?.kmFromBoard ?: 0) * 100 / totalKm).coerceIn(0, 100)
         } else {
             -1
@@ -267,7 +279,12 @@ object TrackModel {
 
             },
             runDateLabel = "run of ${RailTime.formatDate(runEpochDay)}",
-            headline = headline(route, pos, anchor, next, live, nowRailMinute),
+            headline = if (positionOnly && live && pos.provenance != SourceKind.DERIVED_GPS && anchor != null) {
+                val event = if (pos.status == StopStatus.ARRIVED) "arrived at" else "departed"
+                val time = (if (pos.status == StopStatus.ARRIVED) anchor.showArr else anchor.showDep)
+                    ?.let { " · ${RailTime.formatRailMinute(it)}" } ?: ""
+                "Last reported: $event ${TitleCase.of(anchor.name)}$time · current position unknown"
+            } else headline(route, pos, anchor, next, live, nowRailMinute),
             tone = tone(pos, live),
             provenanceLabel = pos.provenance.label,
             feedStampLabel = pos.feedStampMillis?.let { "feed stamped ${RailTime.formatClock(it)} IST" } ?: "",
@@ -283,7 +300,12 @@ object TrackModel {
                 else -> age(pos.ageSeconds)
             },
             delayLabel = delayLabel(pos, live),
-            nextLabel = nextLabel(next, route, alightSeq, pos.provenance == SourceKind.CACHED),
+            nextLabel = if (positionOnly && next != null) {
+                val t = next.schedArr ?: next.schedDep
+                "Next scheduled: ${TitleCase.of(next.name)}" +
+                    (t?.let { " · ${RailTime.formatRailMinute(it)}" } ?: "") +
+                    " · arrival not confirmed"
+            } else nextLabel(next, route, alightSeq, pos.provenance == SourceKind.CACHED),
             progressLabel = progressLabel,
             progressPct = progressPct,
             schedulePct = schedulePct,

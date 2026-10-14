@@ -159,8 +159,10 @@ class RailRepository private constructor(
         /** Live-list identity's two endpoint times when the bundled DB lacks this number. */
         fallbackRoute: TrainRoute? = null,
     ): Live? = withContext(Dispatchers.IO) {
-        val route = queries.route(trainNo)
-            ?: savedSchedule(trainNo, fromCode, toCode, originEpochDay)
+        // A run-checked 29-halt official schedule outranks the bundled 11-halt route.
+        // Otherwise a transient NTES timeout silently reverts 16227 MYS→TLGP to SBC→SMET.
+        val route = savedSchedule(trainNo, fromCode, toCode, originEpochDay)
+            ?: queries.route(trainNo)
             ?: fallbackRoute?.takeIf { it.trainNo == trainNo && it.stops.size >= 2 }
             ?: return@withContext null
         val nowMillis = System.currentTimeMillis()

@@ -250,9 +250,9 @@ class TrainActivity : AppCompatActivity() {
             `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE) View.VISIBLE else View.GONE
         binding.sourceSummary.text = "WIMT web notes are unverified; they do not set Act or position."
         binding.headline.text = m.headline
-        val leg = if (ui.answer.position.provenance ==
-            `in`.opentrack.india.model.SourceKind.PROVIDER_NTES)
-            RouteBetween.projectLeg(ui.route, ui.staticRoute, ui.answer.position) else null
+        // NTES publishes last-reported halt events, not a measured moving coordinate.
+        // No time-interpolated icon belongs in an actual-position-only view.
+        val leg: RouteBetween.LegProjection? = null
         val (badgeBg, badgeText) = when (m.tone) {
             TrackModel.Tone.LIVE_OK, TrackModel.Tone.LIVE_EARLY ->
                 R.drawable.bg_badge_live to R.color.live

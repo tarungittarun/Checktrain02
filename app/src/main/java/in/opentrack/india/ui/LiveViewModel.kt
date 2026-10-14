@@ -231,33 +231,15 @@ class LiveViewModel(
             return
         }
         if (name == "erail") {
-            if (System.currentTimeMillis() - manualErailAt > PositionEngine.STALE_MS)
-                manualErail = null
-            if (manualErail != null) {
-                mirrorActiveSource = name
-                val u = _ui.value ?: return
-                _ui.postValue(buildUi(u.route, manualErail ?: u.answer, u.tried).copy(relayOk = u.relayOk))
-            } else probeSource(name)
+            probeSource(name) // every explicit selection is a fresh, timed attempt
             return
         }
         if (name == WimtCandidate.SOURCE) {
-            if (wimtCandidate == null || System.currentTimeMillis() - wimtCheckedAt > 120_000L) {
-                probeSource(name)
-            } else {
-                // Station annotations only. The Act column and position continue to show NTES;
-                // WIMT's undocumented fields do not meet the bar for verified actuals.
-                mirrorActiveSource = name
-                val u = _ui.value ?: return
-                _ui.postValue(buildUi(u.route, lastAnswer ?: u.answer, u.tried).copy(relayOk = u.relayOk))
-            }
+            probeSource(name) // recheck; a cached candidate is not a new source answer
             return
         }
         if (name in setOf(RunningStatusMirror.SOURCE, ConfirmTktMirror.SOURCE)) {
-            if (freshShift() && mirrorStops[name].orEmpty().isNotEmpty()) {
-                mirrorActiveSource = name
-                val u = _ui.value ?: return
-                _ui.postValue(buildUi(u.route, lastAnswer ?: u.answer, u.tried).copy(relayOk = u.relayOk))
-            } else probeSource(name)
+            probeSource(name) // never mistake an earlier page for this tap's result
             return
         }
         _mirrorState.postValue("$name: no verified per-stop feed available to ask")
@@ -1195,6 +1177,7 @@ class LiveViewModel(
             alightSeq = route.stops.lastOrNull { it.code.equals(toCode, true) }?.seq
                 ?: route.stops.lastOrNull()?.seq ?: route.lastSeq,
             runEpochDay = originEpochDay,
+            positionOnly = true,
             // The source's own sentence leads. It is the only one that names a cause the traveller can act
             // on — no network, a timeout, a refusal, or the case this endpoint really is: it answered about
             // the train and published no arrival or departure minute at all. "No live report reached this
@@ -1224,7 +1207,7 @@ class LiveViewModel(
             (pos.provenance != SourceKind.PROVIDER_NTES || selectedMirrorForTable))
             mirrorStops[mirrorActiveSource].orEmpty() else emptyList()
         val withActuals = if (overlayStops.isEmpty()) labelled
-            else overlayActuals(labelled, overlayStops, nowMinute(now))
+            else overlayActuals(labelled, overlayStops, nowMinute(now), staticFuture = true)
         // Refreshes must not wipe what the witnesses wrote (paste #24 wiped the reader lines, paste #26
         // wiped the actuals headline): everything the mirror said is re-applied from state while fresh.
         val live = freshShift()
@@ -1270,9 +1253,9 @@ class LiveViewModel(
         val lastReported = withActuals.rows.lastOrNull { it.source == TrackModel.MinuteSource.REPORTED }
         val nextRow = lastReported?.let { r -> withActuals.rows.getOrNull(withActuals.rows.indexOf(r) + 1) }
         val nextStatement = nextRow?.let { r ->
-            if (r.source == TrackModel.MinuteSource.PROJECTED && r.showArr != null && r.showArr >= nowMinute(now))
-                "Next ${r.name}: estimated ${RailTime.formatRailMinute(r.showArr)} (not reported)"
-            else "Next ${r.name}: arrival not confirmed"
+            "Next scheduled: ${r.name}" +
+                ((r.schedArr ?: r.schedDep)?.let { " · ${RailTime.formatRailMinute(it)}" } ?: "") +
+                " · arrival not confirmed"
         }
         val staticCandidate = listOfNotNull(geoRoute, confirmStaticRoute)
             .filter { candidate ->
@@ -1485,6 +1468,7 @@ class LiveViewModel(
          * later halt; hide an ETA already behind the device clock instead of printing time travel. */
         internal fun overlayActuals(
             model: TrackModel.View, stops: List<RunningStatusMirror.Stop>, nowRail: Int,
+            staticFuture: Boolean = false,
         ): TrackModel.View {
             val byCode = validateStops(model, stops, nowRail).associateBy { it.stationCode.uppercase() }
             // Project only the single next station after the final verified stop.
@@ -1510,6 +1494,11 @@ class LiveViewModel(
                         source = TrackModel.MinuteSource.REPORTED)
                 }
                 if (row.source == TrackModel.MinuteSource.REPORTED) return@map row
+                // Position-only view: the remaining journey is the timetable, not a
+                // delay-propagated forecast from an unverified page.
+                if (staticFuture) return@map row.copy(
+                    showArr = row.schedArr, showDep = row.schedDep,
+                    source = TrackModel.MinuteSource.SCHEDULE, delay = null)
                 val offset = carried?.takeIf { row.seq == nextSeq }
                 val arrEst = if (offset == null) null else row.schedArr?.plus(offset)
                 val depEst = if (offset == null) null else row.schedDep?.plus(offset)

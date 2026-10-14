@@ -138,6 +138,13 @@ class NtesMobileFallbackTest {
         assertEquals(listOf("MYS", "NHY", "PANP"), cached.reportedRoute!!.stops.map { it.code })
         assertEquals(20 * 60 + 5, cached.perStop["PANP"]!!.actualArrivalMin)
         assertEquals(stamp, cached.feedStampMillis)
+        // 16227's actual 29-halt answer includes Y. An old 2-character-only cache
+        // validator discarded the whole saved run on a transient NTES timeout.
+        val withSingleLetterCode = fresh.copy(reportedRoute = route.copy(stops =
+            route.stops.toMutableList().apply { add(1, route.stops[1].copy(code = "Y")) }))
+        val restored = OfficialRunCache.decode(OfficialRunCache.encode(withSingleLetterCode),
+            "16227", day, "MYS", "PANP", stamp + 120_000)
+        assertEquals("Y", restored?.reportedRoute?.stops?.get(1)?.code)
         assertNull(OfficialRunCache.decode(record, "16227", day + 1, "MYS", "PANP", stamp + 120_000))
         assertNull(OfficialRunCache.decode(record, "16227", day, "SBC", "SMET", stamp + 120_000))
         assertNull(OfficialRunCache.decode(record, "16227", day, "MYS", "PANP",
