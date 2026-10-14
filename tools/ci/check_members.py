@@ -99,6 +99,9 @@ setPrimaryClip
 enabledCipherSuites supportedCipherSuites defaultCipherSuites createSocket getOrDefault
 # mirror witness (2026-10-12): stdlib Map merge so traveller lines keep their stop and the mirror fills the rest
 filterKeys
+# Android framework: static route pair selector uses two Spinner selections and Android's built-in
+# spinner layouts (not application resources). No project declaration can satisfy these names.
+selectedItemPosition simple_spinner_item simple_spinner_dropdown_item
 ifBlank maxByOrNull
 # pointing the screen at the train (2026-10-12): RecyclerView/LayoutManager positioning
 scrollToPositionWithOffset findViewByPosition smoothScrollTo
