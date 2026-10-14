@@ -32,9 +32,12 @@ class DegradationFlowTest {
             E2E.ui.wait(Until.findObject(E2E.res("sugPrimary")), E2E.LOCAL_MS) != null
         assertTrue("no suggestion at three letters offline: ${E2E.debugSearch("fromBox")}", offered)
         E2E.tapSuggestion("fromBox", 0)
-        assertTrue("the train box never responded offline", E2E.tap("modeTrain") &&
-            E2E.typeInBox("trainBox", "12627") &&
-            E2E.ui.wait(Until.findObject(E2E.res("sugPrimary")), E2E.LOCAL_MS) != null)
+        val switched = E2E.tap("modeTrain")
+        val typed = switched && E2E.typeInBox("trainBox", "12627")
+        val trainOffered = typed &&
+            E2E.ui.wait(Until.findObject(E2E.res("sugPrimary")), E2E.LOCAL_MS) != null
+        assertTrue("train search offline: switched=$switched typed=$typed ${E2E.debugSearch("trainBox")}",
+            trainOffered)
         assertTrue("the train row could not be selected", E2E.tapSuggestion("trainBox", 0))
         val answered = E2E.ui.wait(Until.hasObject(E2E.res("hitNo")), E2E.LOCAL_MS) ||
             E2E.text("statusLine").isNotBlank() || E2E.resultRows() > 0

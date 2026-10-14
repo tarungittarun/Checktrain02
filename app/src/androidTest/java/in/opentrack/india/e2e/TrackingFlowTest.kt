@@ -152,21 +152,24 @@ class TrackingFlowTest {
             !E2E.text("provenance").contains("GPS", true))
     }
 
-    // @flow chart-painted
+    // @flow table-geometry
     // @flow density-change
     @Test
-    fun chartHasGeometryAndLegend() {
-        val chart = E2E.find("chart")
-        assertNotNull("no position-against-timetable plot on the screen", chart)
-        val b = chart!!.visibleBounds
+    fun tableHasGeometryAtThisDensity() {
+        // The owner removed the separate plot: the station table and its in-row projected leg
+        // now own the viewport. Do not require a chart or legend that the APK does not contain.
+        val table = E2E.find("stops")
+        assertNotNull("the primary station table is absent", table)
+        val bounds = table!!.visibleBounds
         val screen = E2E.ui.findObjects(By.pkg(E2E.PKG)).firstOrNull()?.visibleBounds
-        assertTrue("the plot has no size ($b)", b.width() > 40 && b.height() > 40)
+        assertTrue("the station table has no usable size ($bounds)",
+            bounds.width() > 100 && bounds.height() > 80)
         if (screen != null) {
-            assertTrue("the plot overflows the window at this density: $b in $screen",
-                b.right <= screen.right + 1 && b.left >= screen.left - 1)
+            assertTrue("the station table overflows the screen: $bounds in $screen",
+                bounds.right <= screen.right + 1 && bounds.left >= screen.left - 1)
         }
-        assertTrue("the plot has no legend to read it by", E2E.text("chartLegend").isNotBlank())
-        E2E.shot("chart-at-${E2E.widthDp()}dp")
+        assertTrue("the table has no named station", E2E.count(stopsBy) > 0)
+        E2E.shot("table-at-${E2E.widthDp()}dp")
     }
 
     // @flow age-and-provenance

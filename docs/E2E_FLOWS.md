@@ -43,14 +43,14 @@ railway happens to be reporting today says so, and its test asserts the invarian
 | `boarding-alighting` | tracking | The two searched stations are tagged board / get off | `TrackingFlowTest#boardAndAlightAreMarked` | all |
 | `full-route-table` | tracking | Full station table is primary; no separate route-window toggle or hidden-row caption | `TrackingFlowTest#fullRouteIsPrimaryWithoutASeparateWindowControl` | all |
 | `projected-leg-honesty` | tracking | A train marker, when supported by a live anchor, names itself as a distance projection rather than GPS | `TrackingFlowTest#inlineLegIfShownSaysThatItIsProjectedNotGps` | all |
-| `chart-painted` | tracking | The position-against-timetable plot occupies real space with its legend, on every screen size | `TrackingFlowTest#chartHasGeometryAndLegend` | all |
+| `table-geometry` | tracking | The full station table has usable dimensions and named rows at the tested screen size | `TrackingFlowTest#tableHasGeometryAtThisDensity` | all |
 | `age-and-provenance` | tracking | The provenance and age chips are never blank; "live" cannot appear on a screen nothing fetched for | `TrackingFlowTest#ageChipNeverOverClaims` | all |
 | `source-disclosure` | tracking | Opening Info explains Act versus Est, position provenance, and that WIMT web cache is not the phone app | `TrackingFlowTest#sourceBlockExplainsTheAnswer` | all |
 | `refresh` | tracking | Refresh re-runs the chain and the screen updates without losing the route | `TrackingFlowTest#refreshKeepsTheScreenCoherent` | all |
 | `manual-refresh-only` | tracking | Refresh is available but neither Auto nor the separate intermediate-route button remains | `TrackingFlowTest#tableHasOnlyManualRefreshAndExpandableRoutePoints` | all |
 | `long-list-scroll` | tracking | A several-hundred-halt route scrolls to the end with rows still readable (recycling correctness) | `TrackingFlowTest#longRouteScrollsWithoutBlankRows` | all |
 | `back-nav` | tracking → search | Back returns to the search screen with the previous query intact | `TrackingFlowTest#backKeepsTheSearchQuery` | all |
-| `density-change` | tracking | The screen is coherent at every density the fleet runs (no overflow, no clipped plot) — the axis Robolectric cannot fake, since it ignores `fontScale` | `TrackingFlowTest#chartHasGeometryAndLegend` | large, density |
+| `density-change` | tracking | The station table remains within the screen at the tested density (no overflow) | `TrackingFlowTest#tableHasGeometryAtThisDensity` | large, density |
 | `settings-open` | settings | The screen shows the install state, endpoint field and column map | `SettingsFlowTest#everyControlIsReachableAndBackReturns` | all |
 | `diag-log-collector` | settings | The diagnostic log is inert until the user turns it on, says so on screen once they do, and is emptied by Clear without losing the switch | `SettingsFlowTest#diagnosticCollectorIsInertThenLiveThenEmpty` | all |
 | `endpoint-save-reload` | settings | A typed endpoint survives Save and reopening | `SettingsFlowTest#endpointPersistsAcrossReopen` | all |

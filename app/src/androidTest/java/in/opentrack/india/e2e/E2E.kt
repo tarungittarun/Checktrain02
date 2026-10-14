@@ -50,7 +50,14 @@ object E2E {
     fun find(name: String, timeoutMs: Long = LOCAL_MS): UiObject2? =
         ui.wait(Until.findObject(res(name)), timeoutMs)
 
-    fun text(name: String): String = find(name)?.text.orEmpty().trim()
+    /** Accessibility nodes can be replaced between a successful find and the text read. Re-find once. */
+    fun text(name: String, timeoutMs: Long = LOCAL_MS): String {
+        repeat(2) {
+            val value = runCatching { find(name, timeoutMs)?.text.orEmpty().trim() }.getOrNull()
+            if (value != null) return value
+        }
+        return ""
+    }
 
     fun visible(name: String, timeoutMs: Long = LOCAL_MS): Boolean = find(name, timeoutMs) != null
 
@@ -150,9 +157,10 @@ object E2E {
         while (System.currentTimeMillis() < deadline) {
             // The old test treated an EMPTY status line as "not Installing", so it raced the
             // first asset extraction and tested search while MainViewModel still refused queries.
-            val chip = find("dataChip", 500)?.text.orEmpty()
-            if (chip.isNotBlank()) return
-            val status = find("statusLine", 500)?.text.orEmpty()
+            val chip = text("dataChip", 500)
+            // The opening placeholder belongs in statusLine, not in this readiness chip.
+            if (chip.isNotBlank() && !chip.contains("Opening", true)) return
+            val status = text("statusLine", 500)
             check(!status.contains("could not be installed", true)) { status }
             Thread.sleep(500)
         }
@@ -208,10 +216,23 @@ object E2E {
     // search mode shows are in the tree at all, so a positional assumption would make a mode switch look
     // like a broken test.
 
-    fun boxField(box: String): UiObject2? =
-        ui.findObject(res(box))?.findObject(By.res(PKG, "suggestInput"))
+    fun boxField(box: String, timeoutMs: Long = 300): UiObject2? {
+        repeat(2) {
+            val field = runCatching {
+                find(box, timeoutMs)?.findObject(res("suggestInput"))
+            }.getOrNull()
+            if (field != null) return field
+        }
+        return null
+    }
 
-    fun boxText(box: String): String = boxField(box)?.text.orEmpty().trim()
+    fun boxText(box: String): String {
+        repeat(2) {
+            val value = runCatching { boxField(box)?.text.orEmpty().trim() }.getOrNull()
+            if (value != null) return value
+        }
+        return ""
+    }
 
     /** One bounded field report in test failures when the IME or suggestion panel disappears. */
     fun debugSearch(box: String): String =
@@ -220,14 +241,23 @@ object E2E {
             "panel=${visible("suggestPanel", 100)} row=${visible("sugPrimary", 100)}"
 
     fun typeInBox(box: String, value: String): Boolean {
-        val o = boxField(box) ?: return false
+        // Changing search modes re-lays out the box; wait for the new field rather than
+        // treating the first accessibility snapshot of a still-hidden view as an offline DB failure.
+        val o = boxField(box, LOCAL_MS) ?: return false
         setTextIn(o, value)
         return true
     }
 
     /** The "Selected  SBC" chip a picked suggestion leaves behind — the resolved code, from the UI. */
-    fun boxChip(box: String): String =
-        ui.findObject(res(box))?.findObject(By.res(PKG, "suggestChip"))?.text.orEmpty().trim()
+    fun boxChip(box: String): String {
+        repeat(2) {
+            val value = runCatching {
+                ui.findObject(res(box))?.findObject(res("suggestChip"))?.text.orEmpty().trim()
+            }.getOrNull()
+            if (value != null) return value
+        }
+        return ""
+    }
 
     fun suggestionRows(): List<UiObject2> = all(By.res(PKG, "sugPrimary"))
 
