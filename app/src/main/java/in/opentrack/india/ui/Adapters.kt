@@ -253,7 +253,7 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         if (leg != null) {
             val web = leg.markerKind == RouteBetween.MarkerKind.WEB_CACHE_CANDIDATE
             val caption = if (web)
-                "WIMT web cache · ${leg.estimateKm} route km · unverified, not phone-app GPS"
+                "WIMT web cache · distance-scaled candidate · unverified, not phone-app GPS"
                 else "Projected between ${leg.from} and ${leg.to} · not GPS"
             holder.inlineLegCaption.text = caption
             holder.inlineLeg.contentDescription = caption + " · ${leg.from} to ${leg.to} " +

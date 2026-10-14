@@ -130,8 +130,8 @@ object WimtCandidate {
         val km = (root.opt("distance") as? Number)?.toDouble() ?: return null
         if (!(km >= 0.0 && km < 100_000.0)) return null
         val current = (0 until rows.length()).firstOrNull { i ->
-            val row = rows.optJSONObject(i)
-            row?.optString("station_code")?.equals(code, true) == true &&
+            val row = rows.optJSONObject(i) ?: return@firstOrNull false
+            row.optString("station_code").equals(code, true) &&
                 row.opt("curStn") == true &&
                 !row.optString("source").equals("eta", true)
         } ?: return null
@@ -146,7 +146,9 @@ object WimtCandidate {
         // Even a freshly minted cache clock must not rehabilitate a contradictory row.
         if (departedAt > 0 && (departedAt < eventSeconds ||
                 departedAt > (now + 30_000L) / 1000L)) return null
-        updatedMillis(row.optString("updated_at"))?.let { updated ->
+        val updateRaw = row.optString("updated_at")
+        if (updateRaw.isNotBlank()) {
+            val updated = updatedMillis(updateRaw) ?: return null
             if (event > updated + 30_000L || updated > now + 120_000L) return null
         }
         if (RailTime.istEpochDay(event) !in day..day + 3 || now - event !in 0L..600_000L ||

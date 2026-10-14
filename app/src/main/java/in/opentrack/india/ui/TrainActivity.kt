@@ -78,6 +78,10 @@ class TrainActivity : AppCompatActivity() {
         binding.refresh.setOnClickListener {
             focusAfterRefresh = true
             vm.refresh(manual = true)
+            // Refresh the source the traveller actually selected, too. An old cache
+            // candidate must not masquerade as a new observation after an NTES tick.
+            if (lastUi?.activeSource == `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE)
+                vm.probeSource(`in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE)
         }
         vm.liveReceipt.observe(this) {
             if (focusAfterRefresh) {
@@ -111,8 +115,15 @@ class TrainActivity : AppCompatActivity() {
 
         vm.ui.observe(this) { it?.let { u -> lastUi = u; bind(u); renderNote() } }
         vm.checking.observe(this) { busy ->
+            val wasBusy = chainBusy
             chainBusy = busy == true
             renderChecking()
+            // A timeout can finish without a live receipt. Still centre on the
+            // last *reported* anchor after this manual request, even if unchanged.
+            if (wasBusy && !chainBusy && focusAfterRefresh) binding.stops.post {
+                focusCurrentLeg()
+                focusAfterRefresh = false
+            }
         }
         // The sources box: fetching while the witnesses work. Once actuals exist, the line goes quiet -
         // the top card then carries the same sentence (badge + source row + refreshed stamp), and one
@@ -250,7 +261,7 @@ class TrainActivity : AppCompatActivity() {
             `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE) View.VISIBLE else View.GONE
         binding.sourceSummary.text = if (ui.wimtWebPoint == null)
             "WIMT web: no recent route-checked point; row notes are not Act or phone-app GPS."
-        else "WIMT web point only · not the WIMT phone app or GPS; passage time uncorroborated."
+        else "WIMT web point · unverified; cache clock is not movement or phone-app GPS."
         binding.headline.text = m.headline
         // No NTES time-interpolated icon in position-only mode. A separate amber
         // marker can scale a fresh, explicitly UNVERIFIED WIMT web-cache km claim
@@ -340,7 +351,8 @@ class TrainActivity : AppCompatActivity() {
             // This is a separately dated *web-cache claim*, not a GPS coordinate or
             // a future arrival. The old official Act cells are deliberately not shown
             // while this source is selected (buildUi constructs a static-only table).
-            binding.headline.text = "WIMT web reports near $pointName · ${point.routeKm.toInt()} route km"
+            val webKm = String.format(java.util.Locale.ROOT, "%.1f", point.routeKm)
+            binding.headline.text = "WIMT web reports near $pointName · ≈$webKm route km"
             binding.provenance.text = "WIMT WEB · position candidate"
             binding.provenance.setBackgroundResource(R.drawable.bg_badge_schedule)
             binding.provenance.setTextColor(getColor(R.color.warn))
@@ -360,7 +372,7 @@ class TrainActivity : AppCompatActivity() {
         val sourceReports = ui.sourceLines[ui.activeSource] ?: ui.reports
         stopAdapter.reports = ui.wimtWebPoint?.let { p ->
             sourceReports + (p.precedingHalt to
-                "WIMT web cache claims ${p.code} at ${p.routeKm.toInt()} km " +
+                "WIMT web cache claims ${p.code} at ${String.format(java.util.Locale.ROOT, "%.1f", p.routeKm)} km " +
                     "(${RailTime.formatClock(p.eventAtMillis)} IST); unverified point after this halt, not Act/GPS")
         } ?: sourceReports
         stopAdapter.setRoutePoints(RouteBetween.groupedPoints(ui.staticRoute, ui.route))
@@ -403,8 +415,9 @@ class TrainActivity : AppCompatActivity() {
         // files dir - a paste then carries the screens with zero screenshots taken by hand.
         Diary.get()?.log("UISTATE") {
             UiState.track(
-                m.trainNo, m.headline, m.provenanceLabel, m.ageLabel, m.delayLabel,
-                m.nextLabel, m.progressLabel, m.note, m.rows,
+                m.trainNo, binding.headline.text.toString(), binding.provenance.text.toString(),
+                binding.age.text.toString(), binding.delay.text.toString(),
+                binding.next.text.toString(), m.progressLabel, m.note, m.rows,
             )
         }
         UiShot.snap(this, "track")
@@ -413,12 +426,12 @@ class TrainActivity : AppCompatActivity() {
     /** One useful line per source; full machine diagnostics remain on badge long-press. */
     private fun bindSource(ui: LiveViewModel.Ui) {
         sourceDetails = buildString {
-            ui.wimtWebPoint?.let { p ->
-                append("WIMT web cache candidate: ${p.code} at ${p.routeKm} route km, " +
-                    "point time ${RailTime.formatClock(p.eventAtMillis)} IST. " +
-                    "Not WIMT phone-app GPS, not independently verified Act.\n\n")
-            }
-            append(sourceText(ui.model)).append("\n\n")
+            val p = ui.wimtWebPoint
+            if (p != null) append("Act = reported, not a web-cache row. " +
+                "Position: WIMT web-cache candidate ${p.code} at ${p.routeKm} route km, " +
+                "point time ${RailTime.formatClock(p.eventAtMillis)} IST; " +
+                "cache clock is not movement. Not WIMT phone-app GPS or verified Act.\n\n")
+            else append(sourceText(ui.model)).append("\n\n")
             ui.sourceStates.forEach { (name, status) ->
                 append(sourceName(name)).append(": ")
                 append(when (status.first) {
@@ -457,7 +470,7 @@ class TrainActivity : AppCompatActivity() {
         status.startsWith("No verified actual") ||
             status.contains("0 independently corroborated") || status.contains("0 verified") ->
             "No independently confirmed times; current view stays."
-        status.startsWith("WIMT") -> "WIMT web checked; notes are not verified actuals."
+        status.startsWith("WIMT") -> "WIMT web checked; any position shown is unverified."
         else -> "Source checked. Open Info for details."
     }
 
@@ -501,9 +514,13 @@ class TrainActivity : AppCompatActivity() {
             // Filtered rather than concatenated: an empty feed-stamp used to leave "· " hanging at the end of
             // the line, which is the sort of detail that makes a diagnostic look unfinished in a screenshot.
             append(listOf(
-                "source " + m.provenanceLabel,
-                "age " + m.ageLabel,
-                m.feedStampLabel,
+                "source " + (if (u.wimtWebPoint != null) "WIMT web candidate, unverified"
+                    else m.provenanceLabel),
+                "age " + (u.wimtWebPoint?.let { p ->
+                    "web event ${RailTime.formatClock(p.eventAtMillis)}; " +
+                        "cache checked ${RailTime.formatClock(p.cacheAtMillis)} IST"
+                } ?: m.ageLabel),
+                if (u.wimtWebPoint != null) "" else m.feedStampLabel,
             ).filter { it.isNotBlank() }.joinToString(" · "))
             append("\n")
             append("delay ${m.delayLabel} · next ${m.nextLabel} · progress ${m.progressLabel}\n")
@@ -547,7 +564,8 @@ class TrainActivity : AppCompatActivity() {
         /** Plain-language key for the optional source explanation, separate from feed diagnostics. */
         fun sourceText(m: TrackModel.View): String = buildString {
             append("Act = reported. Est = predicted, not an arrival report. ")
-            append("The blue train is a projection from NTES, not GPS.\n")
+            append("A blue train, if shown, is projected, not GPS. An amber WIMT web marker " +
+                "is an unverified cache-distance claim, not phone-app GPS.\n")
             append("Position: ${m.provenanceLabel} · ${m.ageLabel}")
             if (m.feedStampLabel.isNotEmpty()) append(" · ${m.feedStampLabel}")
             append("\nLong-press the source badge to copy a detailed report.")
