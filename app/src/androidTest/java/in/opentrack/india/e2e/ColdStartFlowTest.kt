@@ -38,6 +38,7 @@ class ColdStartFlowTest {
     // @flow data-chip
     @Test
     fun dataChipStatesWhatIsInstalled() {
+        E2E.launch()
         E2E.awaitSearchScreen()
         val chip = E2E.text("dataChip")
         assertTrue("the data chip is blank — 'no data' and 'nothing to say' look identical", chip.isNotBlank())

@@ -138,11 +138,16 @@ object E2E {
         check(visible("fromBox", COLD_START_MS)) { "no board-at field on the search screen" }
         val deadline = System.currentTimeMillis() + COLD_START_MS
         while (System.currentTimeMillis() < deadline) {
-            val status = find("statusLine", 1_000)?.text.orEmpty()
-            if (!status.contains("Installing", true) && !status.contains("%")) return
+            // The old test treated an EMPTY status line as "not Installing", so it raced the
+            // first asset extraction and tested search while MainViewModel still refused queries.
+            val chip = find("dataChip", 500)?.text.orEmpty()
+            if (chip.isNotBlank()) return
+            val status = find("statusLine", 500)?.text.orEmpty()
+            check(!status.contains("could not be installed", true)) { status }
             Thread.sleep(500)
         }
-        error("the offline timetable never finished installing within ${COLD_START_MS} ms")
+        error("the offline timetable never became ready within ${COLD_START_MS} ms; " +
+            "status='${text("statusLine")}' chip='${text("dataChip")}'")
     }
 
     fun openTrackFromFirstResult(): Boolean {
