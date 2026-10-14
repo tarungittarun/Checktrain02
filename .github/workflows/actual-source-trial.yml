@@ -1,0 +1,25 @@
+name: actual-source-trial
+
+on:
+  push:
+    branches: ['arena/**']
+    paths:
+      - '.github/workflows/actual-source-trial.yml'
+      - 'tools/ci/probe_railyatri_actuals.py'
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect same-run RailYatri evidence without promoting projected rows
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 tools/ci/probe_railyatri_actuals.py | tee railyatri-actuals-trial.txt
+          { echo 'RailYatri read-only trial (page row is NOT proof of an actual):'; echo '```'; cat railyatri-actuals-trial.txt; echo '```'; } > railyatri-comment.txt
+          gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/comments" -f body="$(cat railyatri-comment.txt)"
