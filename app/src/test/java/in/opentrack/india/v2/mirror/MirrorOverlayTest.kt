@@ -1,5 +1,6 @@
 package `in`.opentrack.india.v2.mirror
 
+import `in`.opentrack.india.domain.PositionEngine
 import `in`.opentrack.india.domain.TrackModel
 import `in`.opentrack.india.model.LiveStopFields
 import `in`.opentrack.india.model.SegmentRow
@@ -50,6 +51,35 @@ class MirrorOverlayTest {
         route, pos(), per, nowRailMinute = 730, boardSeq = 1, alightSeq = 3,
         runEpochDay = 0L, note = null,
     )
+
+    @Test
+    fun onlyOverlappingObservedOfficialCellsCorroborateTheSecondPage() {
+        val official = PositionEngine.Answer(
+            position = pos().copy(provenance = SourceKind.PROVIDER_NTES),
+            anchorStopCode = "BBB", anchorStopName = "BBB", note = null,
+            perStop = mapOf(
+                "AAA" to LiveStopFields(actualDepartureMin = 605),
+                "BBB" to LiveStopFields(actualArrivalMin = 702, actualDepartureMin = 707),
+                "CCC" to LiveStopFields(actualArrivalMin = 799), // future at 730, not an actual
+            ),
+        )
+        val base = model()
+        val witness = LiveViewModel.officialStopsForCrossCheck(official, base, 730)
+        assertEquals(2, witness.size)
+        val secondPage = listOf(
+            RunningStatusMirror.Stop("AAA", null, 600, null, 605),
+            RunningStatusMirror.Stop("BBB", 700, 705, 702, 740), // future dep differs; only arrival
+            RunningStatusMirror.Stop("CCC", 800, null, 799, null),
+        )
+        val verified = LiveViewModel.crossCheckedStops(witness, secondPage, base, 730)
+        assertEquals(2, verified.size)
+        assertEquals(702, verified.last().actArr)
+        assertNull(verified.last().actDep)
+        assertTrue(verified.none { it.stationCode == "CCC" })
+        assertTrue(LiveViewModel.officialStopsForCrossCheck(
+            official.copy(position = pos().copy(provenance = SourceKind.CACHED)), base, 730,
+        ).isEmpty())
+    }
 
     @Test
     fun coveredMinutePrintsAsActWithTheScreensArithmetic() {

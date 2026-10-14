@@ -9,7 +9,12 @@ import android.widget.AdapterView
 import android.widget.TextView
 import android.widget.ArrayAdapter
 import android.widget.Toast
+import android.widget.LinearLayout
+import android.widget.ScrollView
+import android.widget.Spinner
 import android.view.View
+import androidx.appcompat.app.AlertDialog
+import `in`.opentrack.india.domain.RouteBetween
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -90,6 +95,7 @@ class TrainActivity : AppCompatActivity() {
             )
         }
         binding.back.setOnClickListener { finish() }
+        binding.betweenStations.setOnClickListener { showStaticRouteBetween() }
         // Long-press the provenance badge to copy a live-feed report. It lives on that chip rather than in
         // Settings because the chip is what a traveller looks at when the screen is not telling the truth as
         // they know it — and the copied text is precisely what turns "it doesn't work" into something fixable
@@ -123,6 +129,61 @@ class TrainActivity : AppCompatActivity() {
             errorText = msg
             renderNote()
         }
+    }
+
+    /** Route-only query: it never reads the live anchor, boarding span or estimated position.
+     * Never imply that the current halt-only timetable is a complete track map. */
+    private fun showStaticRouteBetween() {
+        val route = lastUi?.route ?: return
+        val stops = route.stops
+        if (stops.size < 2) return
+        val pad = (16 * resources.displayMetrics.density).toInt()
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, pad, pad, pad)
+        }
+        val hasPassThrough = stops.any { !it.isHalt }
+        layout.addView(TextView(this).apply {
+            text = getString(if (hasPassThrough) R.string.between_complete else R.string.between_limit)
+            setTextColor(getColor(R.color.warn))
+        })
+        val options = stops.map { "${it.code} · ${it.name}" }
+        fun spinner(label: Int): Spinner {
+            layout.addView(TextView(this).apply {
+                text = getString(label)
+                setPadding(0, pad / 2, 0, 0)
+            })
+            return Spinner(this).also { sp ->
+                sp.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, options)
+                layout.addView(sp)
+            }
+        }
+        val from = spinner(R.string.between_from)
+        val to = spinner(R.string.between_to)
+        val result = TextView(this).apply { setPadding(0, pad / 2, 0, pad) }
+        layout.addView(ScrollView(this).apply {
+            addView(result)
+            layoutParams = LinearLayout.LayoutParams(-1, (280 * resources.displayMetrics.density).toInt())
+        })
+        fun update() {
+            val selected = RouteBetween.inclusive(route,
+                stops[from.selectedItemPosition].code, stops[to.selectedItemPosition].code)
+            result.text = selected.joinToString("\n") { stop ->
+                val arr = stop.arrivalMin?.let(RailTime::formatRailMinute) ?: "—"
+                val dep = stop.departureMin?.let(RailTime::formatRailMinute) ?: "—"
+                "${stop.code} · ${stop.name}  ${if (stop.isHalt) "halt" else "pass-through"}  " +
+                    "sch $arr / $dep"
+            }
+        }
+        val change = object : AdapterView.OnItemSelectedListener {
+            override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) = update()
+        }
+        from.onItemSelectedListener = change
+        to.onItemSelectedListener = change
+        to.setSelection(stops.lastIndex)
+        AlertDialog.Builder(this).setTitle(R.string.between_title).setView(layout)
+            .setPositiveButton(android.R.string.ok, null).show()
     }
 
     /** The first HTTP ladder can finish in three seconds while mirror page checks take twenty.

@@ -786,8 +786,18 @@ class LiveViewModel(
             val disputed = conflictingCodes(plausiblePrimary, ck.stops, base, nowRail)
             val verifiedPrimary = plausiblePrimary.filterNot { it.stationCode.uppercase() in disputed }
             // ConfirmTkt's page mixes schedule, estimates and past runs. An answer is NOT evidence.
-            // Only minutes independently agreeing with an already validated, same-run primary survive.
-            val verifiedCk = crossCheckedStops(verifiedPrimary, ck.stops, base, nowRail)
+            // The runningstatus page often has no run date even when it returned 14 raw rows. Use
+            // the dated official response as a SECOND possible witness, but only for overlapping
+            // reported cells: this does not promote the other ConfirmTkt cells to observations.
+            // The original answer (not the selected table) retains NTES cells on manual selection.
+            val officialWitness = officialStopsForCrossCheck(lastAnswer ?: u.answer, base, nowRail)
+            val witness = if (officialWitness.isNotEmpty()) officialWitness else verifiedPrimary
+            val verifiedCk = crossCheckedStops(witness, ck.stops, base, nowRail)
+            val ckWitnessLabel = if (officialWitness.isNotEmpty()) "NTES" else "dated runningstatus"
+            Diary.get()?.log("MIRROR") {
+                "ConfirmTkt ${ck.stops.size} raw, ${verifiedCk.size} overlapping halts corroborated by $ckWitnessLabel; " +
+                    "official witness=${officialWitness.size}, runningstatus witness=${verifiedPrimary.size}"
+            }
             mirrorCrossChecked = verifiedCk.isNotEmpty()
             val refreshed = clockAt(System.currentTimeMillis())
             mirrorSourceStates = linkedMapOf(
@@ -796,7 +806,7 @@ class LiveViewModel(
                         (if (disputed.isEmpty()) "" else " · ${disputed.size} disputed hidden") + " · $refreshed"
                     else "none" to "no verified halt (${direct.why.take(60)})"),
                 ConfirmTktMirror.SOURCE to (if (verifiedCk.isNotEmpty())
-                    "live" to "${verifiedCk.size} cross-checked halts · $refreshed"
+                    "live" to "${verifiedCk.size} cells overlap $ckWitnessLabel · $refreshed"
                     else if (ck.ok) "unverified" to "page answered; minutes not corroborated"
                     else "none" to "no answer this refresh"),
             )
@@ -1184,6 +1194,19 @@ class LiveViewModel(
                     (first.actDep != null && other.actDep != null &&
                         kotlin.math.abs(slip(first.actDep, other.actDep)) > 5)
             }.map { it.stationCode.uppercase() }.toSet()
+        }
+
+        /** Official same-run per-stop ACTUALS may corroborate overlapping page cells, never
+         * unobserved page rows. Cached/offline/erail data cannot authenticate ConfirmTkt.
+         * No clock is inferred from delay or schedule. validateStops gates future and order. */
+        internal fun officialStopsForCrossCheck(
+            answer: PositionEngine.Answer, model: TrackModel.View, nowRail: Int,
+        ): List<RunningStatusMirror.Stop> {
+            if (answer.position.provenance != SourceKind.PROVIDER_NTES) return emptyList()
+            return validateStops(model, answer.perStop.map { (code, cell) ->
+                RunningStatusMirror.Stop(code, null, null,
+                    cell.actualArrivalMin, cell.actualDepartureMin)
+            }, nowRail).filter { it.actArr != null || it.actDep != null }
         }
 
         /** The second page is not independent proof merely because it returned HTML. */
