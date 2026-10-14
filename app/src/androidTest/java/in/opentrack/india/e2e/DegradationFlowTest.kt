@@ -28,9 +28,9 @@ class DegradationFlowTest {
         requireOffline()
         E2E.launch()
         E2E.awaitSearchScreen()
-        assertTrue("no suggestion at three letters without a network — the offline DB is not answering",
-            E2E.typeInBox("fromBox", "mas") &&
-                E2E.ui.wait(Until.findObject(E2E.res("sugPrimary")), E2E.LOCAL_MS) != null)
+        val offered = E2E.typeInBox("fromBox", "mas") &&
+            E2E.ui.wait(Until.findObject(E2E.res("sugPrimary")), E2E.LOCAL_MS) != null
+        assertTrue("no suggestion at three letters offline: ${E2E.debugSearch("fromBox")}", offered)
         E2E.tapSuggestion("fromBox", 0)
         assertTrue("the train box never responded offline", E2E.tap("modeTrain") &&
             E2E.typeInBox("trainBox", "12627") &&

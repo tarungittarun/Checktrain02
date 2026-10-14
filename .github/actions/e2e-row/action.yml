@@ -302,7 +302,9 @@ runs:
           local secs=$(( $(date +%s) - started ))
           echo "$label rc=$rc ${secs}s $(grep -o 'Tests run: [^,]*, *Failures: [0-9]*[^)]*' "/tmp/instrument-$label.log" | tail -1)" >> /tmp/pass-times.txt
           echo "- \`$label\`: rc=$rc in ${secs}s — $(grep -o 'Tests run: .*' "/tmp/instrument-$label.log" | tail -1)" >> "$GITHUB_STEP_SUMMARY"
-          adb pull "$ec" "/tmp/cover-$label.ec" >/dev/null 2>&1 || true
+          if ! adb pull "$ec" "/tmp/cover-$label.ec" >/dev/null 2>&1; then
+            echo "::warning::$label coverage file inaccessible: $(adb shell ls -ld "$ec" "/sdcard/Android/data/$APP_ID/files" 2>&1 | tr '\r\n' '  ' | cut -c1-250)"
+          fi
           grep -E "^Tests run|FAILURES|INSTRUMENTATION_RESULT|Error:" "/tmp/instrument-$label.log" | tail -20 || true
           if [ "$rc" = 124 ]; then
             echo "$label=failed (instrument exceeded ${RUN_TIMEOUT}s; the device may have wedged - see the logcat tail in the artifact)" >> /tmp/tests.txt

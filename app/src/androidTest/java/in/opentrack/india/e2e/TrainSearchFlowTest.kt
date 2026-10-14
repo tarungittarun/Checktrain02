@@ -32,7 +32,8 @@ class TrainSearchFlowTest {
     // @flow type-ahead-train
     @Test
     fun trainBoxSuggestsAndFills() {
-        assertTrue("typing a train number offered nothing", E2E.typeInBox("trainBox", "126") && awaitTrainSuggestion())
+        val offered = E2E.typeInBox("trainBox", "126") && awaitTrainSuggestion()
+        assertTrue("typing a train number offered nothing: ${E2E.debugSearch("trainBox")}", offered)
         val rows = E2E.suggestionRows()
         assertTrue("the train panel showed no rows", rows.isNotEmpty())
         val chosen = rows[0].text.orEmpty()

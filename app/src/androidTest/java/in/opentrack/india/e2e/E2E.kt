@@ -203,6 +203,12 @@ object E2E {
 
     fun boxText(box: String): String = boxField(box)?.text.orEmpty().trim()
 
+    /** One bounded field report in test failures when the IME or suggestion panel disappears. */
+    fun debugSearch(box: String): String =
+        "input='${boxText(box)}' chip='${text("dataChip")}' " +
+            "status='${text("statusLine")}' panel=${visible("suggestPanel", 100)} " +
+            "row=${visible("sugPrimary", 100)}"
+
     fun typeInBox(box: String, value: String): Boolean {
         val o = boxField(box) ?: return false
         setTextIn(o, value)

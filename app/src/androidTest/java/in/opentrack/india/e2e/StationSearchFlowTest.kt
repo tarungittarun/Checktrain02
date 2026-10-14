@@ -45,7 +45,9 @@ class StationSearchFlowTest {
     // @flow type-ahead-station
     @Test
     fun threeLettersOfferMatchesThatFillTheField() {
-        assertTrue("typing 'yes' in the board-at box offered nothing at all", awaitAnySuggestion("fromBox"))
+        assertTrue("could not type 'yes' into the board-at box", E2E.typeInBox("fromBox", "yes"))
+        val hasOffer = awaitAnySuggestion("fromBox")
+        assertTrue("typing 'yes' offered nothing: ${E2E.debugSearch("fromBox")}", hasOffer)
         val offered = E2E.suggestionRows()
         assertTrue("the panel showed ${offered.size} rows for 'yes'", offered.isNotEmpty())
         val first = offered[0].text.orEmpty()
@@ -74,7 +76,8 @@ class StationSearchFlowTest {
     fun everyQueryAnswersWithRowsOrWithAReason() {
         for (q in listOf("yes", "mas", "qqzzxxy", "01404")) {
             E2E.typeInBox("fromBox", q)
-            assertTrue("typing '$q' left the box with no rows and no explanation", awaitAnySuggestion("fromBox"))
+            val answered = awaitAnySuggestion("fromBox")
+            assertTrue("typing '$q' left the box unanswered: ${E2E.debugSearch("fromBox")}", answered)
             val rows = E2E.suggestionRows()
             assertTrue("'$q' produced an empty panel", rows.isNotEmpty())
             if (q == "qqzzxxy") {
