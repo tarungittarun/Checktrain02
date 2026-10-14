@@ -2,240 +2,636 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Happy Birthday! 🎂</title>
-<meta name="description" content="A special birthday wish just for you!">
-<meta property="og:title" content="Happy Birthday! 🎂">
-<meta property="og:description" content="Someone sent you a birthday surprise. Tap to open!">
-<meta property="og:type" content="website">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#ff9aaf">
+<meta name="description" content="A birthday slideshow card that works entirely offline.">
+<title>Offline Birthday Surprise</title>
 <style>
-*{box-sizing:border-box;margin:0;padding:0}
-html,body{height:100%;overflow:hidden}
+:root{
+  color-scheme:light;
+  --ink:#332b3b;
+  --pink:#ff4d78;
+  --pink-dark:#e83e68;
+  --purple:#7955c8;
+  --line:#ece7f1;
+  --muted:#777181;
+}
+*{box-sizing:border-box}
+html{min-height:100%;background:#f8dbe5}
 body{
+  min-height:100vh;min-height:100svh;margin:0;padding:14px;
+  display:flex;align-items:center;justify-content:center;overflow-x:hidden;
+  color:var(--ink);
   font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-  background:linear-gradient(135deg,#ff9a9e 0%,#fad0c4 25%,#fbc2eb 50%,#a6c1ee 75%,#a1c4fd 100%);
-  background-size:400% 400%;
-  animation:bgshift 12s ease infinite;
-  display:flex;align-items:center;justify-content:center;
-  color:#333;
+  background:linear-gradient(135deg,#ff9a9e 0%,#fad0c4 25%,#fbc2eb 55%,#a6c1ee 100%);
+  background-size:350% 350%;animation:background-drift 18s ease infinite;
 }
-@keyframes bgshift{0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}}
-.popup{
-  position:relative;
-  width:min(92vw,420px);
-  max-height:calc(100vh - 32px);
-  max-height:calc(100svh - 32px);
-  overflow-y:auto;
-  overscroll-behavior:contain;
-  background:rgba(255,255,255,0.92);
-  backdrop-filter:blur(12px);
-  -webkit-backdrop-filter:blur(12px);
-  border-radius:24px;
-  padding:28px 24px 32px;
-  text-align:center;
-  box-shadow:0 20px 60px rgba(0,0,0,.25),0 0 0 1px rgba(255,255,255,.6) inset;
-  animation:popin .7s cubic-bezier(.2,.9,.3,1.4) both;
-  z-index:5;
+@keyframes background-drift{0%,100%{background-position:0 50%}50%{background-position:100% 50%}}
+button,input,textarea,select{font:inherit}
+button{touch-action:manipulation}
+.balloons{position:fixed;inset:0;overflow:hidden;pointer-events:none;z-index:0}
+.balloon{position:absolute;bottom:-70px;font-size:clamp(25px,7vw,42px);opacity:.84;animation:float-up var(--duration,9s) linear infinite;animation-delay:var(--delay,0s)}
+@keyframes float-up{0%{transform:translateY(0) rotate(-8deg);opacity:0}12%{opacity:.85}100%{transform:translateY(-115vh) rotate(12deg);opacity:0}}
+.card{
+  position:relative;z-index:1;width:min(100%,520px);max-height:calc(100vh - 28px);max-height:calc(100svh - 28px);
+  overflow:auto;overscroll-behavior:contain;padding:15px;
+  border:1px solid rgba(255,255,255,.8);border-radius:26px;
+  background:rgba(255,255,255,.94);box-shadow:0 22px 70px rgba(68,39,83,.25);
+  animation:card-entrance .65s cubic-bezier(.2,.9,.3,1.25) both;
 }
-@keyframes popin{0%{transform:scale(.5) translateY(40px);opacity:0}100%{transform:scale(1) translateY(0);opacity:1}}
-.title{
-  font-size:clamp(26px,7vw,40px);
-  font-weight:800;
-  background:linear-gradient(90deg,#ff4d6d,#ff8fab,#ffd166,#06d6a0,#4cc9f0,#7209b7);
-  background-size:300% 100%;
-  -webkit-background-clip:text;background-clip:text;color:transparent;
-  animation:shimmer 4s linear infinite;
-  line-height:1.1;
+@keyframes card-entrance{from{transform:scale(.88) translateY(25px);opacity:0}to{transform:scale(1) translateY(0);opacity:1}}
+.topbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 1px 12px}
+.brand{display:flex;align-items:center;gap:8px;color:#8b708d;font-size:11px;font-weight:800;letter-spacing:.13em;text-transform:uppercase}
+.brand-mark{display:grid;place-items:center;width:30px;height:30px;border-radius:10px;background:#fff0f4;font-size:17px;letter-spacing:normal}
+.music-toggle{width:38px;height:38px;flex:0 0 auto;border:1px solid #eee5ef;border-radius:50%;background:#fff;color:#493650;font-size:18px;cursor:pointer}
+.music-toggle:hover{background:#fff4f7}
+.stage{
+  position:relative;isolation:isolate;width:100%;height:clamp(290px,52vh,440px);min-height:250px;overflow:hidden;
+  border-radius:21px;background:radial-gradient(circle at 25% 15%,#ffb5c2,#a578cc 52%,#41416d 100%);
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.42);
 }
-@keyframes shimmer{0%{background-position:0% 50%}100%{background-position:300% 50%}}
-.subtitle{margin-top:6px;font-size:15px;color:#666;font-weight:500}
-.name{margin-top:10px;font-size:clamp(20px,5.5vw,28px);font-weight:700;color:#ff4d6d;min-height:34px}
-.cake{
-  font-size:clamp(64px,18vw,96px);
-  margin:12px 0 4px;
-  display:inline-block;
-  animation:bounce 1.6s ease-in-out infinite;
-  filter:drop-shadow(0 6px 12px rgba(0,0,0,.15));
+.slide-image{position:absolute;inset:0;z-index:0;width:100%;height:100%;object-fit:cover;opacity:0;transition:opacity .38s ease,transform .8s ease}
+.slide-image.is-visible{opacity:1}
+.stage.fit-contain .slide-image{object-fit:contain;background:#181522}
+.placeholder{position:absolute;inset:0;z-index:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;color:#fff;text-align:center;background:radial-gradient(circle at 20% 20%,#ffb6c4 0,#9b79cb 46%,#45446e 100%)}
+.placeholder[hidden]{display:none}
+.placeholder-icon{font-size:clamp(58px,16vw,88px);line-height:1;filter:drop-shadow(0 8px 10px rgba(0,0,0,.18));animation:gentle-bob 1.8s ease-in-out infinite}
+@keyframes gentle-bob{50%{transform:translateY(-9px) rotate(3deg)}}
+.placeholder h2{margin:15px 0 5px;font-size:clamp(21px,5.8vw,29px)}
+.placeholder p{max-width:270px;margin:0;color:rgba(255,255,255,.88);font-size:14px;line-height:1.45}
+#confetti{position:absolute;inset:0;z-index:2;width:100%;height:100%;pointer-events:none}
+.photo-shade{position:absolute;inset:22% 0 0;z-index:3;pointer-events:none;background:linear-gradient(180deg,transparent 0%,rgba(16,11,28,.14) 22%,rgba(16,11,28,.8) 100%)}
+.photo-overlay{position:absolute;z-index:4;left:18px;right:18px;bottom:21px;color:#fff;text-align:center;text-shadow:0 2px 12px rgba(0,0,0,.42);pointer-events:none}
+.photo-overlay .badge{display:inline-block;margin-bottom:8px;padding:6px 11px;border:1px solid rgba(255,255,255,.45);border-radius:999px;background:rgba(29,20,43,.26);backdrop-filter:blur(5px);font-size:11px;font-weight:750;letter-spacing:.04em}
+.photo-overlay .cake{font-size:34px;line-height:1.1;filter:drop-shadow(0 3px 6px rgba(0,0,0,.25))}
+.photo-overlay h1{margin:3px 0 5px;font-size:clamp(28px,7.4vw,43px);line-height:1.05;font-weight:850;letter-spacing:-.035em}
+.recipient-name{margin:0 0 7px;font-size:clamp(17px,4.8vw,24px);font-weight:750}
+.overlay-message{max-width:400px;margin:0 auto;font-size:clamp(13px,3.5vw,16px);line-height:1.42}
+.overlay-from{min-height:18px;margin:8px 0 0;font-size:12px;font-style:italic;color:rgba(255,255,255,.92)}
+.stage.hide-overlay .photo-shade,.stage.hide-overlay .photo-overlay,.stage:not(.has-photo) .photo-shade,.stage:not(.has-photo) .photo-overlay{display:none}
+.confetti-count{position:absolute;z-index:5;top:12px;right:12px;padding:6px 10px;border:1px solid rgba(255,255,255,.5);border-radius:999px;background:rgba(25,18,37,.36);color:#fff;font-size:12px;font-variant-numeric:tabular-nums;backdrop-filter:blur(6px)}
+.stage-arrow{position:absolute;z-index:6;top:50%;display:grid;place-items:center;width:38px;height:38px;transform:translateY(-50%);border:1px solid rgba(255,255,255,.65);border-radius:50%;background:rgba(28,20,39,.38);color:white;font-size:24px;line-height:1;cursor:pointer;backdrop-filter:blur(5px)}
+.stage-arrow:hover{background:rgba(28,20,39,.65)}
+.stage-arrow:disabled{opacity:0;pointer-events:none}
+.stage-arrow.prev{left:10px}.stage-arrow.next{right:10px}
+.playback{display:flex;align-items:center;justify-content:center;gap:10px;margin:11px 0 8px}
+.playback-button,.play-toggle{min-width:43px;height:39px;padding:0 14px;border:1px solid #ebe4ef;border-radius:999px;background:#fff;color:#46364e;font-weight:700;cursor:pointer}
+.play-toggle{min-width:126px;background:#fff3f6;border-color:#ffd9e2;color:#a33157}
+.playback button:disabled{opacity:.45;cursor:not-allowed}
+.slide-summary{min-width:85px;color:var(--muted);font-size:12px;text-align:center}
+.thumbnail-rail{display:flex;gap:8px;overflow-x:auto;padding:4px 2px 9px;scrollbar-width:thin;scrollbar-color:#d8c9df transparent}
+.thumbnail-rail[hidden]{display:none}
+.thumbnail{position:relative;flex:0 0 58px;width:58px;height:58px;overflow:hidden;padding:0;border:2px solid transparent;border-radius:12px;background:#f1ebf4;cursor:pointer}
+.thumbnail img{display:block;width:100%;height:100%;object-fit:cover}
+.thumbnail.selected{border-color:var(--pink);box-shadow:0 0 0 2px rgba(255,77,120,.18)}
+.thumbnail .thumb-number{position:absolute;right:3px;bottom:3px;min-width:18px;padding:2px 4px;border-radius:8px;background:rgba(28,20,39,.66);color:#fff;font-size:10px}
+.photo-tools{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:8px;margin:3px 0 11px}
+.add-photos,.quiet-button,.export-button,.celebrate-button{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:40px;padding:9px 14px;border:0;border-radius:999px;font-weight:750;font-size:13px;cursor:pointer;transition:transform .15s,filter .15s}
+.add-photos{background:linear-gradient(135deg,#ff5c7e,#ff8fac);color:#fff;box-shadow:0 5px 14px rgba(255,77,120,.23)}
+.quiet-button{border:1px solid #ece5ef;background:#fff;color:#665c70}
+.add-photos:hover,.quiet-button:hover,.export-button:hover,.celebrate-button:hover{filter:brightness(.98);transform:translateY(-1px)}
+.quiet-button:disabled{opacity:.45;cursor:not-allowed;transform:none}
+.file-picker{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;clip-path:inset(50%)}
+.file-picker:focus-visible+.add-photos{outline:3px solid #7c58d0;outline-offset:3px}
+.config{margin-top:8px;border:1px solid var(--line);border-radius:15px;background:#fff}
+.config summary{padding:12px 14px;color:#4b3d52;font-size:13px;font-weight:780;cursor:pointer;list-style:none}
+.config summary::-webkit-details-marker{display:none}
+.config summary::after{content:"＋";float:right;color:#927a9c;font-size:16px;line-height:15px}
+.config[open] summary::after{content:"−"}
+.config-body{display:grid;grid-template-columns:1fr 1fr;gap:11px;padding:0 13px 13px}
+.field{display:flex;flex-direction:column;gap:5px;color:#6b6372;font-size:11px;font-weight:700}
+.field.wide{grid-column:1/-1}
+.field input,.field textarea,.field select{width:100%;min-height:39px;padding:9px 10px;border:1px solid #e5dfe9;border-radius:10px;outline:none;background:#fff;color:#332b3b;font-size:13px;font-weight:500}
+.field textarea{min-height:64px;resize:vertical;line-height:1.4}
+.field input:focus,.field textarea:focus,.field select:focus{border-color:#ba8be2;box-shadow:0 0 0 3px rgba(149,102,202,.12)}
+.setting-toggles{grid-column:1/-1;display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;padding-top:1px}
+.check-row{display:flex;align-items:center;gap:8px;color:#5e5667;font-size:12px;font-weight:650}
+.check-row input{width:17px;height:17px;accent-color:var(--pink)}
+.config-note{grid-column:1/-1;margin:0;color:#898291;font-size:11px;line-height:1.4}
+.bottom-actions{display:flex;justify-content:center;gap:8px;margin:12px 0 0}
+.celebrate-button{border:1px solid #e7dafa;background:#f5efff;color:#6943a9}
+.export-button{background:linear-gradient(135deg,#6150bd,#945acc);color:#fff;box-shadow:0 6px 16px rgba(98,75,177,.23)}
+.export-button:disabled{opacity:.6;cursor:wait}
+.local-note{margin:10px 5px 0;color:#777181;font-size:11px;line-height:1.45;text-align:center}
+.notice{min-height:18px;margin:7px 0 0;color:#47744d;font-size:12px;line-height:1.35;text-align:center}
+.notice.error{color:#b23d55}
+body.presentation-mode{padding:10px}
+body.presentation-mode .card{width:min(100%,500px);padding:12px}
+body.presentation-mode .stage{height:min(68vh,620px);min-height:300px}
+body.presentation-mode .builder-only{display:none!important}
+body.presentation-mode .topbar{margin-bottom:8px}
+@media(max-width:480px){
+  body{padding:8px}
+  .card{padding:11px;border-radius:22px}
+  .stage{height:clamp(270px,51vh,410px);min-height:245px;border-radius:18px}
+  .photo-overlay{left:13px;right:13px;bottom:17px}
+  .photo-overlay .badge{margin-bottom:6px}
+  .photo-overlay .cake{font-size:30px}
+  .playback{gap:7px}
+  .play-toggle{min-width:112px;padding:0 10px}
+  .thumbnail{flex-basis:54px;width:54px;height:54px}
 }
-@keyframes bounce{0%,100%{transform:translateY(0) rotate(-3deg)}50%{transform:translateY(-12px) rotate(3deg)}}
-.candles{font-size:22px;margin-bottom:8px;letter-spacing:4px;animation:flicker 1.2s ease-in-out infinite}
-@keyframes flicker{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.7;transform:scale(1.08)}}
-.msg{margin-top:10px;font-size:15px;line-height:1.5;color:#444}
-.from{margin-top:14px;font-size:13px;color:#888;font-style:italic}
-.actions{display:flex;justify-content:center;align-items:center;flex-wrap:wrap;gap:8px;margin-top:18px}
-.btn{
-  display:inline-block;padding:12px 22px;border:none;border-radius:999px;
-  background:linear-gradient(135deg,#ff4d6d,#ff8fab);color:#fff;font-weight:700;font-size:15px;
-  cursor:pointer;box-shadow:0 8px 20px rgba(255,77,109,.35);
-  transition:transform .15s,box-shadow .15s;
+@media(max-height:650px){
+  .card{max-height:calc(100vh - 16px);max-height:calc(100svh - 16px)}
+  .stage{height:clamp(220px,43vh,330px);min-height:210px}
+  .photo-overlay .cake{font-size:27px}
+  .photo-overlay h1{font-size:clamp(25px,6.6vw,36px)}
+  body.presentation-mode .stage{height:min(62vh,440px);min-height:220px}
 }
-.btn:active{transform:scale(.96)}
-.share-status{min-height:18px;margin-top:8px;color:#457b55;font-size:12px}
-@media(max-height:600px){
-  .popup{padding:18px 20px}
-  .cake{font-size:64px;margin:6px 0 0}
-  .candles{margin-bottom:4px}
-  .msg{font-size:14px;margin-top:6px}
-  .actions{margin-top:12px}
-  .btn{padding:10px 18px}
-}
-.balloons{position:fixed;inset:0;pointer-events:none;overflow:hidden;z-index:1}
-.balloon{
-  position:absolute;bottom:-80px;font-size:clamp(28px,8vw,44px);
-  animation:rise var(--d,8s) linear infinite;opacity:.9;
-}
-@keyframes rise{0%{transform:translateY(0) rotate(0deg);opacity:0}10%{opacity:.9}100%{transform:translateY(-110vh) rotate(20deg);opacity:0}}
-canvas{position:fixed;inset:0;pointer-events:none;z-index:2}
-.mute{position:fixed;top:12px;right:12px;z-index:6;background:rgba(255,255,255,.7);border:none;border-radius:50%;width:40px;height:40px;font-size:18px;cursor:pointer;backdrop-filter:blur(6px)}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
 </style>
 </head>
 <body>
-<button class="mute" id="mute" aria-label="Enable birthday music">🔇</button>
-<div class="balloons" id="balloons"></div>
-<canvas id="confetti"></canvas>
-<div class="popup">
-  <div class="title">Happy Birthday!</div>
-  <div class="name" id="name"></div>
-  <div class="cake">🎂</div>
-  <div class="candles">🕯️🕯️🕯️</div>
-  <div class="subtitle">Wishing you a day full of joy &amp; laughter</div>
-  <div class="msg">May all your dreams come true today and always. You deserve the best! 🎉🎁✨</div>
-  <div class="from" id="from"></div>
-  <div class="actions">
-    <button class="btn" id="celebrate">Celebrate! 🎊</button>
-    <button class="btn" id="share" style="background:linear-gradient(135deg,#4cc9f0,#7209b7)">Share 💌</button>
+<div class="balloons" id="balloons" aria-hidden="true"></div>
+<main class="card" id="card">
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark" aria-hidden="true">🎈</span><span>Made with love · kept offline</span></div>
+    <button class="music-toggle" id="musicToggle" type="button" aria-label="Play birthday music" title="Play birthday music">🔇</button>
+  </header>
+
+  <section class="stage" id="stage" aria-label="Birthday photo slideshow">
+    <img class="slide-image" id="slideImage" alt="" hidden>
+    <div class="placeholder" id="placeholder">
+      <div class="placeholder-icon" aria-hidden="true">🎂</div>
+      <h2>Add your favorite photos</h2>
+      <p>Choose pictures from this device. They stay here and are never uploaded.</p>
+    </div>
+    <canvas id="confetti" aria-hidden="true"></canvas>
+    <div class="photo-shade"></div>
+    <div class="photo-overlay" id="photoOverlay">
+      <div class="badge">✨ A little birthday magic ✨</div>
+      <div class="cake" aria-hidden="true">🎂</div>
+      <h1 id="overlayTitle">Happy Birthday!</h1>
+      <p class="recipient-name" id="overlayRecipient">Make a wish! 🎉</p>
+      <p class="overlay-message" id="overlayMessage">May your day be full of joy, laughter, and everything you love.</p>
+      <p class="overlay-from" id="overlayFrom"></p>
+    </div>
+    <div class="confetti-count" id="photoCount" aria-live="polite">0 / 0</div>
+    <button class="stage-arrow prev" id="stagePrev" type="button" aria-label="Previous photo" disabled>‹</button>
+    <button class="stage-arrow next" id="stageNext" type="button" aria-label="Next photo" disabled>›</button>
+  </section>
+
+  <div class="playback" aria-label="Slideshow controls">
+    <button class="playback-button" id="previous" type="button" aria-label="Previous photo" disabled>‹</button>
+    <button class="play-toggle" id="playPause" type="button" disabled>▶ Add photos</button>
+    <button class="playback-button" id="next" type="button" aria-label="Next photo" disabled>›</button>
+    <span class="slide-summary" id="slideSummary">0 photos</span>
   </div>
-  <div class="share-status" id="shareStatus" role="status" aria-live="polite"></div>
-</div>
-<script>
+  <div class="thumbnail-rail" id="thumbnailRail" aria-label="Choose a photo" hidden></div>
+
+  <div class="photo-tools builder-only">
+    <input class="file-picker" id="photoPicker" type="file" accept="image/*" multiple aria-label="Choose photos from this device">
+    <label class="add-photos" for="photoPicker">＋ Choose photos</label>
+    <button class="quiet-button" id="removePhoto" type="button" disabled>Remove selected</button>
+    <button class="quiet-button" id="clearPhotos" type="button" disabled>Clear all</button>
+  </div>
+
+  <details class="config builder-only" id="configPanel">
+    <summary>⚙ Configure the birthday card</summary>
+    <div class="config-body">
+      <label class="field">Birthday person's name
+        <input id="recipientInput" type="text" maxlength="50" placeholder="e.g. Priya" autocomplete="off">
+      </label>
+      <label class="field">From
+        <input id="senderInput" type="text" maxlength="50" placeholder="Your name" autocomplete="off">
+      </label>
+      <label class="field wide">Message on the photo
+        <textarea id="messageInput" maxlength="180">May your day be full of joy, laughter, and everything you love.</textarea>
+      </label>
+      <label class="field">Slide every
+        <select id="intervalInput">
+          <option value="1000" selected>1 second</option>
+          <option value="2000">2 seconds</option>
+          <option value="3000">3 seconds</option>
+          <option value="5000">5 seconds</option>
+          <option value="10000">10 seconds</option>
+        </select>
+      </label>
+      <label class="field">Photo framing
+        <select id="fitInput">
+          <option value="cover" selected>Fill the frame</option>
+          <option value="contain">Show the whole photo</option>
+        </select>
+      </label>
+      <div class="setting-toggles">
+        <label class="check-row"><input id="autoPlayInput" type="checkbox" checked> Auto-slide photos</label>
+        <label class="check-row"><input id="overlayInput" type="checkbox" checked> Show greeting over photo</label>
+        <label class="check-row"><input id="confettiInput" type="checkbox" checked> Confetti animation</label>
+      </div>
+      <p class="config-note">Tip: tap a thumbnail to jump to that photo. Choose more photos at any time to add them to the slideshow.</p>
+    </div>
+  </details>
+
+  <div class="bottom-actions builder-only">
+    <button class="celebrate-button" id="celebrate" type="button">🎊 Celebrate</button>
+    <button class="export-button" id="saveOffline" type="button">💾 Save / share offline card</button>
+  </div>
+  <p class="local-note builder-only">Everything runs on this device—no internet, uploads, or external services. Saving creates one HTML file with your photos embedded; send that file as an attachment to share the exact card offline.</p>
+  <p class="notice" id="notice" role="status" aria-live="polite"></p>
+</main>
+
+<script id="embedded-card-data" type="application/json">null</script>
+<script id="birthday-app">
 (function(){
-  var p=new URLSearchParams(location.search);
-  var rawLocationQuery=location.search.substring(1);
-  function readQueryValue(primary,alias){
-    var value=p.get(primary)||p.get(alias);
-    if(value)return value;
-    // HTML Preview puts the source URL (and its query) inside this page's query string.
-    var sourceQueryStart=rawLocationQuery.toLowerCase().indexOf('.html?');
-    if(sourceQueryStart<0)return '';
-    var nested=new URLSearchParams(rawLocationQuery.substring(sourceQueryStart+6));
-    return nested.get(primary)||nested.get(alias)||'';
+  'use strict';
+  if(window.__offlineBirthdayAppStarted)return;
+  window.__offlineBirthdayAppStarted=true;
+
+  var DEFAULT_MESSAGE='May your day be full of joy, laughter, and everything you love.';
+  var dataElement=document.getElementById('embedded-card-data');
+  var embedded=null;
+  try{
+    var embeddedText=dataElement.textContent.trim();
+    if(embeddedText&&embeddedText!=='null')embedded=JSON.parse(embeddedText);
+  }catch(error){
+    console.warn('Could not read the embedded birthday card data.',error);
   }
-  var nm=readQueryValue('name','to');
-  var fr=readQueryValue('from','by');
-  var nameEl=document.getElementById('name');
-  var fromEl=document.getElementById('from');
-  if(nm){nameEl.textContent='🎉 '+nm+' 🎉';}
-  if(fr){fromEl.textContent='— With love from '+fr;}
-  // balloons
-  var b=document.getElementById('balloons');
-  var emojis=['🎈','🎈','🎈','🎉','🎊','💖'];
-  for(var i=0;i<14;i++){
-    var e=document.createElement('div');
-    e.className='balloon';
-    e.textContent=emojis[i%emojis.length];
-    e.style.left=Math.random()*100+'vw';
-    e.style.setProperty('--d',(6+Math.random()*6)+'s');
-    e.style.animationDelay=(Math.random()*6)+'s';
-    b.appendChild(e);
+
+  var stage=document.getElementById('stage');
+  var slideImage=document.getElementById('slideImage');
+  var placeholder=document.getElementById('placeholder');
+  var thumbnailRail=document.getElementById('thumbnailRail');
+  var photoPicker=document.getElementById('photoPicker');
+  var previousButton=document.getElementById('previous');
+  var nextButton=document.getElementById('next');
+  var stagePrev=document.getElementById('stagePrev');
+  var stageNext=document.getElementById('stageNext');
+  var playPauseButton=document.getElementById('playPause');
+  var photoCount=document.getElementById('photoCount');
+  var slideSummary=document.getElementById('slideSummary');
+  var removeButton=document.getElementById('removePhoto');
+  var clearButton=document.getElementById('clearPhotos');
+  var saveButton=document.getElementById('saveOffline');
+  var notice=document.getElementById('notice');
+  var recipientInput=document.getElementById('recipientInput');
+  var senderInput=document.getElementById('senderInput');
+  var messageInput=document.getElementById('messageInput');
+  var intervalInput=document.getElementById('intervalInput');
+  var fitInput=document.getElementById('fitInput');
+  var autoPlayInput=document.getElementById('autoPlayInput');
+  var overlayInput=document.getElementById('overlayInput');
+  var confettiInput=document.getElementById('confettiInput');
+  var overlayTitle=document.getElementById('overlayTitle');
+  var overlayRecipient=document.getElementById('overlayRecipient');
+  var overlayMessage=document.getElementById('overlayMessage');
+  var overlayFrom=document.getElementById('overlayFrom');
+  var confettiCanvas=document.getElementById('confetti');
+  var confettiContext=confettiCanvas.getContext('2d');
+  var musicButton=document.getElementById('musicToggle');
+  var slides=[];
+  var currentIndex=0;
+  var slideTimer=null;
+  var isPlaying=true;
+  var particles=[];
+  var audioContext=null;
+  var musicPlaying=false;
+
+  function setNotice(text,isError){
+    notice.textContent=text||'';
+    notice.classList.toggle('error',!!isError);
   }
-  // confetti
-  var c=document.getElementById('confetti'),ctx=c.getContext('2d');
-  function resize(){c.width=innerWidth;c.height=innerHeight;}
-  resize();addEventListener('resize',resize);
-  var pieces=[];
-  var colors=['#ff4d6d','#ffd166','#06d6a0','#4cc9f0','#7209b7','#ff8fab'];
-  function spawn(n){for(var i=0;i<n;i++)pieces.push({x:Math.random()*c.width,y:-20,vx:(Math.random()-.5)*4,vy:2+Math.random()*4,r:4+Math.random()*6,color:colors[Math.floor(Math.random()*colors.length)],rot:Math.random()*Math.PI,rv:(Math.random()-.5)*.2});}
-  spawn(120);
-  function tick(){
-    ctx.clearRect(0,0,c.width,c.height);
-    for(var i=pieces.length-1;i>=0;i--){
-      var q=pieces[i];
-      q.x+=q.vx;q.y+=q.vy;q.vy+=.05;q.rot+=q.rv;
-      ctx.save();ctx.translate(q.x,q.y);ctx.rotate(q.rot);
-      ctx.fillStyle=q.color;ctx.fillRect(-q.r/2,-q.r/2,q.r,q.r*1.6);
-      ctx.restore();
-      if(q.y>c.height+30)pieces.splice(i,1);
+
+  function readConfig(){
+    return {
+      recipient:recipientInput.value.trim(),
+      sender:senderInput.value.trim(),
+      message:messageInput.value.trim()||DEFAULT_MESSAGE,
+      interval:Number(intervalInput.value)||1000,
+      fit:fitInput.value==='contain'?'contain':'cover',
+      autoPlay:autoPlayInput.checked,
+      showOverlay:overlayInput.checked,
+      confetti:confettiInput.checked
+    };
+  }
+
+  function applyConfig(config){
+    if(!config)return;
+    recipientInput.value=typeof config.recipient==='string'?config.recipient:'';
+    senderInput.value=typeof config.sender==='string'?config.sender:'';
+    messageInput.value=typeof config.message==='string'?config.message:DEFAULT_MESSAGE;
+    var allowedIntervals=['1000','2000','3000','5000','10000'];
+    intervalInput.value=allowedIntervals.indexOf(String(config.interval))>=0?String(config.interval):'1000';
+    fitInput.value=config.fit==='contain'?'contain':'cover';
+    autoPlayInput.checked=config.autoPlay!==false;
+    overlayInput.checked=config.showOverlay!==false;
+    confettiInput.checked=config.confetti!==false;
+    isPlaying=autoPlayInput.checked;
+  }
+
+  function updateOverlay(){
+    var recipient=recipientInput.value.trim();
+    var sender=senderInput.value.trim();
+    overlayTitle.textContent='Happy Birthday!';
+    overlayRecipient.textContent=recipient?'🎉 '+recipient+' 🎉':'Make a wish! 🎉';
+    overlayMessage.textContent=messageInput.value.trim()||DEFAULT_MESSAGE;
+    overlayFrom.textContent=sender?'— With love from '+sender:'';
+    stage.classList.toggle('hide-overlay',!overlayInput.checked);
+    stage.classList.toggle('fit-contain',fitInput.value==='contain');
+    confettiCanvas.style.display=confettiInput.checked?'block':'none';
+    document.title=recipient?'Happy Birthday, '+recipient+'!':'Offline Birthday Surprise';
+  }
+
+  function updatePlaybackButton(){
+    if(slides.length<2){
+      playPauseButton.textContent=slides.length===1?'▶ Add another photo':'▶ Add photos';
+      playPauseButton.disabled=true;
+      return;
     }
-    if(pieces.length<60)spawn(40);
-    requestAnimationFrame(tick);
+    playPauseButton.disabled=false;
+    playPauseButton.textContent=isPlaying?'⏸ Pause':'▶ Play';
+    autoPlayInput.checked=isPlaying;
   }
-  tick();
-  // music (simple birthday melody via WebAudio) toggle
-  var audioCtx=null,playing=false;
-  function playMelody(){
-    if(!audioCtx)audioCtx=new (window.AudioContext||window.webkitAudioContext)();
-    var notes=[264,264,297,264,352,330, 264,264,297,264,396,352, 264,264,528,440,352,330,297, 466,466,440,352,396,352];
-    var dur=[.25,.25,.5,.5,.5,.75, .25,.25,.5,.5,.5,.75, .25,.25,.5,.5,.5,.5,.75, .25,.25,.5,.5,.5,.75];
-    var t=audioCtx.currentTime;
-    for(var i=0;i<notes.length;i++){
-      var o=audioCtx.createOscillator(),g=audioCtx.createGain();
-      o.type='triangle';o.frequency.value=notes[i];
-      g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(.12,t+.02);g.gain.exponentialRampToValueAtTime(.001,t+dur[i]-.02);
-      o.connect(g);g.connect(audioCtx.destination);
-      o.start(t);o.stop(t+dur[i]);
-      t+=dur[i];
+
+  function updateSlideView(){
+    if(!slides.length){
+      stage.classList.remove('has-photo');
+      currentIndex=0;
+      slideImage.removeAttribute('src');
+      slideImage.alt='';
+      slideImage.hidden=true;
+      placeholder.hidden=false;
+      photoCount.textContent='0 / 0';
+      slideSummary.textContent='0 photos';
+      previousButton.disabled=true;nextButton.disabled=true;
+      stagePrev.disabled=true;stageNext.disabled=true;
+      removeButton.disabled=true;clearButton.disabled=true;
+      updatePlaybackButton();
+      resizeConfettiCanvas();
+      return;
     }
-    return t-audioCtx.currentTime;
+    currentIndex=(currentIndex+slides.length)%slides.length;
+    stage.classList.add('has-photo');
+    var current=slides[currentIndex];
+    placeholder.hidden=true;
+    slideImage.hidden=false;
+    slideImage.classList.remove('is-visible');
+    slideImage.src=current.src;
+    slideImage.alt=current.name?'Birthday photo: '+current.name:'Birthday photo '+(currentIndex+1);
+    requestAnimationFrame(function(){slideImage.classList.add('is-visible');});
+    photoCount.textContent=(currentIndex+1)+' / '+slides.length;
+    slideSummary.textContent=slides.length+' photo'+(slides.length===1?'':'s')+' · '+(isPlaying?'auto':'paused');
+    previousButton.disabled=slides.length<2;nextButton.disabled=slides.length<2;
+    stagePrev.disabled=slides.length<2;stageNext.disabled=slides.length<2;
+    removeButton.disabled=false;clearButton.disabled=false;
+    Array.prototype.forEach.call(thumbnailRail.children,function(button,index){
+      var selected=index===currentIndex;
+      button.classList.toggle('selected',selected);
+      button.setAttribute('aria-pressed',selected?'true':'false');
+    });
+    updatePlaybackButton();
+    slideSummary.textContent=slides.length+' photo'+(slides.length===1?'':'s')+' · '+(slides.length>1?(isPlaying?'auto':'paused'):'single photo');
+    resizeConfettiCanvas();
   }
-  var muteBtn=document.getElementById('mute');
-  function startMusic(){
-    playing=true;
-    muteBtn.textContent='🔊';
-    muteBtn.setAttribute('aria-label','Mute birthday music');
-    playMelody();
+
+  function renderThumbnails(){
+    thumbnailRail.replaceChildren();
+    thumbnailRail.hidden=!slides.length;
+    slides.forEach(function(slide,index){
+      var button=document.createElement('button');
+      button.type='button';button.className='thumbnail';
+      button.setAttribute('aria-label','Show photo '+(index+1)+(slide.name?': '+slide.name:''));
+      button.setAttribute('aria-pressed',index===currentIndex?'true':'false');
+      button.title=slide.name||'Photo '+(index+1);
+      var image=document.createElement('img');
+      image.src=slide.src;image.alt='';image.loading='lazy';
+      var number=document.createElement('span');
+      number.className='thumb-number';number.textContent=String(index+1);
+      button.appendChild(image);button.appendChild(number);
+      button.addEventListener('click',function(){showSlide(index);});
+      thumbnailRail.appendChild(button);
+    });
   }
-  function stopMusic(){
-    playing=false;
-    muteBtn.textContent='🔇';
-    muteBtn.setAttribute('aria-label','Enable birthday music');
-    if(audioCtx){audioCtx.close();audioCtx=null;}
+
+  function showSlide(index){
+    if(!slides.length)return;
+    currentIndex=(index+slides.length)%slides.length;
+    updateSlideView();
   }
-  muteBtn.addEventListener('click',function(){
-    if(playing)stopMusic();
-    else startMusic();
+
+  function restartTimer(){
+    if(slideTimer){window.clearInterval(slideTimer);slideTimer=null;}
+    if(isPlaying&&slides.length>1){
+      slideTimer=window.setInterval(function(){showSlide(currentIndex+1);},Number(intervalInput.value)||1000);
+    }
+  }
+
+  function refreshSlides(){
+    renderThumbnails();
+    updateSlideView();
+    restartTimer();
+  }
+
+  function revokeSlide(slide){
+    if(slide&&slide.file&&slide.src&&slide.src.indexOf('blob:')===0)URL.revokeObjectURL(slide.src);
+  }
+
+  photoPicker.addEventListener('change',function(){
+    var selected=Array.prototype.slice.call(photoPicker.files||[]);
+    var imageFiles=selected.filter(function(file){
+      var extension=(file.name||'').toLowerCase().split('.').pop();
+      var imageExtensions=['avif','bmp','gif','heic','heif','jpg','jpeg','png','svg','webp'];
+      return (file.type&&file.type.indexOf('image/')===0)||imageExtensions.indexOf(extension)>=0;
+    });
+    if(!imageFiles.length){
+      if(selected.length)setNotice('Please choose image files such as JPG, PNG, or WebP.',true);
+      photoPicker.value='';return;
+    }
+    var wasEmpty=slides.length===0;
+    imageFiles.forEach(function(file){slides.push({src:URL.createObjectURL(file),name:file.name,file:file});});
+    if(wasEmpty)currentIndex=0;
+    refreshSlides();
+    burstConfetti(34);
+    setNotice(imageFiles.length+' photo'+(imageFiles.length===1?'':'s')+' added. They stay on this device.');
+    photoPicker.value='';
   });
-  // Music starts only after a tap, as mobile browsers block autoplay.
-  document.getElementById('celebrate').addEventListener('click',function(){
-    spawn(200);
-    if(!playing)startMusic();
+
+  function removeCurrentPhoto(){
+    if(!slides.length)return;
+    revokeSlide(slides[currentIndex]);
+    slides.splice(currentIndex,1);
+    if(currentIndex>=slides.length)currentIndex=Math.max(0,slides.length-1);
+    refreshSlides();
+    setNotice(slides.length?'Photo removed.':'All photos removed.');
+  }
+  document.getElementById('removePhoto').addEventListener('click',removeCurrentPhoto);
+  clearButton.addEventListener('click',function(){
+    slides.forEach(revokeSlide);slides=[];currentIndex=0;refreshSlides();setNotice('Photos cleared from this card.');
   });
-  var shareStatus=document.getElementById('shareStatus');
-  var previewBase='https://htmlpreview.github.io/?https://raw.githubusercontent.com/tarungittarun/Checktrain02/arena/536c97e0-checktrain02/birthday.html';
-  function createShareUrl(){
-    var query=new URLSearchParams();
-    if(nm)query.set('name',nm);
-    if(fr)query.set('from',fr);
-    var queryText=query.toString();
-    if(location.hostname==='htmlpreview.github.io'){
-      // Keep birthday parameters after the source file so HTML Preview can render it.
-      return previewBase+(queryText?'?'+queryText:'');
-    }
-    var url=new URL(location.href);
-    url.search=queryText;
-    url.hash='';
-    return url.toString();
+  previousButton.addEventListener('click',function(){showSlide(currentIndex-1);});
+  nextButton.addEventListener('click',function(){showSlide(currentIndex+1);});
+  stagePrev.addEventListener('click',function(){showSlide(currentIndex-1);});
+  stageNext.addEventListener('click',function(){showSlide(currentIndex+1);});
+  playPauseButton.addEventListener('click',function(){
+    if(slides.length<2)return;
+    isPlaying=!isPlaying;autoPlayInput.checked=isPlaying;updateSlideView();restartTimer();
+  });
+  intervalInput.addEventListener('change',function(){restartTimer();updateSlideView();});
+  autoPlayInput.addEventListener('change',function(){isPlaying=autoPlayInput.checked;updateSlideView();restartTimer();});
+  [recipientInput,senderInput,messageInput].forEach(function(input){input.addEventListener('input',updateOverlay);});
+  [fitInput,overlayInput,confettiInput].forEach(function(input){input.addEventListener('change',updateOverlay);});
+
+  function resizeConfettiCanvas(){
+    if(!confettiContext)return;
+    var rect=stage.getBoundingClientRect();
+    var ratio=Math.min(window.devicePixelRatio||1,2);
+    if(!rect.width||!rect.height)return;
+    confettiCanvas.width=Math.round(rect.width*ratio);
+    confettiCanvas.height=Math.round(rect.height*ratio);
+    confettiContext.setTransform(ratio,0,0,ratio,0,0);
   }
-  async function copyShareUrl(url){
-    try{
-      if(!navigator.clipboard)throw new Error('Clipboard unavailable');
-      await navigator.clipboard.writeText(url);
-      shareStatus.textContent='Link copied — paste it into WhatsApp or any chat.';
-    }catch(error){
-      window.prompt('Copy this birthday link:',url);
+
+  function burstConfetti(count){
+    var width=stage.clientWidth||400;
+    var height=stage.clientHeight||320;
+    var colors=['#ff4d78','#ffd166','#06d6a0','#4cc9f0','#fff','#bb8cf4','#ff9fb4'];
+    for(var i=0;i<count;i++){
+      particles.push({
+        x:Math.random()*width,y:Math.random()*height*.45-20,
+        vx:(Math.random()-.5)*3.4,vy:1.2+Math.random()*3.4,
+        size:3+Math.random()*5,rotation:Math.random()*Math.PI,
+        spin:(Math.random()-.5)*.16,color:colors[Math.floor(Math.random()*colors.length)],
+        life:150+Math.random()*90
+      });
     }
+    if(particles.length>300)particles=particles.slice(-300);
   }
-  document.getElementById('share').addEventListener('click',async function(){
-    var url=createShareUrl();
-    if(navigator.share){
-      try{
-        await navigator.share({title:'Happy Birthday! 🎂',text:'A birthday surprise for you!',url:url});
-      }catch(error){
-        if(error.name!=='AbortError')await copyShareUrl(url);
-      }
+
+  function animateConfetti(){
+    requestAnimationFrame(animateConfetti);
+    if(!confettiContext||!confettiInput.checked)return;
+    var width=stage.clientWidth,height=stage.clientHeight;
+    confettiContext.clearRect(0,0,width,height);
+    for(var i=particles.length-1;i>=0;i--){
+      var piece=particles[i];piece.x+=piece.vx;piece.y+=piece.vy;piece.vy+=.018;piece.rotation+=piece.spin;piece.life--;
+      confettiContext.save();confettiContext.translate(piece.x,piece.y);confettiContext.rotate(piece.rotation);
+      confettiContext.fillStyle=piece.color;confettiContext.fillRect(-piece.size/2,-piece.size/2,piece.size,piece.size*1.65);
+      confettiContext.restore();
+      if(piece.y>height+12||piece.life<=0)particles.splice(i,1);
+    }
+    if(particles.length<42&&Math.random()<.11)burstConfetti(4);
+  }
+  window.addEventListener('resize',resizeConfettiCanvas);
+  if(window.ResizeObserver)new ResizeObserver(resizeConfettiCanvas).observe(stage);
+  burstConfetti(65);animateConfetti();
+  confettiInput.addEventListener('change',function(){if(confettiInput.checked)burstConfetti(65);else if(confettiContext)confettiContext.clearRect(0,0,stage.clientWidth,stage.clientHeight);});
+
+  function melody(){
+    if(!audioContext)audioContext=new (window.AudioContext||window.webkitAudioContext)();
+    if(audioContext.state==='suspended')audioContext.resume();
+    var notes=[264,264,297,264,352,330,264,264,297,264,396,352,264,264,528,440,352,330,297,466,466,440,352,396,352];
+    var durations=[.25,.25,.5,.5,.5,.75,.25,.25,.5,.5,.5,.75,.25,.25,.5,.5,.5,.5,.75,.25,.25,.5,.5,.5,.75];
+    var time=audioContext.currentTime;
+    notes.forEach(function(note,index){
+      var oscillator=audioContext.createOscillator(),gain=audioContext.createGain();
+      oscillator.type='triangle';oscillator.frequency.value=note;
+      gain.gain.setValueAtTime(.0001,time);
+      gain.gain.linearRampToValueAtTime(.11,time+.025);
+      gain.gain.exponentialRampToValueAtTime(.0001,time+durations[index]-.02);
+      oscillator.connect(gain);gain.connect(audioContext.destination);
+      oscillator.start(time);oscillator.stop(time+durations[index]);time+=durations[index];
+    });
+  }
+  musicButton.addEventListener('click',function(){
+    if(musicPlaying){
+      musicPlaying=false;musicButton.textContent='🔇';musicButton.setAttribute('aria-label','Play birthday music');musicButton.title='Play birthday music';
+      if(audioContext){audioContext.close();audioContext=null;}
     }else{
-      await copyShareUrl(url);
+      try{
+        musicPlaying=true;musicButton.textContent='🔊';musicButton.setAttribute('aria-label','Mute birthday music');musicButton.title='Mute birthday music';melody();
+      }catch(error){musicPlaying=false;musicButton.textContent='🔇';setNotice('Music is not available in this browser, but the slideshow still works.');}
     }
   });
+  document.getElementById('celebrate').addEventListener('click',function(){burstConfetti(150);setNotice('Make a wish! 🎉');});
+
+  function readFileAsDataUrl(file){
+    return new Promise(function(resolve,reject){
+      var reader=new FileReader();
+      reader.onload=function(){resolve(reader.result);};
+      reader.onerror=function(){reject(new Error('Could not read '+file.name));};
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function buildOfflineFile(){
+    var embeddedSlides=await Promise.all(slides.map(async function(slide){
+      return {name:slide.name||'Birthday photo',src:slide.file?await readFileAsDataUrl(slide.file):slide.src};
+    }));
+    var payload={version:1,presentation:true,config:readConfig(),slides:embeddedSlides,currentIndex:currentIndex};
+    var slash=String.fromCharCode(92);
+    var safeJson=JSON.stringify(payload).replace(/</g,slash+'u003c').replace(/\u2028/g,slash+'u2028').replace(/\u2029/g,slash+'u2029');
+    var exportDocument=document.documentElement.cloneNode(true);
+    if(document.querySelector('base')){
+      var previewSourceScript=exportDocument.querySelector('#birthday-app');
+      if(previewSourceScript)previewSourceScript.remove();
+    }
+    exportDocument.querySelectorAll('base').forEach(function(base){base.remove();});
+    exportDocument.querySelector('body').classList.add('presentation-mode');
+    var exportedImage=exportDocument.querySelector('#slideImage');
+    if(exportedImage){exportedImage.removeAttribute('src');exportedImage.setAttribute('hidden','');}
+    var exportedData=exportDocument.querySelector('#embedded-card-data');
+    exportedData.setAttribute('type','application/json');
+    exportedData.textContent=safeJson;
+    return new Blob(['<!doctype html>\n'+exportDocument.outerHTML],{type:'text/html;charset=utf-8'});
+  }
+
+  function safeFilePart(value){
+    return String(value||'').normalize('NFKD').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,36);
+  }
+
+  function downloadBlob(blob,fileName){
+    var objectUrl=URL.createObjectURL(blob);
+    var link=document.createElement('a');link.href=objectUrl;link.download=fileName;link.style.display='none';
+    document.body.appendChild(link);link.click();link.remove();
+    window.setTimeout(function(){URL.revokeObjectURL(objectUrl);},30000);
+  }
+
+  saveButton.addEventListener('click',async function(){
+    if(!slides.length){setNotice('Choose at least one photo before saving your offline card.',true);return;}
+    saveButton.disabled=true;saveButton.textContent='Preparing your offline card…';
+    setNotice('Embedding '+slides.length+' photo'+(slides.length===1?'':'s')+' locally. Nothing is being uploaded.');
+    try{
+      var blob=await buildOfflineFile();
+      var suffix=safeFilePart(recipientInput.value)||'birthday-surprise';
+      var fileName='birthday-'+suffix+'-offline.html';
+      var file=typeof File==='function'?new File([blob],fileName,{type:'text/html'}):null;
+      var canShareFile=false;
+      try{canShareFile=!!(file&&navigator.share&&typeof navigator.canShare==='function'&&navigator.canShare({files:[file]}));}catch(shareCheckError){canShareFile=false;}
+      if(canShareFile){
+        try{
+          await navigator.share({files:[file],title:'Birthday surprise',text:'A birthday card you can open offline.'});
+          setNotice('Offline card shared as a single HTML file.');
+        }catch(error){
+          if(error&&error.name==='AbortError')setNotice('Sharing cancelled. Tap Save / share offline card again to save a copy.');
+          else{downloadBlob(blob,fileName);setNotice('Sharing was unavailable, so '+fileName+' was saved instead.');}
+        }
+      }else{
+        downloadBlob(blob,fileName);
+        setNotice('Saved '+fileName+'. Attach this HTML file in WhatsApp or open it offline.');
+      }
+    }catch(error){
+      console.error(error);setNotice('Could not create the offline file. Try fewer or smaller photos.',true);
+    }finally{
+      saveButton.disabled=false;saveButton.textContent='💾 Save / share offline card';
+    }
+  });
+
+  document.addEventListener('keydown',function(event){
+    if(event.target&&/^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName))return;
+    if(event.key==='ArrowLeft')showSlide(currentIndex-1);
+    if(event.key==='ArrowRight')showSlide(currentIndex+1);
+    if(event.key===' '&&slides.length>1){event.preventDefault();playPauseButton.click();}
+  });
+
+  if(embedded){
+    applyConfig(embedded.config||{});
+    slides=Array.isArray(embedded.slides)?embedded.slides.filter(function(slide){return slide&&typeof slide.src==='string';}).map(function(slide){return {src:slide.src,name:slide.name||'Birthday photo',file:null};}):[];
+    currentIndex=Number.isInteger(embedded.currentIndex)?embedded.currentIndex:0;
+    if(embedded.presentation)document.body.classList.add('presentation-mode');
+  }
+  updateOverlay();
+  refreshSlides();
+  if(slides.length>1&&autoPlayInput.checked){isPlaying=true;restartTimer();}
+  if(embedded&&embedded.presentation)setNotice('This card is self-contained and ready to view offline.');
 })();
 </script>
 </body>
