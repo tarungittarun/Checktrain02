@@ -73,7 +73,17 @@ class SettingsActivity : AppCompatActivity() {
         binding.overrideUrl.setText(prefs.overrideUrl)
         binding.columnHint.setText(prefs.columnHint)
         binding.save.setOnClickListener {
-            prefs.overrideUrl = binding.overrideUrl.text.toString().trim()
+            val url = binding.overrideUrl.text.toString().trim()
+            val parsed = runCatching { android.net.Uri.parse(url) }.getOrNull()
+            if (url.isNotBlank() &&
+                (parsed?.scheme?.lowercase() !in listOf("http", "https") || parsed?.host.isNullOrBlank())
+            ) {
+                val why = "Enter a full http(s) address, or leave this blank. Nothing was saved."
+                binding.overrideUrl.error = why
+                binding.state.text = why
+                return@setOnClickListener
+            }
+            prefs.overrideUrl = url
             prefs.columnHint = binding.columnHint.text.toString().trim()
             Toast.makeText(this, "Saved", Toast.LENGTH_SHORT).show()
             finish()
@@ -81,6 +91,7 @@ class SettingsActivity : AppCompatActivity() {
         binding.clear.setOnClickListener {
             lifecycleScope.launch {
                 (application as App).repository()?.clearCaches()
+                binding.state.text = "Live cache cleared · saved timetable still available offline"
                 Toast.makeText(this@SettingsActivity, "Live cache cleared", Toast.LENGTH_SHORT).show()
             }
         }

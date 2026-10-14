@@ -46,9 +46,11 @@ class SuggestBox @JvmOverloads constructor(
 
     private val input: EditText
     private val panel: LinearLayout
+    private val scroll: View
     private val chip: TextView
     private val handler = Handler(Looper.getMainLooper())
     private var pending: Runnable? = null
+    private var dismiss: Runnable? = null
 
     var suggester: Suggester? = null
     var onPick: ((Suggestion) -> Unit)? = null
@@ -73,6 +75,7 @@ class SuggestBox @JvmOverloads constructor(
         LayoutInflater.from(context).inflate(R.layout.view_suggest_box, this, true)
         input = findViewById(R.id.suggestInput)
         panel = findViewById(R.id.suggestPanel)
+        scroll = findViewById(R.id.suggestScroll)
         chip = findViewById(R.id.suggestChip)
         chip.visibility = GONE
 
@@ -80,12 +83,18 @@ class SuggestBox @JvmOverloads constructor(
             override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) = Unit
             override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) = Unit
             override fun afterTextChanged(s: Editable?) {
-                if (!suppress) resolvedCode = null
-                schedule()
+                if (!suppress) {
+                    resolvedCode = null
+                    schedule()
+                }
             }
         })
         input.setOnFocusChangeListener { _, focused ->
-            if (focused) schedule() else hideSoon()
+            if (focused) {
+                dismiss?.let(handler::removeCallbacks)
+                dismiss = null
+                schedule()
+            } else hideSoon()
         }
         input.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_SEARCH || actionId == EditorInfo.IME_ACTION_DONE) {
@@ -138,19 +147,19 @@ class SuggestBox @JvmOverloads constructor(
         val s = suggester
         val q = text.trim()
         if (s == null || q.length < MIN_QUERY) {
-            panel.removeAllViews(); panel.visibility = GONE
+            panel.removeAllViews(); showPanel(false)
             return
         }
         s.suggest(q, { rows ->
             // A late answer for an older keystroke must not overwrite a newer list. The input text is
             // the token; comparing it here is enough and avoids a request-sequence counter.
-            if (text.trim().length < MIN_QUERY) return@suggest
+            if (text.trim() != q) return@suggest
             render(rows)
         }, { why ->
             // The reason instead of an empty box. A traveller who types "Yes" and sees nothing has no way to
             // tell "no such station" from "the 14 MB timetable is still installing" from "the lookup threw",
             // and each of those wants a different thing to do next.
-            if (text.trim().length < MIN_QUERY) return@suggest
+            if (text.trim() != q) return@suggest
             notice(why)
         })
     }
@@ -164,17 +173,16 @@ class SuggestBox @JvmOverloads constructor(
         (v.findViewById<TextView>(R.id.sugSecondary)).text = ""
         v.isClickable = false
         panel.addView(v)
-        panel.visibility = VISIBLE
+        showPanel(true)
         bringPanelIntoView()
     }
 
     private fun render(rows: List<Suggestion>) {
         panel.removeAllViews()
         if (rows.isEmpty()) {
-            panel.visibility = GONE
+            showPanel(false)
             return
         }
-        bringPanelIntoView()
         rows.take(MAX_ROWS).forEach { sug ->
             val v = LayoutInflater.from(context)
                 .inflate(R.layout.item_suggestion, panel, false)
@@ -184,7 +192,14 @@ class SuggestBox @JvmOverloads constructor(
             v.setOnClickListener { pick(sug) }
             panel.addView(v)
         }
-        panel.visibility = VISIBLE
+        showPanel(true)
+        bringPanelIntoView()
+    }
+
+    /** The rows live inside suggestScroll. Making only the inner LinearLayout visible leaves every
+     * result behind the outer ScrollView's XML `gone` state: populated in JVM tests, invisible on device. */
+    private fun showPanel(show: Boolean) {
+        scroll.visibility = if (show) VISIBLE else GONE
     }
 
     /**
@@ -199,21 +214,28 @@ class SuggestBox @JvmOverloads constructor(
     }
 
     private fun pick(sug: Suggestion) {
+        pending?.let(handler::removeCallbacks)
+        pending = null
         setTextShown(sug.primary)
         resolvedCode = sug.value
         panel.removeAllViews()
-        panel.visibility = GONE
+        showPanel(false)
         onPick?.invoke(sug)
         imm()?.hideSoftInputFromWindow(input.windowToken, 0)
     }
 
     private fun hideSoon() {
-        pending?.let { handler.removeCallbacks(it) }
-        handler.postDelayed({ hideNow() }, 240)
+        pending?.let(handler::removeCallbacks)
+        dismiss?.let(handler::removeCallbacks)
+        val r = Runnable { hideNow() }
+        dismiss = r
+        handler.postDelayed(r, 240)
     }
 
     private fun hideNow() {
-        panel.visibility = GONE
+        dismiss?.let(handler::removeCallbacks)
+        dismiss = null
+        showPanel(false)
     }
 
     /** Exposed for the render tests: how many rows are showing. */

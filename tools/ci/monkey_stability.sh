@@ -27,8 +27,12 @@ sleep 2
 adb shell monkey -p "$PKG" --ignore-security-exceptions --ignore-crashes -s "$((SEED + 1))" \
   -c android.intent.category.LAUNCHER 1 > /tmp/monkey2.log 2>&1
 sleep 6
+# A smoke run must not silently add 4,000 extra events after its requested budget. A full
+# stability sweep still includes the 4,000-event relaunch pass.
+REOPEN_COUNT=$COUNT
+[ "$REOPEN_COUNT" -gt 4000 ] && REOPEN_COUNT=4000
 adb shell monkey -p "$PKG" --ignore-security-exceptions --ignore-crashes -s "$((SEED + 2))" \
-  --throttle "$THROTTLE" 4000 > /tmp/monkey3.log 2>&1
+  --throttle "$THROTTLE" "$REOPEN_COUNT" > /tmp/monkey3.log 2>&1
 
 echo "== collecting evidence"
 adb logcat -d -v brief > /tmp/logcat.txt 2>&1 || true
@@ -66,5 +70,5 @@ if [ -z "${ALIVE:-}" ]; then
   # by the low-memory killer looks like — and that is worth reading about.
   echo "::warning::$PKG has no process id after the run, and no crash line was found"
 fi
-echo "OK  no crash or ANR attributed to $PKG across $COUNT+$COUNT-random events"
+echo "OK  no crash or ANR attributed to $PKG across $COUNT+$REOPEN_COUNT random events"
 exit 0

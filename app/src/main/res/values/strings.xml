@@ -50,6 +50,7 @@
     <string name="report_listening">Listening to the public relay for this train — no traveller reports yet. Yours will appear the moment you send one below.</string>
     <string name="first_load">Fetching this train\'s screen — the live sources are being asked…</string>
     <string name="installing_data">Installing offline timetable… %1$d%%</string>
+    <string name="installing_data_first_frame">Opening built-in timetable…</string>
     <string name="err_need_two_stations">Enter both stations (name or 3–4 letter code).</string>
     <string name="err_need_train_query">Enter at least 3 characters of the train number or name.</string>
     <string name="err_station_unknown">No station matches that. Try the 3–4 letter code (MAS, NDLS, SBC).</string>

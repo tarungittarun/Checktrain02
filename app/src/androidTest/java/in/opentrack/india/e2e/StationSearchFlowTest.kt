@@ -68,7 +68,9 @@ class StationSearchFlowTest {
         // 'B' matching 400 stations is noise; three letters is where a name or code becomes specific.
         assertTrue("'ne' opened a list although two letters are below the floor", E2E.suggestionRows().isEmpty())
         // …and the same box must light up at three, so this test cannot pass by the box being dead.
-        assertTrue("'yes' offered nothing after 'ne' was correctly ignored", awaitAnySuggestion("fromBox"))
+        E2E.typeInBox("fromBox", "yes")
+        val answered = awaitAnySuggestion("fromBox")
+        assertTrue("'yes' offered nothing after 'ne' was correctly ignored: ${E2E.debugSearch("fromBox")}", answered)
     }
 
     // @flow type-ahead-never-silent

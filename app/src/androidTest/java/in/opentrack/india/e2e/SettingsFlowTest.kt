@@ -28,7 +28,14 @@ class SettingsFlowTest {
 
     private fun openSettings(): Boolean {
         if (!E2E.tap("settings")) return false
-        return E2E.ui.wait(Until.hasObject(E2E.res("state")), E2E.LOCAL_MS) != null
+        // The state is populated by an asynchronous repository check; a mounted but empty
+        // TextView is not yet an answer to the traveller.
+        val deadline = System.currentTimeMillis() + E2E.LOCAL_MS
+        while (System.currentTimeMillis() < deadline) {
+            if (E2E.text("state").isNotBlank()) return true
+            Thread.sleep(150)
+        }
+        return false
     }
 
     // @flow settings-entry
@@ -121,15 +128,16 @@ class SettingsFlowTest {
     fun junkEndpointSaysSo() {
         assertTrue(openSettings())
         assertTrue(typeInBoxField("overrideUrl", "not-a-url"))
-        E2E.tap("save")
-        E2E.tap("back")
-        // The consequence, on the screen it is visible from: the tracking screen must tell the traveller the
-        // configured endpoint was not usable, rather than fall back quietly to the built-in one.
+        assertTrue("save could not be tapped", E2E.tap("save"))
+        // Invalid input must keep this screen open with visible feedback, not silently persist
+        // a broken live source. The old test pressed Back before reading this screen's state.
         val state = E2E.text("state")
-        assertTrue("settings accepted a non-URL and said nothing ('$state')", state.isNotBlank())
+        assertTrue("invalid endpoint did not explain what to fix ('$state')",
+            state.contains("http", ignoreCase = true) && state.contains("Nothing was saved"))
+        assertTrue("an invalid endpoint closed Settings instead of letting it be corrected",
+            E2E.visible("overrideUrl", 500))
         typeInBoxField("overrideUrl", "")
         E2E.tap("save")
-        E2E.tap("back")
     }
 
     // @flow clear-cache
@@ -137,8 +145,13 @@ class SettingsFlowTest {
     fun clearingCacheIsVisibleOnTheTrackScreen() {
         assertTrue(openSettings())
         assertTrue("no clear control", E2E.tap("clear"))
+        val deadline = System.currentTimeMillis() + E2E.LOCAL_MS
+        while (!E2E.text("state").contains("cache cleared", true) && System.currentTimeMillis() < deadline) {
+            Thread.sleep(150)
+        }
         val state = E2E.text("state")
-        assertTrue("clearing left the state line blank", state.isNotBlank())
+        assertTrue("cache clearing never updated the state line: '$state'",
+            state.contains("cache cleared", true))
         E2E.tap("back")
         // Then check the *consequence* the user cares about: an offline screen after a clear must not present
         // anything as a recent live report.

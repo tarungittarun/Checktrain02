@@ -1,5 +1,6 @@
 package `in`.opentrack.india.ui
 
+import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
 import `in`.opentrack.india.R
@@ -74,10 +75,12 @@ class SuggestFlowTest {
         assertNotNull("no board-at box on the search screen", from)
 
         type(from!!, "yes")
+        val scroll = from.findViewById<View>(R.id.suggestScroll)
         assertTrue(
-            "typing \"yes\" left the box with no rows and no explanation — rowCount=${from.rowCount}, " +
-                "visibility=${panel(from)?.visibility}: silence is the bug the user reported",
-            from.rowCount > 0,
+            "typing \"yes\" left no visible answer — rows=${from.rowCount}, " +
+                "panel=${panel(from)?.visibility}, scroll=${scroll?.visibility}",
+            from.rowCount > 0 && scroll?.visibility == View.VISIBLE &&
+                panel(from)?.visibility == View.VISIBLE,
         )
         // Whatever came back has to be about what was typed, not a stale or empty row.
         val first = rowText(from, 0)
@@ -102,6 +105,9 @@ class SuggestFlowTest {
             code!!.length in 3..4 && code.all { it.isLetterOrDigit() })
         assertEquals("the field should show the name, not the code", "yesvant",
             from.text.take(7).lowercase())
+        shadowOf(android.os.Looper.getMainLooper()).idleFor(400, TimeUnit.MILLISECONDS)
+        assertEquals("a picked suggestion must stay closed", View.GONE,
+            from.findViewById<View>(R.id.suggestScroll).visibility)
     }
 
     @Test

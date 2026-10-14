@@ -103,7 +103,9 @@ runs:
       shell: bash
       run: |
         mkdir -p /tmp/apk /tmp/classes
-        for spec in "apk-debug:/tmp/apk" "apk-debug-androidTest:/tmp/apk" "apk-release:/tmp/apk" "e2e-classes:/tmp/classes"; do
+        specs=("apk-debug:/tmp/apk" "apk-debug-androidTest:/tmp/apk" "e2e-classes:/tmp/classes")
+        [ "$VARIANT" = release ] && specs+=("apk-release:/tmp/apk")
+        for spec in "${specs[@]}"; do
           name=${spec%%:*}; dir=${spec#*:}; started=$(date +%s)
           timeout 240 gh run download "${{ github.run_id }}" -n "$name" -D "$dir" > "/tmp/fetch-$name.log" 2>&1
           rc=$?

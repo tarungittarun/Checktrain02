@@ -28,7 +28,7 @@ on:
   workflow_dispatch:
     inputs:
       full:
-        description: "Run every matrix row (density + release too), not only the two that answer 'does the built APK work'"
+        description: "Run all device rows (API 24, density and release as well as the API 34 smoke)"
         type: boolean
         default: true
       focus:
@@ -38,7 +38,7 @@ on:
       monkey_events:
         description: "Random events for the stability pass (0 = skip the pass)"
         type: string
-        default: "30000"
+        default: ""
       boot_timeout:
         description: "Seconds to wait for an emulator to boot (the row's own deadline caps this anyway)"
         type: string
@@ -70,6 +70,9 @@ jobs:
   # source without anyone having to sniff a packet capture by hand. It never fails the build: its output
   # is information, and a probe that can break a release is a probe nobody runs twice.
   probe:
+    # Nine-minute live-source reconnaissance is useful on main, explicit sweeps and source changes,
+    # not on every UI/test-only push. It runs in parallel and does not gate device evidence.
+    if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || contains(github.event.head_commit.message, '[probe]')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -154,10 +157,9 @@ jobs:
           DISPATCH_MONKEY: ${{ inputs.monkey_events }}
           DISPATCH_BOOT: ${{ inputs.boot_timeout }}
         run: |
-          # Four emulator rows is on the order of two runner-hours per push, which is a real cost on a
-          # metered plan, and two of the four (density, release) answer questions about new APIs and about
-          # R8 rather than "does the app work for a traveller". So: the two core rows on an ordinary push,
-          # the whole matrix on a dispatch that asks for it, on main, or on a commit that asks for it
+          # One required modern-device smoke on branch pushes. API 24 and the two specialized rows
+          # run only on main or an explicit sweep; they still run before shipping, not after. So: one
+          # core row on an ordinary push, the whole matrix on a dispatch or tagged commit
           # ([e2e-full]). The pull_request case is gone with the trigger (ADR-001).
           full=false
           case "${{ github.event_name }}" in
@@ -187,7 +189,7 @@ jobs:
           if [ "$full" = true ]; then
             echo "::notice::device rows: all four (api34, min24, density, release); focus=${focus:-whole suite}"
           else
-            echo "::notice::device rows: core (api34, min24) - add [e2e-full] to the commit message, or the "full" checkbox on a dispatch, for the other two"
+            echo "::notice::device rows: core (api34); full sweeps add min24, density and release - add [e2e-full] to the commit message, or the "full" checkbox on a dispatch, for the other two"
           fi
       - name: Flow manifest vs the tests that claim it
         run: |
@@ -273,6 +275,7 @@ jobs:
       # test APK must be signed by the same key as the app it drives. The stable public TEST key is
       # used here only for the never-published release-smoke artifact, not a production release.
       - name: Assemble the release APK signed with the debug key (for the release-smoke row)
+        if: needs.plan.outputs.full == 'true'
         run: |
           # This is a test-only release-smoke APK, never published. Sign it with the same
           # stable TEST key as debug so the instrumented test package can attach to it.
@@ -295,6 +298,7 @@ jobs:
           if-no-files-found: error
           retention-days: 3
       - uses: actions/upload-artifact@v4
+        if: needs.plan.outputs.full == 'true'
         with:
           name: apk-release
           path: app/build/outputs/apk/release/app-release.apk
@@ -335,12 +339,9 @@ jobs:
 
   # ----------------------------------------------------------------------------------- the device matrix
   #
-  # Two jobs, one action (`.github/actions/e2e-row`). `e2e` answers "does the built APK work for a
-  # traveller" and runs on every push; `e2e_full` adds the two rows about new APIs (large density plus font
-  # scale) and about the artifact a store would carry (R8 + resource shrinking). The split is about cost: a
-  # row is roughly an hour of a 2 vCPU runner, and a metered plan should not spend four per push unless
-  # asked. `plan` decides which events ask for it (a dispatch with the `full` checkbox, a pull request, or
-  # main), and each row still reports itself on the commit whether or not it is part of the required set.
+  # One required API 34 row per branch push; full sweeps add minSdk 24, density/font scale and the
+  # R8-shrunk APK. `plan` enables the sweep for main, dispatch with `full`, or [e2e-full] in a commit.
+  # A branch result does NOT claim API 24/release coverage; those require a full sweep before shipping.
   e2e:
     needs: [build, plan]
     runs-on: ubuntu-latest
@@ -351,9 +352,8 @@ jobs:
       # pass times, coverage, crash tail - silently never appears, which is what happened on run 38127110617.
       pull-requests: write
       issues: write
-    timeout-minutes: 80
-    # The row that must pass is the minSdk one; the modern row may be unavailable on a runner without
-    # acceleration, and that is reported in the roll-up rather than hidden.
+    timeout-minutes: 40
+    # A failed or unbootable core row is not a green branch: the roll-up requires a booted emulator.
     env:
       # The row knobs, as env vars rather than `${{ }}` text substitutions: a description or device profile
       # with a space in it then cannot rewrite a command line, and the composite action the steps live in
@@ -373,7 +373,7 @@ jobs:
       FONT_SCALE: ${{ matrix.font_scale || '' }}
       FOCUS: ${{ needs.plan.outputs.focus }}
       BOOT_TIMEOUT: ${{ needs.plan.outputs.boot_timeout }}
-      ROW_BUDGET_MINUTES: 58  # the row reports before GitHub cancels the job at 80m
+      ROW_BUDGET_MINUTES: 30  # report before the 40m job deadline; no 58-minute silent row
     continue-on-error: ${{ matrix.optional }}
     strategy:
       fail-fast: false
@@ -385,20 +385,10 @@ jobs:
             img: google_apis
             abi: x86_64
             device: pixel_6
-            optional: true
+            optional: false
             location: granted
             offline: true
-            monkey: 30000
-          - name: min24
-            desc: "Nexus 5, API 24 - the minSdk floor, and the row that has to work on the smallest runner"
-            api: 24
-            img: default
-            abi: x86_64
-            device: nexus_5
-            optional: false
-            location: denied
-            offline: false
-            monkey: 6000
+            monkey: 600
     steps:
       # A local action is looked up on disk before any of its steps run, so the repo has to be there first:
       # this checkout belongs to the job, not to the action. Without it the job dies with
@@ -437,7 +427,7 @@ jobs:
       # pass times, coverage, crash tail - silently never appears, which is what happened on run 38127110617.
       pull-requests: write
       issues: write
-    timeout-minutes: 80
+    timeout-minutes: 65
     env:
       # Identical to the core row's env block by design: two jobs, one action, and the action reads its whole
       # configuration from here.
@@ -456,12 +446,22 @@ jobs:
       FONT_SCALE: ${{ matrix.font_scale || '' }}
       FOCUS: ${{ needs.plan.outputs.focus }}
       BOOT_TIMEOUT: ${{ needs.plan.outputs.boot_timeout }}
-      ROW_BUDGET_MINUTES: 58  # the row reports before GitHub cancels the job at 80m
+      ROW_BUDGET_MINUTES: 50  # full rows have more time but still report before the job deadline
     continue-on-error: ${{ matrix.optional }}
     strategy:
       fail-fast: false
       matrix:
         include:
+          - name: min24
+            desc: "Nexus 5, API 24 - the minSdk floor, checked in full sweeps before release"
+            api: 24
+            img: default
+            abi: x86_64
+            device: nexus_5
+            optional: false
+            location: denied
+            offline: false
+            monkey: 1200
           - name: density
             desc: "Large phone at 440 dpi with font_scale 1.15 - the axis Robolectric cannot fake (it ignores fontScale)"
             api: 34
