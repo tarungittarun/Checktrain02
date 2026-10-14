@@ -106,6 +106,20 @@ class TrackModelTest {
     }
 
     @Test
+    fun stationClaimCannotTurnTheScheduledMinuteIntoAReportedPassageTime() {
+        val m = TrackModel.build(route(),
+            pos(2, 3, StopStatus.DEPARTED, kind = SourceKind.PROVIDER_OVERRIDE).copy(
+                feedAgeSeconds = 180, ageSeconds = 3),
+            emptyMap(), 620, 1, 3, 19949L, null, positionOnly = true)
+        assertTrue(m.headline.contains("Last reported: departed MID Jn"))
+        assertFalse("schedule must not be reported as departure: ${m.headline}",
+            m.headline.contains("10:10"))
+        assertEquals(TrackModel.MinuteSource.SCHEDULE, m.rows[1].source)
+        assertEquals(0, m.progressPct)
+        assertEquals("feed 3 min old", m.ageLabel)
+    }
+
+    @Test
     fun cachedOfficialPastStopNeverClaimsLivePositionOrForecast() {
         val r = overnightRoute()
         val reported = mapOf("SRC" to LiveStopFields(actualDepartureMin = 1387,

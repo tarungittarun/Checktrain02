@@ -285,9 +285,16 @@ object TrackModel {
             },
             runDateLabel = "run of ${RailTime.formatDate(runEpochDay)}",
             headline = if (positionOnly && live && pos.provenance != SourceKind.DERIVED_GPS && anchor != null) {
-                val event = if (pos.status == StopStatus.ARRIVED) "arrived at" else "departed"
-                val time = (if (pos.status == StopStatus.ARRIVED) anchor.showArr else anchor.showDep)
-                    ?.let { " · ${RailTime.formatRailMinute(it)}" } ?: ""
+                val event = when (pos.status) {
+                    StopStatus.ARRIVED -> "arrived at"
+                    StopStatus.DEPARTED -> "departed"
+                    else -> "reported near"
+                }
+                // A page's station claim has no passage minute. The anchor row still carries
+                // its Sch time; it must never be repeated in a "Last reported" sentence.
+                val time = (if (anchor.source == MinuteSource.REPORTED) {
+                    if (pos.status == StopStatus.ARRIVED) anchor.showArr else anchor.showDep
+                } else null)?.let { " · ${RailTime.formatRailMinute(it)}" } ?: ""
                 "Last reported: $event ${TitleCase.of(anchor.name)}$time · current position unknown"
             } else headline(route, pos, anchor, next, live, nowRailMinute),
             tone = tone(pos, live),

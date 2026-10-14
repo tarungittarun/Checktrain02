@@ -1232,7 +1232,10 @@ class LiveViewModel(
                 nextSeq = route.stops.first { it.code.equals(webPoint.followingHalt, true) }.seq,
                 fraction = 0f, kmAlong = webAnchor.schedKm.toFloat(),
                 status = `in`.opentrack.india.model.StopStatus.DEPARTED,
-                delayMinutes = null, etaNextMinute = null)
+                delayMinutes = null, etaNextMinute = null,
+                ageSeconds = (now - wimtCheckedAt).coerceAtLeast(0L) / 1000,
+                feedAgeSeconds = (now - webPoint.eventAtMillis).coerceAtLeast(0L) / 1000,
+                feedStampMillis = null)
             claimStop != null -> pos.copy(
                 provenance = SourceKind.PROVIDER_OVERRIDE, anchorSeq = claimStop.seq,
                 nextSeq = route.stops.getOrNull(route.stops.indexOf(claimStop) + 1)?.seq ?: 0,
@@ -1240,7 +1243,13 @@ class LiveViewModel(
                 status = if (railClaim?.status == "arrived")
                     `in`.opentrack.india.model.StopStatus.ARRIVED else
                     `in`.opentrack.india.model.StopStatus.DEPARTED,
-                delayMinutes = null, etaNextMinute = null, feedStampMillis = null)
+                delayMinutes = null, etaNextMinute = null,
+                // The publication clock is NOT a departure/arrival minute. Keep it only as
+                // source freshness; the table's Act cells and timed event remain absent.
+                ageSeconds = (now - (publicChecks[PublicPageChecks.RAIL_YATRI]?.checkedAt ?: now))
+                    .coerceAtLeast(0L) / 1000,
+                feedAgeSeconds = (now - railClaim!!.updateAt).coerceAtLeast(0L) / 1000,
+                feedStampMillis = railClaim.updateAt)
             selectedMirrorForTable || publicSelected -> pos.copy(
                 provenance = SourceKind.OFFLINE_SCHEDULE, anchorSeq = 0, nextSeq = 0,
                 fraction = 0f, delayMinutes = null, etaNextMinute = null, feedStampMillis = null)
