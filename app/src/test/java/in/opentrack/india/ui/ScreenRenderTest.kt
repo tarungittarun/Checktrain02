@@ -163,7 +163,7 @@ class ScreenRenderTest {
         // The distance ladder is what the user asked for: the first row reads 0 km, the last one is the
         // train's total, and the middle rows must therefore be strictly increasing.
         val km = (0 until list.childCount).map { text(list.getChildAt(it), R.id.stopMeta) }
-            .mapNotNull { Regex("""· (\d+) km""").find(it)?.groupValues?.get(1)?.toIntOrNull() }
+            .mapNotNull { Regex("""· Sch (\d+) km""").find(it)?.groupValues?.get(1)?.toIntOrNull() }
         assertEquals("every row prints its distance, the 0 km origin included", list.childCount, km.size)
         assertTrue("distances must increase along the route: $km", km.zipWithNext().all { (a, b) -> b > a })
 

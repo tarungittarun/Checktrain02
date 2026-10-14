@@ -130,7 +130,7 @@ class ShippedDataTest {
         assertEquals(route.stops.size, rows.childCount)
         // On the real route the distance column has to survive all the way to the pixels.
         val km = (0 until rows.childCount).map { Render.read(rows.getChildAt(it), R.id.stopMeta) }
-            .mapNotNull { Regex("""· (\d+) km""").find(it)?.groupValues?.get(1)?.toIntOrNull() }
+            .mapNotNull { Regex("""· Sch (\d+) km""").find(it)?.groupValues?.get(1)?.toIntOrNull() }
         assertTrue("only ${km.size} of ${route.stops.size} rows printed a distance",
             km.size >= route.stops.size - 1)
         assertTrue("distances out of order on the real route: $km", km.zipWithNext().all { (a, b) -> b >= a })
