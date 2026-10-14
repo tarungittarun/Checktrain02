@@ -30,19 +30,22 @@ def probe(number, start, end):
                 print(f'  response type: {type(doc).__name__}', flush=True)
                 return
             print('  keys: ' + str(list(doc)[:35]), flush=True)
-            for key in ('train_no', 'train_number', 'date', 'train_start_date', 'status',
-                        'source', 'data_from', 'last_updated', 'error', 'message'):
+            for key in ('train_no', 'train_number', 'date', 'train_start_date', 'start_date',
+                        'source_station', 'destination_station', 'lastUpdateIsoDate', 'curStn',
+                        'status', 'source', 'data_from', 'last_updated', 'error', 'message'):
                 if key in doc and not isinstance(doc[key], (dict, list)):
                     print(f'  {key}: {str(doc[key])[:150]}', flush=True)
             for key, value in doc.items():
                 if isinstance(value, list):
                     print(f'  {key}: {len(value)} rows', flush=True)
-                    for row in value[:2]:
+                    samples = [value[0], value[1], value[len(value)//2], value[-2], value[-1]] if len(value) >= 5 else value
+                    for row in samples:
                         if isinstance(row, dict):
-                            print('    field names: ' + str(list(row)[:35]), flush=True)
-                            print('    station/time fields: ' + str({k: str(v)[:65] for k,v in row.items()
-                                if any(word in k.lower() for word in ('station','time','date','actual',
-                                    'estimate','arrival','departure','source','status'))})[:500], flush=True)
+                            print('    row: ' + str({k: str(row.get(k))[:65] for k in (
+                                'station_code', 'stops', 'departed', 'source', 'sch_arrival_time',
+                                'sch_departure_time', 'actual_arrival_time', 'actual_departure_time',
+                                'actual_arrival_tm', 'actual_departure_tm', 'updated_at')
+                                if k in row})[:650], flush=True)
                 elif isinstance(value, dict):
                     print(f'  {key}: object keys ' + str(list(value)[:30]), flush=True)
     except urllib.error.HTTPError as error:
