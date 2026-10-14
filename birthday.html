@@ -23,6 +23,10 @@ body{
 .popup{
   position:relative;
   width:min(92vw,420px);
+  max-height:calc(100vh - 32px);
+  max-height:calc(100svh - 32px);
+  overflow-y:auto;
+  overscroll-behavior:contain;
   background:rgba(255,255,255,0.92);
   backdrop-filter:blur(12px);
   -webkit-backdrop-filter:blur(12px);
@@ -58,13 +62,23 @@ body{
 @keyframes flicker{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.7;transform:scale(1.08)}}
 .msg{margin-top:10px;font-size:15px;line-height:1.5;color:#444}
 .from{margin-top:14px;font-size:13px;color:#888;font-style:italic}
+.actions{display:flex;justify-content:center;align-items:center;flex-wrap:wrap;gap:8px;margin-top:18px}
 .btn{
-  margin-top:18px;display:inline-block;padding:12px 26px;border:none;border-radius:999px;
+  display:inline-block;padding:12px 22px;border:none;border-radius:999px;
   background:linear-gradient(135deg,#ff4d6d,#ff8fab);color:#fff;font-weight:700;font-size:15px;
   cursor:pointer;box-shadow:0 8px 20px rgba(255,77,109,.35);
   transition:transform .15s,box-shadow .15s;
 }
 .btn:active{transform:scale(.96)}
+.share-status{min-height:18px;margin-top:8px;color:#457b55;font-size:12px}
+@media(max-height:600px){
+  .popup{padding:18px 20px}
+  .cake{font-size:64px;margin:6px 0 0}
+  .candles{margin-bottom:4px}
+  .msg{font-size:14px;margin-top:6px}
+  .actions{margin-top:12px}
+  .btn{padding:10px 18px}
+}
 .balloons{position:fixed;inset:0;pointer-events:none;overflow:hidden;z-index:1}
 .balloon{
   position:absolute;bottom:-80px;font-size:clamp(28px,8vw,44px);
@@ -76,7 +90,7 @@ canvas{position:fixed;inset:0;pointer-events:none;z-index:2}
 </style>
 </head>
 <body>
-<button class="mute" id="mute" aria-label="Toggle music">🔊</button>
+<button class="mute" id="mute" aria-label="Enable birthday music">🔇</button>
 <div class="balloons" id="balloons"></div>
 <canvas id="confetti"></canvas>
 <div class="popup">
@@ -87,13 +101,27 @@ canvas{position:fixed;inset:0;pointer-events:none;z-index:2}
   <div class="subtitle">Wishing you a day full of joy &amp; laughter</div>
   <div class="msg">May all your dreams come true today and always. You deserve the best! 🎉🎁✨</div>
   <div class="from" id="from"></div>
-  <button class="btn" id="celebrate">Celebrate! 🎊</button>
+  <div class="actions">
+    <button class="btn" id="celebrate">Celebrate! 🎊</button>
+    <button class="btn" id="share" style="background:linear-gradient(135deg,#4cc9f0,#7209b7)">Share 💌</button>
+  </div>
+  <div class="share-status" id="shareStatus" role="status" aria-live="polite"></div>
 </div>
 <script>
 (function(){
   var p=new URLSearchParams(location.search);
-  var nm=p.get('name')||p.get('to')||'';
-  var fr=p.get('from')||p.get('by')||'';
+  var rawLocationQuery=location.search.substring(1);
+  function readQueryValue(primary,alias){
+    var value=p.get(primary)||p.get(alias);
+    if(value)return value;
+    // HTML Preview puts the source URL (and its query) inside this page's query string.
+    var sourceQueryStart=rawLocationQuery.toLowerCase().indexOf('.html?');
+    if(sourceQueryStart<0)return '';
+    var nested=new URLSearchParams(rawLocationQuery.substring(sourceQueryStart+6));
+    return nested.get(primary)||nested.get(alias)||'';
+  }
+  var nm=readQueryValue('name','to');
+  var fr=readQueryValue('from','by');
   var nameEl=document.getElementById('name');
   var fromEl=document.getElementById('from');
   if(nm){nameEl.textContent='🎉 '+nm+' 🎉';}
@@ -133,7 +161,7 @@ canvas{position:fixed;inset:0;pointer-events:none;z-index:2}
   }
   tick();
   // music (simple birthday melody via WebAudio) toggle
-  var audioCtx=null,playing=false,oscNodes=[];
+  var audioCtx=null,playing=false;
   function playMelody(){
     if(!audioCtx)audioCtx=new (window.AudioContext||window.webkitAudioContext)();
     var notes=[264,264,297,264,352,330, 264,264,297,264,396,352, 264,264,528,440,352,330,297, 466,466,440,352,396,352];
@@ -150,14 +178,63 @@ canvas{position:fixed;inset:0;pointer-events:none;z-index:2}
     return t-audioCtx.currentTime;
   }
   var muteBtn=document.getElementById('mute');
+  function startMusic(){
+    playing=true;
+    muteBtn.textContent='🔊';
+    muteBtn.setAttribute('aria-label','Mute birthday music');
+    playMelody();
+  }
+  function stopMusic(){
+    playing=false;
+    muteBtn.textContent='🔇';
+    muteBtn.setAttribute('aria-label','Enable birthday music');
+    if(audioCtx){audioCtx.close();audioCtx=null;}
+  }
   muteBtn.addEventListener('click',function(){
-    if(playing){playing=false;muteBtn.textContent='🔇';}
-    else{playing=true;muteBtn.textContent='🔊';playMelody();}
+    if(playing)stopMusic();
+    else startMusic();
   });
-  // auto play on celebrate
+  // Music starts only after a tap, as mobile browsers block autoplay.
   document.getElementById('celebrate').addEventListener('click',function(){
     spawn(200);
-    if(!playing){playing=true;muteBtn.textContent='🔊';playMelody();}
+    if(!playing)startMusic();
+  });
+  var shareStatus=document.getElementById('shareStatus');
+  var previewBase='https://htmlpreview.github.io/?https://raw.githubusercontent.com/tarungittarun/Checktrain02/arena/536c97e0-checktrain02/birthday.html';
+  function createShareUrl(){
+    var query=new URLSearchParams();
+    if(nm)query.set('name',nm);
+    if(fr)query.set('from',fr);
+    var queryText=query.toString();
+    if(location.hostname==='htmlpreview.github.io'){
+      // Keep birthday parameters after the source file so HTML Preview can render it.
+      return previewBase+(queryText?'?'+queryText:'');
+    }
+    var url=new URL(location.href);
+    url.search=queryText;
+    url.hash='';
+    return url.toString();
+  }
+  async function copyShareUrl(url){
+    try{
+      if(!navigator.clipboard)throw new Error('Clipboard unavailable');
+      await navigator.clipboard.writeText(url);
+      shareStatus.textContent='Link copied — paste it into WhatsApp or any chat.';
+    }catch(error){
+      window.prompt('Copy this birthday link:',url);
+    }
+  }
+  document.getElementById('share').addEventListener('click',async function(){
+    var url=createShareUrl();
+    if(navigator.share){
+      try{
+        await navigator.share({title:'Happy Birthday! 🎂',text:'A birthday surprise for you!',url:url});
+      }catch(error){
+        if(error.name!=='AbortError')await copyShareUrl(url);
+      }
+    }else{
+      await copyShareUrl(url);
+    }
   });
 })();
 </script>
