@@ -370,7 +370,8 @@ object NtesAdapter {
         for ((i, s) in rows.withIndex()) {
             val code = s.code ?: continue
             val departed = s.departed == true || s.actDep != null
-            val arrived = s.actArr != null || s.delayArr != null
+            // A delay or future ETA alone cannot prove arrival at this halt.
+            val arrived = s.actArr != null
             if (departed || arrived || s.cancelled) anchorIdx = i
             perStop[code] = LiveStopFields(
                 actualArrivalMin = s.actArr,
