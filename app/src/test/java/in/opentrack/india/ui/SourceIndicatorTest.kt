@@ -24,6 +24,10 @@ class SourceIndicatorTest {
         assertEquals(null, SourceIndicator.seconds("not checked yet"))
         assertEquals(0, SourceIndicator.priority(SourceIndicator.Tone.READY))
         assertEquals(3, SourceIndicator.priority(SourceIndicator.Tone.UNAVAILABLE))
+        assertEquals("run day unclear", SourceIndicator.of(PublicPageChecks.ORG,
+            "unverified", "selected origin run is not unambiguously active").label)
+        assertEquals("site update too old", SourceIndicator.of(PublicPageChecks.ORG,
+            "unverified", "website update clock missing or over five minutes old").label)
     }
 
     @Test fun siteClaimsAreGreenButNeverLabelledAsVerifiedActuals() {

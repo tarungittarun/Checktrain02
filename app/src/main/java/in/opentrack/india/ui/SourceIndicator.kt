@@ -22,6 +22,11 @@ object SourceIndicator {
         detail.contains("Request failed", true) || detail.contains("timed out", true) ->
             Indicator(Tone.UNAVAILABLE, "connection failed")
         detail.contains("run day mismatched") -> Indicator(Tone.UNAVAILABLE, "wrong run day")
+        detail.contains("not unambiguously active") -> Indicator(Tone.UNAVAILABLE, "run day unclear")
+        detail.contains("update clock missing or over five minutes old") ->
+            Indicator(Tone.UNAVAILABLE, "site update too old")
+        detail.contains("endpoints do not match") -> Indicator(Tone.UNAVAILABLE, "wrong train or route")
+        detail.contains("run is not active") -> Indicator(Tone.UNAVAILABLE, "train not running")
         else -> Indicator(Tone.UNAVAILABLE, "no usable stop report")
     }
 

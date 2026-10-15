@@ -1465,7 +1465,10 @@ class LiveViewModel(
             routeLabel = identityOverlay(route.srcCode, route.dstCode, liveIdentity?.identity)
                 ?.let { "${model.routeLabel} · $it" }
                 ?: model.routeLabel,
-            progressLabel = if (orgStop != null)
+            progressLabel = if (orgReport?.intermediate != null)
+                "Website's last past-marked intermediate ${orgReport.intermediate.name} · " +
+                    "map ${orgReport.intermediate.mapKm} km · not GPS"
+                else if (orgStop != null)
                 "Website's last past-marked halt · ${orgStop.schedKm} scheduled km · not GPS"
                 else if (claimStop != null)
                     "RailYatri station claim · ${claimStop.schedKm} scheduled km · not GPS"

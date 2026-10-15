@@ -440,7 +440,9 @@ class TrainActivity : AppCompatActivity() {
                 else claim?.let { c -> ui.route.stops.firstOrNull { it.code.equals(c.code, true) } }
             binding.headline.text = when {
                 org?.intermediate != null -> "Site reports reached ${org.intermediate.name} · " +
-                    "${RailTime.formatRailMinute(org.eventMinute)} · position since then unknown"
+                    "${RailTime.formatRailMinute(org.eventMinute)} · " +
+                    "${org.intermediate.precedingHalt}→${org.intermediate.followingHalt} leg; " +
+                    "position since then unknown"
                 org != null && station != null -> "Site reports " +
                     (if (org.departed) "departed" else "arrived at") + " ${station.name} · " +
                     "${RailTime.formatRailMinute(org.eventMinute)} · current position unknown"

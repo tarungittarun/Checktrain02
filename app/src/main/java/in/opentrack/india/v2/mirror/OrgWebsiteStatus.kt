@@ -148,6 +148,9 @@ object OrgWebsiteStatus {
             val arr = arrival?.first
             var dep = departure?.first
             if (arr != null && dep != null && dep < arr) dep = null
+            // A passing point with a departure-only clock could be the site's
+            // moving/current estimate; require its own past-marked arrival claim.
+            if (leg != null && arr == null) continue
             if (arr == null && dep == null) continue
             val platform = Regex("(?i)\\bPF\\s*([A-Z0-9]{1,3})\\b")
                 .find(part.substringBefore("<!-- Arrival -->"))?.groupValues?.get(1)
