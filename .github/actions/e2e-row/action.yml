@@ -591,6 +591,9 @@ runs:
         {
           echo "row=$ROW"
           echo "desc=$ROW_DESC"
+          # Distinguish warm-cache validation from a cold SDK download when
+          # comparing the five-minute workflow target across runs.
+          echo "sdk_cache_hit=${{ steps.image_cache.outputs.cache-hit }}"
           if [ "${{ steps.boot.outcome }}" = success ]; then
             echo "boot=ok $(grep -o 'boot_seconds=[0-9]*' /tmp/diag.env 2>/dev/null | cut -d= -f2)s"
           else
