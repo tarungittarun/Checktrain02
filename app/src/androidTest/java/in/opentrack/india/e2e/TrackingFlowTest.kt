@@ -48,8 +48,17 @@ class TrackingFlowTest {
         assertNotNull("no headline on the tracking screen", E2E.find("headline", E2E.NETWORK_MS))
     }
 
-    private fun rowTexts(id: String): List<String> =
-        E2E.all(By.res(E2E.PKG, "$id")).map { it.text.orEmpty().trim() }
+    private fun rowTexts(id: String): List<String> {
+        // RecyclerView replaces accessibility nodes during a finger swipe. Never reuse a
+        // UiObject2 across frames: re-query the viewport if it became stale while reading.
+        repeat(3) {
+            val values = runCatching {
+                E2E.all(By.res(E2E.PKG, id)).map { it.text.orEmpty().trim() }
+            }.getOrNull()
+            if (values != null) return values
+        }
+        return emptyList()
+    }
 
     // @flow track-open
     @Test
