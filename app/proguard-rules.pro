@@ -22,6 +22,9 @@
 # starts (NoClassDefFoundError: kotlin/jvm/internal/Intrinsics), even though debug passes.
 # Keep the small Kotlin internal ABI for release-device testing, not the whole stdlib.
 -keep class kotlin.jvm.internal.** { *; }
+# The runner also enters androidx.tracing.Trace before creating a test instance.
+# R8 otherwise drops this transitive name because production has no direct call.
+-keep class androidx.tracing.** { *; }
 
 # Release diagnostics: keep line numbers for the Play crash report, drop nothing else.
 -keepattributes SourceFile,LineNumberTable
