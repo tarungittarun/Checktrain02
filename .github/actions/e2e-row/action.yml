@@ -550,6 +550,16 @@ runs:
           echo '```'
           grep -E "FATAL|ANR |E AndroidRuntime" /tmp/logcat.txt 2>/dev/null | tail -25 || echo "(none)"
           echo '```'
+          if [ "$verdict" = FAIL ]; then
+            # The grep above keeps only the FATAL header and hid the Java cause.
+            # Artifact URLs redirect to a blob host some reviewers cannot access:
+            # print the *whole first crash frame* into this small GitHub comment.
+            echo 'first crash stack (Android crash buffer):'
+            echo '```'
+            adb shell logcat -d -b crash -v brief 2>/dev/null | tr -d '\r' | \
+              sed -n '/FATAL EXCEPTION/,+32p' | head -38 || true
+            echo '```'
+          fi
         } > /tmp/body.md
         err=$(gh api -X POST "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/comments" -f body="$(cat /tmp/body.md)" 2>&1 >/dev/null) \
           || echo "::error::could not post the row comment ($ROW): $(printf '%s' "$err" | tr '\n' ' ' | cut -c1-200)"
