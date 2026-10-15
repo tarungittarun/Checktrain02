@@ -284,17 +284,23 @@ class TrainActivity : AppCompatActivity() {
         val publicCheck = ui.activeSource?.takeIf {
             it in `in`.opentrack.india.v2.mirror.PublicPageChecks.names
         }
+        val mirrorWithoutTimes = ui.activeSource?.let { selected ->
+            selected in setOf(`in`.opentrack.india.v2.mirror.ConfirmTktMirror.SOURCE,
+                `in`.opentrack.india.v2.mirror.RunningStatusMirror.SOURCE, "erail") &&
+                ui.sourceStates[selected]?.first != "live"
+        } == true
         // One explanation only: the qualified site's badge + labelled table already state
         // provenance. Show this line only when its selected source has no usable point.
         binding.sourceSummary.visibility = if (
             publicCheck != null && ui.orgWebsiteReport == null && ui.railYatriClaim == null ||
             ui.activeSource == `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE &&
-                ui.wimtWebPoint == null
+                ui.wimtWebPoint == null || mirrorWithoutTimes
         ) View.VISIBLE else View.GONE
         binding.sourceSummary.text = when {
             ui.orgWebsiteReport != null -> "Site's past-stop claims; not confirmed railway actuals."
             ui.wimtWebPoint != null -> "Site distance claim; not phone GPS."
             publicCheck != null -> "No confirmed times from ${sourceName(publicCheck)}; timetable shown."
+            mirrorWithoutTimes -> "No confirmed times from ${sourceName(ui.activeSource.orEmpty())}; timetable shown."
             else -> "No confirmed position from this site; timetable shown."
         }
         binding.headline.text = m.headline
@@ -441,12 +447,9 @@ class TrainActivity : AppCompatActivity() {
         binding.note.visibility = if (m.note == null) View.GONE else View.VISIBLE
         m.note?.let { binding.note.text = it }
 
-        val sourceReports = ui.sourceLines[ui.activeSource] ?: ui.reports
-        stopAdapter.reports = ui.wimtWebPoint?.let { p ->
-            sourceReports + (p.precedingHalt to
-                "WIMT web cache claims ${p.code} at ${String.format(java.util.Locale.ROOT, "%.1f", p.routeKm)} km " +
-                    "(${RailTime.formatClock(p.eventAtMillis)} IST); unverified point after this halt, not Act/GPS")
-        } ?: sourceReports
+        // Page notes stay in Info; the in-table icon and source badge already describe
+        // the selected site's qualified claim without repeating an excerpt at the halt.
+        stopAdapter.reports = ui.sourceLines[ui.activeSource] ?: ui.reports
         stopAdapter.setRoutePoints(RouteBetween.groupedPoints(ui.staticRoute, ui.route))
         stopAdapter.legAgeSeconds = ui.wimtWebPoint?.let {
             ((System.currentTimeMillis() - it.eventAtMillis) / 1_000).coerceAtLeast(0)
@@ -518,7 +521,9 @@ class TrainActivity : AppCompatActivity() {
                         else "web-cache notes only; not verified actuals"
                     "none", "unverified" -> {
                         val rows = Regex("(\\d+) (?:page )?rows").find(status.second)?.groupValues?.get(1)
-                        if (rows != null) "$rows page rows, no verified times" else
+                        if (status.second.contains("Request failed", ignoreCase = true))
+                            "couldn't connect; try again on a stronger connection"
+                        else if (rows != null) "$rows page rows, no confirmed stop times" else
                             if (status.second.contains("not answered") ||
                                 status.second.contains("manual check available")) "tap to check"
                             else "no verified times available"

@@ -1461,17 +1461,9 @@ class LiveViewModel(
         if ("last known" in mirrorSourceLines) sourceNames["last known"] =
             "last-known" to "cached for this run; not a new observation"
         for (name in sourceNames.keys) selectable[name] = when {
-            name == WimtCandidate.SOURCE -> wimtCandidate?.lines.orEmpty()
-            // The website's past-card times already live in the table. Do not repeat old
-            // extracted snippets beside the stations after the five-minute gate expires.
-            name == PublicPageChecks.ORG -> emptyMap()
-            name in PublicPageChecks.names -> publicChecks[name]?.lines?.takeIf {
-                now - (publicChecks[name]?.checkedAt ?: 0L) in 0L..300_000L
-            }.orEmpty() +
-                (if (name == PublicPageChecks.RAIL_YATRI && railClaim != null)
-                    mapOf(railClaim.code to "RailYatri root claims ${railClaim.status} here · " +
-                        "provider updated ${RailTime.formatClock(railClaim.updateAt)} IST; " +
-                        "passage time NOT supplied · upstream ${railClaim.upstream}") else emptyMap())
+            // Page excerpts are comparisons, never station events. The source badge,
+            // top sentence and Info explain them; don't paste excerpts onto stop rows.
+            name == WimtCandidate.SOURCE || name in PublicPageChecks.names -> emptyMap()
             else -> mirrorSourceLines[name].orEmpty()
         }
         val selected = mirrorActiveSource ?: if (answer.position.provenance == SourceKind.PROVIDER)
