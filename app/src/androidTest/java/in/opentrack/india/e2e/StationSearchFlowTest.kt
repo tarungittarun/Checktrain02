@@ -80,11 +80,25 @@ class StationSearchFlowTest {
             E2E.typeInBox("fromBox", q)
             val answered = awaitAnySuggestion("fromBox")
             assertTrue("typing '$q' left the box unanswered: ${E2E.debugSearch("fromBox")}", answered)
-            val rows = E2E.suggestionRows()
-            assertTrue("'$q' produced an empty panel", rows.isNotEmpty())
             if (q == "qqzzxxy") {
-                // A miss has to read as a miss: one line, explaining, not a list and not nothing.
-                assertEquals("an unmatched query should say so in one line, got ${rows.size}", 1, rows.size)
+                // The preceding "mas" panel can remain in an accessibility snapshot while
+                // the 200 ms debounce and SQLite lookup finish. Wait for THIS query's answer,
+                // not just any old sugPrimary node that UiAutomator still knows about.
+                val deadline = System.currentTimeMillis() + E2E.LOCAL_MS
+                var rows = E2E.suggestionRows()
+                while (System.currentTimeMillis() < deadline &&
+                    (rows.size != 1 || !runCatching { rows[0].text.orEmpty() }
+                        .getOrDefault("").contains("matches", true))) {
+                    Thread.sleep(120)
+                    rows = E2E.suggestionRows()
+                }
+                assertEquals("an unmatched query never became one explanatory row: " +
+                    "input='${E2E.boxText("fromBox")}' rows=${rows.map { runCatching { it.text }.getOrNull() }}",
+                    1, rows.size)
+                assertTrue("the no-match row still shows results from the previous query",
+                    runCatching { rows[0].text.orEmpty() }.getOrDefault("").contains("matches", true))
+            } else {
+                assertTrue("'$q' produced an empty panel", E2E.suggestionRows().isNotEmpty())
             }
         }
         E2E.shot("never-silent")

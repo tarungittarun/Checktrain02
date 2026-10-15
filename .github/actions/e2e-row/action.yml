@@ -196,8 +196,9 @@ runs:
           [ "$left" -lt "${BOOT_TIMEOUT:-1500}" ] && [ "$left" -gt 240 ] && export BOOT_TIMEOUT=$left
           echo "boot budget capped to ${BOOT_TIMEOUT}s of the row's remaining ${left}s"
         fi
-        bash tools/ci/emulator_boot.sh 2>&1 | tee /tmp/boot.log
+        timeout 600 bash tools/ci/emulator_boot.sh 2>&1 | tee /tmp/boot.log
         rc=${PIPESTATUS[0]}
+        if [ "$rc" = 124 ]; then echo "::error::emulator install/boot exceeded 600s; bounded row reports instead of silently timing out"; fi
         set -e
         echo "boot_seconds=$(( $(date +%s) - started ))" >> /tmp/diag.env
         echo "boot_rc=$rc" >> /tmp/diag.env

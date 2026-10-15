@@ -143,8 +143,11 @@ install_pkg() {
   fi
   # The found tool, the chosen root, and sudo when the root demands it - the three things that were each
   # guessed at separately in the runs before 696591a.
-  yes 2>/dev/null | $SUDO "$SDKMGR" $SDK_ROOT_ARG --install "$pkg" > /tmp/sdkmanager.log 2>&1
+  # An old API image can stall in sdkmanager without a progress line. Bound each package
+  # so the row can post its real install failure instead of GitHub canceling the entire job.
+  yes 2>/dev/null | timeout 120 $SUDO "$SDKMGR" $SDK_ROOT_ARG --install "$pkg" > /tmp/sdkmanager.log 2>&1
   rc=${PIPESTATUS[1]}
+  [ "$rc" = 124 ] && echo "::warning::sdkmanager timed out after 120s installing $pkg; image/files present=$(path_ok "$pkg" && echo yes || echo no)"
   [ "$rc" = 127 ] && echo "::error::sdkmanager could not be executed ($SDKMGR, rc=127)" && return 1
   # sdkmanager's own verdict first. Only if it *says* it failed do we look at the filesystem again, because
   # a path guess that does not match the SDK's real layout must not be able to turn a successful install
@@ -159,6 +162,10 @@ for p in "${PKGS[@]}"; do
   if ! install_pkg "$p"; then
     case "$p" in
       system-images*)
+        if [ "$ABI" = x86 ]; then
+          echo "::error::api $API/$IMG x86 image did not install; $(sdkmanager_says | tr '\n' ' ' | cut -c1-240)"
+          exit 3
+        fi
         # Not every API level published an x86_64 google_apis image (android-24 is a common offender), and
         # a 32-bit system image runs the app just as well for these purposes. Falling back keeps the minSdk
         # row a real row instead of a packaging accident in the image list.

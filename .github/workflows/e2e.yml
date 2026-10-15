@@ -517,8 +517,8 @@ jobs:
             group: station
             optional: false
             api: 24
-            img: default
-            abi: x86_64
+            img: google_apis
+            abi: x86
             device: nexus_5
             location: denied
             offline: false
@@ -528,8 +528,8 @@ jobs:
             group: train
             optional: false
             api: 24
-            img: default
-            abi: x86_64
+            img: google_apis
+            abi: x86
             device: nexus_5
             location: denied
             offline: false
@@ -539,8 +539,8 @@ jobs:
             group: track0
             optional: false
             api: 24
-            img: default
-            abi: x86_64
+            img: google_apis
+            abi: x86
             device: nexus_5
             location: denied
             offline: false
@@ -550,8 +550,8 @@ jobs:
             group: track1
             optional: false
             api: 24
-            img: default
-            abi: x86_64
+            img: google_apis
+            abi: x86
             device: nexus_5
             location: denied
             offline: false
@@ -561,8 +561,8 @@ jobs:
             group: track2
             optional: false
             api: 24
-            img: default
-            abi: x86_64
+            img: google_apis
+            abi: x86
             device: nexus_5
             location: denied
             offline: false
@@ -572,8 +572,8 @@ jobs:
             group: settings
             optional: false
             api: 24
-            img: default
-            abi: x86_64
+            img: google_apis
+            abi: x86
             device: nexus_5
             location: denied
             offline: false
