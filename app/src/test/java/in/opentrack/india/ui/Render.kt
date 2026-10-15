@@ -309,7 +309,11 @@ object Render {
     fun read(root: View, id: Int): String = (root.findViewById<TextView>(id))?.text?.toString().orEmpty()
 
     /** Row views a RecyclerView laid out are its children; a collapsed list is the classic bug. */
-    fun rowCount(root: View): Int = (root.findViewById<RecyclerView>(R.id.stops))?.childCount ?: -1
+    /** Route rows in the adapter, not only the viewport's attached children. A bounded
+     * source card keeps the list usable at large fonts; RecyclerView then correctly
+     * recycles off-screen rows even in Robolectric's tall screenshot render. */
+    fun rowCount(root: View): Int =
+        (root.findViewById<RecyclerView>(R.id.stops))?.adapter?.itemCount ?: -1
 
     fun save(name: String, bmp: Bitmap) {
         val dir = File(System.getProperty("preview.dir") ?: "app/build/reports/previews")

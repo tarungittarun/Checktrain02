@@ -114,11 +114,14 @@ class TrackingFlowTest {
         repeat(8) { E2E.swipeIn("stops", up = false) }
         val km = mutableListOf<Int>()
         fun readVisibleKm() {
-            rowTexts("stopMeta").mapNotNull { line ->
+            val window = rowTexts("stopMeta").mapNotNull { line ->
                 Regex("(\\d+)\\s*km").find(line)?.groupValues?.get(1)?.toIntOrNull()
-            }.forEach { value ->
-                if (value != km.lastOrNull()) km.add(value)
             }
+            assertTrue("visible station rows have reversed distances: $window",
+                window.zipWithNext().all { (a, b) -> b >= a })
+            // A swipe overlaps the preceding viewport. Do not append its old leading rows
+            // after a newer tail and mistake RecyclerView recycling for a reversing route.
+            window.forEach { value -> if (value > (km.lastOrNull() ?: -1)) km.add(value) }
         }
         readVisibleKm()
         assertTrue("no row prints a distance", km.isNotEmpty())
@@ -276,8 +279,12 @@ class TrackingFlowTest {
             live.none { it.startsWith("Act ") })
         if (live.any { it.startsWith("Site ") }) {
             assertTrue("Web cell without site provenance", E2E.text("provenance").contains("WEBSITE"))
-            assertTrue("site page clock confused with an event clock",
-                E2E.text("age").contains("not a movement time"))
+            repeat(5) { if (!E2E.visible("age", 300)) E2E.swipeIn("scroller", up = false) }
+            val age = E2E.text("age")
+            assertTrue("site page clock confused with an event clock: '$age'",
+                age.contains("page updated", true) &&
+                    (age.contains("not event time", true) ||
+                        age.contains("not a movement time", true)))
         } else {
             assertTrue("no Web cells but source pretends to verify station events: $summary",
                 summary.contains("NOT Act") || summary.contains("static") ||
@@ -291,7 +298,8 @@ class TrackingFlowTest {
     @Test
     fun refreshKeepsTheScreenCoherent() {
         val route = E2E.text("routeLabel")
-        assertTrue("Refresh does nothing", E2E.tap("refresh"))
+        assertTrue("Refresh cannot be reached in the scrollable source card",
+            E2E.reveal("refresh", "scroller") && E2E.tap("refresh"))
         assertTrue(
             "a refresh lost the route line ('$route' -> '${E2E.text("routeLabel")}')",
             E2E.text("routeLabel").isNotBlank(),
@@ -302,7 +310,7 @@ class TrackingFlowTest {
 
     @Test
     fun tableOffersOptionalMinuteRefreshAndExpandableRoutePoints() {
-        assertTrue("Refresh must remain available", E2E.visible("refresh"))
+        assertTrue("Refresh must remain reachable by scrolling", E2E.reveal("refresh", "scroller"))
         assertTrue("one-minute Auto must be offered beside Refresh", E2E.visible("autoSwitch"))
         assertTrue("route points must be inside the table, not a separate button",
             E2E.find("betweenStations", 1_000) == null)
@@ -312,6 +320,7 @@ class TrackingFlowTest {
     // @flow optional-minute-refresh
     @Test
     fun autoRefreshActuallyRunsOnceAfterOneMinute() {
+        assertTrue("cannot reach optional Auto", E2E.reveal("autoSwitch", "scroller"))
         assertTrue("cannot enable optional Auto", E2E.tap("autoSwitch"))
         try {
             assertTrue("no refresh receipt after a minute with Auto on",

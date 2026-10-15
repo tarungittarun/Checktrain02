@@ -105,6 +105,8 @@ selectedItemPosition simple_spinner_item simple_spinner_dropdown_item getLong
 ifBlank maxByOrNull
 # pointing the screen at the train (2026-10-12): RecyclerView/LayoutManager positioning
 scrollToPositionWithOffset findViewByPosition smoothScrollTo
+# bind every route row in the shipped-data render test without assuming off-screen RecyclerView children exist
+itemCount createViewHolder getItemViewType bindViewHolder itemView
 # stale-while-revalidate mirror cache (2026-10-12): org.json reads + sorted-view walk + time format
 optLong optInt SimpleDateFormat format Date Locale US put sortedByDescending second
 isNullOrBlank containsKey isNullOrEmpty takeWhile toLongOrNull substringAfter asSequence toList filter

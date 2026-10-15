@@ -127,9 +127,17 @@ class ShippedDataTest {
             Render.track(root, m, pos, 600, note = "rendered from the shipped timetable; no live feed")
         }
         val rows = shot.root.findViewById<RecyclerView>(R.id.stops)!!
-        assertEquals(route.stops.size, rows.childCount)
-        // On the real route the distance column has to survive all the way to the pixels.
-        val km = (0 until rows.childCount).map { Render.read(rows.getChildAt(it), R.id.stopMeta) }
+        @Suppress("UNCHECKED_CAST")
+        val adapter = rows.adapter as RecyclerView.Adapter<RecyclerView.ViewHolder>
+        assertEquals(route.stops.size, adapter.itemCount)
+        assertTrue("the list has no visible station rows", rows.childCount > 0)
+        // Every row must still bind the correct distance even though RecyclerView only
+        // attaches the viewport's children (especially at the larger font scale).
+        val km = (0 until adapter.itemCount).map { i ->
+            val holder = adapter.createViewHolder(rows, adapter.getItemViewType(i))
+            adapter.bindViewHolder(holder, i)
+            Render.read(holder.itemView, R.id.stopMeta)
+        }
             .mapNotNull { Regex("""· Sch (\d+) km""").find(it)?.groupValues?.get(1)?.toIntOrNull() }
         assertTrue("only ${km.size} of ${route.stops.size} rows printed a distance",
             km.size >= route.stops.size - 1)

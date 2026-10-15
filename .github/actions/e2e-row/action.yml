@@ -98,26 +98,38 @@ runs:
       # no evidence either way. `gh run download` is the same service with a timeout per pull and one line
       # each into the log, the artifact and - on failure - the annotation stream.
       id: fetch
+      continue-on-error: true  # a failed download must still post a row comment and final verdict
       env:
         GH_TOKEN: ${{ inputs.github_token }}
       shell: bash
       run: |
         mkdir -p /tmp/apk /tmp/classes
+        fetch_started=$(date +%s); missing=false
         specs=("apk-debug:/tmp/apk" "apk-debug-androidTest:/tmp/apk" "e2e-classes:/tmp/classes")
-        [ "$VARIANT" = release ] && specs+=("apk-release:/tmp/apk")
+        if [ "$VARIANT" = release ]; then specs+=("apk-release:/tmp/apk"); fi
         for spec in "${specs[@]}"; do
-          name=${spec%%:*}; dir=${spec#*:}; started=$(date +%s)
-          timeout 240 gh run download "${{ github.run_id }}" -n "$name" -D "$dir" > "/tmp/fetch-$name.log" 2>&1
-          rc=$?
+          name=${spec%%:*}; dir=${spec#*:}; started=$(date +%s); rc=1
+          # Artifact storage occasionally rejects one row immediately while its siblings work.
+          # Do not let bash -e abort before a reason can reach the commit comment.
+          for attempt in 1 2 3; do
+            if timeout 240 gh run download "${{ github.run_id }}" -n "$name" -D "$dir" > "/tmp/fetch-$name.log" 2>&1; then
+              rc=0; break
+            fi
+            echo "   $name attempt $attempt failed: $(tail -2 "/tmp/fetch-$name.log" | tr '\n' ' ' | cut -c1-160)"
+            [ "$attempt" = 3 ] || sleep $(( attempt * 3 ))
+          done
           echo "   $name -> rc=$rc in $(( $(date +%s) - started ))s into $dir ($(ls "$dir" 2>/dev/null | tr '\n' ' '))"
-          [ "$rc" = 0 ] || echo "     $(tail -2 /tmp/fetch-$name.log | tr '\n' ' ' | cut -c1-160)"
-          [ "$rc" = 0 ] || echo "::warning::$name did not arrive (rc=$rc)"
+          if [ "$rc" != 0 ]; then echo "::warning::$name did not arrive"; missing=true; fi
         done
         echo "on disk: $(du -sh /tmp/apk /tmp/classes 2>/dev/null | tr -s '\n' ' ')"
         for f in app-debug.apk app-debug-androidTest.apk; do
-          [ -s "/tmp/apk/$f" ] || echo "::error::/tmp/apk/$f is missing or empty - this row has nothing to install"
+          if [ ! -s "/tmp/apk/$f" ]; then
+            echo "::error::/tmp/apk/$f is missing or empty - this row has nothing to install"
+            missing=true
+          fi
         done
-        echo "fetch_seconds=$(( $(date +%s) - ${started:-$(date +%s)} ))" >> /tmp/diag.env
+        echo "fetch_seconds=$(( $(date +%s) - fetch_started ))" >> /tmp/diag.env
+        [ "$missing" = false ]
 
     - name: Unzip the class files used for coverage
       # Non-fatal on purpose: a missing coverage input makes the *number* unavailable, not the test run
@@ -158,6 +170,7 @@ runs:
 
     - name: Boot the emulator
       id: boot
+      if: steps.fetch.outcome == 'success'
       continue-on-error: true
       shell: bash
       run: |
@@ -369,7 +382,14 @@ runs:
             *) [ "$VARIANT" = release ] && continue ;;
           esac
           [ -n "$FOCUS" ] && [ "$FOCUS" != "$cls" ] && continue
-          CLASS_FILTER="in.opentrack.india.e2e.$cls" run_suite "$cls"
+          # This class drives 18 independent, cold-launched tracking flows and several
+          # network-backed source checks. It takes ~270s at 440 dpi even when green;
+          # after the large-font scroll assertions were made honest, 300s truncated it.
+          if [ "$cls" = TrackingFlowTest ]; then
+            CLASS_FILTER="in.opentrack.india.e2e.$cls" RUN_TIMEOUT=480 run_suite "$cls"
+          else
+            CLASS_FILTER="in.opentrack.india.e2e.$cls" run_suite "$cls"
+          fi
         done
         [ -n "$FOCUS" ] || CLASS_FILTER="in.opentrack.india.e2e.ColdStartFlowTest" run_suite ColdStartFlowTest
         if [ "$OFFLINE" = true ]; then
@@ -521,6 +541,7 @@ runs:
         verdict=PASS
         if grep -Eq '=(failed|skipped|not-run)' /tmp/tests.txt 2>/dev/null; then verdict=FAIL; fi
         if [ "${{ steps.boot.outcome }}" != success ]; then verdict="NO DEVICE"; fi
+        if [ "${{ steps.fetch.outcome }}" != success ]; then verdict="NO ARTIFACT"; fi
         {
           echo "### e2e/$ROW — $verdict"
           echo ""
@@ -540,6 +561,12 @@ runs:
           echo "heartbeat (one line per minute of every pass):"
           echo '```'
           tail -10 /tmp/heartbeat.txt 2>/dev/null || echo "  (no heartbeat)"
+          echo '```'
+          echo "artifact fetch diagnostics (each name was retried up to three times):"
+          echo '```'
+          for f in /tmp/fetch-*.log; do
+            [ -f "$f" ] && { echo "-- ${f##*/}"; tail -3 "$f" | cut -c1-240; }
+          done
           echo '```'
           echo "boot log (sanitised) and the tail of the failing instrument pass:"
           echo '```'
@@ -570,7 +597,7 @@ runs:
     # failure() or always().
       continue-on-error: true  # reporting must survive a red step; the verdict step decides
     - name: Let the row decide its own verdict
-      if: steps.boot.outcome == 'failure' || steps.nodev.outcome == 'failure' || steps.suite.outcome == 'failure' || steps.cov.outcome == 'failure' || steps.monkey.outcome == 'failure'
+      if: steps.fetch.outcome == 'failure' || steps.boot.outcome == 'failure' || steps.nodev.outcome == 'failure' || steps.suite.outcome == 'failure' || steps.cov.outcome == 'failure' || steps.monkey.outcome == 'failure'
       shell: bash
       run: |
         echo "::notice::[row] step 20: Let the row decide its own verdict"
