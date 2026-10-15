@@ -58,7 +58,7 @@ object RouteBetween {
     /** A *projected* train icon within the two NTES halts. Never display this as observed
      * GPS or as an actual passage through an intermediate point. Hide on stale/schedule-only data. */
     data class LegPoint(val code: String, val name: String, val mapKm: Int, val fraction: Float)
-    enum class MarkerKind { PROJECTED, WEB_CACHE_CANDIDATE, SITE_INTERMEDIATE }
+    enum class MarkerKind { PROJECTED, WEB_CACHE_CANDIDATE, SITE_INTERMEDIATE, SITE_LAST_STOP }
     data class LegProjection(
         val from: String, val to: String, val fraction: Float,
         val nearestPoint: String?, val estimateKm: Int,
@@ -91,6 +91,26 @@ object RouteBetween {
             }
         return LegProjection(from.name, to.name, fraction, null, routeKm.toInt(),
             from.code, to.code, points, MarkerKind.WEB_CACHE_CANDIDATE)
+    }
+
+    /** No measured between-stop distance: pin the locomotive to the site's last reported
+     * halt, at ZERO of the next scheduled leg. This is deliberately not the current
+     * position. Only use a train-matched, ordered map with usable distances for the ticks. */
+    fun siteLastStopLeg(halts: TrainRoute, map: TrainRoute?, anchorCode: String): LegProjection? {
+        if (map == null || withVerifiedHalts(map, halts) == null) return null
+        val i = halts.stops.indexOfFirst { it.code.equals(anchorCode, true) }
+        if (i < 0 || i >= halts.stops.lastIndex) return null
+        val from = halts.stops[i]; val to = halts.stops[i + 1]
+        val mapFrom = map.stops.firstOrNull { it.code.equals(from.code, true) }?.schedKm ?: -1
+        val mapTo = map.stops.firstOrNull { it.code.equals(to.code, true) }?.schedKm ?: -1
+        if (from.schedKm < 0 || to.schedKm <= from.schedKm || mapFrom < 0 || mapTo <= mapFrom)
+            return null
+        val points = followingPoints(map, halts, from.code).filter {
+            it.schedKm > mapFrom && it.schedKm < mapTo
+        }.map { LegPoint(it.code, it.name, it.schedKm,
+            (it.schedKm - mapFrom).toFloat() / (mapTo - mapFrom)) }
+        return LegProjection(from.name, to.name, 0f, from.name, from.schedKm,
+            from.code, to.code, points, MarkerKind.SITE_LAST_STOP)
     }
 
     /** The site's past card names a NON-HALT point, while an independent static map

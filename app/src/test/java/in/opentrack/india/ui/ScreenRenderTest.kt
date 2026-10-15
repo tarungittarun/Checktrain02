@@ -133,8 +133,10 @@ class ScreenRenderTest {
         // it can only be checked on a laid-out screen.
         assertNotClipped(shot.root.findViewById(R.id.routeLabel), "routeLabel ('${shot.text(R.id.routeLabel)}')")
 
-        assertEquals("Auto must not exist", 0,
-            shot.context.resources.getIdentifier("autoSwitch", "id", shot.context.packageName))
+        assertTrue("opt-in one-minute Auto control must fit beside Refresh",
+            shot.root.findViewById<View>(R.id.autoSwitch).height > 0)
+        assertTrue("Refresh must remain available beside Auto",
+            shot.root.findViewById<View>(R.id.refresh).height > 0)
         assertEquals("the separate route button must not exist", 0,
             shot.context.resources.getIdentifier("betweenStations", "id", shot.context.packageName))
         assertTrue("source dropdown must be visible",

@@ -32,6 +32,17 @@ class TableMarkerTest {
             "TK", day, now)!!.website)
     }
 
+    @Test fun markerAgeAdvancesWithoutASecondNetworkAnswer() {
+        val event = RailTime.railMinuteToEpochMillis(day, 500)
+        val row = row(TrackModel.MinuteSource.SITE_REPORTED, 500)
+        assertTrue(TableMarker.atHalt(listOf(row), "TK", day, event + 9 * 60_000L)!!
+            .caption.contains("9m ago"))
+        assertTrue(TableMarker.atHalt(listOf(row), "TK", day, event + 70 * 60_000L)!!
+            .caption.contains("1h 10m ago"))
+        assertEquals("under 1 min", TableMarker.elapsedLabel(45_000))
+        assertEquals("1 h 10 min", TableMarker.elapsedLabel(70 * 60_000L))
+    }
+
     @Test fun passageAgeAppearsOnlyFromOneMinuteNotFromPageRefresh() {
         val event = RailTime.railMinuteToEpochMillis(day, 500)
         val row = row(TrackModel.MinuteSource.SITE_REPORTED, 500)

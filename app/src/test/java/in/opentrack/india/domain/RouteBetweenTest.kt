@@ -84,6 +84,22 @@ class RouteBetweenTest {
         assertEquals(null, halts.stops[1].actualArrivalMin)
     }
 
+    @Test fun websiteHaltMarkerStaysAtZeroWithoutInventingBetweenStopDistance() {
+        val halts = route.copy(stops = route.stops.filter { it.isHalt }
+            .mapIndexed { i, s -> s.copy(seq = i + 1) })
+        val leg = RouteBetween.siteLastStopLeg(halts, route, "AAA")!!
+        assertEquals(RouteBetween.MarkerKind.SITE_LAST_STOP, leg.markerKind)
+        assertEquals(0f, leg.fraction, .001f)
+        assertEquals("AAA", leg.fromCode)
+        assertEquals("CCC", leg.toCode)
+        assertEquals(.5f, leg.points.single().fraction, .001f) // static map, not train progress
+        assertEquals(null, RouteBetween.siteLastStopLeg(halts, route, "DDD"))
+        assertEquals(null, RouteBetween.siteLastStopLeg(halts,
+            route.copy(trainNo = "another train"), "AAA"))
+        assertEquals(null, RouteBetween.siteLastStopLeg(halts, null, "AAA"))
+        assertEquals(null, RouteBetween.siteLastStopLeg(halts, route, "BBB"))
+    }
+
     @Test fun arbitraryPairUsesTrainOrderWithoutReadingPosition() {
         assertEquals(listOf("AAA", "BBB", "CCC"),
             RouteBetween.inclusive(route, "CCC", "AAA").map { it.code })

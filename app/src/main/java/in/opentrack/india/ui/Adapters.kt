@@ -290,7 +290,9 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         if (leg != null) {
             val web = leg.markerKind == RouteBetween.MarkerKind.WEB_CACHE_CANDIDATE
             val site = leg.markerKind == RouteBetween.MarkerKind.SITE_INTERMEDIATE
+            val siteHalt = leg.markerKind == RouteBetween.MarkerKind.SITE_LAST_STOP
             val caption = when {
+                siteHalt -> "Website last reported ${leg.from}; between-stop position unknown · not GPS"
                 site -> "Website reports reached ${leg.nearestPoint} · map position at station, not GPS"
                 web -> "WIMT web cache · distance-scaled candidate · unverified, not phone-app GPS"
                 else -> "Projected between ${leg.from} and ${leg.to} · not GPS"
@@ -298,7 +300,8 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             holder.inlineLegCaption.text = caption
             holder.inlineLeg.contentDescription = caption + " · ${leg.from} to ${leg.to} " +
                 "${(leg.fraction * 100).toInt()} percent of scheduled leg by " +
-                (if (site) "static map of the site-reported station"
+                (if (siteHalt) "last reported halt (no measured distance since)"
+                    else if (site) "static map of the site-reported station"
                     else if (web) "web-cache km claim" else "estimated distance")
         }
         holder.row.setOnClickListener(if (points.isEmpty()) null else View.OnClickListener {

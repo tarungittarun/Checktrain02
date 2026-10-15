@@ -296,6 +296,16 @@
                 android:layout_marginTop="6dp"
                 android:gravity="end"
                 android:orientation="horizontal">
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/autoSwitch"
+                    android:layout_width="wrap_content"
+                    android:layout_height="40dp"
+                    android:layout_marginEnd="12dp"
+                    android:gravity="center_vertical"
+                    android:text="@string/auto_refresh_minute"
+                    android:textColor="@color/text2"
+                    android:textSize="12sp"
+                    android:contentDescription="@string/auto_refresh_minute" />
                 <Button
                     android:id="@+id/refresh"
                     style="@style/BtnGhost"

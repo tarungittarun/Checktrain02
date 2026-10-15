@@ -59,6 +59,7 @@
     <string name="err_same_station">Boarding and alighting station are the same.</string>
 
     <string name="refresh">Refresh</string>
+    <string name="auto_refresh_minute">Auto · 1 min</string>
     <string name="back">Back</string>
 
     <string name="settings_override_title">Live data endpoint</string>

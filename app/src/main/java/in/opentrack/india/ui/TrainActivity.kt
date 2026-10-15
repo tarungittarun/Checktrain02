@@ -49,6 +49,15 @@ class TrainActivity : AppCompatActivity() {
     private var refreshStartedAt = 0L
     private var requestedRefreshSource = "NTES (official)"
     private val hideFeedback = Runnable { binding.refreshFeedback.visibility = View.GONE }
+    private var screenStarted = false
+    /** Opt-in, screen-visible only. Uses precisely the selected-source-first manual chain. */
+    private val autoRefreshTicker = object : Runnable {
+        override fun run() {
+            if (!screenStarted || !binding.autoSwitch.isChecked) return
+            if (!chainBusy) requestRefresh()
+            binding.root.postDelayed(this, 60_000L)
+        }
+    }
     // Age is a local clock display, NOT a network poll or a projected train movement.
     private val ageTicker = object : Runnable {
         override fun run() {
@@ -96,11 +105,13 @@ class TrainActivity : AppCompatActivity() {
             false
         }
 
-        binding.refresh.setOnClickListener {
-            focusAfterRefresh = true
-            refreshStartedAt = SystemClock.elapsedRealtime()
-            requestedRefreshSource = lastUi?.activeSource ?: "NTES (official)"
-            vm.refresh(manual = true)
+        binding.refresh.setOnClickListener { requestRefresh() }
+        val refreshPrefs = getSharedPreferences("tracking_refresh", Context.MODE_PRIVATE)
+        binding.autoSwitch.isChecked = refreshPrefs.getBoolean("every_minute", false)
+        binding.autoSwitch.setOnCheckedChangeListener { _, enabled ->
+            refreshPrefs.edit().putBoolean("every_minute", enabled).apply()
+            binding.root.removeCallbacks(autoRefreshTicker)
+            if (enabled && screenStarted) binding.root.postDelayed(autoRefreshTicker, 60_000L)
         }
         vm.liveReceipt.observe(this) {
             if (focusAfterRefresh) {
@@ -166,6 +177,14 @@ class TrainActivity : AppCompatActivity() {
             errorText = msg
             renderNote()
         }
+    }
+
+    private fun requestRefresh() {
+        if (chainBusy) return // never turn a duplicate tap/tick into a misleading receipt
+        focusAfterRefresh = true
+        refreshStartedAt = SystemClock.elapsedRealtime()
+        requestedRefreshSource = lastUi?.activeSource ?: "NTES (official)"
+        vm.refresh(manual = true)
     }
 
     /** Keep progress visible only while a requested source is actually fetching. */
@@ -349,9 +368,14 @@ class TrainActivity : AppCompatActivity() {
         val leg = ui.wimtWebPoint?.let { p ->
             RouteBetween.webCacheLeg(ui.route, ui.staticRoute,
                 p.precedingHalt, p.followingHalt, p.routeKm)
-        } ?: ui.orgWebsiteReport?.intermediate?.let { p ->
-            RouteBetween.siteIntermediateLeg(ui.route, ui.staticRoute,
-                p.precedingHalt, p.followingHalt, p.code, p.mapKm)
+        } ?: ui.orgWebsiteReport?.let { report ->
+            report.intermediate?.let { p ->
+                RouteBetween.siteIntermediateLeg(ui.route, ui.staticRoute,
+                    p.precedingHalt, p.followingHalt, p.code, p.mapKm)
+            } ?: if (m.rows.any { it.code.equals(report.anchorCode, true) &&
+                    it.source == TrackModel.MinuteSource.SITE_REPORTED })
+                RouteBetween.siteLastStopLeg(ui.route, ui.staticRoute, report.anchorCode)
+            else null
         }
         val (badgeBg, badgeText) = when (m.tone) {
             TrackModel.Tone.LIVE_OK, TrackModel.Tone.LIVE_EARLY ->
@@ -511,12 +535,6 @@ class TrainActivity : AppCompatActivity() {
         // the selected site's qualified claim without repeating an excerpt at the halt.
         stopAdapter.reports = ui.sourceLines[ui.activeSource] ?: ui.reports
         stopAdapter.setRoutePoints(RouteBetween.groupedPoints(ui.staticRoute, ui.route))
-        stopAdapter.legAgeSeconds = ui.wimtWebPoint?.let {
-            ((System.currentTimeMillis() - it.eventAtMillis) / 1_000).coerceAtLeast(0)
-        } ?: ui.orgWebsiteReport?.takeIf { it.intermediate != null }?.let { report ->
-            ((System.currentTimeMillis() - RailTime.railMinuteToEpochMillis(vm.originDate,
-                report.eventMinute)) / 1_000).coerceAtLeast(0)
-        }
         stopAdapter.setProjectedLeg(leg)
         renderSourceChips(ui)
         updateTableMarker(ui)
@@ -633,7 +651,11 @@ class TrainActivity : AppCompatActivity() {
             rows.lastOrNull { it.source == TrackModel.MinuteSource.REPORTED }?.let {
                 TableMarker.atHalt(rows, it.code, vm.originDate, now)
             } else null
-        ui.wimtWebPoint?.let { stopAdapter.legAgeSeconds = ((now - it.eventAtMillis) / 1_000).coerceAtLeast(0) }
+        // The marker never moves with this clock. Recompute only the age of the
+        // source's last event, including a website halt at 0% of the next leg.
+        stopAdapter.legAgeSeconds = (ui.wimtWebPoint?.eventAtMillis
+            ?: ui.orgWebsiteReport?.let { RailTime.railMinuteToEpochMillis(vm.originDate,
+                it.eventMinute) })?.let { ((now - it).coerceAtLeast(0L) / 1_000L) }
     }
 
     private fun showRefreshFeedback() {
@@ -645,33 +667,42 @@ class TrainActivity : AppCompatActivity() {
         val source = sourceName(requestedRefreshSource)
         val switched = ui?.activeSource != requestedRefreshSource
         val now = System.currentTimeMillis()
+        val active = ui?.activeSource ?: requestedRefreshSource
         val age = when {
-            switched -> {
-                val reason = status?.let { SourceIndicator.of(requestedRefreshSource, it.first, it.second).label }
-                    ?: "no usable report"
-                "$reason · now ${sourceName(ui?.activeSource.orEmpty())}"
-            }
-            requestedRefreshSource == `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG &&
+            active == `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG &&
                 ui?.orgWebsiteReport != null -> {
-                val report = ui.orgWebsiteReport!!
-                val eventMillis = RailTime.railMinuteToEpochMillis(vm.originDate, report.eventMinute)
-                "page ${(now - report.pageUpdatedAt).coerceAtLeast(0) / 60_000}m old · " +
-                    "stop ${(now - eventMillis).coerceAtLeast(0) / 60_000}m old"
+                val eventMillis = RailTime.railMinuteToEpochMillis(vm.originDate,
+                    ui.orgWebsiteReport!!.eventMinute)
+                "site-reported stop ${TableMarker.elapsedLabel((now - eventMillis).coerceAtLeast(0))} ago" +
+                    " · later position unknown"
             }
-            requestedRefreshSource == "NTES (official)" &&
-                ui?.answer?.position?.provenance?.live == true -> {
-                val seconds = ui.answer.position.feedAgeSeconds ?: ui.answer.position.ageSeconds
-                "feed ${seconds / 60}m old"
+            active == `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE &&
+                ui?.wimtWebPoint != null -> "web point " +
+                "${TableMarker.elapsedLabel((now - ui.wimtWebPoint!!.eventAtMillis).coerceAtLeast(0))} ago" +
+                    " · not GPS"
+            active == "NTES (official)" && ui != null -> {
+                val row = ui.model.rows.firstOrNull { it.code.equals(ui.anchorCode, true) &&
+                    it.source == TrackModel.MinuteSource.REPORTED }
+                val stopEventAt = (row?.showDep ?: row?.showArr)?.let {
+                    RailTime.railMinuteToEpochMillis(vm.originDate, it)
+                }
+                val feedAge = ui.answer.position.feedStampMillis?.let { stamp ->
+                    TableMarker.elapsedLabel((now - stamp).coerceAtLeast(0))
+                }
+                when {
+                    stopEventAt != null && stopEventAt <= now ->
+                        "last reported stop ${TableMarker.elapsedLabel(now - stopEventAt)} ago"
+                    feedAge != null -> "feed stamped $feedAge ago; stop time unknown"
+                    else -> "no newly reported stop time"
+                }
             }
-            ui?.wimtWebPoint != null ->
-                "point ${(now - ui.wimtWebPoint.eventAtMillis).coerceAtLeast(0) / 60_000}m old"
-            else -> status?.let { SourceIndicator.of(requestedRefreshSource, it.first, it.second).label }
-                ?: "no new report"
+            else -> "no new timed position from this source"
         }
-        binding.refreshFeedback.text = "↻ $source $response · $age"
+        val fallback = if (switched) " · $source unavailable; now ${sourceName(active)}" else ""
+        binding.refreshFeedback.text = "↻ $source $response · $age$fallback"
         binding.refreshFeedback.visibility = View.VISIBLE
         binding.refreshFeedback.removeCallbacks(hideFeedback)
-        binding.refreshFeedback.postDelayed(hideFeedback, 3_500L)
+        binding.refreshFeedback.postDelayed(hideFeedback, 1_200L)
     }
 
     /** Bring the current reported halt/leg to the top without manufacturing a position. */
@@ -770,11 +801,17 @@ class TrainActivity : AppCompatActivity() {
 
     override fun onStart() {
         super.onStart()
+        screenStarted = true
         vm.start()
+        binding.stops.removeCallbacks(ageTicker)
         binding.stops.postDelayed(ageTicker, 30_000L)
+        binding.root.removeCallbacks(autoRefreshTicker)
+        if (binding.autoSwitch.isChecked) binding.root.postDelayed(autoRefreshTicker, 60_000L)
     }
 
     override fun onStop() {
+        screenStarted = false
+        binding.root.removeCallbacks(autoRefreshTicker)
         binding.stops.removeCallbacks(ageTicker)
         binding.refreshFeedback.removeCallbacks(hideFeedback)
         super.onStop()

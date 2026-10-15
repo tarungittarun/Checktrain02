@@ -275,11 +275,11 @@ class TrackingFlowTest {
         assertTrue("a refresh left the age chip blank", E2E.text("age").isNotBlank())
     }
 
-    // @flow manual-refresh-only
+    // @flow optional-minute-refresh
     @Test
-    fun tableHasOnlyManualRefreshAndExpandableRoutePoints() {
+    fun tableOffersOptionalMinuteRefreshAndExpandableRoutePoints() {
         assertTrue("Refresh must remain available", E2E.visible("refresh"))
-        assertTrue("Auto was meant to be removed", E2E.find("autoSwitch", 1_000) == null)
+        assertTrue("one-minute Auto must be offered beside Refresh", E2E.visible("autoSwitch"))
         assertTrue("route points must be inside the table, not a separate button",
             E2E.find("betweenStations", 1_000) == null)
         assertTrue("the station table vanished", E2E.count(stopsBy) > 0)
