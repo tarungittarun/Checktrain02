@@ -543,6 +543,7 @@ class TrainActivity : AppCompatActivity() {
         }
         val m = u.model
         val reported = m.rows.count { it.source == TrackModel.MinuteSource.REPORTED }
+        val website = m.rows.filter { it.source == TrackModel.MinuteSource.SITE_REPORTED }
         val projected = m.rows.count { it.source == TrackModel.MinuteSource.PROJECTED }
         val timetable = m.rows.count { it.source == TrackModel.MinuteSource.SCHEDULE }
         val text = buildString {
@@ -573,7 +574,17 @@ class TrainActivity : AppCompatActivity() {
             ).filter { it.isNotBlank() }.joinToString(" · "))
             append("\n")
             append("delay ${m.delayLabel} · next ${m.nextLabel} · progress ${m.progressLabel}\n")
-            append("rows ${m.rows.size}: $reported reported / $projected projected / $timetable timetable\n")
+            append("rows ${m.rows.size}: $reported reported / ${website.size} website (unverified) / " +
+                "$projected projected / $timetable timetable\n")
+            u.orgWebsiteReport?.let { p ->
+                append("website last past-card ${p.anchorCode} at " +
+                    "${RailTime.formatRailMinute(p.eventMinute)}; page updated " +
+                    "${RailTime.formatClock(p.pageUpdatedAt)} IST (not event clock); " +
+                    "origin run inferred, not printed on page\n")
+                for (row in website.takeLast(4)) append("  ${row.code} Web " +
+                    "arr ${hhmm(row.showArr)} dep ${hhmm(row.showDep)} vs " +
+                    "Sch ${hhmm(row.schedArr)}/${hhmm(row.schedDep)}\n")
+            }
             append("providers ${u.tried.joinToString(" ")}\n")
             m.note?.let { append("note $it\n") }
             // The device-run request experiment, if it has run. This is the line that turns "it does not work
@@ -613,6 +624,7 @@ class TrainActivity : AppCompatActivity() {
         /** Plain-language key for the optional source explanation, separate from feed diagnostics. */
         fun sourceText(m: TrackModel.View): String = buildString {
             append("Act = reported. Est = predicted, not an arrival report. ")
+            append("Web = website's past-card claim, not independently verified Act or GPS. ")
             append("A blue train, if shown, is projected, not GPS. An amber WIMT web marker " +
                 "is an unverified cache-distance claim, not phone-app GPS.\n")
             append("Position: ${m.provenanceLabel} · ${m.ageLabel}")

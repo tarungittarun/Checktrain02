@@ -82,7 +82,9 @@ class OrgWebsiteStatusTest {
         assertFalse(fetched.pageAnswered)
         assertNull(fetched.orgReport)
         // Use the network-independent parser time for the positive counterpart.
-        assertEquals("ARU", PublicPageChecks.parse(PublicPageChecks.ORG, page, "16227", day,
-            now, "MYS", "TLGP", route.stops.map { it.code }.toSet(), route).orgReport?.anchorCode)
+        val matched = PublicPageChecks.parse(PublicPageChecks.ORG, page, "16227", day,
+            now, "MYS", "TLGP", route.stops.map { it.code }.toSet(), route)
+        assertEquals("ARU", matched.orgReport?.anchorCode)
+        assertTrue(matched.detail.contains("mapped to the active selected run by timetable"))
     }
 }

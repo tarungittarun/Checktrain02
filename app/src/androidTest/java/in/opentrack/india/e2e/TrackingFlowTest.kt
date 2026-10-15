@@ -95,8 +95,9 @@ class TrackingFlowTest {
                 qualified++
             } else {
                 assertTrue(
-                    "row $i prints a reported minute ('${live[i]}') without an Act/Est prefix",
-                    live[i].startsWith("Act ") || live[i].startsWith("Est "),
+                    "row $i prints a minute ('${live[i]}') without an Act/Est/Web source prefix",
+                    live[i].startsWith("Act ") || live[i].startsWith("Est ") ||
+                        live[i].startsWith("Web "),
                 )
             }
         }
@@ -222,6 +223,34 @@ class TrackingFlowTest {
         assertTrue("page selection must not display NTES minutes as this page's Act",
             rowTexts("liveArr").all { it == "—" })
         E2E.shot("public-source-check")
+    }
+
+    @Test
+    fun orgWebsiteSelectionKeepsSourceSpecificMinutesDistinctFromNtes() {
+        assertTrue("no source picker", E2E.tap("sourceSpinner"))
+        val website = E2E.ui.wait(Until.findObject(By.textContains("whereismytrain.org.in (website)")), E2E.LOCAL_MS)
+        assertNotNull("org website not selectable", website)
+        website!!.click()
+        assertTrue("org website selection produced no result",
+            E2E.ui.wait(Until.hasObject(By.res(E2E.PKG, "sourceSummary")), E2E.NETWORK_MS))
+        val summary = E2E.text("sourceSummary")
+        assertTrue("source result has no origin/claim explanation: $summary",
+            summary.contains("whereismytrain.org.in") || summary.contains("Request failed:"))
+        assertTrue("org selection lost the station table", E2E.count(stopsBy) > 0)
+        val live = rowTexts("liveArr") + rowTexts("liveDep")
+        assertTrue("org selection misattributes NTES actuals: $live",
+            live.none { it.startsWith("Act ") })
+        if (live.any { it.startsWith("Web ") }) {
+            assertTrue("Web cell without site provenance", E2E.text("provenance").contains("WEBSITE"))
+            assertTrue("site page clock confused with an event clock",
+                E2E.text("age").contains("not the event time"))
+        } else {
+            assertTrue("no Web cells but source pretends to verify station events: $summary",
+                summary.contains("NOT Act") || summary.contains("static") ||
+                    summary.contains("Web = site-published") ||
+                    summary.contains("failed", ignoreCase = true))
+        }
+        E2E.shot("org-website-source")
     }
 
     // @flow refresh

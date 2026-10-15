@@ -88,6 +88,22 @@ def once():
               repr([js[max(0,m.start()-75):m.end()+110].replace('\n', ' ')[:190] for m in matches]),
               flush=True)
     print(f'  same-origin script URLs={srcs[:6]}', flush=True)
+    # Mirror the *public* card-field separation the app now uses: first rendered
+    # clock versus grey timetable clock, plus the site's past/upcoming class.
+    # Comparing these tuples with Web/Sch on the device detects a wrong field map
+    # without claiming the site's own past styling proves a measured train fix.
+    print('  bounded card-field comparison (first/grey are page/schedule, not proven Act):', flush=True)
+    for piece in re.split(r'<!--\s*Station Details Card\s*-->', body, flags=re.I)[1:]:
+        code_match = re.search(r'<h3\b[^>]*>\s*[^<]*?\(([A-Z0-9]{1,6})\)\s*</h3>', piece, re.I | re.S)
+        if not code_match or code_match.group(1) not in ('SMET', 'KMSI', 'ARU', 'ANF'):
+            continue
+        css = re.search(r'^\s*<div\s+class="([^"]+)"', piece, re.I)
+        past = bool(css and 'bg-green-50' in css.group(1) and 'opacity-90' in css.group(1))
+        arr = piece.split('<!-- Arrival -->', 1)[-1].split('<!-- Departure -->', 1)[0]
+        dep = piece.split('<!-- Departure -->', 1)[-1][:900]
+        times = lambda section: re.findall(r'\b\d{1,2}:\d{2}\s*(?:AM|PM)\b', section[:650], re.I)[:2]
+        print(f'    {code_match.group(1)} past-card={past} page/sch arr={times(arr)} '
+              f'dep={times(dep)}', flush=True)
     # The flattened page says ARRIVAL 05:31 05:29 without saying which is observed and
     # which is projected. Examine the surrounding *public HTML attributes* to see if the
     # upstream marks passed stops, forecast clocks, run identity, or a provider field.

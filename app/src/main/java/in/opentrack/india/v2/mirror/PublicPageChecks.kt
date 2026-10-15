@@ -166,7 +166,9 @@ object PublicPageChecks {
         val wrong = selected != null && selected.replace('/', '-') != date
         val org = if (name == ORG && route != null && !wrong)
             OrgWebsiteStatus.parse(body, number, originDay, now, route) else null
-        return Result("$title: train $number · $returned (requested origin $date) · $status" +
+        val runLabel = if (org?.report != null && selected == null)
+            "site has no date selector; mapped to the active selected run by timetable" else returned
+        return Result("$title: train $number · $runLabel (requested origin $date) · $status" +
             (updated?.let { " · page update label $it" } ?: "") +
             "; " + (org?.reason ?: if (wrong) "wrong origin run" else "no event-level dated observation") +
             ". ${lines.size} displayed station excerpts for comparison" +

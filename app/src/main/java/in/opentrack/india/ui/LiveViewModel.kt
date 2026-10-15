@@ -280,6 +280,19 @@ class LiveViewModel(
                 _ui.value?.let { u -> _ui.value = buildUi(u.route, lastAnswer ?: u.answer, u.tried) }
                 _mirrorState.value = result.detail
                 Diary.get()?.log("SOURCE", "$name: ${result.detail}")
+                result.orgReport?.let { website ->
+                    val last = website.rows[website.anchorCode]
+                    Diary.get()?.log("ORG") {
+                        "source-selected=$name train=$trainNo run=${RailTime.formatDate(originEpochDay)} " +
+                            "(inferred, website undated); past-card=${website.anchorCode} " +
+                            "Web arr=${last?.actualArrivalMin?.let(RailTime::formatRailMinute) ?: "—"} " +
+                            "dep=${last?.actualDepartureMin?.let(RailTime::formatRailMinute) ?: "—"}; " +
+                            "${website.rows.size} page rows; page-clock=" +
+                            "${RailTime.formatClock(website.pageUpdatedAt)} IST is NOT event time; " +
+                            "official-last=${lastAnswer?.anchorStopCode ?: "unknown"} " +
+                            "(different source; no GPS or independently verified Act)"
+                    }
+                }
                 // Locally expire a provider's response-clock claim after five minutes.
                 // No automatic network poll; a static old claim must not linger as current.
                 (result.stationClaim?.updateAt ?: result.orgReport?.pageUpdatedAt)?.let { publishedAt ->

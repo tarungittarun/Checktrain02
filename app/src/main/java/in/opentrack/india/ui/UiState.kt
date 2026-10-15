@@ -46,6 +46,14 @@ object UiState {
             if (!note.isNullOrBlank()) append(" | note=\"").append(note).append('"')
             append(" | rows=").append(rowText)
             if (rows.size > MAX_ROWS) append(" ; (+").append(rows.size - MAX_ROWS).append(" more halts)")
+            // The relevant website claims are usually near the END of an overnight run;
+            // the usual first-eight-row diary preview cannot reveal them. Keep a bounded
+            // source-specific tail so one user paste compares the site's times to our UI.
+            val website = rows.filter { it.source == TrackModel.MinuteSource.SITE_REPORTED }.takeLast(4)
+            if (website.isNotEmpty()) append(" | website-published=").append(website.joinToString(" ; ") {
+                it.code + " Web arr " + (it.showArr?.let(RailTime::formatRailMinute) ?: "–") +
+                    " dep " + (it.showDep?.let(RailTime::formatRailMinute) ?: "–")
+            })
         }
     }
 

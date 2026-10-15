@@ -50,6 +50,18 @@ class UiStateTest {
     }
 
     @Test
+    fun websiteClaimNearEndOfRouteIsInDiaryEvenBeyondFirstEightRows() {
+        val rows = (1..12).map { stop("S$it", 600 + it, 601 + it) }.toMutableList()
+        rows[10] = stop("ARU", 1783, 1784).copy(
+            showArr = 1790, showDep = 1794, source = TrackModel.MinuteSource.SITE_REPORTED)
+        val line = UiState.track("16227", "Website reports departed Arasalu", "WEBSITE",
+            "checked", "—", "Next scheduled", "past card", null, rows)
+        assertTrue("missing website values in diary: $line",
+            line.contains("website-published=ARU Web arr 05:50 (+1d) dep 05:54 (+1d)"))
+        assertFalse("must not call the site independently verified: $line", line.contains("Act 05:50"))
+    }
+
+    @Test
     fun theListScreenStatesItsCountStateLineAndRowLabels() {
         val line = UiState.list(
             "YPR", "SMET", 2,
