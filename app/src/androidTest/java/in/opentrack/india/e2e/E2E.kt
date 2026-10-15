@@ -264,10 +264,17 @@ object E2E {
             "panel=${visible("suggestPanel", 100)} row=${visible("sugPrimary", 100)}"
 
     fun typeInBox(box: String, value: String): Boolean {
-        // Changing search modes re-lays out the box; wait for the new field rather than
-        // treating the first accessibility snapshot of a still-hidden view as an offline DB failure.
-        val o = boxField(box, LOCAL_MS) ?: return false
-        setTextIn(o, value)
+        // Suggestions expand inside the scrollable search card. On a large-font phone the
+        // previous panel can push the next field out of the accessibility viewport;
+        // physically scroll to it before typing rather than silently using old results.
+        var field = boxField(box, 300)
+        repeat(8) {
+            if (field != null) return@repeat
+            if (!swipeIn("searchCardScroll", up = box != "fromBox")) return false
+            field = boxField(box, 300)
+        }
+        val input = field ?: return false
+        setTextIn(input, value)
         return true
     }
 

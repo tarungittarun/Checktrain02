@@ -85,14 +85,14 @@ class SettingsActivity : AppCompatActivity() {
             }
             prefs.overrideUrl = url
             prefs.columnHint = binding.columnHint.text.toString().trim()
-            Toast.makeText(this, "Saved", Toast.LENGTH_SHORT).show()
+            Toast.makeText(applicationContext, "Saved", Toast.LENGTH_SHORT).show()
             finish()
         }
         binding.clear.setOnClickListener {
             lifecycleScope.launch {
                 (application as App).repository()?.clearCaches()
                 binding.state.text = "Live cache cleared · saved timetable still available offline"
-                Toast.makeText(this@SettingsActivity, "Live cache cleared", Toast.LENGTH_SHORT).show()
+                Toast.makeText(applicationContext, "Live cache cleared", Toast.LENGTH_SHORT).show()
             }
         }
         binding.back.setOnClickListener { finish() }
@@ -190,7 +190,7 @@ class SettingsActivity : AppCompatActivity() {
         }
     }
 
-    private fun toast(message: String) = Toast.makeText(this, message, Toast.LENGTH_LONG).show()
-    private fun toast(res: Int) = Toast.makeText(this, res, Toast.LENGTH_LONG).show()
+    private fun toast(message: String) = Toast.makeText(applicationContext, message, Toast.LENGTH_LONG).show()
+    private fun toast(res: Int) = Toast.makeText(applicationContext, res, Toast.LENGTH_LONG).show()
 
 }

@@ -381,9 +381,20 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: api34-station
-            desc: "api34 / station: independent device partition"
-            group: station
+          - name: api34-station0
+            desc: "api34 / station0: independent device partition"
+            group: station0
+            optional: false
+            api: 34
+            img: google_apis
+            abi: x86_64
+            device: pixel_6
+            location: granted
+            offline: true
+            monkey: 0
+          - name: api34-station1
+            desc: "api34 / station1: independent device partition"
+            group: station1
             optional: false
             api: 34
             img: google_apis
@@ -512,9 +523,20 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: min24-station
-            desc: "min24 / station: independent device partition"
-            group: station
+          - name: min24-station0
+            desc: "min24 / station0: independent device partition"
+            group: station0
+            optional: false
+            api: 24
+            img: google_apis
+            abi: x86
+            device: nexus_5
+            location: denied
+            offline: false
+            monkey: 0
+          - name: min24-station1
+            desc: "min24 / station1: independent device partition"
+            group: station1
             optional: false
             api: 24
             img: google_apis
@@ -578,9 +600,23 @@ jobs:
             location: denied
             offline: false
             monkey: 200
-          - name: density-station
-            desc: "density / station: independent device partition"
-            group: station
+          - name: density-station0
+            desc: "density / station0: independent device partition"
+            group: station0
+            optional: false
+            api: 34
+            img: google_apis
+            abi: x86_64
+            device: pixel_c
+            location: denied
+            offline: false
+            wm_size: 1080x2160
+            wm_density: 440
+            font_scale: 1.15
+            monkey: 0
+          - name: density-station1
+            desc: "density / station1: independent device partition"
+            group: station1
             optional: false
             api: 34
             img: google_apis

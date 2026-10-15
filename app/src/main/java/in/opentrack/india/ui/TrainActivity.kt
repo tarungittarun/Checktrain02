@@ -304,7 +304,10 @@ class TrainActivity : AppCompatActivity() {
                     if (name == lastUi?.activeSource) return
                     sourceSelectionTouched = false
                     if (spinnerStates[name]?.first !in listOf("live", "last-known", "candidate")) {
-                        Toast.makeText(this@TrainActivity,
+                        // API 24's Toast layout must use the framework inflater: the
+                        // Activity's AppCompat factory crashes on its system TextView
+                        // (StringBlock pooled-string index outside the Toast XML pool).
+                        Toast.makeText(applicationContext,
                             "Checking ${sourceName(name)}…",
                             Toast.LENGTH_SHORT).show()
                         val previous = names.indexOf(lastUi?.activeSource)
@@ -767,7 +770,7 @@ class TrainActivity : AppCompatActivity() {
     private fun copyFeedReport() {
         val u = lastUi
         if (u == null) {
-            Toast.makeText(this, R.string.feed_report_empty, Toast.LENGTH_SHORT).show()
+            Toast.makeText(applicationContext, R.string.feed_report_empty, Toast.LENGTH_SHORT).show()
             return
         }
         val m = u.model
@@ -835,7 +838,7 @@ class TrainActivity : AppCompatActivity() {
             cm.setPrimaryClip(ClipData.newPlainText("opentrack-feed-report", text))
         }
         Log.i(TAG_FEED_REPORT, text)
-        Toast.makeText(this, R.string.feed_report_copied, Toast.LENGTH_SHORT).show()
+        Toast.makeText(applicationContext, R.string.feed_report_copied, Toast.LENGTH_SHORT).show()
     }
 
     /** Rail minutes to HH:MM, with the same fold the table uses, and a dash where the feed said nothing. */

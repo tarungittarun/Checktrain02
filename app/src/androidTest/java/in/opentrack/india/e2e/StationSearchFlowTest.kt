@@ -29,9 +29,16 @@ class StationSearchFlowTest {
     /** Rows appear after a 200 ms debounce and a query on an IO thread; polling is the only honest wait. */
     private fun awaitAnySuggestion(box: String, ms: Long = E2E.LOCAL_MS): Boolean {
         val deadline = System.currentTimeMillis() + ms
+        var lastScroll = System.currentTimeMillis() + 750
         while (System.currentTimeMillis() < deadline) {
             val boxNode = E2E.ui.findObject(E2E.res(box))
             if (boxNode?.findObject(By.res(E2E.PKG, "sugPrimary")) != null) return true
+            // The IME and enlarged font can put the answer below the visible viewport.
+            // Scroll the search card like a traveller, not the dropdown itself.
+            if (System.currentTimeMillis() >= lastScroll) {
+                E2E.swipeIn("searchCardScroll")
+                lastScroll = System.currentTimeMillis() + 750
+            }
             Thread.sleep(120)
         }
         return false
@@ -77,7 +84,7 @@ class StationSearchFlowTest {
     @Test
     fun everyQueryAnswersWithRowsOrWithAReason() {
         for (q in listOf("yes", "mas", "qqzzxxy", "01404")) {
-            E2E.typeInBox("fromBox", q)
+            assertTrue("could not reach the board-at field to type '$q'", E2E.typeInBox("fromBox", q))
             val answered = awaitAnySuggestion("fromBox")
             assertTrue("typing '$q' left the box unanswered: ${E2E.debugSearch("fromBox")}", answered)
             if (q == "qqzzxxy") {
@@ -210,7 +217,7 @@ class StationSearchFlowTest {
         assertTrue("no suggestion for 'yes'", E2E.ui.wait(Until.findObject(By.res(E2E.PKG, "sugPrimary")), E2E.LOCAL_MS) != null)
         assertTrue("could not pick 'yes'", E2E.tapSuggestion("fromBox", 0))
         assertTrue("get-off-at 'ndls' never resolved", E2E.typeInBox("toBox", "ndls"))
-        assertTrue("no suggestion for 'ndls'", E2E.ui.wait(Until.findObject(By.res(E2E.PKG, "sugPrimary")), E2E.LOCAL_MS) != null)
+        assertTrue("no suggestion for 'ndls': ${E2E.debugSearch("toBox")}", awaitAnySuggestion("toBox"))
         // Selecting the second end starts the search; when results arrive Find collapses.
         assertTrue("could not pick 'ndls'", E2E.tapSuggestion("toBox", 0))
         val answered = E2E.ui.wait(Until.hasObject(By.res(E2E.PKG, "resultsTitle")), E2E.NETWORK_MS)

@@ -45,7 +45,7 @@ def main() -> int:
     if not rows:
         print("::error::no e2e row reported anything - the matrix did not run")
         return 1
-    groups = ("station", "train", "track0", "track1", "track2", "settings")
+    groups = ("station0", "station1", "train", "track0", "track1", "track2", "settings")
     expected = {f"api34-{group}" for group in groups}
     if os.environ.get("E2E_FULL") == "true":
         expected |= {f"{device}-{group}" for device in ("min24", "density") for group in groups}

@@ -64,7 +64,7 @@ inputs:
     required: false
     default: ""
   group:
-    description: "parallel device partition: station, train, track0, track1, settings, or release"
+    description: "parallel device partition: station0/1, train, track0/1/2, settings, or release"
     required: false
     default: ""
   boot_timeout:
@@ -353,11 +353,18 @@ runs:
           # annotation on the check itself MUST carry the first failure and device state; 0/9 without
           # these lines cost two runs and could not distinguish a hung harness from an app regression.
           if tail -1 /tmp/tests.txt | grep -q 'failed'; then
-            first=$(grep -m1 -E 'AssertionError|StaleObjectException|INSTRUMENTATION_FAILED|^Error:|^Process crashed' "/tmp/instrument-$label.log" | tr '\r\n' '  ' | cut -c1-180)
-            failures=$(grep -E '^[0-9]+\) |AssertionError: |StaleObjectException' "/tmp/instrument-$label.log" | head -14 | tr '\r\n' '  ' | cut -c1-700)
-            tailmsg=$(tail -c 500 "/tmp/instrument-$label.log" | tr '\r\n' '  ' | cut -c1-180)
-            crashes=$(adb shell logcat -d -b crash -v brief 2>/dev/null | tail -c 450 | tr '\r\n' '  ' | cut -c1-180)
+            first=$(grep -m1 -E 'AssertionError|StaleObjectException|INSTRUMENTATION_FAILED|^Error:|^Process crashed' "/tmp/instrument-$label.log" | tr '\r\n' '  ' | cut -c1-180 || true)
+            failures=$(grep -E '^[0-9]+\) |AssertionError: |StaleObjectException' "/tmp/instrument-$label.log" | head -14 | tr '\r\n' '  ' | cut -c1-700 || true)
+            tailmsg=$(tail -c 500 "/tmp/instrument-$label.log" | tr '\r\n' '  ' | cut -c1-180 || true)
+            crashes=$(adb shell logcat -d -b crash -v brief 2>/dev/null | tail -c 450 | tr '\r\n' '  ' | cut -c1-180 || true)
             echo "::error::$label rc=$rc ${secs}s lines=$(wc -l < "/tmp/instrument-$label.log") first=${first:-none} failures=${failures:-none} tail=${tailmsg:-none} crash=${crashes:-none}"
+            # A silent runner used to exit this step before the annotation (grep -m1 under
+            # bash -e/pipefail). Put its actual output in the commit comment as well: artifact
+            # downloads can redirect to storage hosts unavailable to reviewers.
+            if ! grep -Eq 'Tests run: [1-9][0-9]*|OK \([1-9][0-9]* tests?\)' "/tmp/instrument-$label.log"; then
+              printf '%s\n' "--- $label runner output ---" >> /tmp/runner-failures.txt
+              head -60 "/tmp/instrument-$label.log" >> /tmp/runner-failures.txt
+            fi
           fi
         }
         # The cold-start flow is given its own pass rather than being left to the scheduler: inside the
@@ -384,7 +391,10 @@ runs:
           # emulators. AndroidJUnitRunner partitions the discovered methods; there is no
           # hand-maintained list that can silently omit a newly added regression.
           case "$GROUP" in
-            station) CLASS_FILTER="in.opentrack.india.e2e.StationSearchFlowTest" run_suite station ;;
+            station0|station1)
+              idx=${GROUP#station}
+              CLASS_FILTER="in.opentrack.india.e2e.StationSearchFlowTest" \
+                EXTRA_ARGS="-e numShards 2 -e shardIndex $idx" RUN_TIMEOUT=240 run_suite "$GROUP" ;;
             train) CLASS_FILTER="in.opentrack.india.e2e.TrainSearchFlowTest" run_suite train ;;
             track0|track1|track2)
               idx=${GROUP#track}
@@ -605,7 +615,14 @@ runs:
           echo "boot log (sanitised) and the tail of the failing instrument pass:"
           echo '```'
           tr '\r' '\n' < /tmp/boot.log 2>/dev/null | grep -vE "Unzipping|Downloading|Loading |Fetch remote|Computing updates" | tail -22 || true
-          tail -40 /tmp/instrument-*.log 2>/dev/null | head -40
+          if [ -s /tmp/runner-failures.txt ]; then
+            head -65 /tmp/runner-failures.txt
+          else
+            for f in /tmp/instrument-*.log; do
+              grep -Eq 'FAILURES!!!|INSTRUMENTATION_FAILED|Exception|^Error:' "$f" || continue
+              echo "--- ${f##*/}"; tail -35 "$f"
+            done
+          fi
           echo '```'
           echo 'logcat tail:'
           echo '```'
