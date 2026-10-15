@@ -122,7 +122,8 @@ class ScreenRenderTest {
             shot.text(R.id.routeLabel), shot.text(R.id.runDate),
         )
         strings.forEach { assertTrue("unfilled or empty label: '$it'", it.isNotBlank() && !it.contains("%")) }
-        assertTrue("headline too short to be a sentence: '$headline'", headline.length > 20)
+        assertTrue("headline lost its named departure: '$headline'",
+            headline.startsWith("Departed ") && headline.length > 12)
         // The fixture's stop names are ALL CAPS, as the upstream dump writes them. A sentence that carries
         // them verbatim ("Between DOBETAKAPUR and TUMAKURU") sits above a table that prints "Dobetakapur",
         // and two casings on one screen is how an app starts to look untrustworthy.
