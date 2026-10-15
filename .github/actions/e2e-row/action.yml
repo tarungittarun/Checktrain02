@@ -172,16 +172,18 @@ runs:
         mkdir -p /tmp/e2e-artifacts && cp /tmp/env.txt /tmp/e2e-artifacts/env.txt || true
         echo "::notice::runner: SDK=$SDK writable=$([ -w "$SDK" ] && echo yes || echo no) images=$(ls -d "$SDK"/system-images/android-*/*/* 2>/dev/null | wc -l) cores=$(nproc) kvm=$(stat -c '%A %U:%G' /dev/kvm 2>/dev/null || echo none)"
 
-    # All device partitions for a given API use the same Google APIs system image.
-    # Cache only a verified image (below), never a partial sdkmanager download:
-    # 23 simultaneous cold downloads have produced truncated ZIPs on hosted runners.
-    - name: Restore verified emulator image
+    # All device partitions for a given API use the same Google APIs system image
+    # and emulator executable. Cache only boot-verified SDK files, never partial
+    # sdkmanager downloads: parallel cold installs have produced truncated ZIPs.
+    - name: Restore boot-verified emulator and system image
       id: image_cache
       uses: actions/cache/restore@v4
       continue-on-error: true
       with:
-        path: /usr/local/lib/android/sdk/system-images/android-${{ inputs.api }}/${{ inputs.img }}/${{ inputs.abi }}
-        key: e2e-image-v1-${{ runner.os }}-${{ runner.arch }}-${{ inputs.api }}-${{ inputs.img }}-${{ inputs.abi }}
+        path: |
+          /usr/local/lib/android/sdk/emulator
+          /usr/local/lib/android/sdk/system-images/android-${{ inputs.api }}/${{ inputs.img }}/${{ inputs.abi }}
+        key: e2e-sdk-v2-${{ runner.os }}-${{ runner.arch }}-${{ inputs.api }}-${{ inputs.img }}-${{ inputs.abi }}
 
     - name: Boot the emulator
       id: boot
@@ -225,15 +227,17 @@ runs:
           sleep 8
         fi
 
-    - name: Cache the verified system image for later device runners
+    - name: Cache the verified emulator and system image for later runners
       # One writer per image avoids 23 jobs compressing gigabytes and racing to
       # populate the same cache key. Other partitions restore it on later runs.
       if: steps.boot.outcome == 'success' && steps.image_cache.outputs.cache-hit != 'true' && (inputs.row == 'api34-track0' || inputs.row == 'min24-track0')
       uses: actions/cache/save@v4
       continue-on-error: true # a same-key save race must not invalidate device tests
       with:
-        path: /usr/local/lib/android/sdk/system-images/android-${{ inputs.api }}/${{ inputs.img }}/${{ inputs.abi }}
-        key: e2e-image-v1-${{ runner.os }}-${{ runner.arch }}-${{ inputs.api }}-${{ inputs.img }}-${{ inputs.abi }}
+        path: |
+          /usr/local/lib/android/sdk/emulator
+          /usr/local/lib/android/sdk/system-images/android-${{ inputs.api }}/${{ inputs.img }}/${{ inputs.abi }}
+        key: e2e-sdk-v2-${{ runner.os }}-${{ runner.arch }}-${{ inputs.api }}-${{ inputs.img }}-${{ inputs.abi }}
 
     - name: "Say so, in one sentence, if this runner cannot host an emulator"
       id: nodev
@@ -358,12 +362,12 @@ runs:
             "${sel[@]}" \
             "$TEST_ID/androidx.test.runner.AndroidJUnitRunner" 2>&1 | tee "/tmp/instrument-$label.log"
           local rc=${PIPESTATUS[0]}
-          if { [ "$label" = online ] || [ "$label" = offline ]; } && [ "$rc" = 0 ] &&
+          if [ "$rc" = 0 ] &&
              grep -q 'shortMsg=Process crashed' "/tmp/instrument-$label.log" &&
              ! grep -Eq 'Tests run: [1-9][0-9]*|OK \([1-9][0-9]* tests?\)' "/tmp/instrument-$label.log"; then
-            # Some hosted API 34 images kill a short online/offline instrument
-            # process after zero or one test dots, report rc=0 and leave no Java
-            # crash buffer. Never count that as a pass; restart once, preserving
+            # Some hosted images kill the instrumentation process mid-class,
+            # report rc=0 and leave no Java crash buffer (seen in both network
+            # and tracking groups). Never count that as a pass; restart once, preserving
             # both raw outputs. A second silent exit still fails the row.
             echo "::warning::$label instrumentation exited without a summary; retrying once"
             mv "/tmp/instrument-$label.log" "/tmp/instrument-$label-first.log"
