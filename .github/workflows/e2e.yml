@@ -417,6 +417,17 @@ jobs:
             location: granted
             offline: true
             monkey: 0
+          - name: api34-station2
+            desc: "api34 / station2: independent device partition"
+            group: station2
+            optional: false
+            api: 34
+            img: google_apis
+            abi: x86_64
+            device: pixel_6
+            location: granted
+            offline: true
+            monkey: 0
           - name: api34-train
             desc: "api34 / train: independent device partition"
             group: train
@@ -453,6 +464,17 @@ jobs:
           - name: api34-track2
             desc: "api34 / track2: independent device partition"
             group: track2
+            optional: false
+            api: 34
+            img: google_apis
+            abi: x86_64
+            device: pixel_6
+            location: granted
+            offline: true
+            monkey: 0
+          - name: api34-track3
+            desc: "api34 / track3: independent device partition"
+            group: track3
             optional: false
             api: 34
             img: google_apis
@@ -570,6 +592,17 @@ jobs:
             location: denied
             offline: false
             monkey: 0
+          - name: min24-station2
+            desc: "min24 / station2: independent device partition"
+            group: station2
+            optional: false
+            api: 24
+            img: google_apis
+            abi: x86
+            device: nexus_5
+            location: denied
+            offline: false
+            monkey: 0
           - name: min24-train
             desc: "min24 / train: independent device partition"
             group: train
@@ -614,9 +647,20 @@ jobs:
             location: denied
             offline: false
             monkey: 0
-          - name: min24-settings
-            desc: "min24 / settings: independent device partition"
-            group: settings
+          - name: min24-track3
+            desc: "min24 / track3: independent device partition"
+            group: track3
+            optional: false
+            api: 24
+            img: google_apis
+            abi: x86
+            device: nexus_5
+            location: denied
+            offline: false
+            monkey: 0
+          - name: min24-settings-ui
+            desc: "min24 / settings-ui: independent device partition"
+            group: settings-ui
             optional: false
             api: 24
             img: google_apis
@@ -625,6 +669,17 @@ jobs:
             location: denied
             offline: false
             monkey: 200
+          - name: min24-settings-net
+            desc: "min24 / settings-net: independent device partition"
+            group: settings-net
+            optional: false
+            api: 24
+            img: google_apis
+            abi: x86
+            device: nexus_5
+            location: denied
+            offline: false
+            monkey: 0
           - name: density-station0
             desc: "density / station0: independent device partition"
             group: station0
@@ -642,6 +697,20 @@ jobs:
           - name: density-station1
             desc: "density / station1: independent device partition"
             group: station1
+            optional: false
+            api: 34
+            img: google_apis
+            abi: x86_64
+            device: pixel_c
+            location: denied
+            offline: false
+            wm_size: 1080x2160
+            wm_density: 440
+            font_scale: 1.15
+            monkey: 0
+          - name: density-station2
+            desc: "density / station2: independent device partition"
+            group: station2
             optional: false
             api: 34
             img: google_apis
@@ -709,9 +778,23 @@ jobs:
             wm_density: 440
             font_scale: 1.15
             monkey: 0
-          - name: density-settings
-            desc: "density / settings: independent device partition"
-            group: settings
+          - name: density-track3
+            desc: "density / track3: independent device partition"
+            group: track3
+            optional: false
+            api: 34
+            img: google_apis
+            abi: x86_64
+            device: pixel_c
+            location: denied
+            offline: false
+            wm_size: 1080x2160
+            wm_density: 440
+            font_scale: 1.15
+            monkey: 0
+          - name: density-settings-ui
+            desc: "density / settings-ui: independent device partition"
+            group: settings-ui
             optional: false
             api: 34
             img: google_apis
@@ -723,6 +806,20 @@ jobs:
             wm_density: 440
             font_scale: 1.15
             monkey: 200
+          - name: density-settings-net
+            desc: "density / settings-net: independent device partition"
+            group: settings-net
+            optional: false
+            api: 34
+            img: google_apis
+            abi: x86_64
+            device: pixel_c
+            location: denied
+            offline: false
+            wm_size: 1080x2160
+            wm_density: 440
+            font_scale: 1.15
+            monkey: 0
     steps:
       # A local action is looked up on disk before any of its steps run, so the repo has to be there first:
       # this checkout belongs to the job, not to the action. Without it the job dies with

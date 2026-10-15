@@ -64,7 +64,7 @@ inputs:
     required: false
     default: ""
   group:
-    description: "parallel device partition: station0/1, train, track0/1/2, settings-ui/net, settings, or release"
+    description: "parallel device partition: station0/1/2, train, track0/1/2/3, settings-ui/net, settings, or release"
     required: false
     default: ""
   boot_timeout:
@@ -445,15 +445,15 @@ runs:
           # emulators. AndroidJUnitRunner partitions the discovered methods; there is no
           # hand-maintained list that can silently omit a newly added regression.
           case "$GROUP" in
-            station0|station1)
+            station0|station1|station2)
               idx=${GROUP#station}
               CLASS_FILTER="in.opentrack.india.e2e.StationSearchFlowTest" \
-                EXTRA_ARGS="-e numShards 2 -e shardIndex $idx" RUN_TIMEOUT=240 run_suite "$GROUP" ;;
+                EXTRA_ARGS="-e numShards 3 -e shardIndex $idx" RUN_TIMEOUT=240 run_suite "$GROUP" ;;
             train) CLASS_FILTER="in.opentrack.india.e2e.TrainSearchFlowTest" run_suite train ;;
-            track0|track1|track2)
+            track0|track1|track2|track3)
               idx=${GROUP#track}
               CLASS_FILTER="in.opentrack.india.e2e.TrackingFlowTest" \
-                EXTRA_ARGS="-e numShards 3 -e shardIndex $idx" RUN_TIMEOUT=300 run_suite "$GROUP" ;;
+                EXTRA_ARGS="-e numShards 4 -e shardIndex $idx" RUN_TIMEOUT=300 run_suite "$GROUP" ;;
             settings-ui)
               CLASS_FILTER="in.opentrack.india.e2e.SettingsFlowTest" run_suite settings
               CLASS_FILTER="in.opentrack.india.e2e.ColdStartFlowTest" run_suite warm ;;

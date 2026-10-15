@@ -33,7 +33,7 @@ def parse(path: pathlib.Path) -> dict[str, str]:
 
 # Keys that describe the row rather than one instrumented pass.
 # `run_suite` writes `<pass>=passed` on success. Omitting `passed` here made
-# 23/23 green device jobs look like 23 rows with no instrumented passes.
+# 31/31 green device jobs look like 31 rows with no instrumented passes.
 VERDICT = re.compile(r"^(passed|ok|failed|skipped|not-run|timeout|crash|no test summary)")
 
 META = {"row", "desc", "boot", "variant", "coverage", "display", "tests", "monkey", "focus",
@@ -47,13 +47,16 @@ def main() -> int:
     if not rows:
         print("::error::no e2e row reported anything - the matrix did not run")
         return 1
-    groups = ("station0", "station1", "train", "track0", "track1", "track2", "settings")
+    groups = ("station0", "station1", "station2", "train", "track0", "track1", "track2", "track3", "settings")
     # The modern settings row is split so cold/UI and live-feed/offline checks
     # run on separate emulators; older/density profiles still use one settings row.
     expected = {f"api34-{group}" for group in groups if group != "settings"}
     expected |= {"api34-settings-ui", "api34-settings-net"}
     if os.environ.get("E2E_FULL") == "true":
         expected |= {f"{device}-{group}" for device in ("min24", "density") for group in groups}
+        expected -= {"min24-settings", "density-settings"}
+        expected |= {f"{device}-settings-{kind}" for device in ("min24", "density")
+                    for kind in ("ui", "net")}
         expected.add("release")
     by_name = {r.get("row") for r in rows}
     missing = expected - by_name
