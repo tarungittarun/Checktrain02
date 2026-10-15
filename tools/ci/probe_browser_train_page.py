@@ -6,6 +6,7 @@ per-event update times, or a measured position. Print only bounded provenance an
 station excerpts, never assume a green row or a train glyph means observed passage.
 """
 from html.parser import HTMLParser
+from html import unescape
 from urllib.parse import urljoin, urlparse
 import hashlib
 import re
@@ -87,6 +88,24 @@ def once():
               repr([js[max(0,m.start()-75):m.end()+110].replace('\n', ' ')[:190] for m in matches]),
               flush=True)
     print(f'  same-origin script URLs={srcs[:6]}', flush=True)
+    # The flattened page says ARRIVAL 05:31 05:29 without saying which is observed and
+    # which is projected. Examine the surrounding *public HTML attributes* to see if the
+    # upstream marks passed stops, forecast clocks, run identity, or a provider field.
+    # Keep the trial bounded: never post the entire page or any cookies to a commit.
+    for code in ('SMET', 'KMSI', 'ARU', 'ANF'):
+        match = re.search(r'(?<![A-Z])' + code + r'(?![A-Z])', body, re.I)
+        if match:
+            fragment = unescape(body[max(0, match.start()-420): match.end()+1300])
+            fragment = re.sub(r'\s+', ' ', fragment)[:1550]
+            print(f'  html {code}: {fragment!r}', flush=True)
+    markers = ('actual', 'estimated', 'predicted', 'isReached', 'trainStartDate',
+               'journeyDate', 'currentStation', '/api/', 'fetch(', 'axios')
+    for marker in markers:
+        hits = list(re.finditer(re.escape(marker), body, re.I))[:2]
+        if hits:
+            snippets = [re.sub(r'\s+', ' ', body[max(0,h.start()-75):h.end()+130])[:210]
+                        for h in hits]
+            print(f'  html marker {marker!r}: {snippets!r}', flush=True)
     for src in srcs[:2]:
         try:
             st, _, js, sec, cut = get(src, cap=110_000)
