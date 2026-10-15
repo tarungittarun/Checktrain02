@@ -125,7 +125,9 @@ object E2E {
         val hintText = if (value.isEmpty()) {
             if (Build.VERSION.SDK_INT >= 26) listOf(runCatching { o.hint.orEmpty() }.getOrDefault(""))
             else listOf(R.string.hint_from, R.string.hint_to, R.string.hint_train)
-                .map { context().getString(it) }
+                .map { context().getString(it) } +
+                // These two Settings placeholders are inline XML strings, not saved values.
+                listOf("https://…", "1:code,3:sa,4:sd")
         } else emptyList()
         check(actual == value || (value.isEmpty() && actual in hintText)) {
             "the field did not accept the replacement: expected '$value', got '$actual'"

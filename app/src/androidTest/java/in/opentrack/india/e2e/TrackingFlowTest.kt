@@ -270,9 +270,17 @@ class TrackingFlowTest {
         website!!.click()
         // A usable site report explains itself in the source badge + table; an
         // unavailable source instead shows one short line, not old station excerpts.
-        val resultVisible = E2E.ui.wait(
-            Until.hasObject(By.textContains("Timetable shown")), 8_000L) ||
-            E2E.ui.wait(Until.hasObject(By.textContains("WEBSITE ·")), E2E.NETWORK_MS)
+        val deadline = System.currentTimeMillis() + E2E.NETWORK_MS
+        var resultVisible = false
+        while (System.currentTimeMillis() < deadline && !resultVisible) {
+            // The status exists as a sourceSummary accessibility node even when the
+            // expanded table pushes its TEXT below the current viewport. A global
+            // By.textContains check missed an actual 'connection failed · 8.01 s.
+            // Timetable shown.' result on API 24 and then waited for a nonexistent row.
+            resultVisible = E2E.text("sourceSummary", 300).contains("Timetable shown") ||
+                E2E.text("provenance", 300).contains("WEBSITE ·")
+            if (!resultVisible) Thread.sleep(200)
+        }
         if (!resultVisible) E2E.shot("org-website-missing-result")
         assertTrue("site check returned no visible result: spinner='${E2E.text("sourceSpinner", 200)}' " +
             "badge='${E2E.text("provenance", 200)}' summary='${E2E.text("sourceSummary", 200)}' " +
