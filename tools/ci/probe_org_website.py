@@ -84,6 +84,14 @@ def inspect(tag, params):
     print("  scripts: %s" % [urllib.parse.urlsplit(s).path for s in script_src], flush=True)
     candidates = re.findall(r"(?:fetch\(|axios\.|/api/|\.json|XMLHttpRequest|WebSocket)", body, re.I)
     print("  network-hook tokens: %s" % {v: candidates.count(v) for v in set(candidates)}, flush=True)
+    # Bounded source inspection: see whether 'distance' is merely FAQ prose and whether
+    # fetch() addresses a usable dated or position endpoint. Strip query strings/secrets.
+    for needle in ("fetch(", "/api/", "distance"):
+        for hit in list(re.finditer(re.escape(needle), body, re.I))[:2]:
+            snippet = re.sub(r"\s+", " ", body[max(0, hit.start()-65):hit.end()+95])
+            snippet = re.sub(r"(https?://[^\s\"']+)\\?[^\s\"']+", r"\1?[redacted]", snippet)
+            snippet = re.sub(r"[A-Za-z0-9_-]{28,}", "[redacted]", snippet)
+            print("  %s context: %s" % (needle, snippet), flush=True)
     rows = card_rows(body)
     print("  cards=%d, codes=%d, shown(last six)=%s" % (sum(map(len, rows.values())), len(rows),
         {k: v for k, v in list(rows.items())[-6:]}), flush=True)

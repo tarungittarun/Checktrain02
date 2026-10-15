@@ -257,14 +257,15 @@ class LiveViewModel(
 
     fun probeSource(name: String) = probeSource(name, select = true)
 
-    private fun probeSource(name: String, select: Boolean) {
+    private fun probeSource(name: String, select: Boolean): Job? {
         if (select && manualProbeJob?.isActive == true) {
             _mirrorState.postValue("Already checking a source; wait for its result")
-            return
+            return manualProbeJob
         }
         Diary.get()?.log("SOURCE", "${if (select) "manual" else "first-load"} probe requested: $name")
         if (name == RunningStatusMirror.SOURCE || name == ConfirmTktMirror.SOURCE) {
             maybeMirror(force = true, preferred = if (select) name else null)
+            return if (select) manualProbeJob else null
         } else if (name in PublicPageChecks.names) {
             // Manual checks always go to the selected public endpoint, even when NTES is healthy.
             // Their reply is displayed, NEVER promoted into Act or the train marker.
@@ -310,6 +311,7 @@ class LiveViewModel(
                 }
             }
             if (select) manualProbeJob = job
+            return job
         } else if (name == WimtCandidate.SOURCE) {
             val probeStarted = System.currentTimeMillis()
             val job = viewModelScope.launch {
@@ -345,6 +347,7 @@ class LiveViewModel(
                 }
             }
             if (select) manualProbeJob = job
+            return job
         } else if (name == "erail") {
             val probeStarted = System.currentTimeMillis()
             val job = viewModelScope.launch {
@@ -366,7 +369,9 @@ class LiveViewModel(
                 Diary.get()?.log("SOURCE", "${if (select) "manual" else "first-load"} erail: $manualErailDetail")
             }
             if (select) manualProbeJob = job
+            return job
         } else if (select) _mirrorState.postValue("$name: no verified per-stop endpoint is configured")
+        return null
     }
 
     /** First opening asks every configured independent status path. Each result updates its own
@@ -556,19 +561,59 @@ class LiveViewModel(
             FeedProbe.requestCancel()
         }
         val previous = lastAnswer?.position
+        val selected = mirrorActiveSource?.takeIf { it in PublicPageChecks.names ||
+            it in setOf(WimtCandidate.SOURCE, "erail", ConfirmTktMirror.SOURCE,
+                RunningStatusMirror.SOURCE) }
+        // A user-selected source gets the FIRST request. NTES is only a last fallback,
+        // never an automatic preflight that delays a 0.4-second website response.
+        if (manual && selected != null) {
+            liveRefreshJob = viewModelScope.launch {
+                try {
+                    Diary.get()?.log("SOURCE", "refresh first: $selected; official only if no other usable source")
+                    probeSource(selected, select = true)?.join()
+                    val current = _ui.value ?: return@launch
+                    val state = current.sourceStates[selected]?.first
+                    val usable = state == "live" || state == "candidate" &&
+                        (selected == PublicPageChecks.ORG && current.orgWebsiteReport != null ||
+                            selected == WimtCandidate.SOURCE && current.wimtWebPoint != null)
+                    if (!usable) {
+                        val fallback = bestAvailableSource(current, selected)
+                        Diary.get()?.log("SOURCE", "refresh $selected failed ($state); fallback=${fallback ?: "official request"}")
+                        mirrorActiveSource = fallback ?: "NTES (official)"
+                        if (fallback == null || fallback == "NTES (official)") refreshBody(previous)
+                        else _ui.value?.let { latest ->
+                            _ui.value = buildUi(latest.route, lastAnswer ?: latest.answer, latest.tried)
+                                .copy(relayOk = latest.relayOk)
+                        }
+                    }
+                } finally {
+                    _checking.postValue(false)
+                }
+            }
+            return
+        }
         liveRefreshJob = viewModelScope.launch {
-            try {
-                refreshBody(previous)
-            } finally {
-                _checking.postValue(false)
-                // Refresh re-asks the selected source AFTER the official request, never
-                // waiting for it on NTES's critical path. ConfirmTkt/runningstatus and
-                // erail are not exempt: a chosen source must not show old rows as new.
-                val selected = mirrorActiveSource
-                if (manual && selected != null && (selected in PublicPageChecks.names ||
-                    selected in setOf(WimtCandidate.SOURCE, "erail",
-                        ConfirmTktMirror.SOURCE, RunningStatusMirror.SOURCE)))
-                    probeSource(selected)
+            try { refreshBody(previous) }
+            finally { _checking.postValue(false) }
+        }
+    }
+
+    /** Prefer another usable, fresh site over NTES. No cached schedule or HTTP 200 is a success. */
+    private fun bestAvailableSource(ui: Ui, rejected: String): String? {
+        val preferred = listOf(PublicPageChecks.ORG, WimtCandidate.SOURCE,
+            RunningStatusMirror.SOURCE, ConfirmTktMirror.SOURCE, "erail", "NTES (official)")
+        return preferred.firstOrNull { name ->
+            if (name == rejected || ui.sourceStates[name]?.first !in listOf("live", "candidate"))
+                false
+            else when (name) {
+                PublicPageChecks.ORG -> publicChecks[name]?.orgReport?.let {
+                    System.currentTimeMillis() - it.pageUpdatedAt in 0L..300_000L
+                } == true
+                WimtCandidate.SOURCE -> wimtCandidate?.webPoint?.let {
+                    System.currentTimeMillis() - it.eventAtMillis in 0L..600_000L &&
+                        System.currentTimeMillis() - it.cacheAtMillis in 0L..120_000L
+                } == true
+                else -> ui.sourceStates[name]?.first == "live"
             }
         }
     }
