@@ -361,8 +361,12 @@ class TrackingFlowTest {
         var blank = 0
         repeat(6) {
             E2E.all(stopsBy).forEach { row: UiObject2 ->
+                // RecyclerView can detach a row between the accessibility query
+                // and getText(). A stale object is not evidence of a blank halt;
+                // only count a name that was actually read from a visible row.
+                val name = runCatching { row.text }.getOrNull() ?: return@forEach
                 seen++
-                if (row.text.isNullOrBlank()) blank++
+                if (name.isBlank()) blank++
             }
             E2E.ui.swipe(
                 b.centerX(), b.bottom - 40, b.centerX(), b.top + 40, 400,

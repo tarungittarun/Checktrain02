@@ -246,6 +246,18 @@ runs:
           granted) adb shell pm grant "$APP_ID" android.permission.ACCESS_COARSE_LOCATION ;;
           denied) adb shell pm revoke "$APP_ID" android.permission.ACCESS_COARSE_LOCATION || true ;;
         esac
+        # A few otherwise healthy emulators accept am instrument while their
+        # launcher is still unresponsive: every test's startActivity then waits
+        # 40-120s for a MainActivity that never shows (no app crash in logcat).
+        # Start the installed DEBUG APK once through adb before UiAutomator takes
+        # over. The cold/settings row calls pm clear AFTER this preflight, so its
+        # genuine first-run extraction assertion is unchanged. Release smoke still
+        # launches its shrunk APK directly for the first time in its own test.
+        if [ "$VARIANT" = debug ]; then
+          if ! timeout 35 adb shell am start -W -n "$APP_ID/.ui.MainActivity"; then
+            echo "::warning::preflight MainActivity did not open; instrumented flows will verify this again"
+          fi
+        fi
       continue-on-error: true  # reporting must survive a red step; the verdict step decides
     - name: Run the flow suite (and, for the rows that ask for it, again with the radio off)
       id: suite

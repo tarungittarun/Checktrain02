@@ -229,9 +229,19 @@ class StationSearchFlowTest {
             tappedSwap = E2E.reveal("swap", "searchCardScroll") && E2E.tap("swap")
         }
         assertTrue("no swap control in the expanded search form", tappedSwap)
-        val after = E2E.boxText("fromBox") to E2E.boxText("toBox")
-        assertEquals("swap did not exchange the fields", before.second, after.first)
-        assertEquals("swap did not exchange the fields", before.first, after.second)
+        // The tap is at the bottom of a nested scrolling card. Accessibility can
+        // return an empty text node for the first box until the OUTER card reaches
+        // the top on a short/large-font screen, even though swap has set its text.
+        var swappedFrom = E2E.boxText("fromBox")
+        repeat(6) {
+            if (swappedFrom.isBlank() && E2E.swipeIn("searchCardScroll", up = false))
+                swappedFrom = E2E.boxText("fromBox")
+        }
+        val swappedTo = E2E.boxText("toBox")
+        assertEquals("swap did not exchange the board-at field; " +
+            "chip='${E2E.boxChip("fromBox")}' compact=${E2E.visible("editSearch", 200)}",
+            before.second, swappedFrom)
+        assertEquals("swap did not exchange the get-off-at field", before.first, swappedTo)
         E2E.shot("swap")
     }
     // @flow live-pair-list (v2 slice 1 + 2): the pair search must SAY where its rows came from.
