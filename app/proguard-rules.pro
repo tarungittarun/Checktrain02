@@ -15,15 +15,15 @@
 -dontwarn kotlinx.coroutines.**
 -keepclassmembers class kotlinx.coroutines.** { volatile <fields>; }
 
-# The AndroidX instrumentation runner is an unminified *test APK* that executes in the
-# release app's process. It calls kotlin.jvm.internal.Intrinsics by its published ABI name.
-# R8 can inline/remove that name from the release app because production itself needs no
-# remaining call; the runner then crashes in AppComponentFactoryRegistry before any test
-# starts (NoClassDefFoundError: kotlin/jvm/internal/Intrinsics), even though debug passes.
-# Keep the small Kotlin internal ABI for release-device testing, not the whole stdlib.
--keep class kotlin.jvm.internal.** { *; }
-# The runner also enters androidx.tracing.Trace before creating a test instance.
-# R8 otherwise drops this transitive name because production has no direct call.
+# The AndroidX test runner is an unminified *test APK* executing in the release app's
+# process. R8 can inline/remove stdlib names that production no longer uses even though
+# the runner still links against them by published ABI. Device crash diagnostics confirmed
+# kotlin.jvm.internal.Intrinsics, then kotlin.jvm.functions.Function0 were missing in
+# successive release sweeps; keeping just the first class causes the next crash. Preserve
+# the shared Kotlin runtime API (not the app's classes) for release instrumentation.
+-keep class kotlin.** { *; }
+-keep interface kotlin.** { *; }
+# The runner also uses androidx.tracing.Trace; R8 otherwise drops this transitive name.
 -keep class androidx.tracing.** { *; }
 
 # Release diagnostics: keep line numbers for the Play crash report, drop nothing else.
