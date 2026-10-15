@@ -1,6 +1,7 @@
 package `in`.opentrack.india.ui
 
 import android.view.View
+import android.widget.Button
 import android.widget.TextView
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -138,8 +139,11 @@ class ScreenRenderTest {
             shot.context.resources.getIdentifier("betweenStations", "id", shot.context.packageName))
         assertTrue("source dropdown must be visible",
             shot.root.findViewById<View>(R.id.sourceSpinner).height > 0)
+        val sourceInfo = shot.root.findViewById<Button>(R.id.sourceToggle)
         assertTrue("source information remains reachable without shrinking the table",
-            shot.root.findViewById<View>(R.id.sourceToggle).height > 0)
+            sourceInfo.height > 0)
+        assertEquals("Info button wraps on a 360dp screen", 1, sourceInfo.lineCount)
+        assertNotClipped(sourceInfo, "source Info button")
         assertEquals("Refresh should be compact", 40,
             (shot.root.findViewById<View>(R.id.refresh).height /
                 shot.context.resources.displayMetrics.density).toInt())
@@ -179,6 +183,30 @@ class ScreenRenderTest {
         assertTrue("distances must increase along the route: $km", km.zipWithNext().all { (a, b) -> b > a })
 
 Render.save("02-track-live", shot.bitmap)
+    }
+
+    @Test
+    fun websitePastCardPaintsWebMinutesAndWebPlatformNeverAct() {
+        val p = pos(anchor = 4, status = StopStatus.DEPARTED, delay = null, live = true)
+        val base = model(p, now = 432, per = emptyMap())
+        val siteRow = base.rows[1].copy(showArr = 355, showDep = 358,
+            source = TrackModel.MinuteSource.SITE_REPORTED, platform = "2")
+        val site = base.copy(rows = base.rows.toMutableList().apply { set(1, siteRow) },
+            headline = "Website reports departed Yesvantpur Jn · last site-marked past stop",
+            provenanceLabel = "whereismytrain.org.in · website report, unverified")
+        val shot = Render.render(R.layout.activity_train) { root -> Render.track(root, site, p, 432) }
+        val row = shot.root.findViewById<RecyclerView>(R.id.stops).getChildAt(1)
+        assertNotNull("website row did not render", row)
+        val arr = text(row, R.id.liveArr)
+        val dep = text(row, R.id.liveDep)
+        assertTrue("website arrival was not attributed: $arr", arr.startsWith("Web "))
+        assertTrue("website departure was not attributed: $dep", dep.startsWith("Web "))
+        assertTrue("website platform was mislabelled: ${text(row, R.id.stopMeta)}",
+            text(row, R.id.stopMeta).contains("web pf 2"))
+        assertTrue("website row was presented as a verified event: ${text(row, R.id.stopStatus)}",
+            text(row, R.id.stopStatus).contains("unverified"))
+        assertEquals("next station must stay scheduled", "—",
+            text(shot.root.findViewById<RecyclerView>(R.id.stops).getChildAt(2), R.id.liveArr))
     }
 
     @Test

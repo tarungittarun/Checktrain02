@@ -34,6 +34,12 @@ object UiState {
                 append(" dep ").append(r.showDep?.let { RailTime.formatRailMinute(it) } ?: "–")
                 if (r.isBoarding) append(" [board]")
                 if (r.isAlighting) append(" [alight]")
+                append(" [").append(when (r.source) {
+                    TrackModel.MinuteSource.SITE_REPORTED -> "Web"
+                    TrackModel.MinuteSource.REPORTED -> "Act"
+                    TrackModel.MinuteSource.PROJECTED -> "Est"
+                    TrackModel.MinuteSource.SCHEDULE -> "Sch"
+                }).append(']')
             }
         }
         return buildString {

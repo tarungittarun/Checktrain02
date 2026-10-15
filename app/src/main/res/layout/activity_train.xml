@@ -236,10 +236,14 @@
                     <Button
                         android:id="@+id/sourceToggle"
                         style="@style/BtnGhost"
-                        android:layout_width="54dp"
+                        android:layout_width="64dp"
                         android:layout_height="44dp"
                         android:layout_marginStart="6dp"
+                        android:minWidth="64dp"
                         android:minHeight="44dp"
+                        android:paddingStart="4dp"
+                        android:paddingEnd="4dp"
+                        android:singleLine="true"
                         android:text="@string/source_info"
                         android:textSize="12sp" />
                 </LinearLayout>

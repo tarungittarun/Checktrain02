@@ -43,11 +43,16 @@ object PublicPageChecks {
         }
     }
 
+    /** A quickly dropped mobile GET gets one second chance for this website, never a
+     * second four-second socket wait. [Http]'s attempt deadline is four seconds (plus
+     * its bounded retry/backoff overhead); HTTP errors are not retried. */
+    internal fun retriesFor(name: String): Int = if (name == ORG) 1 else 0
+
     fun fetch(http: Http, name: String, number: String, originDay: Long, now: Long,
               source: String? = null, destination: String? = null,
               knownCodes: Set<String> = emptySet(), route: TrainRoute? = null): Result =
         fetch(name, number, originDay, now, source, destination, knownCodes, route) { url ->
-            http.get(url, timeoutMillis = 4_000, retries = 0, budgetMillis = 4_000,
+            http.get(url, timeoutMillis = 4_000, retries = retriesFor(name), budgetMillis = 4_000,
                 headers = mapOf("User-Agent" to "Mozilla/5.0 (Linux; Android 13; Mobile) Chrome/120 Safari/537.36",
                     "Accept" to if (name == RAIL_YATRI) "application/json" else "text/html"))
         }

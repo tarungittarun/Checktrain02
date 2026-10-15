@@ -262,14 +262,22 @@ jobs:
           apk=app/build/outputs/apk/debug/app-debug.apk
           tag=latest-apk
           ver=$(grep -o 'versionName *\(=[ \t]*\)*"[^"]*"' app/build.gradle | head -1 | sed 's/.*"\(.*\)"/\1/')
-          notes="Debug APK for testing on a real device. Built from ${GITHUB_SHA:0:7} by android.yml on every push. versionName: ${ver:-unknown}. On the tracking screen, long-press the provenance badge to copy a live-feed report."
+          code=$(grep -o 'versionCode *[0-9]*' app/build.gradle | head -1 | grep -o '[0-9]*')
+          notes="Debug APK for testing on a real device. Built from ${GITHUB_SHA:0:7} by android.yml on every push. versionCode: ${code:-unknown}, versionName: ${ver:-unknown}. On the tracking screen, long-press the provenance badge to copy a live-feed report."
           gh release create "$tag" --title "Rolling debug APK" --notes "$notes" --prerelease 2>/dev/null || true
           if [ ! -f "$apk" ]; then
             echo "::warning::no APK at $apk to publish; the build step already said why"
             exit 0
           fi
-          gh release upload "$tag" "$apk" --clobber || echo "::warning::could not publish to the release; the artifact on this run still has the APK"
-          rc=$?
+          if gh release upload "$tag" "$apk" --clobber; then
+            # `create` is a no-op once the rolling tag exists. Without edit, the
+            # release page kept saying R83 while the asset had already become R97.
+            # Change provenance only AFTER the new asset was uploaded successfully.
+            gh release edit "$tag" --title "Rolling debug APK" --notes "$notes" ||
+              echo "::warning::could not update rolling APK provenance notes"
+          else
+            echo "::warning::could not publish to the release; the artifact on this run still has the APK"
+          fi
       - name: Capture ntfy.sh's real poll shape (the crowd parser was written against an assumed shape)
         # The traveller-report parser filters ntfy's JSON stream by hand, and every on-device poll has
         # returned "relay answered, 0 reports" while publishes return HTTP 200 - paste #19 even lost the

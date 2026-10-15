@@ -42,6 +42,21 @@ class UiStateTest {
     }
 
     @Test
+    fun diaryPreviewLabelsEachVisibleRowByItsActualDisplaySource() {
+        val rows = listOf(
+            stop("MYS", null, 1180),
+            stop("ARU", 1783, 1784).copy(showArr = 1790, showDep = 1794,
+                source = TrackModel.MinuteSource.SITE_REPORTED),
+            stop("ANF", 1800, 1802).copy(source = TrackModel.MinuteSource.SCHEDULE),
+        )
+        val line = UiState.track("16227", "Website reports Arasalu", "WEBSITE",
+            "checked", "—", "Next scheduled", "last website stop", null, rows)
+        assertTrue("lost the website label: $line", line.contains("ARU arr 05:50 (+1d) dep 05:54 (+1d) [Web]"))
+        assertTrue("lost the static label: $line", line.contains("ANF arr 06:00 (+1d) dep 06:02 (+1d) [Sch]"))
+        assertFalse("a site claim was called verified actual: $line", line.contains("ARU arr 05:50 (+1d) dep 05:54 (+1d) [Act]"))
+    }
+
+    @Test
     fun aLongRouteIsStatedWithACapAndAMoreCount() {
         val rows = (1..12).map { stop("S$it", 600 + it, 601 + it) }
         val line = UiState.track("16579", "h", "chip", "age", "d", "n", "p", null, rows)

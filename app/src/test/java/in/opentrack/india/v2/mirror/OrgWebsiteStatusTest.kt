@@ -47,6 +47,12 @@ class OrgWebsiteStatusTest {
         ${card("ANF", "bg-white", "06:08 AM", "06:00 AM", "06:10 AM", "06:02 AM")}
         </html>""".trimIndent()
 
+    @Test fun `website mobile retry is bounded and other source policy is unchanged`() {
+        assertEquals(1, PublicPageChecks.retriesFor(PublicPageChecks.ORG))
+        assertEquals(0, PublicPageChecks.retriesFor(PublicPageChecks.RAIL_YATRI))
+        assertEquals(0, PublicPageChecks.retriesFor(PublicPageChecks.IXIGO))
+    }
+
     @Test fun `website marks past card but future first clock is still a prediction`() {
         val out = OrgWebsiteStatus.parse(page, "16227", day, now, route)
         val report = out.report ?: error(out.reason)
