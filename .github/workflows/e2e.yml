@@ -266,26 +266,13 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
-      - name: Assemble the debug APK, the instrumented test APK, and the class files for coverage
+      # Debug/test artifacts gate the device partitions. R8 release runs on a
+      # different runner in parallel so its heavy shrink pass does not block them.
+      - name: Assemble debug APK, instrumented test APK and coverage classes
         run: |
           set -o pipefail
           ./gradlew --no-daemon :app:assembleDebug :app:assembleDebugAndroidTest \
             :app:compileDebugKotlin --stacktrace 2>&1 | tee /tmp/build.log
-      # The release row has to test the R8 + resource-shrunk artifact, because shrinking breaks exactly the
-      # things no debug build can show. It is signed with the *debug* keystore on purpose: an instrumented
-      # test APK must be signed by the same key as the app it drives. The stable public TEST key is
-      # used here only for the never-published release-smoke artifact, not a production release.
-      - name: Assemble the release APK signed with the debug key (for the release-smoke row)
-        if: needs.plan.outputs.full == 'true'
-        run: |
-          # This is a test-only release-smoke APK, never published. Sign it with the same
-          # stable TEST key as debug so the instrumented test package can attach to it.
-          DBG="$GITHUB_WORKSPACE/tools/ci/test-only-debug.p12"
-          ./gradlew --no-daemon :app:assembleRelease \
-            -Pandroid.injected.signing.store.file="$DBG" \
-            -Pandroid.injected.signing.store.password=android \
-            -Pandroid.injected.signing.key.alias=androiddebugkey \
-            -Pandroid.injected.signing.key.password=android
       - uses: actions/upload-artifact@v4
         with:
           name: apk-debug
@@ -296,13 +283,6 @@ jobs:
         with:
           name: apk-debug-androidTest
           path: app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
-          if-no-files-found: error
-          retention-days: 3
-      - uses: actions/upload-artifact@v4
-        if: needs.plan.outputs.full == 'true'
-        with:
-          name: apk-release
-          path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 3
       # The Actions UI is the only place these logs live for most readers, and a red "build" job with no
@@ -335,6 +315,39 @@ jobs:
         with:
           name: e2e-classes
           path: e2e-classes.zip
+          if-no-files-found: error
+          retention-days: 3
+
+  # R8/resource shrink on its own runner. The old serial release pass held ALL
+  # emulators until it finished, even though only one release-smoke row needs it.
+  release_build:
+    needs: plan
+    if: needs.plan.outputs.full == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate the offline timetable asset
+        run: bash tools/ci/prepare_asset.sh
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: true
+      - name: Assemble R8 release smoke APK with the public test-only key
+        run: |
+          DBG="$GITHUB_WORKSPACE/tools/ci/test-only-debug.p12"
+          ./gradlew --no-daemon :app:assembleRelease \
+            -Pandroid.injected.signing.store.file="$DBG" \
+            -Pandroid.injected.signing.store.password=android \
+            -Pandroid.injected.signing.key.alias=androiddebugkey \
+            -Pandroid.injected.signing.key.password=android
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apk-release
+          path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 3
 
@@ -709,18 +722,6 @@ jobs:
             wm_density: 440
             font_scale: 1.15
             monkey: 200
-          - name: release
-            desc: "R8 + resource-shrunk release APK smoke"
-            group: release
-            api: 34
-            img: google_apis
-            abi: x86_64
-            device: pixel_6
-            optional: false
-            variant: release
-            location: denied
-            offline: false
-            monkey: 0
     steps:
       # A local action is looked up on disk before any of its steps run, so the repo has to be there first:
       # this checkout belongs to the job, not to the action. Without it the job dies with
@@ -748,11 +749,56 @@ jobs:
           focus: ${{ needs.plan.outputs.focus }}
           group: ${{ matrix.group }}
           boot_timeout: ${{ needs.plan.outputs.boot_timeout }}
+  # Release smoke waits for BOTH artifacts, while debug emulators do not wait
+  # for R8. Keeping it out of the debug matrix removes the serial shrink delay.
+  release_smoke:
+    needs: [build, release_build, plan]
+    if: needs.plan.outputs.full == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    timeout-minutes: 15
+    env:
+      API: 34
+      IMG: google_apis
+      ABI: x86_64
+      DEVICE: pixel_6
+      ROW: release
+      ROW_DESC: R8 + resource-shrunk release APK smoke
+      VARIANT: release
+      LOCATION: denied
+      OFFLINE: false
+      MONKEY: ${{ needs.plan.outputs.monkey != '' && needs.plan.outputs.monkey || '0' }}
+      GROUP: release
+      ROW_BUDGET_MINUTES: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/e2e-row
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          row: release
+          desc: R8 + resource-shrunk release APK smoke
+          api: 34
+          img: google_apis
+          abi: x86_64
+          device: pixel_6
+          variant: release
+          location: denied
+          offline: false
+          monkey: ${{ needs.plan.outputs.monkey != '' && needs.plan.outputs.monkey || '0' }}
+          focus: ${{ needs.plan.outputs.focus }}
+          group: release
+          boot_timeout: ${{ needs.plan.outputs.boot_timeout }}
+
   # ---------------------------------------------------------------------------------------- the summary
   report:
     # `always()` because `e2e_full` is legitimately skipped on an ordinary push, and a skipped dependency
     # would otherwise skip this job - which is the job that tells you what was and was not tested.
-    needs: [e2e, e2e_full, plan]
+    needs: [e2e, e2e_full, release_smoke, plan]
     if: always()
     permissions:
       contents: write
