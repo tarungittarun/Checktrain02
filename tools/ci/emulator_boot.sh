@@ -148,13 +148,15 @@ install_pkg() {
   yes 2>/dev/null | timeout 120 $SUDO "$SDKMGR" $SDK_ROOT_ARG --install "$pkg" > /tmp/sdkmanager.log 2>&1
   rc=${PIPESTATUS[1]}
   if [ "$rc" != 0 ] && [ "$pkg" = emulator ] && ! path_ok "$pkg" &&
-     grep -q 'ZipFile unknown archive' /tmp/sdkmanager.log; then
-    # Hosted runners occasionally receive a truncated emulator ZIP. Do not mark
-    # the device untested for one corrupt download; discard sdkmanager's partial
-    # package-operation cache and make one bounded fresh attempt on THIS runner.
-    echo "::warning::emulator ZIP was invalid; clearing the partial SDK download and retrying once"
+     { [ "$rc" = 124 ] || grep -q 'ZipFile unknown archive' /tmp/sdkmanager.log; }; then
+    # Hosted runners occasionally receive a truncated ZIP or wait 120 seconds
+    # for remote manifests. One fresh bounded request can recover a transient;
+    # keep the first log and still fail visibly if the service remains unavailable.
+    local retry_limit=120
+    [ "$rc" = 124 ] && retry_limit=60
+    echo "::warning::emulator package fetch failed ($rc); clearing partial SDK download and retrying once for ${retry_limit}s"
     rm -rf "$SDK/.temp"
-    yes 2>/dev/null | timeout 120 $SUDO "$SDKMGR" $SDK_ROOT_ARG --install "$pkg" > /tmp/sdkmanager-retry.log 2>&1
+    yes 2>/dev/null | timeout "$retry_limit" $SUDO "$SDKMGR" $SDK_ROOT_ARG --install "$pkg" > /tmp/sdkmanager-retry.log 2>&1
     rc=${PIPESTATUS[1]}
     cat /tmp/sdkmanager-retry.log >> /tmp/sdkmanager.log
   fi

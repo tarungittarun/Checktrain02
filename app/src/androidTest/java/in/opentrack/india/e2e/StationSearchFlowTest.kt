@@ -198,9 +198,19 @@ class StationSearchFlowTest {
         assertTrue(E2E.typeInBox("fromBox", "yes") && awaitAnySuggestion("fromBox"))
         E2E.tapSuggestion("fromBox", 0)
         assertTrue(E2E.typeInBox("toBox", "ndls") && awaitAnySuggestion("toBox"))
-        E2E.tapSuggestion("toBox", 0)
-        // A result intentionally collapses the search form. Open Edit first: testing a
-        // hidden swap control is not testing whether the resolved station codes swap.
+        assertTrue("could not pick 'ndls' before swapping", E2E.tapSuggestion("toBox", 0))
+        // Picking the second end starts an asynchronous pair search. Wait for its
+        // result BEFORE opening Edit: otherwise the late answer can collapse the
+        // form between the swap tap and reading its new fields.
+        val deadline = System.currentTimeMillis() + E2E.LOCAL_MS
+        var status = E2E.text("statusLine", 300)
+        while (System.currentTimeMillis() < deadline &&
+            (status.isBlank() || status.contains("Searching", true))) {
+            Thread.sleep(150)
+            status = E2E.text("statusLine", 300)
+        }
+        assertTrue("the pair search never settled before Swap (status='$status')",
+            status.isNotBlank() && !status.contains("Searching", true))
         if (E2E.visible("editSearch", 500)) assertTrue(E2E.tap("editSearch"))
         val before = E2E.boxText("fromBox") to E2E.boxText("toBox")
         assertTrue("resolved stations vanished before swap: $before",

@@ -154,6 +154,11 @@ class MainActivity : AppCompatActivity() {
 
     /** Swap keeps the *resolved* codes with the names; a swap that lost the resolution would re-fuzzy. */
     private fun swap() {
+        // Picking the second endpoint starts an asynchronous search. If its results land
+        // just after the user taps Swap, renderReport must not collapse the fields before
+        // the swapped values can be seen. Find below explicitly ends this edit mode.
+        keepSearchOpen = true
+        setSearchCollapsed(false)
         val (a, b) = binding.fromBox.text to binding.toBox.text
         val (ac, bc) = binding.fromBox.resolvedCode to binding.toBox.resolvedCode
         binding.fromBox.setTextShown(b); binding.fromBox.resolvedCode = bc
