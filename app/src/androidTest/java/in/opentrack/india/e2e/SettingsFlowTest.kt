@@ -58,7 +58,10 @@ class SettingsFlowTest {
         // The about text is below the fold on large-font phones: Back remains reachable
         // through Android navigation without pretending the top button is still visible.
         E2E.ui.pressBack()
-        assertTrue("back did not return to search", E2E.visible("fromBox"))
+        // On API 24 the first system Back can dismiss an IME that retained focus
+        // while the settings scroller was moved. One more Back must leave Settings.
+        if (!E2E.visible("settings", 750)) E2E.ui.pressBack()
+        assertTrue("back did not return to search", E2E.visible("settings"))
     }
 
     /**
