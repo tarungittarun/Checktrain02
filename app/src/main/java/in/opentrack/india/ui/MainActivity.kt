@@ -158,6 +158,11 @@ class MainActivity : AppCompatActivity() {
         val (ac, bc) = binding.fromBox.resolvedCode to binding.toBox.resolvedCode
         binding.fromBox.setTextShown(b); binding.fromBox.resolvedCode = bc
         binding.toBox.setTextShown(a); binding.toBox.resolvedCode = ac
+        // Swap sits below both fields. On a short/large-font screen the new values
+        // would otherwise be above the viewport, so bring them back into view.
+        (getSystemService(INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager)
+            ?.hideSoftInputFromWindow(binding.root.windowToken, 0)
+        binding.searchCardScroll.post { binding.searchCardScroll.scrollTo(0, 0) }
     }
 
     /** Reopens the last search: the common case is "same pair, again tomorrow". */

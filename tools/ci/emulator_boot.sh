@@ -147,6 +147,17 @@ install_pkg() {
   # so the row can post its real install failure instead of GitHub canceling the entire job.
   yes 2>/dev/null | timeout 120 $SUDO "$SDKMGR" $SDK_ROOT_ARG --install "$pkg" > /tmp/sdkmanager.log 2>&1
   rc=${PIPESTATUS[1]}
+  if [ "$rc" != 0 ] && [ "$pkg" = emulator ] && ! path_ok "$pkg" &&
+     grep -q 'ZipFile unknown archive' /tmp/sdkmanager.log; then
+    # Hosted runners occasionally receive a truncated emulator ZIP. Do not mark
+    # the device untested for one corrupt download; discard sdkmanager's partial
+    # package-operation cache and make one bounded fresh attempt on THIS runner.
+    echo "::warning::emulator ZIP was invalid; clearing the partial SDK download and retrying once"
+    rm -rf "$SDK/.temp"
+    yes 2>/dev/null | timeout 120 $SUDO "$SDKMGR" $SDK_ROOT_ARG --install "$pkg" > /tmp/sdkmanager-retry.log 2>&1
+    rc=${PIPESTATUS[1]}
+    cat /tmp/sdkmanager-retry.log >> /tmp/sdkmanager.log
+  fi
   [ "$rc" = 124 ] && echo "::warning::sdkmanager timed out after 120s installing $pkg; image/files present=$(path_ok "$pkg" && echo yes || echo no)"
   [ "$rc" = 127 ] && echo "::error::sdkmanager could not be executed ($SDKMGR, rc=127)" && return 1
   # sdkmanager's own verdict first. Only if it *says* it failed do we look at the filesystem again, because
