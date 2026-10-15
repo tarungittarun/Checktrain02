@@ -137,10 +137,11 @@
                 android:orientation="vertical">
 
                 <TextView
+                    android:id="@+id/heroEyebrow"
                     style="@style/TextLabel"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="LAST REPORTED • NOT LIVE GPS"
+                    android:text="TIMETABLE · NOT LIVE"
                     android:textColor="@color/live" />
 
                 <TextView

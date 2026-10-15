@@ -365,6 +365,14 @@ class TrainActivity : AppCompatActivity() {
             else -> "${sourceName(ui.activeSource.orEmpty())}: $selectedReason$response. Timetable shown."
         }
         binding.headline.text = m.headline
+        binding.heroEyebrow.text = when {
+            ui.wimtWebPoint != null -> "WEB DISTANCE CLAIM · UNVERIFIED"
+            ui.orgWebsiteReport != null -> "WEBSITE PAST STOP · UNVERIFIED"
+            m.rows.any { it.source == TrackModel.MinuteSource.REPORTED } -> "LAST REPORTED · NOT GPS"
+            else -> "TIMETABLE · NOT LIVE"
+        }
+        binding.heroEyebrow.setTextColor(getColor(if (ui.wimtWebPoint != null ||
+            ui.orgWebsiteReport != null) R.color.warn else R.color.live))
         // No NTES time-interpolated icon in position-only mode. A separate amber
         // marker can scale a fresh, explicitly UNVERIFIED WIMT web-cache km claim
         // onto two official scheduled halts; it never invents an ETA or Act cell.

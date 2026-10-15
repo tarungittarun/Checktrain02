@@ -213,7 +213,10 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         }
         val marker = haltMarker?.takeIf { it.code.equals(s.code, true) }
         holder.marker.visibility = if (marker == null) View.GONE else View.VISIBLE
-        holder.marker.text = marker?.let { "LAST REPORTED STOP" }.orEmpty()
+        holder.marker.text = marker?.let {
+            if (projectedLeg?.fromCode.equals(s.code, true)) "LAST REPORTED STOP"
+            else "🚆  ${it.caption}"
+        }.orEmpty()
         holder.marker.contentDescription = marker?.caption ?: ""
         holder.marker.setTextColor(ctx.getColor(if (marker?.website == true) R.color.warn else R.color.live))
         val verified = s.source == TrackModel.MinuteSource.REPORTED
@@ -233,6 +236,9 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             s.source == TrackModel.MinuteSource.PROJECTED -> "Estimated · not reported"
             else -> "Scheduled"
         }
+        holder.status.visibility = if (s.isAnchor || s.state == TrackModel.State.NEXT ||
+            s.state == TrackModel.State.CANCELLED || s.state == TrackModel.State.SKIPPED ||
+            stationClaim || website || (detailOverrides[s.code] == true)) View.VISIBLE else View.GONE
         holder.status.setTextColor(ctx.getColor(when {
             stationClaim || website -> R.color.warn
             verified -> R.color.live
@@ -290,7 +296,9 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         }
         holder.primaryTime.setTextColor(ctx.getColor(if (hasShownTime) color else R.color.text2))
         holder.details.visibility = if (detailOverrides[s.code] ?: s.isAnchor) View.VISIBLE else View.GONE
-        holder.stopToggle.text = if (holder.details.visibility == View.VISIBLE) "Less  ▴" else "Details  ▾"
+        holder.stopToggle.text = if (routePoints[s.code].orEmpty().isNotEmpty())
+            (if (expandedCode == s.code) "Less  ▴" else "Explore  ▾")
+        else if (holder.details.visibility == View.VISIBLE) "Less  ▴" else "Details  ▾"
         holder.dot.setBackgroundResource(if (s.isAnchor && (s.delay ?: 0) >= 3 && verified)
             R.drawable.dot_problem else dotFor(s))
         holder.row.setPadding(holder.row.paddingLeft,
@@ -332,15 +340,19 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
                 web -> "Web cache · unverified km"
                 else -> "Distance estimate · not GPS"
             }
-            holder.inlineLegCaption.text = caption
-            holder.inlineLegCaption.setTextColor(ctx.getColor(if (reportedHalt) R.color.live else R.color.warn))
+            val isLate = reportedHalt && (s.delay ?: 0) >= 3
+            holder.inlineLegCaption.text = if (isLate)
+                "${sourceNameForMarker} · +${s.delay}m late" else caption
+            holder.inlineLegCaption.setTextColor(ctx.getColor(if (isLate) R.color.late else if (reportedHalt) R.color.live else R.color.warn))
             holder.inlineLegAge.text = holder.inlineLeg.ageSeconds?.let { seconds ->
                 if (seconds < 60) "Just now" else TableMarker.elapsedLabel(seconds * 1_000L) + " ago"
             }.orEmpty()
             holder.inlineLegAge.visibility = if (holder.inlineLegAge.text.isEmpty()) View.GONE else View.VISIBLE
-            holder.inlineLeg.delayed = reportedHalt && (s.delay ?: 0) >= 3
-            holder.routeToggle.text = if (expandedCode == s.code) "Hide map points  ▴" else
-                "${leg.points.size} map points  ·  Show  ▾"
+            holder.inlineLeg.delayed = isLate
+            holder.routeToggle.text = if (expandedCode == s.code) "Hide  ▴" else
+                "${leg.points.size} points  ▾"
+            holder.routeToggle.contentDescription = if (expandedCode == s.code)
+                "Hide intermediate map points" else "Show ${leg.points.size} intermediate map points"
             holder.routeToggle.visibility = if (leg.points.isEmpty()) View.GONE else View.VISIBLE
             holder.routeToggle.setOnClickListener {
                 val previous = expandedCode
@@ -350,7 +362,9 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
                 currentList.indexOfFirst { it.code == s.code }
                     .takeIf { it >= 0 }?.let(::notifyItemChanged)
             }
-            holder.inlineLeg.contentDescription = caption + " · not GPS · ${leg.from} to ${leg.to} " +
+            holder.inlineLeg.contentDescription = caption +
+                (if (isLate) " · red dashes show reported delay, not distance travelled" else "") +
+                " · not GPS · ${leg.from} to ${leg.to} " +
                 "${(leg.fraction * 100).toInt()} percent of scheduled leg by " +
                 (if (stationClaim) "unverified station claim (no passage time or measured distance)"
                     else if (reportedHalt || siteHalt) "last reported halt (no measured distance since)"
@@ -360,7 +374,8 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
                     leg.points.joinToString(" → ") { it.code })
         }
         holder.row.setOnClickListener {
-            val opening = holder.details.visibility != View.VISIBLE
+            val opening = if (points.isNotEmpty()) expandedCode != s.code
+                else holder.details.visibility != View.VISIBLE
             detailOverrides[s.code] = opening
             // A stop is also the disclosure control for its map points. Closing
             // it removes both the long point list and the detailed time sheet;
@@ -371,7 +386,11 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         }
         holder.row.isClickable = true
         holder.row.contentDescription = "${s.name}, ${holder.status.text}, ${holder.timeType.text} " +
-            "${holder.primaryTime.text}; tap to ${if (holder.details.visibility == View.VISIBLE) "hide" else "show"} arrival and departure times"
+            "${holder.primaryTime.text}; tap to " +
+            (if (points.isNotEmpty())
+                (if (expandedCode == s.code) "hide" else "show") + " arrival, departure and map points"
+            else (if (holder.details.visibility == View.VISIBLE) "hide" else "show") +
+                " arrival and departure times")
         holder.intermediateGroup.removeAllViews()
         holder.intermediateGroup.visibility = if (points.isNotEmpty() && expandedCode == s.code)
             View.VISIBLE else View.GONE

@@ -250,9 +250,16 @@ class LargeScreenRenderTest {
         assertNotNull("the stop table did not lay out at ${WIDTH} dp", list)
         for (i in 0 until list!!.childCount) {
             val row = list.getChildAt(i)
-            listOf(R.id.stopName, R.id.stopMeta, R.id.schedArr, R.id.schedDep, R.id.liveArr, R.id.liveDep)
+            listOf(R.id.stopName, R.id.stopMeta, R.id.stopPrimaryTime, R.id.stopTimeType)
                 .forEach {
-                Render.assertNothingCut(row.findViewById(it), "row $i · ${name(shot, it)}")
+                    Render.assertNothingCut(row.findViewById(it), "row $i · ${name(shot, it)}")
+                }
+            // Closed time sheets are intentionally unmeasured. Validate every
+            // rendered minute on open rows without demanding hidden children draw.
+            if (row.findViewById<View>(R.id.stopDetails).visibility == View.VISIBLE) {
+                listOf(R.id.schedArr, R.id.schedDep, R.id.liveArr, R.id.liveDep).forEach {
+                    Render.assertNothingCut(row.findViewById(it), "row $i · ${name(shot, it)}")
+                }
             }
             assertTrue("row $i has no station name", Render.read(row, R.id.stopName).isNotBlank())
         }

@@ -231,6 +231,9 @@ object Render {
         text(root, R.id.routeLabel, m.routeLabel)
         text(root, R.id.runDate, m.runDateLabel)
         text(root, R.id.headline, m.headline)
+        text(root, R.id.heroEyebrow, if (m.rows.any {
+                it.source == TrackModel.MinuteSource.REPORTED
+            }) "LAST REPORTED · NOT GPS" else "TIMETABLE · NOT LIVE")
         text(root, R.id.provenance, m.provenanceLabel)
         text(root, R.id.age, m.ageLabel)
         // The same composition the Activity uses, so no fixture has to invent this sentence (and cannot

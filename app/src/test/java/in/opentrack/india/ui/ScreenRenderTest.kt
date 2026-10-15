@@ -203,7 +203,7 @@ Render.save("02-track-live", shot.bitmap)
         val list = shot.root.findViewById<RecyclerView>(R.id.stops)
         val reported = list.getChildAt(1)
         assertTrue("reported-stop label did not render beside the station name",
-            text(reported, R.id.haltMarker).contains("LAST REPORTED STOP"))
+            text(reported, R.id.haltMarker).contains("last reported stop", ignoreCase = true))
         assertTrue("passage age disappeared from its accessible marker",
             reported.findViewById<TextView>(R.id.haltMarker).contentDescription.contains("ago"))
         assertEquals(View.GONE, list.getChildAt(2).findViewById<View>(R.id.haltMarker).visibility)
@@ -233,7 +233,11 @@ Render.save("02-track-live", shot.bitmap)
         val icon = reported.findViewById<InlineLegView>(R.id.inlineLeg)
         assertEquals(View.VISIBLE, reported.findViewById<View>(R.id.inlineLegGroup).visibility)
         assertTrue(icon.contentDescription.contains("static points in order: NMP"))
-        assertTrue(text(reported, R.id.inlineLegCaption).contains("last stop"))
+        assertTrue("the mini-leg lost its source/event label",
+            text(reported, R.id.inlineLegCaption).contains("last stop") ||
+                text(reported, R.id.inlineLegCaption).contains("late"))
+        if (icon.delayed) assertTrue("red delay must not imply travel distance",
+            icon.contentDescription.contains("delay, not distance travelled"))
         assertTrue(icon.contentDescription.contains("no measured distance since"))
         assertEquals("12 min ago", text(reported, R.id.inlineLegAge))
         assertEquals(12 * 60L, icon.ageSeconds)

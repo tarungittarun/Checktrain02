@@ -45,46 +45,52 @@ class InlineLegView @JvmOverloads constructor(
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val count = projection?.points?.size ?: 0
-        val h = if (showLabels) (110 + count * 24).coerceIn(130, 350) else 92
+        val h = if (showLabels) (110 + count * 24).coerceIn(130, 350) else 52
         setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), dp(h.toFloat()).toInt())
     }
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         val leg = projection ?: return
-        val x = dp(36f) // the station-dot axis in item_stop
-        val top = dp(22f)
-        val end = height - dp(20f)
-        val span = end - top
+        // The resting view is a compact horizontal distance ruler, so the next
+        // scheduled stop is visible without scrolling past a tall empty leg. On
+        // disclosure it becomes a vertical, labelled map. Both use the SAME
+        // measured fraction; expanding cannot move the train.
+        val vertical = showLabels
+        val x0 = if (vertical) dp(36f) else dp(80f)
+        val x1 = if (vertical) x0 else width - dp(22f)
+        val y0 = if (vertical) dp(22f) else dp(26f)
+        val y1 = if (vertical) height - dp(20f) else y0
         paint.strokeWidth = dp(3f)
         paint.color = context.getColor(if (delayed) R.color.late else R.color.stroke)
-        // A red DASHED leg signals reported delay, never distance travelled.
-        // Only a qualified distance fraction fills the solid portion below.
+        // Red dashes mark DELAY across this scheduled leg; they are not
+        // the blue solid portion, which requires a qualified km measurement.
         paint.pathEffect = if (delayed) DashPathEffect(floatArrayOf(dp(6f), dp(5f)), 0f) else null
-        canvas.drawLine(x, top, x, end, paint)
+        canvas.drawLine(x0, y0, x1, y1, paint)
         paint.pathEffect = null
         val markerColor = context.getColor(if (delayed) R.color.late else if (leg.markerKind in listOf(
                 RouteBetween.MarkerKind.PROJECTED, RouteBetween.MarkerKind.REPORTED_HALT))
             R.color.live else R.color.warn)
+        val fraction = leg.fraction.coerceIn(0f, 1f)
+        val x = x0 + (x1 - x0) * fraction
+        val y = y0 + (y1 - y0) * fraction
         paint.color = markerColor
-        canvas.drawLine(x, top, x, top + span * leg.fraction, paint)
+        canvas.drawLine(x0, y0, x, y, paint)
         paint.color = context.getColor(R.color.text2)
         paint.textSize = dp(11f)
-        // Every validated intermediate point gets its distance-proportional tick.
-        // Dense legs still show ticks; suppress only colliding TEXT labels (the
-        // expandable station table names all points). Never drop the whole map at 9+.
         var lastLabelY = Float.NEGATIVE_INFINITY
         for (point in leg.points) {
-            val tickY = top + span * point.fraction
-            canvas.drawCircle(x, tickY, dp(3.5f), paint)
-            if (showLabels && tickY - lastLabelY >= dp(20f) &&
-                tickY > top + dp(22f)) {
-                canvas.drawText("${point.code} · ${point.mapKm} km (map)",
-                    x + dp(27f), tickY + dp(4f), paint)
-                lastLabelY = tickY
-            }
+            val tickX = x0 + (x1 - x0) * point.fraction
+            val tickY = y0 + (y1 - y0) * point.fraction
+            if (vertical) {
+                canvas.drawCircle(tickX, tickY, dp(3f), paint)
+                if (tickY - lastLabelY >= dp(20f) && tickY > y0 + dp(22f)) {
+                    canvas.drawText("${point.code} · ${point.mapKm} km (map)",
+                        tickX + dp(27f), tickY + dp(4f), paint)
+                    lastLabelY = tickY
+                }
+            } else canvas.drawLine(tickX, tickY - dp(5f), tickX, tickY + dp(5f), paint)
         }
-        val y = top + span * leg.fraction
         // A soft stationary halo says "this source claim is on screen"; the marker
         // does NOT travel with wall-clock time. Only a newly qualified source event
         // or distance claim may change its fraction.
