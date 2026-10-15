@@ -57,6 +57,7 @@ class TrainActivity : AppCompatActivity() {
     }
     private var sourceDetails = "No sources checked yet."
     private var spinnerStates: Map<String, Pair<String, String>> = emptyMap()
+    private var sourceSelectionTouched = false
     private var lastUi: LiveViewModel.Ui? = null
     private var chainBusy = false
     private var mirrorBusy = false
@@ -85,6 +86,11 @@ class TrainActivity : AppCompatActivity() {
         stopAdapter = StopAdapter()
         binding.stops.layoutManager = LinearLayoutManager(this)
         binding.stops.adapter = stopAdapter
+        binding.sourceSpinner.setOnTouchListener { _, event ->
+            if (event.actionMasked == android.view.MotionEvent.ACTION_DOWN)
+                sourceSelectionTouched = true
+            false
+        }
 
         binding.refresh.setOnClickListener {
             focusAfterRefresh = true
@@ -146,8 +152,8 @@ class TrainActivity : AppCompatActivity() {
         vm.mirrorState.observe(this) { st ->
             mirrorBusy = st?.startsWith("Checking") == true || st?.startsWith("Already checking") == true
             renderChecking()
-            val useful = st != null && !st.startsWith("Actuals ·") &&
-                !st.startsWith("Official NTES answered")
+            val useful = st != null && (st.startsWith("Checking") ||
+                st.startsWith("Already checking"))
             binding.mirrorState.visibility = if (useful) View.VISIBLE else View.GONE
             if (useful) binding.mirrorState.text = simpleSourceStatus(st!!)
             st?.let { Diary.get()?.log("UISTATE") { "sources box: $it" } }
@@ -203,15 +209,22 @@ class TrainActivity : AppCompatActivity() {
     }
 
     private fun renderSourceChips(ui: LiveViewModel.Ui) {
-        val names = ui.sourceLines.keys.toList()
+        spinnerStates = ui.sourceStates
+        val names = ui.sourceLines.keys.withIndex().sortedWith(
+            compareBy<IndexedValue<String>> {
+                val (state, detail) = spinnerStates[it.value] ?: ("none" to "checking on first load")
+                SourceIndicator.priority(SourceIndicator.of(it.value, state, detail).tone)
+            }.thenBy { if (it.value == `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG) 0 else 1 }
+                .thenBy { it.index }
+        ).map { it.value }
         binding.sourceSpinner.visibility = if (names.isEmpty()) View.GONE else View.VISIBLE
         if (names.isEmpty()) return
-        spinnerStates = ui.sourceStates
         // State updates recolor the existing adapter. Rebuilding the Spinner for every
         // background answer can fire a selection callback for its default first item,
         // silently changing the user's chosen source back to NTES.
         if (binding.sourceSpinner.tag != names) {
             binding.sourceSpinner.tag = names
+            binding.sourceSpinner.onItemSelectedListener = null
             binding.sourceSpinner.adapter = object : ArrayAdapter<String>(
                 this, android.R.layout.simple_spinner_item, names,
             ) {
@@ -238,15 +251,22 @@ class TrainActivity : AppCompatActivity() {
                         setPadding((12 * density).toInt(), (12 * density).toInt(),
                             (12 * density).toInt(), (12 * density).toInt())
                         textSize = 14f
-                        text = "● ${sourceName(name)} · ${indicator.label}"
+                        text = "● ${sourceName(name)} · ${indicator.label}" +
+                            (SourceIndicator.seconds(detail)?.let { " · $it" } ?: "")
                         setTextColor(getColor(sourceColor(indicator.tone)))
                     }
                     return view
                 }
             }
+            val target = names.indexOf(ui.activeSource)
+            if (target >= 0) binding.sourceSpinner.setSelection(target, false)
             binding.sourceSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
                 override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
                     val name = names.getOrNull(pos) ?: return
+                    // Reordering after a background answer must never select the first
+                    // item by accident. Only a traveller-initiated dropdown choice fetches.
+                    if (!sourceSelectionTouched) return
+                    sourceSelectionTouched = false
                     if (name != lastUi?.activeSource) {
                         if (spinnerStates[name]?.first !in listOf("live", "last-known", "candidate")) {
                             Toast.makeText(this@TrainActivity,
@@ -293,12 +313,15 @@ class TrainActivity : AppCompatActivity() {
             ui.activeSource == `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE &&
                 ui.wimtWebPoint == null || mirrorWithoutTimes
         ) View.VISIBLE else View.GONE
+        val selectedStatus = ui.activeSource?.let { ui.sourceStates[it] }
+        val selectedReason = ui.activeSource?.let { name ->
+            selectedStatus?.let { SourceIndicator.of(name, it.first, it.second).label }
+        } ?: "no usable stop report"
+        val response = selectedStatus?.second?.let(SourceIndicator::seconds)?.let { " · $it" }.orEmpty()
         binding.sourceSummary.text = when {
             ui.orgWebsiteReport != null -> "Site's past-stop claims; not confirmed railway actuals."
             ui.wimtWebPoint != null -> "Site distance claim; not phone GPS."
-            publicCheck != null -> "No confirmed times from ${sourceName(publicCheck)}; timetable shown."
-            mirrorWithoutTimes -> "No confirmed times from ${sourceName(ui.activeSource.orEmpty())}; timetable shown."
-            else -> "No confirmed position from this site; timetable shown."
+            else -> "${sourceName(ui.activeSource.orEmpty())}: $selectedReason$response. Timetable shown."
         }
         binding.headline.text = m.headline
         // No NTES time-interpolated icon in position-only mode. A separate amber
@@ -527,9 +550,7 @@ class TrainActivity : AppCompatActivity() {
                     }
                     else -> "last known; not a new report"
                 })
-                Regex("checked in (\\d+) ms").find(status.second)?.groupValues?.get(1)?.let {
-                    append(" · ").append(it).append(" ms")
-                }
+                SourceIndicator.seconds(status.second)?.let { append(" · ").append(it) }
                 append('\n')
             }
             append("\nWIMT web cache is not the WIMT phone app. ")
@@ -573,7 +594,8 @@ class TrainActivity : AppCompatActivity() {
         val ageSeconds = u?.answer?.position?.feedAgeSeconds ?: u?.answer?.position?.ageSeconds
         val age = if (u?.answer?.position?.provenance?.live == true && ageSeconds != null)
             "NTES feed ${ageSeconds / 60}m old" else "no new official report"
-        binding.refreshFeedback.text = "↻ ${elapsed} ms · $age"
+        binding.refreshFeedback.text = "↻ " +
+            String.format(java.util.Locale.ROOT, "%.2f s", elapsed / 1000.0) + " · $age"
         binding.refreshFeedback.visibility = View.VISIBLE
         binding.refreshFeedback.removeCallbacks(hideFeedback)
         binding.refreshFeedback.postDelayed(hideFeedback, 1_200L)

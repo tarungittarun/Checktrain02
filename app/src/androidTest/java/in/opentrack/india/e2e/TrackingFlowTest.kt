@@ -216,9 +216,9 @@ class TrackingFlowTest {
             E2E.ui.wait(Until.hasObject(By.res(E2E.PKG, "sourceSummary")), E2E.NETWORK_MS))
         val summary = E2E.text("sourceSummary")
         assertTrue("source returned no result: '$summary'",
-            summary.contains("ixigo") || summary.contains("No confirmed times"))
+            summary.contains("ixigo") || summary.contains("connection failed"))
         assertTrue("page result silently replaced official Act/position: '$summary'",
-            summary.contains("No confirmed times"))
+            summary.contains("Timetable shown"))
         assertTrue("selected alternate removed the station table", E2E.count(stopsBy) > 0)
         assertTrue("page selection must not display NTES minutes as this page's Act",
             rowTexts("liveArr").all { it == "—" })
@@ -234,12 +234,12 @@ class TrackingFlowTest {
         // A usable site report explains itself in the source badge + table; an
         // unavailable source instead shows one short line, not old station excerpts.
         val resultVisible = E2E.ui.wait(
-            Until.hasObject(By.textContains("No confirmed times")), 8_000L) ||
+            Until.hasObject(By.textContains("Timetable shown")), 8_000L) ||
             E2E.ui.wait(Until.hasObject(By.textContains("WEBSITE ·")), E2E.NETWORK_MS)
         assertTrue("site check returned no visible result", resultVisible)
         val summary = E2E.text("sourceSummary")
         assertTrue("source result has no plain-language result: $summary",
-            summary.contains("No confirmed times") ||
+            summary.contains("Timetable shown") ||
                 E2E.text("provenance").contains("WEBSITE"))
         assertTrue("org selection lost the station table", E2E.count(stopsBy) > 0)
         val live = rowTexts("liveArr") + rowTexts("liveDep")
@@ -252,7 +252,7 @@ class TrackingFlowTest {
         } else {
             assertTrue("no Web cells but source pretends to verify station events: $summary",
                 summary.contains("NOT Act") || summary.contains("static") ||
-                    summary.contains("No confirmed times") ||
+                    summary.contains("Timetable shown") ||
                     summary.contains("failed", ignoreCase = true))
         }
         E2E.shot("org-website-source")

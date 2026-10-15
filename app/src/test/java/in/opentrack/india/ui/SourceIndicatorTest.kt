@@ -16,6 +16,16 @@ class SourceIndicatorTest {
             SourceIndicator.of(PublicPageChecks.ORG, "none", "checking on first load").tone)
     }
 
+    @Test fun secondsAndFailureReasonsAreSeparateFromDataFreshness() {
+        val failure = SourceIndicator.of("runningstatus.in", "none", "HTTP 403 · checked in 3810 ms")
+        assertEquals(SourceIndicator.Tone.UNAVAILABLE, failure.tone)
+        assertEquals("site blocks request", failure.label)
+        assertEquals("3.81 s", SourceIndicator.seconds("HTTP 403 · checked in 3810 ms"))
+        assertEquals(null, SourceIndicator.seconds("not checked yet"))
+        assertEquals(0, SourceIndicator.priority(SourceIndicator.Tone.READY))
+        assertEquals(3, SourceIndicator.priority(SourceIndicator.Tone.UNAVAILABLE))
+    }
+
     @Test fun siteClaimsAreGreenButNeverLabelledAsVerifiedActuals() {
         val site = SourceIndicator.of(PublicPageChecks.ORG, "candidate", "13 past-card rows")
         assertEquals(SourceIndicator.Tone.READY, site.tone)

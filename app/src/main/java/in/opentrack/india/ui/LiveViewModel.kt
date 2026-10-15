@@ -193,6 +193,7 @@ class LiveViewModel(
     private var officialStaticKnown = false
     private var mirrorSourceStates: Map<String, Pair<String, String>> = emptyMap()
     private var lastFetchAt = 0L
+    private var lastOfficialMs: Long? = null
     private var mirrorNote: String? = null
     private var mirrorShiftAt = 0L
     private var mirrorAnchorCode: String? = null
@@ -644,6 +645,7 @@ class LiveViewModel(
                 _ui.value = buildUi(fallbackRoute, initial, emptyList(),
                     listOf("Only endpoint times available while checking the dated official station table."))
             }
+            val officialStarted = android.os.SystemClock.elapsedRealtime()
             val live = runCatching {
                 repo.live(
                     trainNo = trainNo, fromCode = fromCode, toCode = toCode,
@@ -652,6 +654,7 @@ class LiveViewModel(
                     fallbackRoute = fallbackRoute,
                 )
             }.getOrNull()
+            lastOfficialMs = android.os.SystemClock.elapsedRealtime() - officialStarted
             if (live == null) {
                 // A failed lookup is not always a missing train: on a network that kills every live
                 // ask, repo.live can fail TRANSIENTLY for a train whose full route sits on this very
@@ -1456,6 +1459,11 @@ class LiveViewModel(
                     RailTime.formatDate(RailTime.istEpochDay(result.checkedAt)) + " " +
                     RailTime.formatClock(result.checkedAt) + " IST" +
                     (if (now - result.checkedAt > 300_000L) " (old check; refresh to ask again)" else ""))
+        }
+        lastOfficialMs?.let { ms ->
+            sourceNames["NTES (official)"]?.let { (state, detail) ->
+                sourceNames["NTES (official)"] = state to "$detail · checked in ${ms} ms"
+            }
         }
         for ((name, ms) in manualProbeMs) {
             val status = sourceNames[name] ?: continue
