@@ -560,10 +560,14 @@ class LiveViewModel(
                 refreshBody(previous)
             } finally {
                 _checking.postValue(false)
-                // Refresh also re-asks the explicitly selected comparison page. It is not on
-                // the official request's critical path and cannot replace NTES's Act or marker.
-                if (manual && mirrorActiveSource in PublicPageChecks.names)
-                    probeSource(mirrorActiveSource!!)
+                // Refresh re-asks the selected source AFTER the official request, never
+                // waiting for it on NTES's critical path. ConfirmTkt/runningstatus and
+                // erail are not exempt: a chosen source must not show old rows as new.
+                val selected = mirrorActiveSource
+                if (manual && selected != null && (selected in PublicPageChecks.names ||
+                    selected in setOf(WimtCandidate.SOURCE, "erail",
+                        ConfirmTktMirror.SOURCE, RunningStatusMirror.SOURCE)))
+                    probeSource(selected)
             }
         }
     }

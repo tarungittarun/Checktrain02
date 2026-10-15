@@ -90,10 +90,7 @@ class TrainActivity : AppCompatActivity() {
             focusAfterRefresh = true
             refreshStartedAt = SystemClock.elapsedRealtime()
             vm.refresh(manual = true)
-            // Refresh the source the traveller actually selected, too. An old cache
-            // candidate must not masquerade as a new observation after an NTES tick.
-            if (lastUi?.activeSource == `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE)
-                vm.probeSource(`in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE)
+            // The ViewModel rechecks the selected site after the official request finishes.
         }
         vm.liveReceipt.observe(this) {
             if (focusAfterRefresh) {
