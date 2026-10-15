@@ -236,7 +236,11 @@ class TrackingFlowTest {
         val resultVisible = E2E.ui.wait(
             Until.hasObject(By.textContains("Timetable shown")), 8_000L) ||
             E2E.ui.wait(Until.hasObject(By.textContains("WEBSITE ·")), E2E.NETWORK_MS)
-        assertTrue("site check returned no visible result", resultVisible)
+        if (!resultVisible) E2E.shot("org-website-missing-result")
+        assertTrue("site check returned no visible result: spinner='${E2E.text("sourceSpinner", 200)}' " +
+            "badge='${E2E.text("provenance", 200)}' summary='${E2E.text("sourceSummary", 200)}' " +
+            "checking='${E2E.text("mirrorState", 200)}' headline='${E2E.text("headline", 200)}'",
+            resultVisible)
         val summary = E2E.text("sourceSummary")
         assertTrue("source result has no plain-language result: $summary",
             summary.contains("Timetable shown") ||

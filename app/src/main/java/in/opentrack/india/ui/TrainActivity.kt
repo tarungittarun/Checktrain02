@@ -59,6 +59,7 @@ class TrainActivity : AppCompatActivity() {
     private var sourceDetails = "No sources checked yet."
     private var spinnerStates: Map<String, Pair<String, String>> = emptyMap()
     private var sourceSelectionTouched = false
+    private var sourceSelectionTouchedAt = 0L
     private var lastUi: LiveViewModel.Ui? = null
     private var chainBusy = false
     private var mirrorBusy = false
@@ -88,8 +89,10 @@ class TrainActivity : AppCompatActivity() {
         binding.stops.layoutManager = LinearLayoutManager(this)
         binding.stops.adapter = stopAdapter
         binding.sourceSpinner.setOnTouchListener { _, event ->
-            if (event.actionMasked == android.view.MotionEvent.ACTION_DOWN)
+            if (event.actionMasked == android.view.MotionEvent.ACTION_DOWN) {
                 sourceSelectionTouched = true
+                sourceSelectionTouchedAt = SystemClock.elapsedRealtime()
+            }
             false
         }
 
@@ -211,7 +214,16 @@ class TrainActivity : AppCompatActivity() {
 
     private fun renderSourceChips(ui: LiveViewModel.Ui) {
         spinnerStates = ui.sourceStates
-        val names = ui.sourceLines.keys.withIndex().sortedWith(
+        // A source can finish its first-load probe while the dropdown is open. Replacing
+        // its adapter then dismisses/reselects the popup and can swallow the user's tap.
+        // Freeze the visible order until onItemSelected consumes that touch; freshness
+        // colours/times still update in the existing adapter. Rank again afterwards.
+        val touchFresh = sourceSelectionTouched &&
+            SystemClock.elapsedRealtime() - sourceSelectionTouchedAt in 0L..30_000L
+        if (!touchFresh) sourceSelectionTouched = false
+        val choosing = (binding.sourceSpinner.tag as? List<*>)
+            ?.filterIsInstance<String>()?.takeIf { touchFresh && it.isNotEmpty() }
+        val names = choosing ?: ui.sourceLines.keys.withIndex().sortedWith(
             compareBy<IndexedValue<String>> {
                 val (state, detail) = spinnerStates[it.value] ?: ("none" to "checking on first load")
                 SourceIndicator.priority(SourceIndicator.of(it.value, state, detail).tone)
@@ -284,7 +296,7 @@ class TrainActivity : AppCompatActivity() {
             }
         }
         (binding.sourceSpinner.adapter as? android.widget.BaseAdapter)?.notifyDataSetChanged()
-        ui.activeSource?.let { src ->
+        if (!touchFresh) ui.activeSource?.let { src ->
             val at = names.indexOf(src)
             if (at >= 0 && binding.sourceSpinner.selectedItemPosition != at) {
                 binding.sourceSpinner.setSelection(at, false)
