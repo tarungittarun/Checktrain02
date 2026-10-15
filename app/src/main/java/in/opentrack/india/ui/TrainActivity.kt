@@ -54,7 +54,7 @@ class TrainActivity : AppCompatActivity() {
     private val autoRefreshTicker = object : Runnable {
         override fun run() {
             if (!screenStarted || !binding.autoSwitch.isChecked) return
-            if (!chainBusy) requestRefresh()
+            if (!chainBusy) requestRefresh(auto = true)
             binding.root.postDelayed(this, 60_000L)
         }
     }
@@ -179,12 +179,12 @@ class TrainActivity : AppCompatActivity() {
         }
     }
 
-    private fun requestRefresh() {
+    private fun requestRefresh(auto: Boolean = false) {
         if (chainBusy) return // never turn a duplicate tap/tick into a misleading receipt
         focusAfterRefresh = true
         refreshStartedAt = SystemClock.elapsedRealtime()
         requestedRefreshSource = lastUi?.activeSource ?: "NTES (official)"
-        vm.refresh(manual = true)
+        vm.refresh(manual = true, auto = auto)
     }
 
     /** Keep progress visible only while a requested source is actually fetching. */

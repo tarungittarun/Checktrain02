@@ -584,8 +584,9 @@ class LiveViewModel(
         }
     }
 
-    /** Initial open or explicit Refresh; there is no timer or background polling. */
-    fun refresh(manual: Boolean = false) {
+    /** Initial open or explicit/opt-in screen-visible Refresh. Both button and timer
+     * use the selected-source-first chain; the auto flag changes only the diary label. */
+    fun refresh(manual: Boolean = false, auto: Boolean = false) {
         // Three taps in one second on the owner's R53 phone launched three copies of the
         // same official POST. Keep one live chain in flight; the independent mirror is
         // already throttled separately. This prevents duplicate traffic on weak networks.
@@ -594,7 +595,11 @@ class LiveViewModel(
             return
         }
         lastFetchAt = System.currentTimeMillis()
-        Diary.get()?.log("UI", if (manual) "refresh tapped by the user" else "first train load")
+        Diary.get()?.log("UI", when {
+            auto -> "one-minute auto refresh on visible tracking screen"
+            manual -> "refresh tapped by the user"
+            else -> "first train load"
+        })
         _checking.postValue(true)
         if (manual) {
             // The traveller pressed the button. A background experiment that is holding a socket to find out

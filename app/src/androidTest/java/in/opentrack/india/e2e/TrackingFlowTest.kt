@@ -275,7 +275,6 @@ class TrackingFlowTest {
         assertTrue("a refresh left the age chip blank", E2E.text("age").isNotBlank())
     }
 
-    // @flow optional-minute-refresh
     @Test
     fun tableOffersOptionalMinuteRefreshAndExpandableRoutePoints() {
         assertTrue("Refresh must remain available", E2E.visible("refresh"))
@@ -283,6 +282,21 @@ class TrackingFlowTest {
         assertTrue("route points must be inside the table, not a separate button",
             E2E.find("betweenStations", 1_000) == null)
         assertTrue("the station table vanished", E2E.count(stopsBy) > 0)
+    }
+
+    // @flow optional-minute-refresh
+    @Test
+    fun autoRefreshActuallyRunsOnceAfterOneMinute() {
+        assertTrue("cannot enable optional Auto", E2E.tap("autoSwitch"))
+        try {
+            assertTrue("no refresh receipt after a minute with Auto on",
+                E2E.ui.wait(Until.hasObject(By.res(E2E.PKG, "refreshFeedback")), 80_000L))
+            assertTrue("auto refresh receipt has no response or source",
+                E2E.text("refreshFeedback").contains(" s · "))
+        } finally {
+            // Each flow starts in the same installed app; never contaminate another test.
+            E2E.tap("autoSwitch")
+        }
     }
 
     // @flow long-list-scroll
