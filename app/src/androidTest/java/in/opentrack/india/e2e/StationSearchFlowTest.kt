@@ -212,10 +212,23 @@ class StationSearchFlowTest {
         assertTrue("the pair search never settled before Swap (status='$status')",
             status.isNotBlank() && !status.contains("Searching", true))
         if (E2E.visible("editSearch", 500)) assertTrue(E2E.tap("editSearch"))
-        val before = E2E.boxText("fromBox") to E2E.boxText("toBox")
+        var before = E2E.boxText("fromBox") to E2E.boxText("toBox")
+        if (before.first.isBlank() || before.second.isBlank()) {
+            // A late result may collapse the form between reading the status and
+            // reading the fields. Edit is the visible user control that restores it.
+            if (E2E.visible("editSearch", 1_000)) assertTrue(E2E.tap("editSearch"))
+            before = E2E.boxText("fromBox") to E2E.boxText("toBox")
+        }
         assertTrue("resolved stations vanished before swap: $before",
             before.first.isNotBlank() && before.second.isNotBlank())
-        assertTrue("no swap control in the expanded search form", E2E.tap("swap"))
+        // The action sits BELOW both fields; on large-font devices it is not an
+        // accessibility node until the user scrolls the search card down.
+        var tappedSwap = E2E.reveal("swap", "searchCardScroll") && E2E.tap("swap")
+        if (!tappedSwap && E2E.visible("editSearch", 500)) {
+            assertTrue("Edit did not reopen the late-collapsed form", E2E.tap("editSearch"))
+            tappedSwap = E2E.reveal("swap", "searchCardScroll") && E2E.tap("swap")
+        }
+        assertTrue("no swap control in the expanded search form", tappedSwap)
         val after = E2E.boxText("fromBox") to E2E.boxText("toBox")
         assertEquals("swap did not exchange the fields", before.second, after.first)
         assertEquals("swap did not exchange the fields", before.first, after.second)
