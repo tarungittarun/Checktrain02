@@ -352,7 +352,7 @@ jobs:
       # pass times, coverage, crash tail - silently never appears, which is what happened on run 38127110617.
       pull-requests: write
       issues: write
-    timeout-minutes: 40
+    timeout-minutes: 15
     # A failed or unbootable core row is not a green branch: the roll-up requires a booted emulator.
     env:
       # The row knobs, as env vars rather than `${{ }}` text substitutions: a description or device profile
@@ -367,25 +367,82 @@ jobs:
       VARIANT: ${{ matrix.variant || 'debug' }}
       LOCATION: ${{ matrix.location || 'denied' }}
       OFFLINE: ${{ matrix.offline || false }}
-      MONKEY: ${{ needs.plan.outputs.monkey || matrix.monkey || 6000 }}
+      MONKEY: ${{ needs.plan.outputs.monkey != '' && needs.plan.outputs.monkey || matrix.monkey }}
       WM_SIZE: ${{ matrix.wm_size || '' }}
       WM_DENSITY: ${{ matrix.wm_density || '' }}
       FONT_SCALE: ${{ matrix.font_scale || '' }}
       FOCUS: ${{ needs.plan.outputs.focus }}
+      GROUP: ${{ matrix.group }}
       BOOT_TIMEOUT: ${{ needs.plan.outputs.boot_timeout }}
-      ROW_BUDGET_MINUTES: 30  # report before the 40m job deadline; no 58-minute silent row
+      ROW_BUDGET_MINUTES: 12  # each parallel partition reports before its 15m deadline
     continue-on-error: ${{ matrix.optional }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - name: api34
-            desc: "Pixel 6, API 34, Google APIs image - the modern path, radio off for the degrade flows"
+          - name: api34-station
+            desc: "api34 / station: independent device partition"
+            group: station
+            optional: false
             api: 34
             img: google_apis
             abi: x86_64
             device: pixel_6
+            location: granted
+            offline: true
+            monkey: 0
+          - name: api34-train
+            desc: "api34 / train: independent device partition"
+            group: train
             optional: false
+            api: 34
+            img: google_apis
+            abi: x86_64
+            device: pixel_6
+            location: granted
+            offline: true
+            monkey: 0
+          - name: api34-track0
+            desc: "api34 / track0: independent device partition"
+            group: track0
+            optional: false
+            api: 34
+            img: google_apis
+            abi: x86_64
+            device: pixel_6
+            location: granted
+            offline: true
+            monkey: 0
+          - name: api34-track1
+            desc: "api34 / track1: independent device partition"
+            group: track1
+            optional: false
+            api: 34
+            img: google_apis
+            abi: x86_64
+            device: pixel_6
+            location: granted
+            offline: true
+            monkey: 0
+          - name: api34-track2
+            desc: "api34 / track2: independent device partition"
+            group: track2
+            optional: false
+            api: 34
+            img: google_apis
+            abi: x86_64
+            device: pixel_6
+            location: granted
+            offline: true
+            monkey: 0
+          - name: api34-settings
+            desc: "api34 / settings: independent device partition"
+            group: settings
+            optional: false
+            api: 34
+            img: google_apis
+            abi: x86_64
+            device: pixel_6
             location: granted
             offline: true
             monkey: 600
@@ -409,11 +466,12 @@ jobs:
           variant: ${{ matrix.variant || 'debug' }}
           location: ${{ matrix.location || 'denied' }}
           offline: ${{ matrix.offline || false }}
-          monkey: ${{ needs.plan.outputs.monkey || matrix.monkey || 6000 }}
+          monkey: ${{ needs.plan.outputs.monkey != '' && needs.plan.outputs.monkey || matrix.monkey }}
           wm_size: ${{ matrix.wm_size || '' }}
           wm_density: ${{ matrix.wm_density || '' }}
           font_scale: ${{ matrix.font_scale || '' }}
           focus: ${{ needs.plan.outputs.focus }}
+          group: ${{ matrix.group }}
           boot_timeout: ${{ needs.plan.outputs.boot_timeout }}
 
   e2e_full:
@@ -427,7 +485,7 @@ jobs:
       # pass times, coverage, crash tail - silently never appears, which is what happened on run 38127110617.
       pull-requests: write
       issues: write
-    timeout-minutes: 65
+    timeout-minutes: 15
     env:
       # Identical to the core row's env block by design: two jobs, one action, and the action reads its whole
       # configuration from here.
@@ -440,52 +498,181 @@ jobs:
       VARIANT: ${{ matrix.variant || 'debug' }}
       LOCATION: ${{ matrix.location || 'denied' }}
       OFFLINE: ${{ matrix.offline || false }}
-      MONKEY: ${{ needs.plan.outputs.monkey || matrix.monkey || 6000 }}
+      MONKEY: ${{ needs.plan.outputs.monkey != '' && needs.plan.outputs.monkey || matrix.monkey }}
       WM_SIZE: ${{ matrix.wm_size || '' }}
       WM_DENSITY: ${{ matrix.wm_density || '' }}
       FONT_SCALE: ${{ matrix.font_scale || '' }}
       FOCUS: ${{ needs.plan.outputs.focus }}
+      GROUP: ${{ matrix.group }}
       BOOT_TIMEOUT: ${{ needs.plan.outputs.boot_timeout }}
-      ROW_BUDGET_MINUTES: 50  # full rows have more time but still report before the job deadline
+      ROW_BUDGET_MINUTES: 12  # identical bound on every parallel partition
     continue-on-error: ${{ matrix.optional }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - name: min24
-            desc: "Nexus 5, API 24 - the minSdk floor, checked in full sweeps before release"
+          - name: min24-station
+            desc: "min24 / station: independent device partition"
+            group: station
+            optional: false
             api: 24
             img: default
             abi: x86_64
             device: nexus_5
-            optional: false
             location: denied
             offline: false
-            monkey: 1200
-          - name: density
-            desc: "Large phone at 440 dpi with font_scale 1.15 - the axis Robolectric cannot fake (it ignores fontScale)"
+            monkey: 0
+          - name: min24-train
+            desc: "min24 / train: independent device partition"
+            group: train
+            optional: false
+            api: 24
+            img: default
+            abi: x86_64
+            device: nexus_5
+            location: denied
+            offline: false
+            monkey: 0
+          - name: min24-track0
+            desc: "min24 / track0: independent device partition"
+            group: track0
+            optional: false
+            api: 24
+            img: default
+            abi: x86_64
+            device: nexus_5
+            location: denied
+            offline: false
+            monkey: 0
+          - name: min24-track1
+            desc: "min24 / track1: independent device partition"
+            group: track1
+            optional: false
+            api: 24
+            img: default
+            abi: x86_64
+            device: nexus_5
+            location: denied
+            offline: false
+            monkey: 0
+          - name: min24-track2
+            desc: "min24 / track2: independent device partition"
+            group: track2
+            optional: false
+            api: 24
+            img: default
+            abi: x86_64
+            device: nexus_5
+            location: denied
+            offline: false
+            monkey: 0
+          - name: min24-settings
+            desc: "min24 / settings: independent device partition"
+            group: settings
+            optional: false
+            api: 24
+            img: default
+            abi: x86_64
+            device: nexus_5
+            location: denied
+            offline: false
+            monkey: 200
+          - name: density-station
+            desc: "density / station: independent device partition"
+            group: station
+            optional: false
             api: 34
             img: google_apis
             abi: x86_64
             device: pixel_c
-            optional: true
             location: denied
             offline: false
             wm_size: 1080x2160
             wm_density: 440
             font_scale: 1.15
-            monkey: 12000
+            monkey: 0
+          - name: density-train
+            desc: "density / train: independent device partition"
+            group: train
+            optional: false
+            api: 34
+            img: google_apis
+            abi: x86_64
+            device: pixel_c
+            location: denied
+            offline: false
+            wm_size: 1080x2160
+            wm_density: 440
+            font_scale: 1.15
+            monkey: 0
+          - name: density-track0
+            desc: "density / track0: independent device partition"
+            group: track0
+            optional: false
+            api: 34
+            img: google_apis
+            abi: x86_64
+            device: pixel_c
+            location: denied
+            offline: false
+            wm_size: 1080x2160
+            wm_density: 440
+            font_scale: 1.15
+            monkey: 0
+          - name: density-track1
+            desc: "density / track1: independent device partition"
+            group: track1
+            optional: false
+            api: 34
+            img: google_apis
+            abi: x86_64
+            device: pixel_c
+            location: denied
+            offline: false
+            wm_size: 1080x2160
+            wm_density: 440
+            font_scale: 1.15
+            monkey: 0
+          - name: density-track2
+            desc: "density / track2: independent device partition"
+            group: track2
+            optional: false
+            api: 34
+            img: google_apis
+            abi: x86_64
+            device: pixel_c
+            location: denied
+            offline: false
+            wm_size: 1080x2160
+            wm_density: 440
+            font_scale: 1.15
+            monkey: 0
+          - name: density-settings
+            desc: "density / settings: independent device partition"
+            group: settings
+            optional: false
+            api: 34
+            img: google_apis
+            abi: x86_64
+            device: pixel_c
+            location: denied
+            offline: false
+            wm_size: 1080x2160
+            wm_density: 440
+            font_scale: 1.15
+            monkey: 200
           - name: release
-            desc: "The R8 + resource-shrunk release APK - the artifact a user would actually install"
+            desc: "R8 + resource-shrunk release APK smoke"
+            group: release
             api: 34
             img: google_apis
             abi: x86_64
             device: pixel_6
-            optional: true
+            optional: false
             variant: release
             location: denied
             offline: false
-            monkey: 8000
+            monkey: 0
     steps:
       # A local action is looked up on disk before any of its steps run, so the repo has to be there first:
       # this checkout belongs to the job, not to the action. Without it the job dies with
@@ -506,17 +693,18 @@ jobs:
           variant: ${{ matrix.variant || 'debug' }}
           location: ${{ matrix.location || 'denied' }}
           offline: ${{ matrix.offline || false }}
-          monkey: ${{ needs.plan.outputs.monkey || matrix.monkey || 6000 }}
+          monkey: ${{ needs.plan.outputs.monkey != '' && needs.plan.outputs.monkey || matrix.monkey }}
           wm_size: ${{ matrix.wm_size || '' }}
           wm_density: ${{ matrix.wm_density || '' }}
           font_scale: ${{ matrix.font_scale || '' }}
           focus: ${{ needs.plan.outputs.focus }}
+          group: ${{ matrix.group }}
           boot_timeout: ${{ needs.plan.outputs.boot_timeout }}
   # ---------------------------------------------------------------------------------------- the summary
   report:
     # `always()` because `e2e_full` is legitimately skipped on an ordinary push, and a skipped dependency
     # would otherwise skip this job - which is the job that tells you what was and was not tested.
-    needs: [e2e, e2e_full]
+    needs: [e2e, e2e_full, plan]
     if: always()
     permissions:
       contents: write
@@ -530,17 +718,31 @@ jobs:
           merge-multiple: false
           path: /tmp/rows
       - name: What ran, what did not, and whether that is acceptable
+        env:
+          E2E_FULL: ${{ needs.plan.outputs.full }}
         run: python3 tools/ci/e2e_rollup.py /tmp/rows
-      - name: Flow gate with the measured coverage floor
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/download-artifact@v4
+        with:
+          name: e2e-classes
+          path: /tmp/coverage-classes
+      - name: Flow gate with merged coverage from ALL parallel device partitions
         run: |
-          cov=$(ls /tmp/rows/*/cov.xml 2>/dev/null | head -1 || true)
-          if [ -n "$cov" ]; then
-            cp "$cov" /tmp/cov.xml
-            python3 tools/ci/flow_coverage.py --jacoco /tmp/cov.xml --min-lines 45 --summary
-          else
-            python3 tools/ci/flow_coverage.py --summary
-            echo "::warning::no JaCoCo report reached the summary job (either no row booted or no coverage file was pulled)"
+          set -e
+          unzip -qo /tmp/coverage-classes/e2e-classes.zip -d /tmp
+          find /tmp/rows -path '*/ec/*.ec' -type f -size +0c -print > /tmp/ec-list
+          if [ ! -s /tmp/ec-list ]; then
+            echo "::error::no device coverage data from the parallel partitions"; exit 1
           fi
+          curl -sSfL --retry 3 --create-dirs -o /tmp/jacoco/org.jacoco.cli-0.8.12-nodeps.jar \
+            https://repo1.maven.org/maven2/org/jacoco/org.jacoco.cli/0.8.12/org.jacoco.cli-0.8.12-nodeps.jar
+          mapfile -t ec < /tmp/ec-list
+          java -jar /tmp/jacoco/org.jacoco.cli-0.8.12-nodeps.jar merge "${ec[@]}" --destfile /tmp/merged.ec
+          bash tools/ci/jacoco_report.sh /tmp/merged.ec /tmp/cls app/src/main/java /tmp/merged-coverage
+          python3 tools/ci/flow_coverage.py --jacoco /tmp/merged-coverage/cov.xml --min-lines 45 --summary
       - name: Post the roll-up onto the commit
         if: always()
         env:

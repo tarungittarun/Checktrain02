@@ -138,6 +138,11 @@ class SuggestBox @JvmOverloads constructor(
 
     private fun schedule() {
         pending?.let { handler.removeCallbacks(it) }
+        // Once the input changes, the previous query's suggestions are wrong. Leaving those
+        // rows on screen during debounce lets a traveller pick a station/train for old text.
+        // It also made the device flow mistake seven previous matches for the new miss.
+        panel.removeAllViews()
+        showPanel(false)
         val r = Runnable { query() }
         pending = r
         handler.postDelayed(r, DEBOUNCE_MS)

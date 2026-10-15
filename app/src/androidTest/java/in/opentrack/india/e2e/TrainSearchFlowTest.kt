@@ -87,7 +87,8 @@ class TrainSearchFlowTest {
         assertNotNull("no train field in this mode", box)
         E2E.typeInBox("trainBox", "99999")
         // Below three characters the box is silent by design; at five digits either a list or a message.
-        E2E.tap("find")
+        assertTrue("Find cannot be reached with the keyboard open",
+            E2E.reveal("find", "searchCardScroll") && E2E.tap("find"))
         val answered = E2E.ui.wait(Until.hasObject(By.res(E2E.PKG, "hitNo")), E2E.LOCAL_MS) ||
             E2E.text("statusLine").isNotBlank()
         assertTrue("a number that exists nowhere got no reply at all", answered)

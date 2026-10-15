@@ -14,6 +14,7 @@ no device pipeline at all — it is a green light with nothing behind it.
 from __future__ import annotations
 
 import glob
+import os
 import pathlib
 import re
 import sys
@@ -44,6 +45,16 @@ def main() -> int:
     if not rows:
         print("::error::no e2e row reported anything - the matrix did not run")
         return 1
+    groups = ("station", "train", "track0", "track1", "track2", "settings")
+    expected = {f"api34-{group}" for group in groups}
+    if os.environ.get("E2E_FULL") == "true":
+        expected |= {f"{device}-{group}" for device in ("min24", "density") for group in groups}
+        expected.add("release")
+    by_name = {r.get("row") for r in rows}
+    missing = expected - by_name
+    if missing:
+        print(f"::error::device partitions missing entirely: {', '.join(sorted(missing))}")
+        return 1
 
     # Every other key in the status file is one instrumented pass (`TrackingFlowTest=passed`,
     # `online=failed (...)`). The roll-up has to read them all: a harness that only knows about a
@@ -54,7 +65,7 @@ def main() -> int:
         # being read as a test, which is exactly the kind of false confidence this file exists to prevent.
         passes = {k: v for k, v in r.items() if k not in META and VERDICT.match(v.strip())}
         if not passes:
-            return r.get("tests", "-")
+            return "failed: no instrumented pass reported"
         bad = sorted(k for k, v in passes.items()
                      if any(word in v for word in ("failed", "not-run", "skipped", "timeout")))
         line = f"{len(passes) - len(bad)}/{len(passes)} passes green"
@@ -89,15 +100,12 @@ def main() -> int:
     failed = [r for r in booted if "failed" in tests_of(r) or "failed" in r.get("coverage", "")]
     for r in failed:
         print(f"::error::{r.get('row')}: the flow suite failed on a booted emulator")
-    required = [r for r in booted if r.get("row") == "min24"]
-    if required and "failed" in tests_of(required[0]):
-        print("::error::the minSdk row is the one that must pass without KVM, and it did not")
-        return 1
     if failed:
         return 1
     skipped = [r.get("row", "?") for r in rows if not (r.get("boot") or "").startswith("ok")]
     if skipped:
-        print(f"note: rows that could not boot (acceleration): {', '.join(skipped)}")
+        print(f"::error::device partitions did not boot: {', '.join(skipped)}")
+        return 1
     return 0
 
 

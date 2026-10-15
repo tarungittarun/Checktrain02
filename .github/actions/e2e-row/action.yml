@@ -63,6 +63,10 @@ inputs:
     description: "run only this test class (empty runs the whole suite)"
     required: false
     default: ""
+  group:
+    description: "parallel device partition: station, train, track0, track1, settings, or release"
+    required: false
+    default: ""
   boot_timeout:
     description: "seconds emulator_boot.sh may spend bringing the image up"
     required: false
@@ -244,6 +248,8 @@ runs:
       continue-on-error: true  # reporting must survive a red step; the verdict step decides
     - name: Run the flow suite (and, for the rows that ask for it, again with the radio off)
       id: suite
+      env:
+        GROUP: ${{ inputs.group }}
       continue-on-error: true
       if: steps.boot.outcome == 'success'
       shell: bash
@@ -357,7 +363,7 @@ runs:
         # `all` pass it only tests a cold start if AndroidJUnitRunner happens to run ColdStartFlowTest
         # first, and a coin toss is not evidence. `pm clear` here means the app has genuinely never seen
         # the 14 MB timetable, and `-e requireCleared true` makes the test fail if that promise is broken.
-        if [ "$VARIANT" = debug ]; then
+        if [ "$VARIANT" = debug ] && { [ -z "$GROUP" ] || [ "$GROUP" = settings ]; }; then
           adb shell pm clear "$APP_ID" || true
           case "$LOCATION" in
             granted) adb shell pm grant "$APP_ID" android.permission.ACCESS_COARSE_LOCATION || true ;;
@@ -369,9 +375,33 @@ runs:
         # Order matters for the rest: the live-feed field test needs the network, so it runs before the
         # radio goes off, and the degradation suite runs with it off. Each pass writes its own coverage
         # file, and the merge below makes the number the suite's coverage rather than one pass of it.
-        if [ "$OFFLINE" = true ]; then
+        if [ "$OFFLINE" = true ] && { [ -z "$GROUP" ] || [ "$GROUP" = settings ]; }; then
           CLASS_FILTER="in.opentrack.india.realdevice.LiveFeedFieldTest" run_suite online
         fi
+        if [ -n "$GROUP" ]; then
+          # The three tracking shards run independent methods of the SAME class on separate
+          # emulators. AndroidJUnitRunner partitions the discovered methods; there is no
+          # hand-maintained list that can silently omit a newly added regression.
+          case "$GROUP" in
+            station) CLASS_FILTER="in.opentrack.india.e2e.StationSearchFlowTest" run_suite station ;;
+            train) CLASS_FILTER="in.opentrack.india.e2e.TrainSearchFlowTest" run_suite train ;;
+            track0|track1|track2)
+              idx=${GROUP#track}
+              CLASS_FILTER="in.opentrack.india.e2e.TrackingFlowTest" \
+                EXTRA_ARGS="-e numShards 3 -e shardIndex $idx" RUN_TIMEOUT=300 run_suite "$GROUP" ;;
+            settings)
+              CLASS_FILTER="in.opentrack.india.e2e.SettingsFlowTest" run_suite settings
+              CLASS_FILTER="in.opentrack.india.e2e.DegradationFlowTest" run_suite degradation
+              CLASS_FILTER="in.opentrack.india.e2e.ColdStartFlowTest" run_suite warm
+              if [ "$OFFLINE" = true ]; then
+                adb shell svc wifi disable; adb shell svc data disable; sleep 3
+                OFFLINE_FLAG=true CLASS_FILTER="in.opentrack.india.e2e.DegradationFlowTest" run_suite offline
+                adb shell svc wifi enable; adb shell svc data enable; sleep 2
+              fi ;;
+            release) CLASS_FILTER="in.opentrack.india.e2e.ReleaseSmokeFlowTest" run_suite release ;;
+            *) echo "::error::unknown E2E group: $GROUP"; echo "group=failed" >> /tmp/tests.txt ;;
+          esac
+        else
         # One `am instrument` per class, not one for the package. Two reasons, both about information: a
         # wedged class then costs only its own budget instead of the row's, and the record says which class
         # and how long - which is what tells you whether a flow needs a device at all.
@@ -397,6 +427,7 @@ runs:
           OFFLINE_FLAG=true CLASS_FILTER="in.opentrack.india.e2e.DegradationFlowTest" run_suite offline
           adb shell svc wifi enable; adb shell svc data enable; sleep 2
         fi
+        fi # GROUP or legacy whole-suite row
         if [ -s /tmp/tests.txt ] && grep -Eq '=(failed|skipped|not-run)' /tmp/tests.txt; then
           echo "::error::at least one instrumented pass failed or was skipped ($(tr '\n' ' ' < /tmp/tests.txt))"
           for f in /tmp/instrument-*.log; do echo "--- $f"; grep -B2 -A 28 "^in\.opentrack\|Failure\|expected:" "$f" | head -80; done
@@ -495,13 +526,15 @@ runs:
             echo "boot=failed: ${why:-no ::error:: line in the boot log, rc=$(grep -o 'boot_rc=[0-9]*' /tmp/diag.env 2>/dev/null | cut -d= -f2)}"
           fi
           echo "display=$(adb shell wm size 2>/dev/null | tr -d '\r' || echo none) / $(adb shell wm density 2>/dev/null | tr -d '\r' || echo none) / font=$(adb shell settings get system font_scale 2>/dev/null | tr -d '\r' || echo none)"
-          echo "variant_row=$VARIANT location=$LOCATION offline=$OFFLINE monkey=$MONKEY focus=${FOCUS:-none}"
+          echo "variant_row=$VARIANT location=$LOCATION offline=$OFFLINE monkey=$MONKEY focus=${FOCUS:-none} group=${{ inputs.group }}"
           echo "variant=$VARIANT"
           cat /tmp/tests.txt 2>/dev/null || echo "tests=not-run"
           cat /tmp/status.txt 2>/dev/null || true
         } | tee "/tmp/e2e-status-$ROW.txt"
         mkdir -p /tmp/out && cp "/tmp/e2e-status-$ROW.txt" /tmp/out/status.txt
         cp /tmp/cov.xml /tmp/out/cov.xml 2>/dev/null || true
+        mkdir -p /tmp/out/ec
+        cp /tmp/cover-*.ec /tmp/out/ec/ 2>/dev/null || true
         cp /tmp/cov.txt /tmp/out/coverage-summary.txt 2>/dev/null || true
         # Everything a reader needs to explain *why*, without access to the runner afterwards: the raw
         # per-pass instrument output, the boot log, the crash scan. This is also what makes a red row

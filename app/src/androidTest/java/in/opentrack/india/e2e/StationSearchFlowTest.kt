@@ -113,7 +113,8 @@ class StationSearchFlowTest {
     fun findWithBlankFieldsSaysWhatsMissing() {
         E2E.typeInBox("fromBox", "")
         E2E.typeInBox("toBox", "")
-        assertTrue("no Find button on the search screen", E2E.tap("find"))
+        assertTrue("Find cannot be reached on the search screen",
+            E2E.reveal("find", "searchCardScroll") && E2E.tap("find"))
         val status = E2E.text("statusLine")
         assertTrue("Find with both fields blank answered with nothing", status.isNotBlank())
         assertTrue("said: $status", status.contains("station", ignoreCase = true))
