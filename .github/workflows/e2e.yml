@@ -51,11 +51,12 @@ permissions:
   actions: read
 
 concurrency:
-  # Push and PR runs still supersede each other on a branch - that is the point of grouping. A dispatched
-  # sweep must not: it is the expensive one (four emulators, up to an hour), and a documentation push used to
-  # cancel a device run nine minutes into it, which is the worst possible way to learn that a row was alive.
-  group: e2e-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || 'ci' }}
-  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+  # A slow older emulator cannot block validation of the NEW SHA. Branch-scoped
+  # cancellation waited for its composite action to unwind (tens of minutes), leaving
+  # the replacement run pending; auth for manual cancellation is unavailable here.
+  # Keep same-SHA dispatches distinct, but let every new commit start immediately.
+  group: e2e-${{ github.sha }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || 'push' }}
+  cancel-in-progress: false
 
 env:
   APP_ID: in.opentrack.india

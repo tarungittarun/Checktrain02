@@ -67,7 +67,7 @@ railway happens to be reporting today says so, and its test asserts the invarian
 | `screen-explains-itself` | live source | A live-labelled screen with zero reported rows must carry an explanation, on real data | `LiveFeedFieldTest#theScreenExplainsItselfWhateverTheFeedDidOrDidNotSend` | api34, net |
 | `override-endpoint` | live source | A configured endpoint wins, and an answer about another train is refused | `LiveFeedFieldTest#aConfiguredEndpointIsPreferredAndChecked` | api34, net |
 | `release-smoke` | whole app | The **minified, resource-shrunk release APK** cold-starts, searches and opens a tracking screen with no crash — R8 and shrinking break exactly this and nothing else tests it | `ReleaseSmokeFlowTest#theShippingApkDoesTheBasicFlow` | release |
-| `monkey-stability` | whole app | 30 000 random events across the app with no FATAL EXCEPTION, no ANR, no dropbox entry | `tools/ci/monkey_stability.sh` (job, not a test class) | monkey |
+| `monkey-stability` | whole app | A bounded random-event smoke pass (600+600 events on API 34; 200+200 on API 24 and the dense screen), with no FATAL EXCEPTION or ANR; not a 30 000-event endurance claim | `tools/ci/monkey_stability.sh` (job, not a test class) | monkey |
 
 ## Deliberately not covered, with the reason
 
@@ -88,11 +88,13 @@ this workflow cannot reach, and what it would take:
 
 ## What "100 %" means here, stated plainly
 
-1. **Every user-visible flow above is driven on a real device image**, in the debug variant, in the minified
-   release variant, at two screen sizes, and once with the radio off. That is the *behavioural* 100 %: no
-   screen and no error path is unexercised.
-2. **JaCoCo line coverage of `in.opentrack.india.*` is measured from those runs** and published per runner;
-   the gate fails under the floor in `tools/ci/flow_coverage.py --min-lines`. This is the *quantitative*
+1. **Every named user-visible flow above has an instrumented test**, partitioned across debug-emulator
+   jobs for API 34, API 24 and a larger font/density. A separate minified-release smoke test checks that
+   variant's launch/search/track path, not every debug flow. This is flow-inventory coverage, not a claim
+   about live railway truth or OEM devices.
+2. **JaCoCo line coverage of `in.opentrack.india.*` merges the raw execution data from ALL debug
+   partitions**; the aggregate gate fails under the floor in `tools/ci/flow_coverage.py --min-lines`.
+   Per-partition reports are diagnostic, not substitutes for merged coverage. This is the *quantitative*
    100 % and it is deliberately not claimed as achievable for every branch — hardware and OEM branches are
    in the table above.
 3. **Anything the app shows on failure is asserted to be a sentence, not an absence** (`never-silent`,
@@ -132,29 +134,19 @@ Each row posts a comment on the commit even when it is green, led by PASS / FAIL
 the boot seconds, one line per instrumented class (pass or fail, and how long it took), the coverage figure
 and the monkey verdict — the value of a run is proportional to how much of it you can read afterwards.
 
-The `api34` smoke row runs on an ordinary branch push. A `[e2e-full]` commit,
-`workflow_dispatch` with the `full` checkbox, or a push to `main` also runs `min24`,
-density and release; pull-request events do not duplicate push runs. A dispatch also takes
-`focus: TrackingFlowTest` to re-run one class in a few minutes instead of an hour, and `monkey_events: 0` to
-skip the stability pass. That is a cost decision, not a coverage one: the flows are the same list, and `plan`
-gates them on every event either way.
+Six independent API 34 partitions run on an ordinary push: station search, train search,
+three `AndroidJUnitRunner`-assigned tracking method shards, and settings/degradation/cold start.
+`[e2e-full]` adds those six partitions on API 24 and at 440 dpi / font scale 1.15,
+plus one R8-shrunk release-smoke job. All nineteen jobs boot their own emulator in parallel after
+one shared APK build. The tracking shard indices partition the discovered methods automatically;
+no hand-maintained method list can leave a new test out. The roll-up requires **every** partition
+and merges their raw JaCoCo execution data before enforcing the 45% line floor. A missing,
+unbooted or failed partition is red, not omitted. The smaller monkey pass runs on the settings
+partition; it is a smoke check and **not** a long endurance test.
 
-The same four knobs travel in a commit message, which matters because `workflow_dispatch` is not always
-available to whoever is driving the pipeline (an integration token without `actions: write` gets a 403):
-
-| marker | effect |
-|---|---|
-| `[e2e-full]` | all four device rows on a push |
-| `[e2e-focus: TrackingFlowTest]` | one class on every row - a re-run in about four minutes |
-| `[e2e-boot: 2700]` | raise the boot budget on a slow runner |
-| `[e2e-monkey: 0]` | skip the random-event pass |
-
-`plan` prints which it chose, and a `[e2e-*]` marker you did not write is harmless text. The message reaches
-the step through an env var rather than an interpolation, so quotes or `$(...)` in a commit message cannot
-execute anything. A dispatched run also gets its own concurrency group, so an unrelated push can no longer
-cancel nine minutes of emulator boot - which is how two rows died on run 38126202814.
-
-`report` turns the rows into a table and fails the run when *no* row booted (there is then no evidence
-at all) or when the minSdk row's tests failed (the floor of the supported range is not optional). A modern
-row failing to boot while another row ran the suite is recorded and left red-in-the-table rather than
-red-in-the-build, because that row is a coverage question about new APIs, not about whether the app works.
+This is designed to shorten the device *critical path*, not a promise of an impossible five-minute
+cold end-to-end run: on GitHub's uncached runners the shared APK build alone has measured about
+five minutes, and acquiring/booting API 24 can take longer. Each emulator job is capped at fifteen
+minutes (twelve minutes to report a result). The CI result, not an elapsed-time target, gates
+an APK handoff. A follow-up commit gets a separate concurrency group so an older composite
+emulator that is slow to cancel cannot block its replacement.
