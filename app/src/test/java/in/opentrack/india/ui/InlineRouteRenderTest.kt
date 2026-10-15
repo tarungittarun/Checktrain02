@@ -128,6 +128,22 @@ class InlineRouteRenderTest {
         assertTrue(description.contains("P1 → P2 → P3"))
         assertTrue(description.contains("P9 → P10 → P11"))
         assertEquals(points, holder.inlineLeg.projection!!.points)
+        val ruler = holder.inlineLeg
+        val width = View.MeasureSpec.makeMeasureSpec(360, View.MeasureSpec.EXACTLY)
+        val height = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        ruler.measure(width, height)
+        val compact = ruler.measuredHeight
+        assertEquals(0f, ruler.projection!!.fraction, .001f)
+        ruler.showLabels = true
+        ruler.measure(width, height)
+        assertTrue("opening the proportional map did not disclose its ticks",
+            ruler.measuredHeight > compact)
+        assertEquals("disclosing map points moved the last-reported train", 0f,
+            ruler.projection!!.fraction, .001f)
+        ruler.showLabels = false
+        ruler.measure(width, height)
+        assertEquals("closing map points did not restore the compact leg",
+            compact, ruler.measuredHeight)
     }
 
     @Test fun tappingHaltShowsUntimedPointsThenCollapsesWithoutClaimingArrival() {

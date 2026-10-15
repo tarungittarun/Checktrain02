@@ -128,7 +128,11 @@ class TrainActivity : AppCompatActivity() {
         binding.sourceToggle.setOnClickListener {
             AlertDialog.Builder(this)
                 .setTitle("Sources · ${BuildStamp.ROUND}")
-                .setMessage(sourceDetails)
+                .setMessage(sourceDetails + "\n\nOn the route: the train stays at the last reported " +
+                    "stop unless a source supplies a qualified distance. Small ticks use static map " +
+                    "kilometres; they are not stop reports. Red dashes mean reported delay, not " +
+                    "distance travelled. A phone app's on-board location signal is not the same as " +
+                    "its public web page.")
                 .setPositiveButton("Close", null)
                 .show()
         }
@@ -368,11 +372,12 @@ class TrainActivity : AppCompatActivity() {
         binding.heroEyebrow.text = when {
             ui.wimtWebPoint != null -> "WEB DISTANCE CLAIM · UNVERIFIED"
             ui.orgWebsiteReport != null -> "WEBSITE PAST STOP · UNVERIFIED"
+            ui.railYatriClaim != null -> "STATION CLAIM · UNVERIFIED"
             m.rows.any { it.source == TrackModel.MinuteSource.REPORTED } -> "LAST REPORTED · NOT GPS"
             else -> "TIMETABLE · NOT LIVE"
         }
         binding.heroEyebrow.setTextColor(getColor(if (ui.wimtWebPoint != null ||
-            ui.orgWebsiteReport != null) R.color.warn else R.color.live))
+            ui.orgWebsiteReport != null || ui.railYatriClaim != null) R.color.warn else R.color.live))
         // No NTES time-interpolated icon in position-only mode. A separate amber
         // marker can scale a fresh, explicitly UNVERIFIED WIMT web-cache km claim
         // onto two official scheduled halts; it never invents an ETA or Act cell.
@@ -556,24 +561,11 @@ class TrainActivity : AppCompatActivity() {
         // NEXT scheduled stop as separate visual answers. Do not promote a scheduled
         // arrival into a live ETA or infer movement after the last report.
         if (ui.activeSource == "NTES (official)") {
-            val anchor = m.rows.firstOrNull { it.code.equals(ui.anchorCode, true) &&
-                it.source == TrackModel.MinuteSource.REPORTED }
-            if (anchor != null) {
-                val event = anchor.showDep ?: anchor.showArr
-                if (event != null) {
-                    binding.headline.contentDescription = m.headline
-                    binding.headline.text = (if (anchor.showDep != null) "Departed " else "Arrived at ") +
-                        RowText.of(anchor.name)
-                    val nextStop = m.rows.getOrNull(m.rows.indexOf(anchor) + 1)
-                    if (nextStop != null) binding.next.text = buildString {
-                        append(RowText.of(nextStop.name))
-                        (nextStop.schedArr ?: nextStop.schedDep)?.let {
-                            append(" · ").append(RailTime.formatRailMinute(it))
-                        }
-                        append("\nSchedule only · arrival unconfirmed")
-                    }
-                    binding.provenance.text = "NTES · reported stop"
-                }
+            JourneyHero.official(m.rows, ui.anchorCode)?.let { hero ->
+                binding.headline.contentDescription = m.headline
+                binding.headline.text = hero.title
+                binding.next.text = hero.next
+                binding.provenance.text = "NTES · reported stop"
             }
         }
         binding.note.visibility = if (m.note == null) View.GONE else View.VISIBLE

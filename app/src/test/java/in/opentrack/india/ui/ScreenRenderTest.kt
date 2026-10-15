@@ -134,6 +134,10 @@ class ScreenRenderTest {
         // it can only be checked on a laid-out screen.
         assertNotClipped(shot.root.findViewById(R.id.routeLabel), "routeLabel ('${shot.text(R.id.routeLabel)}')")
 
+        val summary = shot.root.findViewById<android.widget.ScrollView>(R.id.scroller)
+        val wasted = summary.height - summary.getChildAt(0).height
+        assertTrue("summary reserved $wasted px of blank space before the route",
+            wasted <= (16 * shot.context.resources.displayMetrics.density).toInt())
         assertTrue("opt-in one-minute Auto control must fit beside Refresh",
             shot.root.findViewById<View>(R.id.autoSwitch).height > 0)
         assertTrue("Refresh must remain available beside Auto",

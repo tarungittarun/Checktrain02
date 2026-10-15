@@ -301,10 +301,10 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         else if (holder.details.visibility == View.VISIBLE) "Less  ▴" else "Details  ▾"
         holder.dot.setBackgroundResource(if (s.isAnchor && (s.delay ?: 0) >= 3 && verified)
             R.drawable.dot_problem else dotFor(s))
+        // Keep the next stop directly after the compact leg. The former 34dp
+        // projected-row spacer looked like missing content on a phone.
         holder.row.setPadding(holder.row.paddingLeft,
-            if (s.state == TrackModel.State.NEXT && s.source == TrackModel.MinuteSource.PROJECTED)
-                ctx.resources.getDimensionPixelSize(R.dimen.row_gap_running)
-            else ctx.resources.getDimensionPixelSize(R.dimen.gap_s),
+            ctx.resources.getDimensionPixelSize(R.dimen.gap_s),
             holder.row.paddingRight, holder.row.paddingBottom)
         holder.row.setBackgroundColor(
             when {
@@ -348,6 +348,8 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
                 if (seconds < 60) "Just now" else TableMarker.elapsedLabel(seconds * 1_000L) + " ago"
             }.orEmpty()
             holder.inlineLegAge.visibility = if (holder.inlineLegAge.text.isEmpty()) View.GONE else View.VISIBLE
+            holder.inlineLegAge.contentDescription = if (holder.inlineLegAge.text.isEmpty()) ""
+                else "Last reported event ${holder.inlineLegAge.text}"
             holder.inlineLeg.delayed = isLate
             holder.routeToggle.text = if (expandedCode == s.code) "Hide  ▴" else
                 "${leg.points.size} points  ▾"

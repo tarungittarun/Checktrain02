@@ -14,9 +14,9 @@ import org.junit.runner.RunWith
 /**
  * The tracking screen — the screen the user called "pathetic and wrong", and the reason this suite exists.
  *
- * Everything asserted here is a *presentation* property a person can check by looking: the live column
- * holds a reported minute or a dash and never the timetable twice; distances start at 0 and end at the
- * total; the age chip says what the source actually said; the row count and the line under it agree. Those
+ * Everything asserted here is a *presentation* property a person can check by looking: the disclosed
+ * actual-time sheet holds a reported minute or a dash and never the timetable twice; distances start at
+ * 0 and end at the total; the age chip says what the source actually said; the route remains navigable. Those
  * are the claims that were false on a shipping screen while 100 JVM tests passed, because JVM tests paint
  * fixtures and a fixture is unfalsifiable about the data source.
  *
@@ -90,9 +90,17 @@ class TrackingFlowTest {
     fun liveCellIsAMinuteOrADashNeverTheTimetable() {
         // Round 45: the stacked columns name their kind - "Sch hh:mm" over "Act hh:mm"/"Est hh:mm";
         // a row nothing moved shows "—" on the Act line. The prefix IS the tag now.
+        // The new journey timeline keeps the full arrival/departure comparison
+        // behind a stop tap. Reveal one if the reported anchor is off-screen;
+        // a hidden sheet is not an empty train schedule.
+        if (rowTexts("schedArr").isEmpty()) {
+            assertTrue("no stop can reveal its time sheet", E2E.tap("stopRow"))
+            assertTrue("tapping a stop did not disclose scheduled arrival",
+                E2E.ui.wait(Until.hasObject(By.res(E2E.PKG, "schedArr")), E2E.LOCAL_MS))
+        }
         val sched = rowTexts("schedArr")
         val live = rowTexts("liveArr")
-        assertTrue("no rows to compare", sched.isNotEmpty() && sched.size == live.size)
+        assertTrue("no disclosed rows to compare", sched.isNotEmpty() && sched.size == live.size)
         var qualified = 0
         for (i in sched.indices) {
             assertTrue(
@@ -261,8 +269,11 @@ class TrackingFlowTest {
         assertTrue("page result silently replaced official Act/position: '$summary'",
             summary.contains("Timetable shown"))
         assertTrue("selected alternate removed the station table", E2E.count(stopsBy) > 0)
+        if (rowTexts("liveArr").isEmpty()) assertTrue(E2E.tap("stopRow"))
+        val pageMinutes = rowTexts("liveArr")
+        assertTrue("site selection disclosed no stop to compare", pageMinutes.isNotEmpty())
         assertTrue("page selection must not display NTES minutes as this page's Act",
-            rowTexts("liveArr").all { it == "—" })
+            pageMinutes.all { it == "—" })
         E2E.shot("public-source-check")
     }
 
@@ -295,7 +306,9 @@ class TrackingFlowTest {
             summary.contains("Timetable shown") ||
                 E2E.text("provenance").contains("WEBSITE"))
         assertTrue("org selection lost the station table", E2E.count(stopsBy) > 0)
+        if (rowTexts("liveArr").isEmpty()) assertTrue(E2E.tap("stopRow"))
         val live = rowTexts("liveArr") + rowTexts("liveDep")
+        assertTrue("site selection disclosed no stop to compare", live.isNotEmpty())
         assertTrue("org selection misattributes NTES actuals: $live",
             live.none { it.startsWith("Act ") })
         if (live.any { it.startsWith("Site ") }) {

@@ -230,7 +230,10 @@ object Render {
         text(root, R.id.trainNo, m.trainNo)
         text(root, R.id.routeLabel, m.routeLabel)
         text(root, R.id.runDate, m.runDateLabel)
-        text(root, R.id.headline, m.headline)
+        val hero = if (m.isLive) JourneyHero.official(m.rows,
+            m.rows.firstOrNull { it.isAnchor && it.source == TrackModel.MinuteSource.REPORTED }?.code)
+            else null
+        text(root, R.id.headline, hero?.title ?: m.headline)
         text(root, R.id.heroEyebrow, if (m.rows.any {
                 it.source == TrackModel.MinuteSource.REPORTED
             }) "LAST REPORTED · NOT GPS" else "TIMETABLE · NOT LIVE")
@@ -239,7 +242,7 @@ object Render {
         // The same composition the Activity uses, so no fixture has to invent this sentence (and cannot
         // quietly put facts on a screen that the app never shows there).
         text(root, R.id.delay, m.delayLabel)
-        text(root, R.id.next, m.nextLabel)
+        text(root, R.id.next, hero?.next ?: m.nextLabel)
         // progress bar and chart removed (round 42): the owner judged them clutter; the render
         // harness paints what the screen actually carries now.
         root.findViewById<View>(R.id.note)?.let { v ->

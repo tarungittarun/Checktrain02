@@ -38,12 +38,12 @@ railway happens to be reporting today says so, and its test asserts the invarian
 | `live-pair-list` | search | The pair list names its source — rows carry `via erail`, or the screen states the feed died; unnamed rows are the founding bug's door and fail the row | `StationSearchFlowTest#pairRowsNameTheirSource` | all |
 | `details-live-identity` | tracking | The details screen asks erail what this number runs TODAY and relabels the route line — confirmed, or both readings shown on mismatch, or the untouched timetable label when nothing answered | `TrackingFlowTest#routeLabelGainsTheLiveIdentityConfirmation` | all |
 | `headline-position` | tracking | The headline names where the train is or says plainly that only the timetable is known | `TrackingFlowTest#headlineAlwaysNamesAState` | all |
-| `stop-table-columns` | tracking | Every halt row carries SCH times; the LIVE cell is either a reported minute or a dash — never a reprinted schedule minute | `TrackingFlowTest#liveCellIsAMinuteOrADashNeverTheTimetable` | all |
+| `stop-table-columns` | tracking | Tapping a stop reveals labelled schedule and source minutes; any unreported actual remains a dash, never a copy of the timetable | `TrackingFlowTest#liveCellIsAMinuteOrADashNeverTheTimetable` | all |
 | `distance-ladder` | tracking | Distance is 0 at the first halt, the route total at the last, and never decreases between | `TrackingFlowTest#distancesRunFromZeroToTheTotal` | all |
 | `boarding-alighting` | tracking | The two searched stations are tagged board / get off | `TrackingFlowTest#boardAndAlightAreMarked` | all |
-| `full-route-table` | tracking | Full station table is primary; no separate route-window toggle or hidden-row caption | `TrackingFlowTest#fullRouteIsPrimaryWithoutASeparateWindowControl` | all |
+| `full-route-table` | tracking | A full stop timeline is primary; arrival/departure sheets and intervening map points disclose on tap, then collapse so the next stop remains visible | `TrackingFlowTest#fullRouteIsPrimaryWithoutASeparateWindowControl` | all |
 | `projected-leg-honesty` | tracking | No time-interpolated train or device-GPS claim; a timed source stop may show a source-labelled, stationary train pinned at that stop with the between-stop position unknown | `TrackingFlowTest#actualPositionOnlyDoesNotRenderInterpolatedTrain` | all |
-| `table-geometry` | tracking | The full station table has usable dimensions and named rows at the tested screen size | `TrackingFlowTest#tableHasGeometryAtThisDensity` | all |
+| `table-geometry` | tracking | The timeline has usable dimensions, named rows, and no blank band between summary and route at the tested screen size | `TrackingFlowTest#tableHasGeometryAtThisDensity` | all |
 | `age-and-provenance` | tracking | The provenance and age chips are never blank; "live" cannot appear on a screen nothing fetched for | `TrackingFlowTest#ageChipNeverOverClaims` | all |
 | `source-disclosure` | tracking | Opening Info explains Act versus Est, position provenance, and that WIMT web cache is not the phone app | `TrackingFlowTest#sourceBlockExplainsTheAnswer` | all |
 | `public-source-manual-check` | tracking | Selecting ixigo in the built APK performs a bounded check, exposes its answer or failure, and switches to a static-only comparison table rather than misattributing NTES Act to the selected page | `TrackingFlowTest#publicSourceTapActuallyChecksAndKeepsTheOfficialTable` | all |
@@ -51,7 +51,7 @@ railway happens to be reporting today says so, and its test asserts the invarian
 | `optional-minute-refresh` | tracking | Turning on Auto on the tracking screen produces a real Refresh receipt after one minute; the same selected-source-first chain backs the button | `TrackingFlowTest#autoRefreshActuallyRunsOnceAfterOneMinute` | all |
 | `long-list-scroll` | tracking | A several-hundred-halt route scrolls to the end with rows still readable (recycling correctness) | `TrackingFlowTest#longRouteScrollsWithoutBlankRows` | all |
 | `back-nav` | tracking → search | Back returns to the search screen with the previous query intact | `TrackingFlowTest#backKeepsTheSearchQuery` | all |
-| `density-change` | tracking | The station table remains within the screen at the tested density (no overflow) | `TrackingFlowTest#tableHasGeometryAtThisDensity` | large, density |
+| `density-change` | tracking | The stop timeline remains within the screen at the tested density (no overflow) | `TrackingFlowTest#tableHasGeometryAtThisDensity` | large, density |
 | `settings-open` | settings | The screen shows the install state, endpoint field and column map | `SettingsFlowTest#everyControlIsReachableAndBackReturns` | all |
 | `diag-log-collector` | settings | The diagnostic log is inert until the user turns it on, says so on screen once they do, and is emptied by Clear without losing the switch | `SettingsFlowTest#diagnosticCollectorIsInertThenLiveThenEmpty` | all |
 | `endpoint-save-reload` | settings | A typed endpoint survives Save and reopening | `SettingsFlowTest#endpointPersistsAcrossReopen` | all |
@@ -134,19 +134,21 @@ Each row posts a comment on the commit even when it is green, led by PASS / FAIL
 the boot seconds, one line per instrumented class (pass or fail, and how long it took), the coverage figure
 and the monkey verdict — the value of a run is proportional to how much of it you can read afterwards.
 
-Six independent API 34 partitions run on an ordinary push: station search, train search,
-three `AndroidJUnitRunner`-assigned tracking method shards, and settings/degradation/cold start.
-`[e2e-full]` adds those six partitions on API 24 and at 440 dpi / font scale 1.15,
-plus one R8-shrunk release-smoke job. All nineteen jobs boot their own emulator in parallel after
-one shared APK build. The tracking shard indices partition the discovered methods automatically;
+Ten independent API 34 partitions run on an ordinary push: station search, train search,
+settings UI, settings/network/cold start, and six `AndroidJUnitRunner`-assigned tracking method
+shards. `[e2e-full]` adds the same ten partitions on API 24 and at 440 dpi / font scale 1.15,
+plus one R8-shrunk release-smoke job. The full matrix has **31 device jobs** (within the allowed
+40), each booting its own emulator in parallel after one shared APK build. The tracking shard
+indices partition the discovered methods automatically;
 no hand-maintained method list can leave a new test out. The roll-up requires **every** partition
 and merges their raw JaCoCo execution data before enforcing the 45% line floor. A missing,
-unbooted or failed partition is red, not omitted. The smaller monkey pass runs on the settings
+unbooted or failed partition is red, not omitted. The smaller monkey pass runs on a settings
 partition; it is a smoke check and **not** a long endurance test.
 
-This is designed to shorten the device *critical path*, not a promise of an impossible five-minute
-cold end-to-end run: on GitHub's uncached runners the shared APK build alone has measured about
-five minutes, and acquiring/booting API 24 can take longer. Each emulator job is capped at fifteen
+The **≤5-minute workflow** goal remains a target, not a measured result: on GitHub's uncached
+runners the shared APK build alone has taken about five minutes, and runner queueing, API 24
+boot, and tests add time. Splitting the slow shards shortens the device critical path but cannot
+make a cold pipeline reliably meet that goal by itself. Each emulator job is capped at fifteen
 minutes (twelve minutes to report a result). The CI result, not an elapsed-time target, gates
 an APK handoff. A follow-up commit gets a separate concurrency group so an older composite
 emulator that is slow to cancel cannot block its replacement.
