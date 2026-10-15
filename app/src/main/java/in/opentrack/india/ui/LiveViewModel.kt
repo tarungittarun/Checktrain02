@@ -632,6 +632,12 @@ class LiveViewModel(
                     System.currentTimeMillis() - it.eventAtMillis in 0L..600_000L &&
                         System.currentTimeMillis() - it.cacheAtMillis in 0L..120_000L
                 } == true
+                RunningStatusMirror.SOURCE, ConfirmTktMirror.SOURCE ->
+                    freshShift() && mirrorStops[name].orEmpty().isNotEmpty()
+                "erail" -> (manualErail != null &&
+                    System.currentTimeMillis() - manualErailAt in 0L..PositionEngine.STALE_MS) ||
+                    (ui.answer.position.provenance == SourceKind.PROVIDER &&
+                        ui.answer.position.ageSeconds <= PositionEngine.STALE_MS / 1000)
                 else -> ui.sourceStates[name]?.first == "live"
             }
         }
