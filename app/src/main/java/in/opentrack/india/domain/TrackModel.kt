@@ -36,7 +36,7 @@ object TrackModel {
      * no live feed at all managed to print every upcoming stop in projection amber and label it "expected",
      * i.e. to claim a forecast it had no data for.
      */
-    enum class MinuteSource { REPORTED, PROJECTED, SCHEDULE }
+    enum class MinuteSource { REPORTED, SITE_REPORTED, PROJECTED, SCHEDULE }
 
     /**
      * One stop as the screen shows it.

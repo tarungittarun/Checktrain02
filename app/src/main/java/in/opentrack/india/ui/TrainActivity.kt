@@ -264,7 +264,8 @@ class TrainActivity : AppCompatActivity() {
             `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE) View.VISIBLE else View.GONE
         binding.sourceSummary.text = if (publicCheck != null)
             (ui.sourceStates[publicCheck]?.second ?: "Not checked yet").take(290) +
-                "\nThis source is shown separately; Sch is static, page excerpts are not Act. Info has details."
+                (if (ui.orgWebsiteReport != null) "\nWeb = site-published past-card claim, not independently verified. Future rows are Sch."
+                else "\nThis source is shown separately; Sch is static, page excerpts are not Act. Info has details.")
         else if (ui.wimtWebPoint == null)
             "WIMT web: no recent route-checked point; row notes are not Act or phone-app GPS."
         else "WIMT web point · unverified; cache clock is not movement or phone-app GPS."
@@ -374,20 +375,35 @@ class TrainActivity : AppCompatActivity() {
         }
         if (publicCheck != null) {
             val claim = ui.railYatriClaim
-            val station = claim?.let { c -> ui.route.stops.firstOrNull { it.code.equals(c.code, true) } }
-            binding.headline.text = if (claim != null && station != null)
-                "RailYatri reports ${claim.status} ${station.name} · passage time unknown"
-            else "${sourceName(publicCheck)}: no dated position for this run"
-            binding.provenance.text = if (claim != null)
-                "RAILYATRI · station claim only" else "${sourceName(publicCheck)} · comparison only"
+            val org = ui.orgWebsiteReport?.takeIf { publicCheck ==
+                `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG }
+            val station = if (org != null) ui.route.stops.firstOrNull {
+                it.code.equals(org.anchorCode, true) }
+                else claim?.let { c -> ui.route.stops.firstOrNull { it.code.equals(c.code, true) } }
+            binding.headline.text = when {
+                org != null && station != null -> "Website reports " +
+                    (if (org.departed) "departed" else "arrived at") + " ${station.name} · " +
+                    "${RailTime.formatRailMinute(org.eventMinute)} · last site-marked past stop, position since unknown"
+                claim != null && station != null ->
+                    "RailYatri reports ${claim.status} ${station.name} · passage time unknown"
+                else -> "${sourceName(publicCheck)}: no qualifying past-stop report for this run"
+            }
+            binding.provenance.text = when {
+                org != null -> "WEBSITE · reported past card, unverified"
+                claim != null -> "RAILYATRI · station claim only"
+                else -> "${sourceName(publicCheck)} · comparison only"
+            }
             binding.provenance.setBackgroundResource(R.drawable.bg_badge_schedule)
             binding.provenance.setTextColor(getColor(R.color.warn))
-            binding.age.text = if (claim != null)
-                "provider updated ${RailTime.formatClock(claim.updateAt)} IST · upstream ${claim.upstream} · not an event time"
-            else "No validated passage time from selected source"
-            binding.delay.text = "— · no verified delay from ${sourceName(publicCheck)}"
+            binding.age.text = when {
+                org != null -> "page updated ${RailTime.formatClock(org.pageUpdatedAt)} IST · not the event time · origin run inferred"
+                claim != null -> "provider updated ${RailTime.formatClock(claim.updateAt)} IST · upstream ${claim.upstream} · not an event time"
+                else -> "No qualifying past-stop report from selected source"
+            }
+            binding.delay.text = if (org != null) "Website times · not independently verified"
+                else "— · no verified delay from ${sourceName(publicCheck)}"
             binding.delay.setTextColor(getColor(R.color.warn))
-            binding.next.text = if (claim != null && station != null) {
+            binding.next.text = if (station != null) {
                 val next = ui.route.stops.getOrNull(ui.route.stops.indexOf(station) + 1)
                 next?.let { "Next scheduled: ${it.name} · " +
                     ((it.arrivalMin ?: it.departureMin)?.let(RailTime::formatRailMinute) ?: "—") +

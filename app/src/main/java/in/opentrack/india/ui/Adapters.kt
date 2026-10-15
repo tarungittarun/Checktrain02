@@ -182,8 +182,10 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             s.platform?.takeIf { it.isNotBlank() }?.let { append(" · feed pf ").append(it) }
         }
         val verified = s.source == TrackModel.MinuteSource.REPORTED
+        val website = s.source == TrackModel.MinuteSource.SITE_REPORTED
         val stationClaim = reports[s.code]?.startsWith("RailYatri root claims") == true
         holder.status.text = when {
+            website -> "WEBSITE PAST-CARD REPORT · unverified, not GPS"
             stationClaim -> "RAILYATRI STATION CLAIM · passage time unknown"
             verified && s.showDep != null -> "LEFT · departure reported"
             // A separate provider departed flag may be present without an ATD minute.
@@ -200,7 +202,7 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             else -> "SCHEDULED · not reported"
         }
         holder.status.setTextColor(ctx.getColor(when {
-            stationClaim -> R.color.warn
+            stationClaim || website -> R.color.warn
             verified -> R.color.live
             s.source == TrackModel.MinuteSource.PROJECTED -> R.color.warn
             else -> R.color.text3
@@ -220,18 +222,20 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         holder.liveArr.text = when {
             !reported -> "—"
             s.source == TrackModel.MinuteSource.PROJECTED -> act("Est", s.showArr)
+            website -> act("Web", s.showArr)
             else -> act("Act", s.showArr)
         }
         holder.liveDep.text = when {
             !reported -> "—"
             s.source == TrackModel.MinuteSource.PROJECTED -> act("Est", s.showDep)
+            website -> act("Web", s.showDep)
             else -> act("Act", s.showDep)
         }
         // Late = red (the colour a traveller scans for); on-time actual = green; estimate = amber.
         // A pure-timetable row stays grey in both - no number pretends to be news.
         val color = when {
             !reported -> R.color.text2
-            s.source == TrackModel.MinuteSource.PROJECTED -> R.color.warn
+            s.source == TrackModel.MinuteSource.PROJECTED || website -> R.color.warn
             late -> R.color.late
             else -> R.color.live
         }
@@ -318,6 +322,7 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             s.minutesFromNow?.let { TrackModel.formatGap(it) } ?: ctx.getString(R.string.tag_due)
         s.showArr == null && s.showDep == null -> ctx.getString(R.string.tag_no_report)
         s.source == TrackModel.MinuteSource.PROJECTED -> ctx.getString(R.string.tag_expected)
+        s.source == TrackModel.MinuteSource.SITE_REPORTED -> "Web report"
         s.source == TrackModel.MinuteSource.SCHEDULE -> ctx.getString(R.string.tag_timetable)
         else -> ctx.getString(R.string.tag_actual)
     }
@@ -328,7 +333,8 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         s.state == TrackModel.State.HERE && s.source == TrackModel.MinuteSource.REPORTED -> R.color.accent
         s.state == TrackModel.State.CANCELLED || s.state == TrackModel.State.SKIPPED -> R.color.late
         s.state == TrackModel.State.NEXT -> R.color.text1
-        s.source == TrackModel.MinuteSource.PROJECTED -> R.color.warn
+        s.source == TrackModel.MinuteSource.PROJECTED ||
+            s.source == TrackModel.MinuteSource.SITE_REPORTED -> R.color.warn
         s.source == TrackModel.MinuteSource.SCHEDULE -> R.color.text3
         s.showArr != null || s.showDep != null -> R.color.text2
         else -> R.color.text3

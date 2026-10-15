@@ -2,6 +2,7 @@ package `in`.opentrack.india.v2.mirror
 
 import `in`.opentrack.india.core.Http
 import `in`.opentrack.india.core.RailTime
+import `in`.opentrack.india.model.TrainRoute
 import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -20,6 +21,8 @@ object PublicPageChecks {
     data class Result(
         val detail: String, val checkedAt: Long, val pageAnswered: Boolean,
         val stationClaim: StationClaim? = null,
+        /** The other website's labelled, past-card station claims. Not independently verified Act. */
+        val orgReport: OrgWebsiteStatus.Report? = null,
         /** Page excerpts for comparison only. Never feed these into Act or position. */
         val lines: Map<String, String> = emptyMap(),
     )
@@ -42,8 +45,8 @@ object PublicPageChecks {
 
     fun fetch(http: Http, name: String, number: String, originDay: Long, now: Long,
               source: String? = null, destination: String? = null,
-              knownCodes: Set<String> = emptySet()): Result =
-        fetch(name, number, originDay, now, source, destination, knownCodes) { url ->
+              knownCodes: Set<String> = emptySet(), route: TrainRoute? = null): Result =
+        fetch(name, number, originDay, now, source, destination, knownCodes, route) { url ->
             http.get(url, timeoutMillis = 4_000, retries = 0, budgetMillis = 4_000,
                 headers = mapOf("User-Agent" to "Mozilla/5.0 (Linux; Android 13; Mobile) Chrome/120 Safari/537.36",
                     "Accept" to if (name == RAIL_YATRI) "application/json" else "text/html"))
@@ -53,7 +56,8 @@ object PublicPageChecks {
      * show an old comparison, but cannot produce a fresh station claim. */
     internal fun fetch(name: String, number: String, originDay: Long, now: Long,
         source: String? = null, destination: String? = null,
-        knownCodes: Set<String> = emptySet(), get: (String) -> Http.Result): Result {
+        knownCodes: Set<String> = emptySet(), route: TrainRoute? = null,
+        get: (String) -> Http.Result): Result {
         val url = url(name, number, originDay, now)
             ?: return Result("Run outside the available 0–2 day query window; no request made.", now, false)
         return when (val reply = get(url)) {
@@ -61,11 +65,12 @@ object PublicPageChecks {
                 System.currentTimeMillis(), false)
             is Http.Result.Ok -> {
                 val checked = System.currentTimeMillis()
-                val answer = parse(name, reply.body, number, originDay, checked, source, destination, knownCodes)
+                val answer = parse(name, reply.body, number, originDay, checked, source, destination,
+                    knownCodes, route)
                 if (reply.fromCache) answer.copy(
                     detail = "Cached HTTP body (${reply.ageMillis / 60_000} min old); " +
                         answer.detail + " No fresh observation.", pageAnswered = false,
-                    stationClaim = null)
+                    stationClaim = null, orgReport = null)
                 else answer
             }
         }
@@ -73,9 +78,9 @@ object PublicPageChecks {
 
     fun parse(name: String, body: String, number: String, originDay: Long, now: Long,
               source: String? = null, destination: String? = null,
-              knownCodes: Set<String> = emptySet()): Result = when (name) {
+              knownCodes: Set<String> = emptySet(), route: TrainRoute? = null): Result = when (name) {
         RAIL_YATRI -> railYatri(body, number, originDay, now, source, destination, knownCodes)
-        IXIGO, ORG -> page(name, body, number, originDay, now, knownCodes)
+        IXIGO, ORG -> page(name, body, number, originDay, now, knownCodes, route)
         else -> Result("Unknown check; no position.", now, false)
     }
 
@@ -122,7 +127,7 @@ object PublicPageChecks {
     }
 
     private fun page(name: String, body: String, number: String, originDay: Long, now: Long,
-                     knownCodes: Set<String>): Result {
+                     knownCodes: Set<String>, route: TrainRoute?): Result {
         // Only visible text. SEO/Next.js scripts can contain several runs and future ETA rows.
         val visible = RunningStatusMirror.stripTags(body
             .replace(Regex("(?is)<script\\b[^>]*>.*?</script>"), " ")
@@ -159,11 +164,15 @@ object PublicPageChecks {
         }
         val returned = selected?.let { "page-selected $it" } ?: "page does not identify a selected origin date"
         val wrong = selected != null && selected.replace('/', '-') != date
+        val org = if (name == ORG && route != null && !wrong)
+            OrgWebsiteStatus.parse(body, number, originDay, now, route) else null
         return Result("$title: train $number · $returned (requested origin $date) · $status" +
             (updated?.let { " · page update label $it" } ?: "") +
-            "; ${if (wrong) "wrong origin run" else "no event-level dated observation"}. " +
-            "${lines.size} displayed station excerpts for comparison, NOT Act or measured position" +
-            (if (name == ORG) "; not Google's WIMT phone app." else "."), now, true,
-            lines = lines)
+            "; " + (org?.reason ?: if (wrong) "wrong origin run" else "no event-level dated observation") +
+            ". ${lines.size} displayed station excerpts for comparison" +
+            (if (org?.report != null) "; source-marked past rows are website claims, NOT independently verified Act/GPS."
+                else "; NOT Act or measured position.") +
+            (if (name == ORG) " not Google's WIMT phone app." else ""), now, true,
+            orgReport = org?.report, lines = lines)
     }
 }
