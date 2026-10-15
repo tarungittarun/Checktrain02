@@ -214,6 +214,7 @@ jobs:
           python3 tools/ci/check_members.py
           python3 tools/ci/check_literals.py
           python3 tools/ci/test_e2e_selectors.py
+          python3 tools/ci/test_e2e_rollup.py
           # The two rules that cost a push each, checked before the runner gets a say:
           # a key written twice in one mapping block, and an action input with both `required`
           # and `default`. Both make the whole file invalid - no job starts, no annotation to read.

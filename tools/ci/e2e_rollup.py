@@ -32,7 +32,9 @@ def parse(path: pathlib.Path) -> dict[str, str]:
 
 
 # Keys that describe the row rather than one instrumented pass.
-VERDICT = re.compile(r"(ok|failed|skipped|not-run|timeout|crash|no test summary)")
+# `run_suite` writes `<pass>=passed` on success. Omitting `passed` here made
+# 23/23 green device jobs look like 23 rows with no instrumented passes.
+VERDICT = re.compile(r"^(passed|ok|failed|skipped|not-run|timeout|crash|no test summary)")
 
 META = {"row", "desc", "boot", "variant", "coverage", "display", "tests", "monkey", "focus",
         "variant_row", "accel", "kvm", "boot_rc", "boot_seconds", "avd"}
@@ -70,7 +72,7 @@ def main() -> int:
         if not passes:
             return "failed: no instrumented pass reported"
         bad = sorted(k for k, v in passes.items()
-                     if any(word in v for word in ("failed", "not-run", "skipped", "timeout")))
+                     if any(word in v for word in ("failed", "not-run", "skipped", "timeout", "crash", "no test summary")))
         line = f"{len(passes) - len(bad)}/{len(passes)} passes green"
         if bad:
             # The word "failed" must survive into this string: the gates below search for it.

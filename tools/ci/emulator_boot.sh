@@ -147,14 +147,16 @@ install_pkg() {
   # so the row can post its real install failure instead of GitHub canceling the entire job.
   yes 2>/dev/null | timeout 120 $SUDO "$SDKMGR" $SDK_ROOT_ARG --install "$pkg" > /tmp/sdkmanager.log 2>&1
   rc=${PIPESTATUS[1]}
-  if [ "$rc" != 0 ] && [ "$pkg" = emulator ] && ! path_ok "$pkg" &&
+  if [ "$rc" != 0 ] && [[ "$pkg" = emulator || "$pkg" = system-images* ]] &&
+     ! path_ok "$pkg" &&
      { [ "$rc" = 124 ] || grep -q 'ZipFile unknown archive' /tmp/sdkmanager.log; }; then
-    # Hosted runners occasionally receive a truncated ZIP or wait 120 seconds
-    # for remote manifests. One fresh bounded request can recover a transient;
-    # keep the first log and still fail visibly if the service remains unavailable.
+    # Hosted runners intermittently stall at 10% while fetching the *valid*
+    # Google APIs image or receive a truncated emulator ZIP. Make exactly one
+    # bounded fresh attempt; keep both logs and fail visibly if it still fails.
+    # This never retries the old unavailable default/x86_64 API 24 image.
     local retry_limit=120
-    [ "$rc" = 124 ] && retry_limit=60
-    echo "::warning::emulator package fetch failed ($rc); clearing partial SDK download and retrying once for ${retry_limit}s"
+    [ "$pkg" = emulator ] && [ "$rc" = 124 ] && retry_limit=60
+    echo "::warning::$pkg fetch failed ($rc); clearing partial SDK download and retrying once for ${retry_limit}s"
     rm -rf "$SDK/.temp"
     yes 2>/dev/null | timeout "$retry_limit" $SUDO "$SDKMGR" $SDK_ROOT_ARG --install "$pkg" > /tmp/sdkmanager-retry.log 2>&1
     rc=${PIPESTATUS[1]}

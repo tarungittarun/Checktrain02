@@ -26,6 +26,15 @@ class SettingsFlowTest {
         E2E.awaitSearchScreen()
     }
 
+    private fun saveSettings(): Boolean {
+        // A text field can leave the keyboard covering Save on API 24. Scroll the
+        // Settings viewport first; if the IME still intercepts it, dismiss the IME
+        // as a traveller would and require a real tap on the button.
+        if (E2E.reveal("save", "settingsScroll") && E2E.tap("save", 500)) return true
+        E2E.ui.pressBack()
+        return E2E.reveal("save", "settingsScroll") && E2E.tap("save")
+    }
+
     private fun openSettings(): Boolean {
         if (!E2E.tap("settings")) return false
         // The state is populated by an asynchronous repository check; a mounted but empty
@@ -107,13 +116,13 @@ class SettingsFlowTest {
         assertTrue(openSettings())
         val probe = "https://example.invalid/{trainNo}/{date}"
         assertTrue("the endpoint field cannot be typed into", typeInBoxField("overrideUrl", probe))
-        assertTrue("Save did not run", E2E.tap("save"))
+        assertTrue("Save did not run", saveSettings())
         assertTrue("settings will not reopen", openSettings())
         val seen = fieldText("overrideUrl")
         assertTrue("the saved endpoint did not come back ('$seen')", seen.contains("example.invalid"))
         // Restore the default so a later row in this run is not testing the test.
         typeInBoxField("overrideUrl", "")
-        assertTrue("Save did not run", E2E.tap("save"))
+        assertTrue("Save did not run", saveSettings())
     }
 
     // @flow column-hint
@@ -122,11 +131,11 @@ class SettingsFlowTest {
         assertTrue(openSettings())
         val hint = "1:code,2:name,3:sa,4:sd,5:aa,6:ad"
         assertTrue("the column map cannot be typed into", typeInBoxField("columnHint", hint))
-        assertTrue("Save did not run", E2E.tap("save"))
+        assertTrue("Save did not run", saveSettings())
         assertTrue(openSettings())
         assertEquals("the column map did not round-trip", hint, fieldText("columnHint"))
         typeInBoxField("columnHint", "")
-        assertTrue("Save did not run", E2E.tap("save"))
+        assertTrue("Save did not run", saveSettings())
     }
 
     // @flow endpoint-rejects-non-http
@@ -134,7 +143,7 @@ class SettingsFlowTest {
     fun junkEndpointSaysSo() {
         assertTrue(openSettings())
         assertTrue(typeInBoxField("overrideUrl", "not-a-url"))
-        assertTrue("save could not be tapped", E2E.tap("save"))
+        assertTrue("save could not be tapped", saveSettings())
         // Invalid input must keep this screen open with visible feedback, not silently persist
         // a broken live source. The old test pressed Back before reading this screen's state.
         val state = E2E.text("state")
@@ -143,7 +152,7 @@ class SettingsFlowTest {
         assertTrue("an invalid endpoint closed Settings instead of letting it be corrected",
             E2E.visible("overrideUrl", 500))
         typeInBoxField("overrideUrl", "")
-        E2E.tap("save")
+        saveSettings()
     }
 
     // @flow clear-cache
