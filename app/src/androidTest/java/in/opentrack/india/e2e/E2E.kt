@@ -185,8 +185,19 @@ object E2E {
         val appeared = ui.wait(Until.hasObject(res("settings")), if (cold) COLD_START_MS else 20_000L)
         if (!appeared) {
             ctx.startActivity(intent)
-            check(ui.wait(Until.hasObject(res("settings")), 20_000L)) {
-                "the search activity never appeared after two explicit launches"
+            if (!ui.wait(Until.hasObject(res("settings")), 20_000L)) {
+                // Some API 24 emulators leave the instrumented target process
+                // behind the launcher even after two context starts. Drive the
+                // same installed APK through Android's activity manager, as the
+                // phone launcher does, then still require an actual rendered UI.
+                // This is not a test pass unless the Settings control appears.
+                val shellStart = runCatching {
+                    ui.executeShellCommand("am start -W -n $PKG/.ui.MainActivity")
+                }.getOrElse { "activity-manager error: ${it.message}" }
+                check(ui.wait(Until.hasObject(res("settings")), 10_000L)) {
+                    "the search activity never appeared after context and shell launches: " +
+                        shellStart.take(200)
+                }
             }
         }
     }
