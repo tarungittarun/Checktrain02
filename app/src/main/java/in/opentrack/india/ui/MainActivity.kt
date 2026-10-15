@@ -81,10 +81,13 @@ class MainActivity : AppCompatActivity() {
         vm.phase.observe(this) { renderPhase(it) }
         vm.results.observe(this) { it?.let { r -> renderReport(r) } }
         vm.liveNote.observe(this) {
-            if (vm.results.value != null) binding.statusLine.visibility = View.VISIBLE
-            binding.statusLine.text = composeStatus()
-            // the merged screen, re-stated once the live answer lands: the upgrade is part of the record
+            // LiveData immediately dispatches its initial null. Before any search that is NOT a
+            // blank live result: rendering composeStatus() here erased the visible "Unpacking…"
+            // first-frame message while the timetable was still being extracted. Only a search
+            // result has a status sentence for this observer to enrich.
             vm.results.value?.let { r ->
+                binding.statusLine.visibility = View.VISIBLE
+                binding.statusLine.text = composeStatus()
                 Diary.get()?.log("UISTATE") {
                     UiState.list(
                         r.from?.code ?: "?", r.to?.code ?: "?", r.hits.size, vm.liveNote.value, r.hits,
@@ -243,11 +246,13 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             is MainViewModel.Phase.Ready -> {
+                // Fill and reveal the installed-data chip before hiding the preparation message.
+                // There must be no frame where both answers are empty on a fast first launch.
+                binding.dataChip.text = phase.dataVersion
+                binding.dataChip.visibility = View.VISIBLE
                 // A completed search also ends in Ready. Do not hide the very answer that
                 // renderReport just wrote (especially "no trains" and unknown-station advice).
                 binding.statusLine.visibility = if (vm.results.value == null) View.GONE else View.VISIBLE
-                binding.dataChip.visibility = View.VISIBLE
-                binding.dataChip.text = phase.dataVersion
                 binding.find.isEnabled = true
             }
             is MainViewModel.Phase.Broken -> {

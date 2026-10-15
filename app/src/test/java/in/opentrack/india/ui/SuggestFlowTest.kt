@@ -70,6 +70,19 @@ class SuggestFlowTest {
     }
 
     @Test
+    fun firstFrameKeepsInstallProgressUntilInstalledChipHasText() {
+        val activity = Robolectric.buildActivity(MainActivity::class.java).setup().get()
+        val status = activity.findViewById<TextView>(R.id.statusLine)
+        val chip = activity.findViewById<TextView>(R.id.dataChip)
+        // The initial null live-note observer used to overwrite the layout's opening text,
+        // while the asynchronous database extraction had not produced a Ready chip yet.
+        assertTrue("cold screen has neither progress nor installed data: " +
+            "status='${status.text}' (${status.visibility}), chip='${chip.text}' (${chip.visibility})",
+            (status.visibility == View.VISIBLE && status.text.isNotBlank()) ||
+                (chip.visibility == View.VISIBLE && chip.text.isNotBlank()))
+    }
+
+    @Test
     fun typingThreeLettersIntoTheBoardBoxNeverAnswersWithSilence() {
         val activity = Robolectric.buildActivity(MainActivity::class.java).setup().get()
         val from = box(activity, R.id.fromBox)
