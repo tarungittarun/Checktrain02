@@ -41,6 +41,26 @@ class InlineRouteRenderTest {
         assertEquals(View.GONE, holder.inlineLegGroup.visibility)
     }
 
+    @Test fun officialStopHasVisibleBluePinnedLocomotiveNotAnInterpolatedPosition() {
+        val ctx = RuntimeEnvironment.getApplication()
+        val adapter = StopAdapter()
+        adapter.sourceNameForMarker = "NTES"
+        adapter.setProjectedLeg(RouteBetween.LegProjection("Arasalu", "Kumsi", 0f,
+            "Arasalu", 57, "ARU", "KMSI", emptyList(), RouteBetween.MarkerKind.REPORTED_HALT))
+        adapter.legAgeSeconds = 12 * 60L
+        val row = TrackModel.Stop(1, "ARU", "Arasalu", 960, 961,
+            961, null, null, TrackModel.MinuteSource.REPORTED, "1",
+            TrackModel.State.PASSED, true, 57, 0, 15, false, false, false, -12)
+        adapter.submitList(listOf(row))
+        val holder = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
+        adapter.onBindViewHolder(holder, 0)
+        assertEquals(View.VISIBLE, holder.inlineLegGroup.visibility)
+        assertTrue(holder.inlineLegCaption.text.contains("NTES last reported Arasalu"))
+        assertTrue(holder.inlineLegCaption.text.contains("between-stop position unknown"))
+        assertEquals(12 * 60L, holder.inlineLeg.ageSeconds)
+        assertEquals(0f, holder.inlineLeg.projection!!.fraction, .001f)
+    }
+
     @Test fun websiteLastStopIsPinnedAtHaltAndAgesWithoutMovingAlongLeg() {
         val ctx = RuntimeEnvironment.getApplication()
         val adapter = StopAdapter()

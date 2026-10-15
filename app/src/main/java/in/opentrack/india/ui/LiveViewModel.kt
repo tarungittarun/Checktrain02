@@ -232,6 +232,9 @@ class LiveViewModel(
     private val latestManualProbeOrder = mutableMapOf<String, Long>()
     private var firstSourceSurveyStarted = false
     private val publicChecks = mutableMapOf<String, PublicPageChecks.Result>()
+    /** Forward-only floor for website claims within this screen's single selected origin run.
+     * A regressing reply is not turned into a new event or a refreshed old timestamp. */
+    private var maxOrgWebsiteKm = -1
     /** Phone-measured wall time for the selected source, not a synthetic network speed claim. */
     private val manualProbeMs = mutableMapOf<String, Long>()
 
@@ -313,18 +316,32 @@ class LiveViewModel(
                     Diary.get()?.log("SOURCE", "ignoring older $name reply after a newer probe started")
                     return@launch
                 }
-                publicChecks[name] = result
+                val resolved = if (name == PublicPageChecks.ORG && result.orgReport != null) {
+                    val previous = publicChecks[name]?.orgReport
+                    val accepted = `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.forwardOnly(
+                        previous, result.orgReport, maxOrgWebsiteKm, route,
+                        System.currentTimeMillis())
+                    if (accepted === result.orgReport) {
+                        accepted?.let { `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.routeKm(it, route) }
+                            ?.let { maxOrgWebsiteKm = maxOf(maxOrgWebsiteKm, it) }
+                        result
+                    } else result.copy(orgReport = accepted,
+                        detail = result.detail + if (accepted == null)
+                            " Newer page regressed behind a previously reached station; position unknown."
+                        else " Newer page regressed; holding the previous reported station until its original clock expires.")
+                } else result
+                publicChecks[name] = resolved
                 manualProbeMs[name] = System.currentTimeMillis() - started
                 if (select) mirrorActiveSource = name
                 _ui.value?.let { u -> _ui.value = buildUi(u.route, lastAnswer ?: u.answer, u.tried) }
-                if (select) _mirrorState.value = result.detail
-                Diary.get()?.log("SOURCE", "$name: ${result.detail}")
-                if (name == PublicPageChecks.ORG && result.pageAnswered &&
+                if (select) _mirrorState.value = resolved.detail
+                Diary.get()?.log("SOURCE", "$name: ${resolved.detail}")
+                if (name == PublicPageChecks.ORG && resolved.pageAnswered &&
                     (_ui.value?.staticRoute?.stops?.size ?: 0) > (mapAtRequest?.stops?.size ?: 0)) {
                     Diary.get()?.log("SOURCE", "static map arrived during website request; rechecking intermediate stops")
                     probeSource(name, select = false, allowMapRecheck = true)
                 }
-                result.orgReport?.let { website ->
+                resolved.orgReport?.let { website ->
                     val last = website.rows[website.anchorCode]
                     Diary.get()?.log("ORG") {
                         "source-selected=$name train=$trainNo run=${RailTime.formatDate(originEpochDay)} " +
@@ -339,10 +356,10 @@ class LiveViewModel(
                 }
                 // Locally expire a provider's response-clock claim after five minutes.
                 // No automatic network poll; a static old claim must not linger as current.
-                (result.stationClaim?.updateAt ?: result.orgReport?.pageUpdatedAt)?.let { publishedAt ->
+                (resolved.stationClaim?.updateAt ?: resolved.orgReport?.pageUpdatedAt)?.let { publishedAt ->
                     viewModelScope.launch {
                         delay((publishedAt + 300_001L - System.currentTimeMillis()).coerceAtLeast(1_000L))
-                        if (mirrorActiveSource == name && publicChecks[name] === result)
+                        if (mirrorActiveSource == name && publicChecks[name] === resolved)
                             _ui.value?.let { u ->
                                 _ui.value = buildUi(u.route, lastAnswer ?: u.answer, u.tried)
                             }

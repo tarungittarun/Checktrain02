@@ -84,6 +84,21 @@ class RouteBetweenTest {
         assertEquals(null, halts.stops[1].actualArrivalMin)
     }
 
+    @Test fun officialStopMarkerUsesDatedHaltEvenWithoutExpandedMap() {
+        val halts = route.copy(stops = route.stops.filter { it.isHalt }
+            .mapIndexed { i, s -> s.copy(seq = i + 1) })
+        val marker = RouteBetween.reportedHaltLeg(halts, null, "AAA")!!
+        assertEquals(RouteBetween.MarkerKind.REPORTED_HALT, marker.markerKind)
+        assertEquals(0f, marker.fraction, .001f)
+        assertEquals("CCC", marker.toCode)
+        assertTrue(marker.points.isEmpty())
+        assertEquals("BBB", RouteBetween.reportedHaltLeg(halts, route, "AAA")!!
+            .points.single().code)
+        assertEquals(null, RouteBetween.reportedHaltLeg(halts, route, "DDD"))
+        assertEquals(null, RouteBetween.reportedHaltLeg(halts,
+            route.copy(trainNo = "wrong"), "AAA"))
+    }
+
     @Test fun websiteHaltMarkerStaysAtZeroWithoutInventingBetweenStopDistance() {
         val halts = route.copy(stops = route.stops.filter { it.isHalt }
             .mapIndexed { i, s -> s.copy(seq = i + 1) })
@@ -96,7 +111,10 @@ class RouteBetweenTest {
         assertEquals(null, RouteBetween.siteLastStopLeg(halts, route, "DDD"))
         assertEquals(null, RouteBetween.siteLastStopLeg(halts,
             route.copy(trainNo = "another train"), "AAA"))
-        assertEquals(null, RouteBetween.siteLastStopLeg(halts, null, "AAA"))
+        val withoutMap = RouteBetween.siteLastStopLeg(halts, null, "AAA")!!
+        assertEquals(RouteBetween.MarkerKind.SITE_LAST_STOP, withoutMap.markerKind)
+        assertEquals(0f, withoutMap.fraction, .001f)
+        assertTrue(withoutMap.points.isEmpty())
         assertEquals(null, RouteBetween.siteLastStopLeg(halts, route, "BBB"))
     }
 

@@ -52,8 +52,9 @@ class InlineLegView @JvmOverloads constructor(
         paint.strokeWidth = dp(3f)
         paint.color = context.getColor(R.color.stroke)
         canvas.drawLine(x, top, x, end, paint)
-        val markerColor = context.getColor(if (leg.markerKind !=
-            RouteBetween.MarkerKind.PROJECTED) R.color.warn else R.color.live)
+        val markerColor = context.getColor(if (leg.markerKind in listOf(
+                RouteBetween.MarkerKind.PROJECTED, RouteBetween.MarkerKind.REPORTED_HALT))
+            R.color.live else R.color.warn)
         paint.color = markerColor
         canvas.drawLine(x, top, x, top + span * leg.fraction, paint)
         paint.color = context.getColor(R.color.text2)

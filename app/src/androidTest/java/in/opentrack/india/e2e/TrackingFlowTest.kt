@@ -140,11 +140,15 @@ class TrackingFlowTest {
     // @flow projected-leg-honesty
     @Test
     fun actualPositionOnlyDoesNotRenderInterpolatedTrain() {
-        // NTES supplies stop events, not a measured moving coordinate. No icon may
-        // claim a fractional location along the next leg on this screen.
+        // NTES supplies stop events, not a measured moving coordinate. If the
+        // latest response has a timed halt, the icon may be PINNED there at 0%;
+        // it must never advance fractionally with the wall clock.
         assertTrue("no station table to place the train in", E2E.count(stopsBy) > 0)
-        assertTrue("time-interpolated train icon appeared in position-only mode",
-            E2E.find("inlineLeg", 500) == null)
+        if (E2E.find("inlineLeg", 500) != null) {
+            val caption = E2E.text("inlineLegCaption")
+            assertTrue("marker falsely projects an NTES moving position: $caption",
+                caption.contains("last reported") && caption.contains("position unknown"))
+        }
         assertTrue("a railway feed was labelled device GPS",
             !E2E.text("provenance").contains("GPS", true))
     }

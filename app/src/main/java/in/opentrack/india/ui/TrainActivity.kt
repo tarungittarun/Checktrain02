@@ -376,7 +376,16 @@ class TrainActivity : AppCompatActivity() {
                     it.source == TrackModel.MinuteSource.SITE_REPORTED })
                 RouteBetween.siteLastStopLeg(ui.route, ui.staticRoute, report.anchorCode)
             else null
-        }
+        } ?: if (ui.activeSource in setOf("NTES (official)", "erail", "last known",
+                `in`.opentrack.india.v2.mirror.RunningStatusMirror.SOURCE,
+                `in`.opentrack.india.v2.mirror.ConfirmTktMirror.SOURCE)) {
+            val reported = m.rows.firstOrNull { it.code.equals(ui.anchorCode, true) &&
+                it.source == TrackModel.MinuteSource.REPORTED &&
+                (it.showArr != null || it.showDep != null) } ?: m.rows.lastOrNull {
+                it.source == TrackModel.MinuteSource.REPORTED &&
+                    (it.showArr != null || it.showDep != null) }
+            reported?.let { RouteBetween.reportedHaltLeg(ui.route, ui.staticRoute, it.code) }
+        } else null
         val (badgeBg, badgeText) = when (m.tone) {
             TrackModel.Tone.LIVE_OK, TrackModel.Tone.LIVE_EARLY ->
                 R.drawable.bg_badge_live to R.color.live
@@ -535,6 +544,9 @@ class TrainActivity : AppCompatActivity() {
         // the selected site's qualified claim without repeating an excerpt at the halt.
         stopAdapter.reports = ui.sourceLines[ui.activeSource] ?: ui.reports
         stopAdapter.setRoutePoints(RouteBetween.groupedPoints(ui.staticRoute, ui.route))
+        stopAdapter.sourceNameForMarker = if (ui.activeSource == "NTES (official)") "NTES"
+            else if (ui.activeSource == "last known") "Saved report"
+            else ui.activeSource ?: "Source"
         stopAdapter.setProjectedLeg(leg)
         renderSourceChips(ui)
         updateTableMarker(ui)
@@ -653,9 +665,18 @@ class TrainActivity : AppCompatActivity() {
             } else null
         // The marker never moves with this clock. Recompute only the age of the
         // source's last event, including a website halt at 0% of the next leg.
-        stopAdapter.legAgeSeconds = (ui.wimtWebPoint?.eventAtMillis
+        val timedHalt = rows.firstOrNull { it.code.equals(anchor, true) &&
+            it.source == TrackModel.MinuteSource.REPORTED &&
+            (it.showDep != null || it.showArr != null) } ?: rows.lastOrNull {
+            it.source == TrackModel.MinuteSource.REPORTED &&
+                (it.showDep != null || it.showArr != null) }
+        val eventAt = ui.wimtWebPoint?.eventAtMillis
             ?: ui.orgWebsiteReport?.let { RailTime.railMinuteToEpochMillis(vm.originDate,
-                it.eventMinute) })?.let { ((now - it).coerceAtLeast(0L) / 1_000L) }
+                it.eventMinute) }
+            ?: (timedHalt?.showDep ?: timedHalt?.showArr)?.let {
+                RailTime.railMinuteToEpochMillis(vm.originDate, it)
+            }
+        stopAdapter.legAgeSeconds = eventAt?.let { ((now - it).coerceAtLeast(0L) / 1_000L) }
     }
 
     private fun showRefreshFeedback() {

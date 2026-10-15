@@ -58,7 +58,7 @@ object RouteBetween {
     /** A *projected* train icon within the two NTES halts. Never display this as observed
      * GPS or as an actual passage through an intermediate point. Hide on stale/schedule-only data. */
     data class LegPoint(val code: String, val name: String, val mapKm: Int, val fraction: Float)
-    enum class MarkerKind { PROJECTED, WEB_CACHE_CANDIDATE, SITE_INTERMEDIATE, SITE_LAST_STOP }
+    enum class MarkerKind { PROJECTED, WEB_CACHE_CANDIDATE, SITE_INTERMEDIATE, SITE_LAST_STOP, REPORTED_HALT }
     data class LegProjection(
         val from: String, val to: String, val fraction: Float,
         val nearestPoint: String?, val estimateKm: Int,
@@ -96,8 +96,18 @@ object RouteBetween {
     /** No measured between-stop distance: pin the locomotive to the site's last reported
      * halt, at ZERO of the next scheduled leg. This is deliberately not the current
      * position. Only use a train-matched, ordered map with usable distances for the ticks. */
-    fun siteLastStopLeg(halts: TrainRoute, map: TrainRoute?, anchorCode: String): LegProjection? {
-        if (map == null || withVerifiedHalts(map, halts) == null) return null
+    fun siteLastStopLeg(halts: TrainRoute, map: TrainRoute?, anchorCode: String): LegProjection? =
+        lastReportedLeg(halts, map ?: halts, anchorCode, MarkerKind.SITE_LAST_STOP)
+
+    /** NTES or another source with an actual stop minute: pin at that reported halt.
+     * A timetable alone never calls this. If the expanded map is unavailable, the
+     * dated halt timetable still supplies bounding halts, but no intermediate ticks. */
+    fun reportedHaltLeg(halts: TrainRoute, map: TrainRoute?, anchorCode: String): LegProjection? =
+        lastReportedLeg(halts, map ?: halts, anchorCode, MarkerKind.REPORTED_HALT)
+
+    private fun lastReportedLeg(halts: TrainRoute, map: TrainRoute, anchorCode: String,
+                                kind: MarkerKind): LegProjection? {
+        if (withVerifiedHalts(map, halts) == null) return null
         val i = halts.stops.indexOfFirst { it.code.equals(anchorCode, true) }
         if (i < 0 || i >= halts.stops.lastIndex) return null
         val from = halts.stops[i]; val to = halts.stops[i + 1]
@@ -110,7 +120,7 @@ object RouteBetween {
         }.map { LegPoint(it.code, it.name, it.schedKm,
             (it.schedKm - mapFrom).toFloat() / (mapTo - mapFrom)) }
         return LegProjection(from.name, to.name, 0f, from.name, from.schedKm,
-            from.code, to.code, points, MarkerKind.SITE_LAST_STOP)
+            from.code, to.code, points, kind)
     }
 
     /** The site's past card names a NON-HALT point, while an independent static map

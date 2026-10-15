@@ -31,6 +31,23 @@ object OrgWebsiteStatus {
     )
     data class Outcome(val report: Report?, val reason: String)
 
+    /** A newer website reply can omit/retract a previously reached card. Do not turn that
+     * into backwards motion. The floor is scoped by the caller to ONE train and origin run.
+     * A prior card may be retained only inside its original five-minute freshness window;
+     * once stale, show no position rather than resurrecting it with a newer page clock. */
+    fun routeKm(report: Report, route: TrainRoute): Int? = report.intermediate?.mapKm
+        ?: route.stops.firstOrNull { it.code.equals(report.anchorCode, true) }?.schedKm
+            ?.takeIf { it >= 0 }
+
+    fun forwardOnly(previous: Report?, next: Report?, floorKm: Int, route: TrainRoute,
+                    now: Long): Report? {
+        if (next == null) return null
+        val km = routeKm(next, route) ?: return null
+        if (km >= floorKm) return next
+        return previous?.takeIf { old -> routeKm(old, route)?.let { it >= floorKm } == true &&
+            now - old.pageUpdatedAt in 0L..300_000L }
+    }
+
     // The page update clock includes seconds (06:06:19 AM) while station cells do
     // not (05:50 AM). Parse the whole value; otherwise a substring matcher sees
     // "06:19 AM" inside 06:06:19 and invents a thirteen-minute-future clock.
@@ -114,11 +131,16 @@ object OrgWebsiteStatus {
             val code = heading.find(part)?.groupValues?.get(1)?.uppercase(Locale.ROOT) ?: continue
             val stop = byCode[code] ?: continue
             val leg = if (stop.isHalt) null else (inLeg[code] ?: continue)
-            // green = the website's own *past* card. White is an upcoming forecast,
-            // even if it prints two clock values. We do not infer passing from our clock.
+            // Green is a past card. The owner's 16205 screenshots and a read-only
+            // 17:20 HTML trial also show a BLUE SMET card with a past 16:48 arrival,
+            // even after later BDVT/MSS cards are green. Blue is not proof by itself:
+            // require a distinct schedule-paired arrival that is already in the past.
+            // White is upcoming and must NEVER create a reported minute.
             val className = Regex("(?i)^\\s*<div\\s+class=\"([^\"]+)\"").find(part)
                 ?.groupValues?.get(1).orEmpty()
-            if (!className.contains("bg-green-50") || !className.contains("opacity-90")) continue
+            val pastCard = className.contains("bg-green-50") && className.contains("opacity-90")
+            val highlightedCard = className.contains("bg-blue-50")
+            if (!pastCard && !highlightedCard) continue
             if (stop.seq <= previousSeq) continue
             val arrSection = part.substringAfter("<!-- Arrival -->", "").substringBefore("<!-- Departure -->")
             val depSection = part.substringAfter("<!-- Departure -->", "").take(900)
@@ -146,6 +168,9 @@ object OrgWebsiteStatus {
             val arrival = published(arrSection, stop.arrivalMin)
             val departure = published(depSection, stop.departureMin)
             val arr = arrival?.first
+            // A blue highlight can mark a special halt OR a current/upcoming card.
+            // Without its own past, schedule-paired arrival it is still a forecast.
+            if (highlightedCard && arr == null) continue
             var dep = departure?.first
             if (arr != null && dep != null && dep < arr) dep = null
             // A passing point with a departure-only clock could be the site's

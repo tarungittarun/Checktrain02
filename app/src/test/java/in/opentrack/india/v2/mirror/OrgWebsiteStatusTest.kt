@@ -114,6 +114,66 @@ class OrgWebsiteStatusTest {
         assertNull(OrgWebsiteStatus.parse(futureGreen, "16227", day, now, route).report)
     }
 
+    @Test fun `16205 blue highlighted reached halt cannot make later refresh jump back`() {
+        val runDay = day + 1 // 15 Oct, unlike the overnight 16227 fixture
+        val halts = TrainRoute("16205", "Mysuru", "TLGP", "Talguppa", "MYS", "Mysuru",
+            372, 450, 127, null, listOf(
+                stop(1, "TLGP", null, 890, 0),
+                stop(2, "KMSI", 975, 976, 72),
+                stop(3, "SMET", 1005, 1010, 98),
+                stop(4, "BDVT", 1028, 1030, 116),
+                stop(5, "MYS", 1350, null, 372)), emptyList())
+        val map = halts.copy(stops = listOf(halts.stops[0], halts.stops[1], halts.stops[2],
+            stop(4, "SME", 1013, 1013, 99).copy(isHalt = false),
+            stop(5, "BEI", 1018, 1018, 105).copy(isHalt = false),
+            halts.stops[3].copy(seq = 6), halts.stops[4].copy(seq = 7)))
+        fun page(clock: String, beiStyle: String): String = """
+            <h1>16205</h1> Source: TLGP Destination: MYS Last Updated: $clock
+            ${card("KMSI", "bg-green-50 opacity-90", "04:21 PM", "04:15 PM", "04:25 PM", "04:16 PM")}
+            ${card("SMET", "bg-blue-50", "04:48 PM", "04:45 PM", "04:50 PM", "04:50 PM")}
+            ${card("BEI", beiStyle, "05:03 PM", "04:58 PM", "05:04 PM", "04:58 PM")}
+            ${card("BDVT", "bg-blue-50", "05:10 PM", "05:08 PM", "05:12 PM", "05:10 PM")}
+            ${card("MYS", "bg-white", "10:20 PM", "10:30 PM", "10:35 PM", "10:35 PM")}
+        """.trimIndent()
+        val early = OrgWebsiteStatus.parse(page("05:08:45 PM", "bg-green-50 opacity-90"),
+            "16205", runDay, `in`.opentrack.india.core.RailTime.railMinuteToEpochMillis(
+                runDay, 17 * 60 + 9), halts, map).report!!
+        assertEquals("BEI", early.anchorCode)
+        assertEquals(105, early.intermediate?.mapKm)
+        val later = OrgWebsiteStatus.parse(page("05:11:45 PM", "bg-white"),
+            "16205", runDay, `in`.opentrack.india.core.RailTime.railMinuteToEpochMillis(
+                runDay, 17 * 60 + 12), halts, map).report!!
+        assertEquals("BDVT", later.anchorCode) // not KMSI, even when BEI is absent
+        assertEquals(17 * 60 + 10, later.rows["BDVT"]?.actualArrivalMin)
+        assertNull("last blue card departure is provisional", later.rows["BDVT"]?.actualDepartureMin)
+        assertNull("white future MYS is not actual", later.rows["MYS"])
+        val earlyKm = OrgWebsiteStatus.routeKm(early, halts)!!
+        val laterKm = OrgWebsiteStatus.routeKm(later, halts)!!
+        assertTrue(laterKm > earlyKm)
+        assertEquals(later, OrgWebsiteStatus.forwardOnly(early, later, earlyKm, halts,
+            later.pageUpdatedAt))
+        // If another reply regresses to a previously passed station, keep the
+        // original report while fresh. Never advance its page/event clock.
+        val regressed = early.copy(anchorCode = "KMSI", intermediate = null,
+            eventMinute = 16 * 60 + 21, pageUpdatedAt = later.pageUpdatedAt + 60_000)
+        assertEquals(later, OrgWebsiteStatus.forwardOnly(later, regressed, laterKm, halts,
+            regressed.pageUpdatedAt))
+        assertNull(OrgWebsiteStatus.forwardOnly(later, regressed, laterKm, halts,
+            later.pageUpdatedAt + 301_000)) // old report expired; unknown, not KMSI
+    }
+
+    @Test fun `blue highlight alone or a single schedule clock is never a reported arrival`() {
+        val blue = page.replace("bg-green-50 opacity-90", "bg-blue-50")
+        assertEquals("ARU", OrgWebsiteStatus.parse(blue, "16227", day, now, route).report?.anchorCode)
+        assertNull(OrgWebsiteStatus.parse(blue.replace("05:50 AM", "05:43 AM"),
+            "16227", day, now, route).report)
+        assertNull(OrgWebsiteStatus.parse(blue.replace("05:50 AM", "06:30 AM"),
+            "16227", day, now, route).report)
+        assertNull(OrgWebsiteStatus.parse(blue.replace(
+            "<div class=\"text-xs text-gray-400\">05:43 AM</div>", ""),
+            "16227", day, now, route).report)
+    }
+
     @Test fun `wrong endpoints stale clock and a different origin run cannot anchor`() {
         assertNull(OrgWebsiteStatus.parse(page.replace("Source: MYS", "Source: SBC"),
             "16227", day, now, route).report)

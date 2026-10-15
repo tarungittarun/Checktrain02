@@ -115,6 +115,10 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
     private var expandedCode: String? = null
     private var routePoints: Map<String, List<StopRow>> = emptyMap()
     private var projectedLeg: RouteBetween.LegProjection? = null
+    var sourceNameForMarker: String = "NTES"
+        set(value) {
+            if (field != value) { field = value; if (projectedLeg != null) notifyDataSetChanged() }
+        }
     var legAgeSeconds: Long? = null
         set(value) {
             if (field?.div(60) != value?.div(60)) {
@@ -291,16 +295,19 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             val web = leg.markerKind == RouteBetween.MarkerKind.WEB_CACHE_CANDIDATE
             val site = leg.markerKind == RouteBetween.MarkerKind.SITE_INTERMEDIATE
             val siteHalt = leg.markerKind == RouteBetween.MarkerKind.SITE_LAST_STOP
+            val reportedHalt = leg.markerKind == RouteBetween.MarkerKind.REPORTED_HALT
             val caption = when {
+                reportedHalt -> "${sourceNameForMarker} last reported ${leg.from}; between-stop position unknown · not GPS"
                 siteHalt -> "Website last reported ${leg.from}; between-stop position unknown · not GPS"
                 site -> "Website reports reached ${leg.nearestPoint} · map position at station, not GPS"
                 web -> "WIMT web cache · distance-scaled candidate · unverified, not phone-app GPS"
                 else -> "Projected between ${leg.from} and ${leg.to} · not GPS"
             }
             holder.inlineLegCaption.text = caption
+            holder.inlineLegCaption.setTextColor(ctx.getColor(if (reportedHalt) R.color.live else R.color.warn))
             holder.inlineLeg.contentDescription = caption + " · ${leg.from} to ${leg.to} " +
                 "${(leg.fraction * 100).toInt()} percent of scheduled leg by " +
-                (if (siteHalt) "last reported halt (no measured distance since)"
+                (if (reportedHalt || siteHalt) "last reported halt (no measured distance since)"
                     else if (site) "static map of the site-reported station"
                     else if (web) "web-cache km claim" else "estimated distance")
         }
