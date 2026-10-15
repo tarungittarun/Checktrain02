@@ -447,9 +447,9 @@ jobs:
             location: granted
             offline: true
             monkey: 0
-          - name: api34-settings
-            desc: "api34 / settings: independent device partition"
-            group: settings
+          - name: api34-settings-ui
+            desc: "api34 / settings-ui: independent device partition"
+            group: settings-ui
             optional: false
             api: 34
             img: google_apis
@@ -458,6 +458,17 @@ jobs:
             location: granted
             offline: true
             monkey: 600
+          - name: api34-settings-net
+            desc: "api34 / settings-net: independent device partition"
+            group: settings-net
+            optional: false
+            api: 34
+            img: google_apis
+            abi: x86_64
+            device: pixel_6
+            location: granted
+            offline: true
+            monkey: 0
     steps:
       # A local action is looked up on disk before any of its steps run, so the repo has to be there first:
       # this checkout belongs to the job, not to the action. Without it the job dies with
@@ -780,6 +791,17 @@ jobs:
           java -jar /tmp/jacoco/org.jacoco.cli-0.8.12-nodeps.jar merge "${ec[@]}" --destfile /tmp/merged.ec
           bash tools/ci/jacoco_report.sh /tmp/merged.ec /tmp/cls app/src/main/java /tmp/merged-coverage
           python3 tools/ci/flow_coverage.py --jacoco /tmp/merged-coverage/cov.xml --min-lines 45 --summary
+      - name: Measure cold workflow wall time against the five-minute target
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          created=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq .created_at)
+          elapsed=$(( $(date -u +%s) - $(date -u -d "$created" +%s) ))
+          echo "Cold e2e workflow: ${elapsed}s from run creation to report (target <=300s)" | tee -a "$GITHUB_STEP_SUMMARY"
+          if [ "$elapsed" -gt 300 ]; then
+            echo "::warning::five-minute cold-workflow target missed: ${elapsed}s; GitHub queue, build, SDK install and boot are included"
+          fi
       - name: Post the roll-up onto the commit
         if: always()
         env:

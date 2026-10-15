@@ -178,8 +178,16 @@ object E2E {
         ctx.startActivity(intent)
         // The package root can match a departing activity or splash window. The Settings
         // button belongs to MainActivity and proves the actual search screen was drawn.
-        check(ui.wait(Until.hasObject(res("settings")), COLD_START_MS)) {
-            "the search activity never appeared"
+        // A cold extraction gets the full budget; ordinary launches should be prompt.
+        // Some API 24 emulator launches are lost behind a still-starting system launcher;
+        // retry the explicit intent once instead of wedging a whole instrument pass for
+        // 120 seconds per test. A genuine app startup failure still fails visibly.
+        val appeared = ui.wait(Until.hasObject(res("settings")), if (cold) COLD_START_MS else 20_000L)
+        if (!appeared) {
+            ctx.startActivity(intent)
+            check(ui.wait(Until.hasObject(res("settings")), 20_000L)) {
+                "the search activity never appeared after two explicit launches"
+            }
         }
     }
 

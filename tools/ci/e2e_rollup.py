@@ -46,7 +46,10 @@ def main() -> int:
         print("::error::no e2e row reported anything - the matrix did not run")
         return 1
     groups = ("station0", "station1", "train", "track0", "track1", "track2", "settings")
-    expected = {f"api34-{group}" for group in groups}
+    # The modern settings row is split so cold/UI and live-feed/offline checks
+    # run on separate emulators; older/density profiles still use one settings row.
+    expected = {f"api34-{group}" for group in groups if group != "settings"}
+    expected |= {"api34-settings-ui", "api34-settings-net"}
     if os.environ.get("E2E_FULL") == "true":
         expected |= {f"{device}-{group}" for device in ("min24", "density") for group in groups}
         expected.add("release")

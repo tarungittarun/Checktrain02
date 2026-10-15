@@ -64,7 +64,7 @@ inputs:
     required: false
     default: ""
   group:
-    description: "parallel device partition: station0/1, train, track0/1/2, settings, or release"
+    description: "parallel device partition: station0/1, train, track0/1/2, settings-ui/net, settings, or release"
     required: false
     default: ""
   boot_timeout:
@@ -324,6 +324,22 @@ runs:
             "${sel[@]}" \
             "$TEST_ID/androidx.test.runner.AndroidJUnitRunner" 2>&1 | tee "/tmp/instrument-$label.log"
           local rc=${PIPESTATUS[0]}
+          if [ "$label" = online ] && [ "$rc" = 0 ] &&
+             grep -q 'shortMsg=Process crashed' "/tmp/instrument-$label.log" &&
+             ! grep -Eq 'Tests run: [1-9][0-9]*|OK \([1-9][0-9]* tests?\)' "/tmp/instrument-$label.log"; then
+            # Some hosted API 34 images kill the first instrument process after a
+            # single test dot, report rc=0 and leave no Java crash buffer. Never
+            # count that as a pass; restart this short feed class once, preserving
+            # both raw outputs. A second silent exit still fails the row.
+            echo "::warning::$label instrumentation exited without a summary; retrying once"
+            mv "/tmp/instrument-$label.log" "/tmp/instrument-$label-first.log"
+            adb shell run-as "$APP_ID" rm -f "files/cover-$label.ec" || true
+            timeout "$RUN_TIMEOUT" adb shell am instrument -w -e debug false \
+              "${cover_args[@]}" -e release "$release_flag" \
+              -e offline "${OFFLINE_FLAG:-false}" "${sel[@]}" \
+              "$TEST_ID/androidx.test.runner.AndroidJUnitRunner" 2>&1 | tee "/tmp/instrument-$label.log"
+            rc=${PIPESTATUS[0]}
+          fi
           kill "$HB" 2>/dev/null || true
           set -e
           local secs=$(( $(date +%s) - started ))
@@ -371,7 +387,7 @@ runs:
         # `all` pass it only tests a cold start if AndroidJUnitRunner happens to run ColdStartFlowTest
         # first, and a coin toss is not evidence. `pm clear` here means the app has genuinely never seen
         # the 14 MB timetable, and `-e requireCleared true` makes the test fail if that promise is broken.
-        if [ "$VARIANT" = debug ] && { [ -z "$GROUP" ] || [ "$GROUP" = settings ]; }; then
+        if [ "$VARIANT" = debug ] && { [ -z "$GROUP" ] || [ "$GROUP" = settings ] || [ "$GROUP" = settings-ui ]; }; then
           adb shell pm clear "$APP_ID" || true
           case "$LOCATION" in
             granted) adb shell pm grant "$APP_ID" android.permission.ACCESS_COARSE_LOCATION || true ;;
@@ -383,7 +399,7 @@ runs:
         # Order matters for the rest: the live-feed field test needs the network, so it runs before the
         # radio goes off, and the degradation suite runs with it off. Each pass writes its own coverage
         # file, and the merge below makes the number the suite's coverage rather than one pass of it.
-        if [ "$OFFLINE" = true ] && { [ -z "$GROUP" ] || [ "$GROUP" = settings ]; }; then
+        if [ "$OFFLINE" = true ] && { [ -z "$GROUP" ] || [ "$GROUP" = settings ] || [ "$GROUP" = settings-net ]; }; then
           CLASS_FILTER="in.opentrack.india.realdevice.LiveFeedFieldTest" run_suite online
         fi
         if [ -n "$GROUP" ]; then
@@ -400,10 +416,20 @@ runs:
               idx=${GROUP#track}
               CLASS_FILTER="in.opentrack.india.e2e.TrackingFlowTest" \
                 EXTRA_ARGS="-e numShards 3 -e shardIndex $idx" RUN_TIMEOUT=300 run_suite "$GROUP" ;;
+            settings-ui)
+              CLASS_FILTER="in.opentrack.india.e2e.SettingsFlowTest" run_suite settings
+              CLASS_FILTER="in.opentrack.india.e2e.ColdStartFlowTest" run_suite warm ;;
             settings)
               CLASS_FILTER="in.opentrack.india.e2e.SettingsFlowTest" run_suite settings
               CLASS_FILTER="in.opentrack.india.e2e.DegradationFlowTest" run_suite degradation
               CLASS_FILTER="in.opentrack.india.e2e.ColdStartFlowTest" run_suite warm
+              if [ "$OFFLINE" = true ]; then
+                adb shell svc wifi disable; adb shell svc data disable; sleep 3
+                OFFLINE_FLAG=true CLASS_FILTER="in.opentrack.india.e2e.DegradationFlowTest" run_suite offline
+                adb shell svc wifi enable; adb shell svc data enable; sleep 2
+              fi ;;
+            settings-net)
+              CLASS_FILTER="in.opentrack.india.e2e.DegradationFlowTest" run_suite degradation
               if [ "$OFFLINE" = true ]; then
                 adb shell svc wifi disable; adb shell svc data disable; sleep 3
                 OFFLINE_FLAG=true CLASS_FILTER="in.opentrack.india.e2e.DegradationFlowTest" run_suite offline

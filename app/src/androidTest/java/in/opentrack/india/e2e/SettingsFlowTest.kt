@@ -191,11 +191,19 @@ class SettingsFlowTest {
     private fun fieldOf(id: String) = E2E.find(id, E2E.LOCAL_MS)
 
     private fun typeInBoxField(id: String, value: String): Boolean {
-        val o = fieldOf(id) ?: return false
-        // Through the shared writer, because the field is not empty on the second call (the saved endpoint
-        // is restored to the default at the end of the row) and setText on a non-empty field throws.
-        E2E.setTextIn(o, value)
-        return true
+        // A node can be replaced while Settings refreshes its install-state line.
+        // Reacquire it once on UiAutomator's explicit stale-node signal, but never
+        // treat a missing field or a rejected value as successful input.
+        repeat(2) { attempt ->
+            val field = fieldOf(id) ?: return false
+            try {
+                E2E.setTextIn(field, value)
+                return true
+            } catch (e: androidx.test.uiautomator.StaleObjectException) {
+                if (attempt == 1) throw e
+            }
+        }
+        return false
     }
 
     private fun fieldText(id: String): String = fieldOf(id)?.text.orEmpty().trim()
