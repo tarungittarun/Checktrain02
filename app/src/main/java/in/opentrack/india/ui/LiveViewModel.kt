@@ -1282,6 +1282,13 @@ class LiveViewModel(
         // another). When a live identity reached the device, the label says both readings - the overlay
         // is a sentence, never a silent swap, because the stop table below is still the timetable's.
         val labelled = model.copy(
+            // The raw enum covers real overrides too. A public station claim must not
+            // inherit its generic "LIVE · custom" wording in Info or copied diagnostics.
+            provenanceLabel = when {
+                claimStop != null -> "RailYatri · station claim only"
+                webPoint != null -> "WIMT web · unverified cache point"
+                else -> model.provenanceLabel
+            },
             routeLabel = identityOverlay(route.srcCode, route.dstCode, liveIdentity?.identity)
                 ?.let { "${model.routeLabel} · $it" }
                 ?: model.routeLabel,
