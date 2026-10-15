@@ -42,7 +42,7 @@ railway happens to be reporting today says so, and its test asserts the invarian
 | `distance-ladder` | tracking | Distance is 0 at the first halt, the route total at the last, and never decreases between | `TrackingFlowTest#distancesRunFromZeroToTheTotal` | all |
 | `boarding-alighting` | tracking | The two searched stations are tagged board / get off | `TrackingFlowTest#boardAndAlightAreMarked` | all |
 | `full-route-table` | tracking | Full station table is primary; no separate route-window toggle or hidden-row caption | `TrackingFlowTest#fullRouteIsPrimaryWithoutASeparateWindowControl` | all |
-| `projected-leg-honesty` | tracking | The position-only screen never shows a time-interpolated train icon or labels a railway report as device GPS | `TrackingFlowTest#actualPositionOnlyDoesNotRenderInterpolatedTrain` | all |
+| `projected-leg-honesty` | tracking | No time-interpolated train or device-GPS claim; a timed source stop may show a source-labelled, stationary train pinned at that stop with the between-stop position unknown | `TrackingFlowTest#actualPositionOnlyDoesNotRenderInterpolatedTrain` | all |
 | `table-geometry` | tracking | The full station table has usable dimensions and named rows at the tested screen size | `TrackingFlowTest#tableHasGeometryAtThisDensity` | all |
 | `age-and-provenance` | tracking | The provenance and age chips are never blank; "live" cannot appear on a screen nothing fetched for | `TrackingFlowTest#ageChipNeverOverClaims` | all |
 | `source-disclosure` | tracking | Opening Info explains Act versus Est, position provenance, and that WIMT web cache is not the phone app | `TrackingFlowTest#sourceBlockExplainsTheAnswer` | all |
@@ -132,8 +132,9 @@ Each row posts a comment on the commit even when it is green, led by PASS / FAIL
 the boot seconds, one line per instrumented class (pass or fail, and how long it took), the coverage figure
 and the monkey verdict — the value of a run is proportional to how much of it you can read afterwards.
 
-Two rows run on an ordinary push (`api34`, `min24`); the density and release rows run on a
-`workflow_dispatch` with the `full` checkbox, on a pull request, and on `main`. A dispatch also takes
+The `api34` smoke row runs on an ordinary branch push. A `[e2e-full]` commit,
+`workflow_dispatch` with the `full` checkbox, or a push to `main` also runs `min24`,
+density and release; pull-request events do not duplicate push runs. A dispatch also takes
 `focus: TrackingFlowTest` to re-run one class in a few minutes instead of an hour, and `monkey_events: 0` to
 skip the stability pass. That is a cost decision, not a coverage one: the flows are the same list, and `plan`
 gates them on every event either way.

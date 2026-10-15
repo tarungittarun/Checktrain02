@@ -146,8 +146,13 @@ class TrackingFlowTest {
         assertTrue("no station table to place the train in", E2E.count(stopsBy) > 0)
         if (E2E.find("inlineLeg", 500) != null) {
             val caption = E2E.text("inlineLegCaption")
-            assertTrue("marker falsely projects an NTES moving position: $caption",
-                caption.contains("last reported") && caption.contains("position unknown"))
+            assertTrue("marker falsely projects a moving train: $caption",
+                !caption.contains("Projected between") &&
+                    (caption.contains("position unknown") ||
+                        caption.contains("map position at station") ||
+                        caption.contains("unverified")))
+            assertTrue("marker falsely claims GPS: $caption",
+                caption.contains("not GPS") || caption.contains("not phone-app GPS"))
         }
         assertTrue("a railway feed was labelled device GPS",
             !E2E.text("provenance").contains("GPS", true))

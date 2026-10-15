@@ -7,6 +7,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import `in`.opentrack.india.R
 import `in`.opentrack.india.domain.TrackModel
+import `in`.opentrack.india.domain.RouteBetween
 import `in`.opentrack.india.model.LiveStopFields
 import `in`.opentrack.india.model.SegmentRow
 import `in`.opentrack.india.model.SourceKind
@@ -204,6 +205,35 @@ Render.save("02-track-live", shot.bitmap)
         assertTrue("train/age did not render inside the reported station row",
             text(reported, R.id.haltMarker).contains("🚆 Last reported stop · 1h 22m ago"))
         assertEquals(View.GONE, list.getChildAt(2).findViewById<View>(R.id.haltMarker).visibility)
+    }
+
+    @Test
+    fun sourceReportedLocomotiveAndStaticPointPaintWithoutImpliedMotion() {
+        val p = pos(anchor = 4, status = StopStatus.DEPARTED, delay = 14, live = true)
+        val m = model(p, now = 432, per = perStop)
+        val static = route.copy(stops = route.stops.take(4) +
+            stop(5, "NMP", "STATIC POINT", null, null, 80).copy(isHalt = false) +
+            route.stops.drop(4))
+        val leg = RouteBetween.reportedHaltLeg(route, static, "DKPT")!!
+        assertEquals(0f, leg.fraction, .001f)
+        assertEquals(19f / 46f, leg.points.single().fraction, .001f)
+        val shot = Render.render(R.layout.activity_train) { root ->
+            Render.track(root, m, p, 432)
+            val list = root.findViewById<RecyclerView>(R.id.stops)
+            (list.adapter as StopAdapter).apply {
+                sourceNameForMarker = "NTES"
+                legAgeSeconds = 12 * 60L
+                setProjectedLeg(leg)
+            }
+        }
+        val list = shot.root.findViewById<RecyclerView>(R.id.stops)
+        val reported = list.getChildAt(3)
+        val icon = reported.findViewById<InlineLegView>(R.id.inlineLeg)
+        assertEquals(View.VISIBLE, reported.findViewById<View>(R.id.inlineLegGroup).visibility)
+        assertTrue(icon.contentDescription.contains("static points in order: NMP"))
+        assertTrue(text(reported, R.id.inlineLegCaption).contains("between-stop position unknown"))
+        assertEquals(12 * 60L, icon.ageSeconds)
+        Render.save("07-track-source-reported-halt", shot.bitmap)
     }
 
     @Test

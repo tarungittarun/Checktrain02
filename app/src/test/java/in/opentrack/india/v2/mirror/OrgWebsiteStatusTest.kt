@@ -130,13 +130,14 @@ class OrgWebsiteStatusTest {
         // SMET's blue/two-clock arrival and single-clock departure match the
         // read-only 17:20 source trial. BDVT's blue style is a safety fixture
         // for the owner's later screenshot, not a claimed capture of its HTML.
-        fun page(clock: String, beiStyle: String): String = """
+        fun page(clock: String, beiStyle: String,
+                 bdvtStyle: String = "bg-blue-50"): String = """
             <h1>16205</h1> Source: TLGP Destination: MYS Last Updated: $clock
             ${card("KMSI", "bg-green-50 opacity-90", "04:21 PM", "04:15 PM", "04:25 PM", "04:16 PM")}
             ${card("SMET", "bg-blue-50", "04:48 PM", "04:45 PM", "04:50 PM", "04:50 PM")
                 .replace("<div class=\"text-xs text-gray-400\">04:50 PM</div>", "")}
             ${card("BEI", beiStyle, "05:03 PM", "04:58 PM", "05:04 PM", "04:58 PM")}
-            ${card("BDVT", "bg-blue-50", "05:10 PM", "05:08 PM", "05:12 PM", "05:10 PM")}
+            ${card("BDVT", bdvtStyle, "05:10 PM", "05:08 PM", "05:12 PM", "05:10 PM")}
             ${card("MYS", "bg-white", "10:20 PM", "10:30 PM", "10:35 PM", "10:35 PM")}
         """.trimIndent()
         val early = OrgWebsiteStatus.parse(page("05:08:45 PM", "bg-green-50 opacity-90"),
@@ -148,6 +149,11 @@ class OrgWebsiteStatusTest {
             "16205", runDay, `in`.opentrack.india.core.RailTime.railMinuteToEpochMillis(
                 runDay, 17 * 60 + 12), halts, map).report!!
         assertEquals("BDVT", later.anchorCode) // not KMSI, even when BEI is absent
+        val laterGreen = OrgWebsiteStatus.parse(
+            page("05:11:45 PM", "bg-white", "bg-green-50 opacity-90"),
+            "16205", runDay, `in`.opentrack.india.core.RailTime.railMinuteToEpochMillis(
+                runDay, 17 * 60 + 12), halts, map).report!!
+        assertEquals("BDVT", laterGreen.anchorCode) // 17:20 read-only capture had later green stops
         assertEquals(17 * 60 + 10, later.rows["BDVT"]?.actualArrivalMin)
         assertNull("last blue card departure is provisional", later.rows["BDVT"]?.actualDepartureMin)
         assertNull("white future MYS is not actual", later.rows["MYS"])
