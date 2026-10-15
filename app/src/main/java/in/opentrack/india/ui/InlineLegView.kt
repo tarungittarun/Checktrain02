@@ -52,8 +52,8 @@ class InlineLegView @JvmOverloads constructor(
         paint.strokeWidth = dp(3f)
         paint.color = context.getColor(R.color.stroke)
         canvas.drawLine(x, top, x, end, paint)
-        val markerColor = context.getColor(if (leg.markerKind ==
-            RouteBetween.MarkerKind.WEB_CACHE_CANDIDATE) R.color.warn else R.color.live)
+        val markerColor = context.getColor(if (leg.markerKind !=
+            RouteBetween.MarkerKind.PROJECTED) R.color.warn else R.color.live)
         paint.color = markerColor
         canvas.drawLine(x, top, x, top + span * leg.fraction, paint)
         paint.color = context.getColor(R.color.text2)
@@ -80,14 +80,26 @@ class InlineLegView @JvmOverloads constructor(
             paint.alpha = 255
             postInvalidateDelayed(120L)
         }
-        carriage.set(x - dp(13f), y - dp(11f), x + dp(13f), y + dp(10f))
+        // Draw a small locomotive, not an ambiguous dot/rectangle: raised roof,
+        // two cab windows, lit nose and paired wheels. Marker stays at the source
+        // reading; only the halo animates, never invented movement along the line.
         paint.color = markerColor
+        canvas.drawRoundRect(x - dp(11f), y - dp(14f), x + dp(9f), y - dp(10f),
+            dp(2f), dp(2f), paint)
+        carriage.set(x - dp(15f), y - dp(11f), x + dp(15f), y + dp(9f))
         canvas.drawRoundRect(carriage, dp(5f), dp(5f), paint)
         paint.color = context.getColor(R.color.ink_on_accent)
-        canvas.drawRoundRect(x - dp(9f), y - dp(7f), x + dp(9f), y + dp(1f),
-            dp(2f), dp(2f), paint)
-        canvas.drawCircle(x - dp(7f), y + dp(11f), dp(2.5f), paint)
-        canvas.drawCircle(x + dp(7f), y + dp(11f), dp(2.5f), paint)
+        canvas.drawRoundRect(x - dp(10f), y - dp(7f), x - dp(2f), y + dp(1f),
+            dp(1.5f), dp(1.5f), paint)
+        canvas.drawRoundRect(x + dp(2f), y - dp(7f), x + dp(9f), y + dp(1f),
+            dp(1.5f), dp(1.5f), paint)
+        canvas.drawCircle(x + dp(13f), y + dp(4f), dp(1.7f), paint)
+        paint.color = markerColor
+        canvas.drawCircle(x - dp(8f), y + dp(11f), dp(3f), paint)
+        canvas.drawCircle(x + dp(8f), y + dp(11f), dp(3f), paint)
+        paint.color = context.getColor(R.color.ink_on_accent)
+        canvas.drawCircle(x - dp(8f), y + dp(11f), dp(1.2f), paint)
+        canvas.drawCircle(x + dp(8f), y + dp(11f), dp(1.2f), paint)
         ageSeconds?.takeIf { it >= 60 }?.let { seconds ->
             paint.color = markerColor
             paint.textSize = dp(11f)

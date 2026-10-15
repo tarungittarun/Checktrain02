@@ -276,7 +276,8 @@ class LiveViewModel(
                 val result = withContext(Dispatchers.IO) {
                     PublicPageChecks.fetch(Http(app), name, trainNo, originEpochDay,
                         System.currentTimeMillis(), route.srcCode, route.dstCode,
-                        route.stops.map { it.code.uppercase() }.toSet(), route)
+                        route.stops.map { it.code.uppercase() }.toSet(), route,
+                        _ui.value?.staticRoute ?: geoRoute ?: confirmStaticRoute)
                 }
                 if (_ui.value == null) return@launch
                 publicChecks[name] = result
@@ -600,14 +601,32 @@ class LiveViewModel(
 
     /** Prefer another usable, fresh site over NTES. No cached schedule or HTTP 200 is a success. */
     private fun bestAvailableSource(ui: Ui, rejected: String): String? {
-        val preferred = listOf(PublicPageChecks.ORG, WimtCandidate.SOURCE,
-            RunningStatusMirror.SOURCE, ConfirmTktMirror.SOURCE, "erail", "NTES (official)")
+        val officialAge = ui.answer.position.takeIf {
+            it.provenance == SourceKind.PROVIDER_NTES }?.feedAgeSeconds
+        val siteAge = publicChecks[PublicPageChecks.ORG]?.orgReport?.let { report ->
+            (System.currentTimeMillis() - RailTime.railMinuteToEpochMillis(originEpochDay,
+                report.eventMinute)).coerceAtLeast(0L) / 1_000
+        }
+        // If NTES already has a newer event, do not mistake the site's freshly
+        // regenerated page clock for a fresher *train* report.
+        val officialFirst = officialAge != null && siteAge != null &&
+            officialAge + 120 < siteAge
+        val preferred = if (officialFirst)
+            listOf("NTES (official)", PublicPageChecks.ORG, WimtCandidate.SOURCE,
+                RunningStatusMirror.SOURCE, ConfirmTktMirror.SOURCE, "erail")
+            else listOf(PublicPageChecks.ORG, WimtCandidate.SOURCE,
+                RunningStatusMirror.SOURCE, ConfirmTktMirror.SOURCE, "erail", "NTES (official)")
         return preferred.firstOrNull { name ->
             if (name == rejected || ui.sourceStates[name]?.first !in listOf("live", "candidate"))
                 false
             else when (name) {
-                PublicPageChecks.ORG -> publicChecks[name]?.orgReport?.let {
-                    System.currentTimeMillis() - it.pageUpdatedAt in 0L..300_000L
+                PublicPageChecks.ORG -> publicChecks[name]?.orgReport?.let { report ->
+                    System.currentTimeMillis() - report.pageUpdatedAt in 0L..300_000L &&
+                        (ui.route.stops.any { it.code.equals(report.anchorCode, true) } ||
+                            report.intermediate?.let { p ->
+                                RouteBetween.siteIntermediateLeg(ui.route, ui.staticRoute,
+                                    p.precedingHalt, p.followingHalt, p.code, p.mapKm) != null
+                            } == true)
                 } == true
                 WimtCandidate.SOURCE -> wimtCandidate?.webPoint?.let {
                     System.currentTimeMillis() - it.eventAtMillis in 0L..600_000L &&
@@ -874,10 +893,15 @@ class LiveViewModel(
                         full.stops.map { it.code.uppercase() }.filter { it in required } == required
                     }
                 }
-                if (candidate != null && (old.staticRoute?.stops?.size ?: 0) < candidate.stops.size)
+                if (candidate != null && (old.staticRoute?.stops?.size ?: 0) < candidate.stops.size) {
                     _ui.value = old.copy(staticRoute = if (officialStaticKnown)
                         RouteBetween.withVerifiedHalts(candidate, old.route) ?: candidate else candidate,
                         staticRouteSource = "ConfirmTkt")
+                    // An early website reply used halts only. Once a dated, matched
+                    // map arrives, ask it once again for its missing intermediate card.
+                    if (old.staticRoute == null && publicChecks[PublicPageChecks.ORG]?.pageAnswered == true)
+                        probeSource(PublicPageChecks.ORG, select = false)
+                }
             }
         }
     }
@@ -890,7 +914,11 @@ class LiveViewModel(
         viewModelScope.launch {
             val repo = repo() ?: return@launch
             if (loadGeoCache(official, repo)) {
-                _ui.value?.let { _ui.value = it.copy(staticRoute = geoRoute) }
+                _ui.value?.let { u ->
+                    _ui.value = u.copy(staticRoute = geoRoute)
+                    if (u.staticRoute == null && publicChecks[PublicPageChecks.ORG]?.pageAnswered == true)
+                        probeSource(PublicPageChecks.ORG, select = false)
+                }
                 return@launch
             }
             val date = java.text.SimpleDateFormat("d MMM yyyy", java.util.Locale.ENGLISH).apply {
@@ -920,7 +948,11 @@ class LiveViewModel(
             app.getSharedPreferences("railgeo_routes", 0).edit()
                 .putString("$trainNo:$originEpochDay", body)
                 .putLong("$trainNo:$originEpochDay:at", System.currentTimeMillis()).apply()
-            _ui.value?.let { u -> if (u.route.trainNo == trainNo) _ui.value = u.copy(staticRoute = grown) }
+            _ui.value?.let { u -> if (u.route.trainNo == trainNo) {
+                _ui.value = u.copy(staticRoute = grown)
+                if (u.staticRoute == null && publicChecks[PublicPageChecks.ORG]?.pageAnswered == true)
+                    probeSource(PublicPageChecks.ORG, select = false)
+            } }
             Diary.get()?.log("ROUTE") {
                 "RailGeo validated ${grown.stops.size} ordered stations (${grown.stops.count { !it.isHalt }} " +
                     "extra route points with unknown stopping status, no assumed times); official schedule ${official.stops.size} halts"
@@ -1334,10 +1366,15 @@ class LiveViewModel(
         val orgReport = publicChecks[PublicPageChecks.ORG]?.orgReport?.takeIf { report ->
             mirrorActiveSource == PublicPageChecks.ORG &&
                 now - report.pageUpdatedAt in 0L..300_000L &&
-                route.stops.any { it.code.equals(report.anchorCode, true) && it.schedKm >= 0 }
+                (route.stops.any { it.code.equals(report.anchorCode, true) && it.schedKm >= 0 } ||
+                report.intermediate?.let { point ->
+                    RouteBetween.groupedPoints(_ui.value?.staticRoute ?: geoRoute ?: confirmStaticRoute,
+                        route)[point.precedingHalt]?.any { it.code == point.code &&
+                            it.schedKm == point.mapKm } == true
+                } == true)
         }
-        val orgStop = orgReport?.let { report -> route.stops.first {
-            it.code.equals(report.anchorCode, true) } }
+        val orgStop = orgReport?.let { report -> route.stops.firstOrNull {
+            it.code.equals(report.intermediate?.precedingHalt ?: report.anchorCode, true) } }
         val tablePos = when {
             webPoint != null && webAnchor != null -> pos.copy(
                 provenance = SourceKind.PROVIDER_OVERRIDE, anchorSeq = webAnchor.seq,
@@ -1352,7 +1389,7 @@ class LiveViewModel(
                 provenance = SourceKind.PROVIDER_OVERRIDE, anchorSeq = orgStop.seq,
                 nextSeq = route.stops.getOrNull(route.stops.indexOf(orgStop) + 1)?.seq ?: orgStop.seq,
                 fraction = 0f, kmAlong = orgStop.schedKm.toFloat(),
-                status = if (orgReport?.departed == true)
+                status = if (orgReport?.departed == true || orgReport?.intermediate != null)
                     `in`.opentrack.india.model.StopStatus.DEPARTED else
                     `in`.opentrack.india.model.StopStatus.ARRIVED,
                 delayMinutes = null, etaNextMinute = null,
@@ -1554,7 +1591,7 @@ class LiveViewModel(
             reports = selectable[mirrorActiveSource] ?: _ui.value?.reports ?: emptyMap(),
             relayOk = _ui.value?.relayOk ?: true,
             anchorCode = if (webPoint != null) webPoint.precedingHalt
-                else if (orgReport != null) orgReport.anchorCode
+                else if (orgReport != null) orgReport.intermediate?.precedingHalt ?: orgReport.anchorCode
                 else if (railClaim != null) railClaim.code
                 else if (verified != null) lastReported?.code else null,
             actualsHeadline = verified?.first?.let { if (selected == "last known")

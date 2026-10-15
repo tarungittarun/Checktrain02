@@ -58,7 +58,7 @@ object RouteBetween {
     /** A *projected* train icon within the two NTES halts. Never display this as observed
      * GPS or as an actual passage through an intermediate point. Hide on stale/schedule-only data. */
     data class LegPoint(val code: String, val name: String, val mapKm: Int, val fraction: Float)
-    enum class MarkerKind { PROJECTED, WEB_CACHE_CANDIDATE }
+    enum class MarkerKind { PROJECTED, WEB_CACHE_CANDIDATE, SITE_INTERMEDIATE }
     data class LegProjection(
         val from: String, val to: String, val fraction: Float,
         val nearestPoint: String?, val estimateKm: Int,
@@ -91,6 +91,30 @@ object RouteBetween {
             }
         return LegProjection(from.name, to.name, fraction, null, routeKm.toInt(),
             from.code, to.code, points, MarkerKind.WEB_CACHE_CANDIDATE)
+    }
+
+    /** The site's past card names a NON-HALT point, while an independent static map
+     * supplies its distance along the leg. This is position AT that named station,
+     * not a measured location or a claim of progress after leaving it. */
+    fun siteIntermediateLeg(halts: TrainRoute, map: TrainRoute?, fromCode: String,
+                            toCode: String, pointCode: String, pointKm: Int): LegProjection? {
+        if (map == null) return null
+        val i = halts.stops.indexOfFirst { it.code.equals(fromCode, true) }
+        if (i < 0 || i >= halts.stops.lastIndex ||
+            !halts.stops[i + 1].code.equals(toCode, true)) return null
+        val from = halts.stops[i]; val to = halts.stops[i + 1]
+        val mapFrom = map.stops.firstOrNull { it.code.equals(fromCode, true) }?.schedKm ?: -1
+        val mapTo = map.stops.firstOrNull { it.code.equals(toCode, true) }?.schedKm ?: -1
+        val points = followingPoints(map, halts, fromCode).filter { it.schedKm >= 0 }
+        val point = points.firstOrNull { it.code.equals(pointCode, true) &&
+            it.schedKm == pointKm } ?: return null
+        if (mapFrom < 0 || mapTo <= mapFrom || pointKm <= mapFrom || pointKm >= mapTo)
+            return null
+        val projectedPoints = points.filter { it.schedKm in mapFrom..mapTo }.map { p ->
+            LegPoint(p.code, p.name, p.schedKm, (p.schedKm - mapFrom).toFloat() / (mapTo - mapFrom))
+        }
+        return LegProjection(from.name, to.name, (pointKm - mapFrom).toFloat() / (mapTo - mapFrom),
+            point.name, pointKm, from.code, to.code, projectedPoints, MarkerKind.SITE_INTERMEDIATE)
     }
 
     fun projectLeg(halts: TrainRoute, map: TrainRoute?, position: TrainPosition): LegProjection? {

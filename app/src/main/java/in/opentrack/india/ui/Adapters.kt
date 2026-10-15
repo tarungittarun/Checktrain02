@@ -285,17 +285,21 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         val leg = projectedLeg?.takeIf { it.fromCode.equals(s.code, true) }
         holder.inlineLegGroup.visibility = if (leg == null) View.GONE else View.VISIBLE
         holder.inlineLeg.projection = leg
-        holder.inlineLeg.ageSeconds = if (leg?.markerKind == RouteBetween.MarkerKind.WEB_CACHE_CANDIDATE)
+        holder.inlineLeg.ageSeconds = if (leg?.markerKind != RouteBetween.MarkerKind.PROJECTED)
             legAgeSeconds else null
         if (leg != null) {
             val web = leg.markerKind == RouteBetween.MarkerKind.WEB_CACHE_CANDIDATE
-            val caption = if (web)
-                "WIMT web cache · distance-scaled candidate · unverified, not phone-app GPS"
-                else "Projected between ${leg.from} and ${leg.to} · not GPS"
+            val site = leg.markerKind == RouteBetween.MarkerKind.SITE_INTERMEDIATE
+            val caption = when {
+                site -> "Website reports reached ${leg.nearestPoint} · map position at station, not GPS"
+                web -> "WIMT web cache · distance-scaled candidate · unverified, not phone-app GPS"
+                else -> "Projected between ${leg.from} and ${leg.to} · not GPS"
+            }
             holder.inlineLegCaption.text = caption
             holder.inlineLeg.contentDescription = caption + " · ${leg.from} to ${leg.to} " +
                 "${(leg.fraction * 100).toInt()} percent of scheduled leg by " +
-                (if (web) "web-cache km claim" else "estimated distance")
+                (if (site) "static map of the site-reported station"
+                    else if (web) "web-cache km claim" else "estimated distance")
         }
         holder.row.setOnClickListener(if (points.isEmpty()) null else View.OnClickListener {
             val previous = expandedCode

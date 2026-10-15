@@ -57,10 +57,11 @@ class OrgWebsiteStatusTest {
         val out = OrgWebsiteStatus.parse(page, "16227", day, now, route)
         val report = out.report ?: error(out.reason)
         assertEquals("ARU", report.anchorCode)
-        assertTrue(report.departed)
-        assertEquals(1794, report.eventMinute)
+        assertFalse("last departure can drift with page clock", report.departed)
+        assertEquals(1790, report.eventMinute)
         assertEquals(1790, report.rows["ARU"]?.actualArrivalMin)
-        assertEquals(1794, report.rows["ARU"]?.actualDepartureMin)
+        assertNull(report.rows["ARU"]?.actualDepartureMin)
+        assertEquals(1794, report.provisionalDeparture)
         assertEquals("1", report.rows["ARU"]?.platform)
         assertNull(report.rows["ANF"])
         assertTrue(out.reason.contains("origin day inferred"))
@@ -69,7 +70,7 @@ class OrgWebsiteStatusTest {
     @Test fun `parser through station model keeps next stop static and website platform attributed`() {
         val report = OrgWebsiteStatus.parse(page, "16227", day, now, route).report!!
         val pos = TrainPosition(anchorSeq = 2, nextSeq = 3, fraction = 0f,
-            kmAlong = 453f, status = StopStatus.DEPARTED, etaNextMinute = null,
+            kmAlong = 453f, status = StopStatus.ARRIVED, etaNextMinute = null,
             delayMinutes = null, remainingMin = null, provenance = SourceKind.PROVIDER_OVERRIDE,
             confidence = TrainPosition.Confidence.LOW, ageSeconds = 2)
         val model = TrackModel.build(route, pos, report.rows, 1806, 1, 4, day,
@@ -77,10 +78,10 @@ class OrgWebsiteStatusTest {
         val aru = model.rows.first { it.code == "ARU" }
         val future = model.rows.first { it.code == "ANF" }
         assertEquals(1790, aru.showArr)
-        assertEquals(1794, aru.showDep)
+        assertNull(aru.showDep)
         assertEquals("1", aru.platform)
         assertEquals(TrackModel.MinuteSource.REPORTED, aru.source)
-        assertEquals(TrackModel.State.PASSED, aru.state)
+        assertEquals(TrackModel.State.HERE, aru.state)
         assertEquals(TrackModel.MinuteSource.SCHEDULE, future.source)
         assertEquals(1800, future.showArr) // 06:08 website forecast must NOT replace Sch 06:00
         assertNull(future.platform)
@@ -98,7 +99,9 @@ class OrgWebsiteStatusTest {
             route).report!!
         assertEquals("ANF", report.anchorCode)
         assertEquals(1811, report.rows["ANF"]?.actualArrivalMin)
-        assertEquals(1822, report.rows["ANF"]?.actualDepartureMin)
+        assertNull(report.rows["ANF"]?.actualDepartureMin)
+        assertEquals(1822, report.provisionalDeparture)
+        assertEquals(1794, report.rows["ARU"]?.actualDepartureMin)
         assertFalse("published first-clock value changed, not merely the page clock",
             report.rows["ANF"]?.actualArrivalMin == 1808)
     }
@@ -122,6 +125,36 @@ class OrgWebsiteStatusTest {
         assertNull(OrgWebsiteStatus.parse(page, "20689", day, now, route).report)
     }
 
+
+    @Test fun `mapped non-halt is site-attributed at station distance not a measured train km`() {
+        val halts = route.copy(stops = listOf(route.stops[0], route.stops[1],
+            route.stops[3].copy(seq = 3)))
+        val staticMap = route.copy(stops = route.stops.map { point ->
+            if (point.code == "ANF") point.copy(isHalt = false, arrivalMin = null,
+                departureMin = null) else point
+        })
+        val later = page.replace("06:06:19 AM", "06:23:19 AM")
+            .replace("bg-white", "bg-green-50 opacity-90")
+            .replace("06:08 AM", "06:11 AM")
+            .replace("06:10 AM", "06:22 AM")
+        val out = OrgWebsiteStatus.parse(later, "16227", day, now + 17 * 60_000L,
+            halts, staticMap)
+        val report = out.report ?: error(out.reason)
+        assertEquals("ANF", report.anchorCode)
+        assertEquals("ARU", report.intermediate?.precedingHalt)
+        assertEquals("TLGP", report.intermediate?.followingHalt)
+        assertEquals(468, report.intermediate?.mapKm)
+        assertEquals(1800, report.intermediate?.scheduledMinute)
+        assertEquals(1811, report.rows["ANF"]?.actualArrivalMin)
+        assertNull("last card's growing departure isn't a past actual", report.rows["ANF"]?.actualDepartureMin)
+        val leg = `in`.opentrack.india.domain.RouteBetween.siteIntermediateLeg(
+            halts, staticMap, "ARU", "TLGP", "ANF", 468)!!
+        assertEquals(`in`.opentrack.india.domain.RouteBetween.MarkerKind.SITE_INTERMEDIATE,
+            leg.markerKind)
+        assertEquals(15f / 47f, leg.fraction, 0.001f)
+        assertNull(OrgWebsiteStatus.parse(later, "16227", day, now + 17 * 60_000L,
+            halts, null).report?.intermediate)
+    }
     @Test fun `cached HTML cannot publish a fresh website claim`() {
         val fetched = PublicPageChecks.fetch(PublicPageChecks.ORG, "16227", day, now,
             "MYS", "TLGP", route.stops.map { it.code }.toSet(), route) {

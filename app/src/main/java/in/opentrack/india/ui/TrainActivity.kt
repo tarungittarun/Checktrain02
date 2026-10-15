@@ -47,6 +47,7 @@ class TrainActivity : AppCompatActivity() {
     private var focusAfterRefresh = false
     private var receiptReady = false
     private var refreshStartedAt = 0L
+    private var requestedRefreshSource = "NTES (official)"
     private val hideFeedback = Runnable { binding.refreshFeedback.visibility = View.GONE }
     // Age is a local clock display, NOT a network poll or a projected train movement.
     private val ageTicker = object : Runnable {
@@ -95,8 +96,8 @@ class TrainActivity : AppCompatActivity() {
         binding.refresh.setOnClickListener {
             focusAfterRefresh = true
             refreshStartedAt = SystemClock.elapsedRealtime()
+            requestedRefreshSource = lastUi?.activeSource ?: "NTES (official)"
             vm.refresh(manual = true)
-            // The ViewModel rechecks the selected site after the official request finishes.
         }
         vm.liveReceipt.observe(this) {
             if (focusAfterRefresh) {
@@ -330,6 +331,9 @@ class TrainActivity : AppCompatActivity() {
         val leg = ui.wimtWebPoint?.let { p ->
             RouteBetween.webCacheLeg(ui.route, ui.staticRoute,
                 p.precedingHalt, p.followingHalt, p.routeKm)
+        } ?: ui.orgWebsiteReport?.intermediate?.let { p ->
+            RouteBetween.siteIntermediateLeg(ui.route, ui.staticRoute,
+                p.precedingHalt, p.followingHalt, p.code, p.mapKm)
         }
         val (badgeBg, badgeText) = when (m.tone) {
             TrackModel.Tone.LIVE_OK, TrackModel.Tone.LIVE_EARLY ->
@@ -435,6 +439,8 @@ class TrainActivity : AppCompatActivity() {
                 it.code.equals(org.anchorCode, true) }
                 else claim?.let { c -> ui.route.stops.firstOrNull { it.code.equals(c.code, true) } }
             binding.headline.text = when {
+                org?.intermediate != null -> "Site reports reached ${org.intermediate.name} · " +
+                    "${RailTime.formatRailMinute(org.eventMinute)} · position since then unknown"
                 org != null && station != null -> "Site reports " +
                     (if (org.departed) "departed" else "arrived at") + " ${station.name} · " +
                     "${RailTime.formatRailMinute(org.eventMinute)} · current position unknown"
@@ -450,19 +456,33 @@ class TrainActivity : AppCompatActivity() {
             binding.provenance.setBackgroundResource(R.drawable.bg_badge_schedule)
             binding.provenance.setTextColor(getColor(R.color.warn))
             binding.age.text = when {
-                org != null -> "Site updated ${RailTime.formatClock(org.pageUpdatedAt)} IST · not the event time · run day unconfirmed"
+                org != null -> "Site page updated ${RailTime.formatClock(org.pageUpdatedAt)} IST · " +
+                    "not a movement time · site omits run date"
                 claim != null -> "provider updated ${RailTime.formatClock(claim.updateAt)} IST · upstream ${claim.upstream} · not an event time"
                 else -> "No qualifying past-stop report from selected source"
             }
-            binding.delay.text = if (org != null) "— · no independently verified delay"
-                else "— · no verified delay from ${sourceName(publicCheck)}"
+            val siteStop = org?.let { it.rows[it.anchorCode] }
+            val scheduled = org?.intermediate?.scheduledMinute ?: station?.arrivalMin
+            val siteArrivalDelay = if (siteStop?.actualArrivalMin != null && scheduled != null)
+                siteStop.actualArrivalMin - scheduled else null
+            val officialArrival = if (ui.answer.position.provenance ==
+                `in`.opentrack.india.model.SourceKind.PROVIDER_NTES && station != null)
+                ui.answer.perStop[station.code]?.actualArrivalMin else null
+            val agreesWithNtes = siteArrivalDelay != null && officialArrival != null &&
+                siteStop?.actualArrivalMin?.let { kotlin.math.abs(it - officialArrival) <= 2 } == true
+            binding.delay.text = if (siteArrivalDelay != null) {
+                "Site arrival ${if (siteArrivalDelay > 0) "+" else ""}${siteArrivalDelay}m vs schedule" +
+                    if (agreesWithNtes) " · NTES ${officialArrival!! - scheduled!!}m at same stop (may share upstream)"
+                    else " · not independently checked"
+            } else if (org != null) "— · no corroborated delay"
+            else "— · no verified delay from ${sourceName(publicCheck)}"
             binding.delay.setTextColor(getColor(R.color.warn))
-            binding.next.text = if (station != null) {
-                val next = ui.route.stops.getOrNull(ui.route.stops.indexOf(station) + 1)
-                next?.let { "Next scheduled: ${it.name} · " +
-                    ((it.arrivalMin ?: it.departureMin)?.let(RailTime::formatRailMinute) ?: "—") +
-                    " · not a live ETA" } ?: "No next scheduled halt"
-            } else "No source-confirmed next stop · timetable below"
+            val next = org?.intermediate?.let { p -> ui.route.stops.firstOrNull {
+                it.code.equals(p.followingHalt, true) } } ?: station?.let {
+                ui.route.stops.getOrNull(ui.route.stops.indexOf(it) + 1) }
+            binding.next.text = next?.let { "Next scheduled: ${it.name} · " +
+                ((it.arrivalMin ?: it.departureMin)?.let(RailTime::formatRailMinute) ?: "—") +
+                " · not a live ETA" } ?: "No source-confirmed next stop · timetable below"
         }
         binding.note.visibility = if (m.note == null) View.GONE else View.VISIBLE
         m.note?.let { binding.note.text = it }
@@ -473,6 +493,9 @@ class TrainActivity : AppCompatActivity() {
         stopAdapter.setRoutePoints(RouteBetween.groupedPoints(ui.staticRoute, ui.route))
         stopAdapter.legAgeSeconds = ui.wimtWebPoint?.let {
             ((System.currentTimeMillis() - it.eventAtMillis) / 1_000).coerceAtLeast(0)
+        } ?: ui.orgWebsiteReport?.takeIf { it.intermediate != null }?.let { report ->
+            ((System.currentTimeMillis() - RailTime.railMinuteToEpochMillis(vm.originDate,
+                report.eventMinute)) / 1_000).coerceAtLeast(0)
         }
         stopAdapter.setProjectedLeg(leg)
         renderSourceChips(ui)
@@ -536,13 +559,18 @@ class TrainActivity : AppCompatActivity() {
                 // Keep long source diagnostics in the copied diary, not in the tracking UI.
                 append(when (status.first) {
                     "live" -> "reported times available"
-                    "candidate" -> if (name == `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE &&
-                        ui.wimtWebPoint != null) "recent unverified web point; stop times are static"
-                        else "web-cache notes only; not verified actuals"
+                    "candidate" -> when {
+                        name == `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG &&
+                            ui.orgWebsiteReport != null -> "site-published past station times; " +
+                            "last card's departure provisional, not railway Act; site omits run date"
+                        name == `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE &&
+                            ui.wimtWebPoint != null -> "recent unverified web point; stop times are static"
+                        else -> "unverified source claim; not railway actuals"
+                    }
                     "none", "unverified" -> {
                         val rows = Regex("(\\d+) (?:page )?rows").find(status.second)?.groupValues?.get(1)
                         if (status.second.contains("Request failed", ignoreCase = true))
-                            "couldn't connect; try again on a stronger connection"
+                            SourceIndicator.of(name, status.first, status.second).label
                         else if (rows != null) "$rows page rows, no confirmed stop times" else
                             if (status.second.contains("not answered") ||
                                 status.second.contains("manual check available")) "tap to check"
@@ -579,9 +607,9 @@ class TrainActivity : AppCompatActivity() {
         val fromOfficial = ui.activeSource in listOf("NTES (official)", "erail", "last known")
         val anchor = ui.anchorCode ?: if (fromOfficial) ui.answer.anchorStopCode else null
         val now = System.currentTimeMillis()
-        val atAnchor = if (ui.wimtWebPoint == null)
+        val atAnchor = if (ui.wimtWebPoint == null && ui.orgWebsiteReport?.intermediate == null)
             TableMarker.atHalt(rows, anchor, vm.originDate, now) else null
-        stopAdapter.haltMarker = atAnchor ?: if (fromOfficial)
+        stopAdapter.haltMarker = atAnchor ?: if (fromOfficial && ui.orgWebsiteReport?.intermediate == null)
             rows.lastOrNull { it.source == TrackModel.MinuteSource.REPORTED }?.let {
                 TableMarker.atHalt(rows, it.code, vm.originDate, now)
             } else null
@@ -590,21 +618,47 @@ class TrainActivity : AppCompatActivity() {
 
     private fun showRefreshFeedback() {
         val elapsed = (SystemClock.elapsedRealtime() - refreshStartedAt).coerceAtLeast(0L)
-        val u = lastUi
-        val ageSeconds = u?.answer?.position?.feedAgeSeconds ?: u?.answer?.position?.ageSeconds
-        val age = if (u?.answer?.position?.provenance?.live == true && ageSeconds != null)
-            "NTES feed ${ageSeconds / 60}m old" else "no new official report"
-        binding.refreshFeedback.text = "↻ " +
-            String.format(java.util.Locale.ROOT, "%.2f s", elapsed / 1000.0) + " · $age"
+        val ui = lastUi
+        val status = ui?.sourceStates?.get(requestedRefreshSource)
+        val response = status?.second?.let(SourceIndicator::seconds)
+            ?: String.format(java.util.Locale.ROOT, "%.2f s", elapsed / 1000.0)
+        val source = sourceName(requestedRefreshSource)
+        val switched = ui?.activeSource != requestedRefreshSource
+        val now = System.currentTimeMillis()
+        val age = when {
+            switched -> {
+                val reason = status?.let { SourceIndicator.of(requestedRefreshSource, it.first, it.second).label }
+                    ?: "no usable report"
+                "$reason · now ${sourceName(ui?.activeSource.orEmpty())}"
+            }
+            requestedRefreshSource == `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG &&
+                ui?.orgWebsiteReport != null -> {
+                val report = ui.orgWebsiteReport!!
+                val eventMillis = RailTime.railMinuteToEpochMillis(vm.originDate, report.eventMinute)
+                "page ${(now - report.pageUpdatedAt).coerceAtLeast(0) / 60_000}m old · " +
+                    "stop ${(now - eventMillis).coerceAtLeast(0) / 60_000}m old"
+            }
+            requestedRefreshSource == "NTES (official)" &&
+                ui?.answer?.position?.provenance?.live == true -> {
+                val seconds = ui.answer.position.feedAgeSeconds ?: ui.answer.position.ageSeconds
+                "feed ${seconds / 60}m old"
+            }
+            ui?.wimtWebPoint != null ->
+                "point ${(now - ui.wimtWebPoint.eventAtMillis).coerceAtLeast(0) / 60_000}m old"
+            else -> status?.let { SourceIndicator.of(requestedRefreshSource, it.first, it.second).label }
+                ?: "no new report"
+        }
+        binding.refreshFeedback.text = "↻ $source $response · $age"
         binding.refreshFeedback.visibility = View.VISIBLE
         binding.refreshFeedback.removeCallbacks(hideFeedback)
-        binding.refreshFeedback.postDelayed(hideFeedback, 1_200L)
+        binding.refreshFeedback.postDelayed(hideFeedback, 3_500L)
     }
 
     /** Bring the current reported halt/leg to the top without manufacturing a position. */
     private fun focusCurrentLeg() {
         val ui = lastUi ?: return
-        val anchor = stopAdapter.haltMarker?.code ?: ui.wimtWebPoint?.precedingHalt ?: return
+        val anchor = stopAdapter.haltMarker?.code ?: ui.wimtWebPoint?.precedingHalt
+            ?: ui.orgWebsiteReport?.intermediate?.precedingHalt ?: return
         val idx = stopAdapter.currentList.indexOfFirst { it.code.equals(anchor, true) }
         if (idx < 0) return
         lastAnchor = anchor

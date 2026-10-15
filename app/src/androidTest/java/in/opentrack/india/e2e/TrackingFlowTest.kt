@@ -248,7 +248,7 @@ class TrackingFlowTest {
         if (live.any { it.startsWith("Site ") }) {
             assertTrue("Web cell without site provenance", E2E.text("provenance").contains("WEBSITE"))
             assertTrue("site page clock confused with an event clock",
-                E2E.text("age").contains("not the event time"))
+                E2E.text("age").contains("not a movement time"))
         } else {
             assertTrue("no Web cells but source pretends to verify station events: $summary",
                 summary.contains("NOT Act") || summary.contains("static") ||

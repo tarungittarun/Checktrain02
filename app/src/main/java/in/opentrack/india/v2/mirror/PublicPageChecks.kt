@@ -50,8 +50,9 @@ object PublicPageChecks {
 
     fun fetch(http: Http, name: String, number: String, originDay: Long, now: Long,
               source: String? = null, destination: String? = null,
-              knownCodes: Set<String> = emptySet(), route: TrainRoute? = null): Result =
-        fetch(name, number, originDay, now, source, destination, knownCodes, route) { url ->
+              knownCodes: Set<String> = emptySet(), route: TrainRoute? = null,
+              mapRoute: TrainRoute? = null): Result =
+        fetch(name, number, originDay, now, source, destination, knownCodes, route, mapRoute) { url ->
             http.get(url, timeoutMillis = 4_000, retries = retriesFor(name), budgetMillis = 4_000,
                 headers = mapOf("User-Agent" to "Mozilla/5.0 (Linux; Android 13; Mobile) Chrome/120 Safari/537.36",
                     "Accept" to if (name == RAIL_YATRI) "application/json" else "text/html"))
@@ -62,7 +63,7 @@ object PublicPageChecks {
     internal fun fetch(name: String, number: String, originDay: Long, now: Long,
         source: String? = null, destination: String? = null,
         knownCodes: Set<String> = emptySet(), route: TrainRoute? = null,
-        get: (String) -> Http.Result): Result {
+        mapRoute: TrainRoute? = null, get: (String) -> Http.Result): Result {
         val url = url(name, number, originDay, now)
             ?: return Result("Run outside the available 0–2 day query window; no request made.", now, false)
         return when (val reply = get(url)) {
@@ -71,7 +72,7 @@ object PublicPageChecks {
             is Http.Result.Ok -> {
                 val checked = System.currentTimeMillis()
                 val answer = parse(name, reply.body, number, originDay, checked, source, destination,
-                    knownCodes, route)
+                    knownCodes, route, mapRoute)
                 if (reply.fromCache) answer.copy(
                     detail = "Cached HTTP body (${reply.ageMillis / 60_000} min old); " +
                         answer.detail + " No fresh observation.", pageAnswered = false,
@@ -83,9 +84,10 @@ object PublicPageChecks {
 
     fun parse(name: String, body: String, number: String, originDay: Long, now: Long,
               source: String? = null, destination: String? = null,
-              knownCodes: Set<String> = emptySet(), route: TrainRoute? = null): Result = when (name) {
+              knownCodes: Set<String> = emptySet(), route: TrainRoute? = null,
+              mapRoute: TrainRoute? = null): Result = when (name) {
         RAIL_YATRI -> railYatri(body, number, originDay, now, source, destination, knownCodes)
-        IXIGO, ORG -> page(name, body, number, originDay, now, knownCodes, route)
+        IXIGO, ORG -> page(name, body, number, originDay, now, knownCodes, route, mapRoute)
         else -> Result("Unknown check; no position.", now, false)
     }
 
@@ -132,7 +134,7 @@ object PublicPageChecks {
     }
 
     private fun page(name: String, body: String, number: String, originDay: Long, now: Long,
-                     knownCodes: Set<String>, route: TrainRoute?): Result {
+                     knownCodes: Set<String>, route: TrainRoute?, mapRoute: TrainRoute?): Result {
         // Only visible text. SEO/Next.js scripts can contain several runs and future ETA rows.
         val visible = RunningStatusMirror.stripTags(body
             .replace(Regex("(?is)<script\\b[^>]*>.*?</script>"), " ")
@@ -170,7 +172,7 @@ object PublicPageChecks {
         val returned = selected?.let { "page-selected $it" } ?: "page does not identify a selected origin date"
         val wrong = selected != null && selected.replace('/', '-') != date
         val org = if (name == ORG && route != null && !wrong)
-            OrgWebsiteStatus.parse(body, number, originDay, now, route) else null
+            OrgWebsiteStatus.parse(body, number, originDay, now, route, mapRoute) else null
         val runLabel = if (org?.report != null && selected == null)
             "site has no date selector; mapped to the active selected run by timetable" else returned
         return Result("$title: train $number · $runLabel (requested origin $date) · $status" +

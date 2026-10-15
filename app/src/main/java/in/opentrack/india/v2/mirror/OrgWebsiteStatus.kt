@@ -1,6 +1,7 @@
 package `in`.opentrack.india.v2.mirror
 
 import `in`.opentrack.india.core.RailTime
+import `in`.opentrack.india.domain.RouteBetween
 import `in`.opentrack.india.model.LiveStopFields
 import `in`.opentrack.india.model.TrainRoute
 import java.util.Locale
@@ -14,6 +15,9 @@ import kotlin.math.abs
  * Even then this is a *site claim*, not independently verified Act or measured GPS.
  */
 object OrgWebsiteStatus {
+    /** A station in the independent STATIC map, not a measured GPS point or live route km. */
+    data class Intermediate(val code: String, val name: String, val precedingHalt: String,
+                            val followingHalt: String, val mapKm: Int, val scheduledMinute: Int)
     data class Report(
         val rows: Map<String, LiveStopFields>,
         val anchorCode: String,
@@ -21,6 +25,9 @@ object OrgWebsiteStatus {
         val eventMinute: Int,
         val pageUpdatedAt: Long,
         val originInferred: Boolean = true,
+        val intermediate: Intermediate? = null,
+        /** The latest card's departure may advance with the page clock. Do not show as Act. */
+        val provisionalDeparture: Int? = null,
     )
     data class Outcome(val report: Report?, val reason: String)
 
@@ -53,7 +60,8 @@ object OrgWebsiteStatus {
     }
 
     /** [route] is the selected origin run's STATIC timetable; it does not attest to any live row. */
-    fun parse(body: String, number: String, originDay: Long, now: Long, route: TrainRoute): Outcome {
+    fun parse(body: String, number: String, originDay: Long, now: Long, route: TrainRoute,
+              mapRoute: TrainRoute? = null): Outcome {
         if (route.trainNo != number || route.stops.size < 3)
             return Outcome(null, "selected train/route unavailable")
         if (!RailTime.runsOn(route.runDays, RailTime.istWeekdayOfEpochDay(originDay)))
@@ -81,15 +89,31 @@ object OrgWebsiteStatus {
                 .containsMatchIn(header))
             return Outcome(null, "website reports this run is not active")
         val stamp = pageClock(text, now) ?: return Outcome(null, "website update clock missing or over five minutes old")
-        val byCode = route.stops.associateBy { it.code.uppercase(Locale.ROOT) }
+        // The website can report non-halt stations (BEI/SME on 20689). Accept only
+        // points in a separately validated, in-order map with credible leg distances.
+        val map = mapRoute?.takeIf { RouteBetween.withVerifiedHalts(it, route) != null }
+        val groups = RouteBetween.groupedPoints(map, route)
+        val inLeg = groups.flatMap { (from, points) ->
+            val i = route.stops.indexOfFirst { it.code.equals(from, true) }
+            val next = route.stops.getOrNull(i + 1)
+            points.filter { it.schedKm >= 0 && next != null }.map { point ->
+                point.code.uppercase(Locale.ROOT) to Triple(from, next!!.code, point)
+            }
+        }.toMap()
+        // Official halt schedules win if the static map's timetable differs; only
+        // the non-halt names/ordering/distances come from that map.
+        val byCode = (map?.let { RouteBetween.withVerifiedHalts(it, route) }?.stops
+            ?: route.stops).associateBy { it.code.uppercase(Locale.ROOT) }
         val rows = linkedMapOf<String, LiveStopFields>()
         var anchorCode: String? = null
         var anchorDep = false
         var eventMinute = -1
         var previousSeq = -1
+        var intermediate: Intermediate? = null
         for (part in card.split(html).drop(1)) {
             val code = heading.find(part)?.groupValues?.get(1)?.uppercase(Locale.ROOT) ?: continue
             val stop = byCode[code] ?: continue
+            val leg = if (stop.isHalt) null else (inLeg[code] ?: continue)
             // green = the website's own *past* card. White is an upcoming forecast,
             // even if it prints two clock values. We do not infer passing from our clock.
             val className = Regex("(?i)^\\s*<div\\s+class=\"([^\"]+)\"").find(part)
@@ -98,20 +122,31 @@ object OrgWebsiteStatus {
             if (stop.seq <= previousSeq) continue
             val arrSection = part.substringAfter("<!-- Arrival -->", "").substringBefore("<!-- Departure -->")
             val depSection = part.substringAfter("<!-- Departure -->", "").take(900)
-            fun published(section: String, scheduled: Int?): Int? {
-                if (scheduled == null) return null
+            fun published(section: String, scheduled: Int?): Pair<Int, Int>? {
+                // A non-halt has no separately published timetable minute in our map.
+                // Require the page's second clock to lie between its two official halt
+                // schedules. It remains a WEBSITE schedule, not corroboration.
+                val from = leg?.first?.let { c -> route.stops.firstOrNull { it.code == c } }
+                val to = leg?.second?.let { c -> route.stops.firstOrNull { it.code == c } }
+                val scheduledBase = scheduled ?: (from?.departureMin ?: from?.arrivalMin)
+                if (scheduledBase == null) return null
                 // The grey second clock is the site's printed scheduled minute, NOT a
                 // second event. No pair means the lone number could be pure timetable.
                 val clocks = clock.findAll(section.take(650)).take(2).map { it.value }.toList()
                 if (clocks.size != 2) return null
-                val printedSchedule = RailTime.alignClock(minute(clocks[1]), scheduled) ?: return null
-                if (abs(printedSchedule - scheduled) > 3) return null
-                val value = RailTime.alignClock(minute(clocks[0]), scheduled) ?: return null
+                val printedSchedule = RailTime.alignClock(minute(clocks[1]), scheduledBase) ?: return null
+                if (scheduled != null && abs(printedSchedule - scheduled) > 3) return null
+                if (scheduled == null && (printedSchedule < scheduledBase - 3 ||
+                    printedSchedule > (to?.arrivalMin ?: to?.departureMin ?: return null) + 3))
+                    return null
+                val value = RailTime.alignClock(minute(clocks[0]), printedSchedule) ?: return null
                 if (value == printedSchedule || value !in originDep..railNow) return null
-                return value
+                return value to printedSchedule
             }
-            val arr = published(arrSection, stop.arrivalMin)
-            var dep = published(depSection, stop.departureMin)
+            val arrival = published(arrSection, stop.arrivalMin)
+            val departure = published(depSection, stop.departureMin)
+            val arr = arrival?.first
+            var dep = departure?.first
             if (arr != null && dep != null && dep < arr) dep = null
             if (arr == null && dep == null) continue
             val platform = Regex("(?i)\\bPF\\s*([A-Z0-9]{1,3})\\b")
@@ -122,9 +157,25 @@ object OrgWebsiteStatus {
             anchorCode = code
             anchorDep = dep != null
             eventMinute = dep ?: arr!!
+            intermediate = leg?.let { (from, to, point) ->
+                Intermediate(code, point.name, from, to, point.schedKm,
+                    (arrival ?: departure)?.second ?: return@let null)
+            }
         }
         if (anchorCode == null) return Outcome(null, "no past-marked, schedule-paired website station minute for this run")
-        return Outcome(Report(rows, anchorCode, anchorDep, eventMinute, stamp),
+        // The owner's 20689 diary shows the last green card's BDVT departure
+        // changing 13:47→13:48→13:51→13:52 as the page clock advanced. It is
+        // NOT a settled historic departure until another station has been reached.
+        val last = rows[anchorCode]
+        val provisional = if (last?.actualArrivalMin != null) last.actualDepartureMin else null
+        if (provisional != null) {
+            rows[anchorCode] = last!!.copy(actualDepartureMin = null)
+            eventMinute = last.actualArrivalMin!!
+            anchorDep = false
+        }
+        val report = Report(rows, anchorCode, anchorDep, eventMinute, stamp,
+            true, intermediate, provisional)
+        return Outcome(report,
             "${rows.size} website-published past station rows; origin day inferred from timetable, not stated by site; clocks are site claims, not independently verified observations")
     }
 }
