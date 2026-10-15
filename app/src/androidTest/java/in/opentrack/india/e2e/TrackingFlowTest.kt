@@ -174,13 +174,12 @@ class TrackingFlowTest {
         assertTrue("no station table to place the train in", E2E.count(stopsBy) > 0)
         if (E2E.find("inlineLeg", 500) != null) {
             val caption = E2E.text("inlineLegCaption")
-            assertTrue("marker falsely projects a moving train: $caption",
+            val detail = E2E.find("inlineLeg")?.contentDescription.orEmpty()
+            assertTrue("marker falsely projects a moving train: $caption / $detail",
                 !caption.contains("Projected between") &&
-                    (caption.contains("position unknown") ||
-                        caption.contains("map position at station") ||
-                        caption.contains("unverified")))
-            assertTrue("marker falsely claims GPS: $caption",
-                caption.contains("not GPS") || caption.contains("not phone-app GPS"))
+                    (detail.contains("last reported halt") || detail.contains("static map") ||
+                        detail.contains("unverified") || detail.contains("station claim")))
+            assertTrue("marker falsely claims GPS: $detail", detail.contains("not GPS"))
         }
         assertTrue("a railway feed was labelled device GPS",
             !E2E.text("provenance").contains("GPS", true))
@@ -205,6 +204,11 @@ class TrackingFlowTest {
             bounds.left >= 0 && bounds.right <= width &&
                 bounds.top >= 0 && bounds.bottom <= height)
         assertTrue("the table has no named station", E2E.count(stopsBy) > 0)
+        val summary = E2E.find("scroller")?.visibleBounds
+        if (summary != null) assertTrue(
+            "blank band between refresh/summary and the route: summary=$summary route=$bounds",
+            bounds.top - summary.bottom < (72 * E2E.ui.displayWidth / E2E.widthDp()),
+        )
         E2E.shot("table-at-${E2E.widthDp()}dp")
     }
 

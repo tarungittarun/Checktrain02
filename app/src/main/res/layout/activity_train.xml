@@ -113,11 +113,10 @@
     <!-- Give the long source/status card and the stop table separate scrollable viewports.
          A wrap-content card can consume the entire screen at 440 dpi / large font and leave
          the weighted station list at zero height, hiding even a real reported train marker. -->
-    <ScrollView
+    <in.opentrack.india.ui.BoundedScrollView
         android:id="@+id/scroller"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
+        android:layout_height="wrap_content"
         android:clipToPadding="false"
         android:paddingBottom="@dimen/gap"
         android:scrollbars="none">
@@ -136,6 +135,13 @@
                 android:layout_height="wrap_content"
                 android:background="@drawable/bg_card"
                 android:orientation="vertical">
+
+                <TextView
+                    style="@style/TextLabel"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="LAST REPORTED • NOT LIVE GPS"
+                    android:textColor="@color/live" />
 
                 <TextView
                     android:id="@+id/headline"
@@ -331,7 +337,7 @@
                 android:visibility="gone" />
 
         </LinearLayout>
-    </ScrollView>
+    </in.opentrack.india.ui.BoundedScrollView>
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -340,42 +346,27 @@
         android:orientation="vertical"
         android:paddingLeft="@dimen/gap"
         android:paddingRight="@dimen/gap">
-<!-- All available intermediate points are expanded by tapping their preceding halt. -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:background="@drawable/bg_inset"
-                android:baselineAligned="false"
+                android:layout_marginTop="8dp"
                 android:gravity="center_vertical"
                 android:orientation="horizontal"
-                android:paddingLeft="12dp"
-                android:paddingTop="9dp"
-                android:paddingRight="12dp"
-                android:paddingBottom="9dp">
-
-                <TextView
-                    style="@style/TextLabel"
-                    android:layout_width="@dimen/col_sched"
-                    android:layout_height="wrap_content"
-                    android:gravity="center_horizontal"
-                    android:text="@string/col_arrival" />
-
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:paddingBottom="8dp">
                 <TextView
                     style="@style/TextLabel"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="@dimen/rail_w"
                     android:layout_weight="1"
-                    android:gravity="center_horizontal"
-                    android:text="@string/col_station" />
-
+                    android:text="ROUTE  /  STOPS"
+                    android:textColor="@color/text2" />
                 <TextView
-                    style="@style/TextLabel"
-                    android:layout_width="@dimen/col_live"
+                    style="@style/TextMicro"
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:gravity="center_horizontal"
-                    android:text="@string/col_departure" />
+                    android:text="Tap a stop for times" />
             </LinearLayout>
 
             <androidx.recyclerview.widget.RecyclerView

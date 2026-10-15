@@ -181,7 +181,7 @@ class ScreenRenderTest {
         // The distance ladder is what the user asked for: the first row reads 0 km, the last one is the
         // train's total, and the middle rows must therefore be strictly increasing.
         val km = (0 until list.childCount).map { text(list.getChildAt(it), R.id.stopMeta) }
-            .mapNotNull { Regex("""· Sch (\d+) km""").find(it)?.groupValues?.get(1)?.toIntOrNull() }
+            .mapNotNull { Regex("""· (\d+) km""").find(it)?.groupValues?.get(1)?.toIntOrNull() }
         assertEquals("every row prints its distance, the 0 km origin included", list.childCount, km.size)
         assertTrue("distances must increase along the route: $km", km.zipWithNext().all { (a, b) -> b > a })
 
@@ -202,8 +202,10 @@ Render.save("02-track-live", shot.bitmap)
         }
         val list = shot.root.findViewById<RecyclerView>(R.id.stops)
         val reported = list.getChildAt(1)
-        assertTrue("train/age did not render inside the reported station row",
-            text(reported, R.id.haltMarker).contains("🚆 Last reported stop · 1h 22m ago"))
+        assertTrue("reported-stop label did not render beside the station name",
+            text(reported, R.id.haltMarker).contains("LAST REPORTED STOP"))
+        assertTrue("passage age disappeared from its accessible marker",
+            reported.findViewById<TextView>(R.id.haltMarker).contentDescription.contains("ago"))
         assertEquals(View.GONE, list.getChildAt(2).findViewById<View>(R.id.haltMarker).visibility)
     }
 
@@ -231,7 +233,9 @@ Render.save("02-track-live", shot.bitmap)
         val icon = reported.findViewById<InlineLegView>(R.id.inlineLeg)
         assertEquals(View.VISIBLE, reported.findViewById<View>(R.id.inlineLegGroup).visibility)
         assertTrue(icon.contentDescription.contains("static points in order: NMP"))
-        assertTrue(text(reported, R.id.inlineLegCaption).contains("between-stop position unknown"))
+        assertTrue(text(reported, R.id.inlineLegCaption).contains("last stop"))
+        assertTrue(icon.contentDescription.contains("no measured distance since"))
+        assertEquals("12 min ago", text(reported, R.id.inlineLegAge))
         assertEquals(12 * 60L, icon.ageSeconds)
         Render.save("07-track-source-reported-halt", shot.bitmap)
     }

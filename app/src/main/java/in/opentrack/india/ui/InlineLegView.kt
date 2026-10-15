@@ -7,6 +7,7 @@ import android.os.SystemClock
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
+import android.graphics.DashPathEffect
 import android.util.AttributeSet
 import android.view.View
 import `in`.opentrack.india.R
@@ -27,8 +28,14 @@ class InlineLegView @JvmOverloads constructor(
             invalidate()
         }
 
+    // Age lives in its own TextView beside the source caption, never painted on
+    // top of a static station name. The property is retained for older callers.
     var ageSeconds: Long? = null
         set(value) { field = value; invalidate() }
+    var delayed: Boolean = false
+        set(value) { field = value; invalidate() }
+    var showLabels: Boolean = false
+        set(value) { field = value; requestLayout(); invalidate() }
 
     private var pulseStartedAt = 0L
 
@@ -37,22 +44,26 @@ class InlineLegView @JvmOverloads constructor(
     private fun dp(v: Float) = v * resources.displayMetrics.density
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        val count = projection?.points?.size?.coerceAtMost(8) ?: 0
-        setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec),
-            dp((110 + count * 28).coerceAtMost(330).toFloat()).toInt())
+        val count = projection?.points?.size ?: 0
+        val h = if (showLabels) (110 + count * 24).coerceIn(130, 350) else 92
+        setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), dp(h.toFloat()).toInt())
     }
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         val leg = projection ?: return
-        val x = dp(121f) // same horizontal rail axis as the station dots in item_stop
-        val top = dp(14f)
-        val end = height - dp(14f)
+        val x = dp(36f) // the station-dot axis in item_stop
+        val top = dp(22f)
+        val end = height - dp(20f)
         val span = end - top
         paint.strokeWidth = dp(3f)
-        paint.color = context.getColor(R.color.stroke)
+        paint.color = context.getColor(if (delayed) R.color.late else R.color.stroke)
+        // A red DASHED leg signals reported delay, never distance travelled.
+        // Only a qualified distance fraction fills the solid portion below.
+        paint.pathEffect = if (delayed) DashPathEffect(floatArrayOf(dp(6f), dp(5f)), 0f) else null
         canvas.drawLine(x, top, x, end, paint)
-        val markerColor = context.getColor(if (leg.markerKind in listOf(
+        paint.pathEffect = null
+        val markerColor = context.getColor(if (delayed) R.color.late else if (leg.markerKind in listOf(
                 RouteBetween.MarkerKind.PROJECTED, RouteBetween.MarkerKind.REPORTED_HALT))
             R.color.live else R.color.warn)
         paint.color = markerColor
@@ -66,9 +77,10 @@ class InlineLegView @JvmOverloads constructor(
         for (point in leg.points) {
             val tickY = top + span * point.fraction
             canvas.drawCircle(x, tickY, dp(3.5f), paint)
-            if (tickY - lastLabelY >= dp(19f)) {
-                canvas.drawText("${point.code} · map ${point.mapKm} km",
-                    x + dp(18f), tickY + dp(4f), paint)
+            if (showLabels && tickY - lastLabelY >= dp(20f) &&
+                tickY > top + dp(22f)) {
+                canvas.drawText("${point.code} · ${point.mapKm} km (map)",
+                    x + dp(27f), tickY + dp(4f), paint)
                 lastLabelY = tickY
             }
         }
@@ -109,15 +121,5 @@ class InlineLegView @JvmOverloads constructor(
         paint.color = context.getColor(R.color.ink_on_accent)
         canvas.drawCircle(x - dp(8f), y + dp(11f), dp(1.2f), paint)
         canvas.drawCircle(x + dp(8f), y + dp(11f), dp(1.2f), paint)
-        ageSeconds?.takeIf { it >= 60 }?.let { seconds ->
-            paint.color = markerColor
-            paint.textSize = dp(11f)
-            val label = if (seconds < 3600) "${seconds / 60}m old"
-                else "${seconds / 3600}h ${(seconds % 3600) / 60}m old"
-            // The marker can coincide with a named static station tick. Put its
-            // age beneath that label, not on top of it or outside the leg view.
-            canvas.drawText(label, x + dp(21f),
-                (y + dp(19f)).coerceAtMost(height - dp(3f)), paint)
-        }
     }
 }

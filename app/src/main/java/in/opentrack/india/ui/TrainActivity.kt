@@ -98,7 +98,7 @@ class TrainActivity : AppCompatActivity() {
         binding.stops.layoutManager = LinearLayoutManager(this)
         binding.stops.adapter = stopAdapter
         binding.sourceSpinner.setOnTouchListener { _, event ->
-            if (event.actionMasked == android.view.MotionEvent.ACTION_DOWN) {
+            if (event.action == android.view.MotionEvent.ACTION_DOWN) {
                 sourceSelectionTouched = true
                 sourceSelectionTouchedAt = SystemClock.elapsedRealtime()
             }
@@ -543,6 +543,31 @@ class TrainActivity : AppCompatActivity() {
                 ((it.arrivalMin ?: it.departureMin)?.let(RailTime::formatRailMinute) ?: "—") +
                 " · not a live ETA" } ?: "No source-confirmed next stop · timetable below"
         }
+        // The first glance is a report, not a paragraph. Keep the complete model
+        // sentence available to TalkBack / Info, but present the event, delay and
+        // NEXT scheduled stop as separate visual answers. Do not promote a scheduled
+        // arrival into a live ETA or infer movement after the last report.
+        if (ui.activeSource == "NTES (official)") {
+            val anchor = m.rows.firstOrNull { it.code.equals(ui.anchorCode, true) &&
+                it.source == TrackModel.MinuteSource.REPORTED }
+            if (anchor != null) {
+                val event = anchor.showDep ?: anchor.showArr
+                if (event != null) {
+                    binding.headline.contentDescription = m.headline
+                    binding.headline.text = (if (anchor.showDep != null) "Departed " else "Arrived at ") +
+                        RowText.of(anchor.name)
+                    val nextStop = m.rows.getOrNull(m.rows.indexOf(anchor) + 1)
+                    if (nextStop != null) binding.next.text = buildString {
+                        append(RowText.of(nextStop.name))
+                        (nextStop.schedArr ?: nextStop.schedDep)?.let {
+                            append(" · ").append(RailTime.formatRailMinute(it))
+                        }
+                        append("\nSchedule only · arrival unconfirmed")
+                    }
+                    binding.provenance.text = "NTES · reported stop"
+                }
+            }
+        }
         binding.note.visibility = if (m.note == null) View.GONE else View.VISIBLE
         m.note?.let { binding.note.text = it }
 
@@ -703,7 +728,8 @@ class TrainActivity : AppCompatActivity() {
                 ui.wimtWebPoint != null && elapsed != null ->
                 binding.age.text = "Web-cache point $elapsed · unverified; not phone GPS"
             ui.activeSource == "NTES (official)" && timedHalt != null && elapsed != null ->
-                binding.age.text = "NTES last reported stop $elapsed · location since then unknown"
+                binding.age.text = "${(timedHalt.showDep ?: timedHalt.showArr)?.let(RailTime::formatRailMinute).orEmpty()} · " +
+                    "$elapsed · position now unknown"
         }
     }
 
