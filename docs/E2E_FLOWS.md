@@ -48,7 +48,7 @@ railway happens to be reporting today says so, and its test asserts the invarian
 | `source-disclosure` | tracking | Opening Info explains Act versus Est, position provenance, and that WIMT web cache is not the phone app | `TrackingFlowTest#sourceBlockExplainsTheAnswer` | all |
 | `public-source-manual-check` | tracking | Selecting ixigo in the built APK performs a bounded check, exposes its answer or failure, and switches to a static-only comparison table rather than misattributing NTES Act to the selected page | `TrackingFlowTest#publicSourceTapActuallyChecksAndKeepsTheOfficialTable` | all |
 | `refresh` | tracking | Refresh re-runs the chain and the screen updates without losing the route | `TrackingFlowTest#refreshKeepsTheScreenCoherent` | all |
-| `manual-refresh-only` | tracking | Refresh is available but neither Auto nor the separate intermediate-route button remains | `TrackingFlowTest#tableHasOnlyManualRefreshAndExpandableRoutePoints` | all |
+| `optional-minute-refresh` | tracking | Refresh and a one-minute opt-in Auto control share the selected-source-first chain; the separate intermediate-route button remains absent | `TrackingFlowTest#tableOffersOptionalMinuteRefreshAndExpandableRoutePoints` | all |
 | `long-list-scroll` | tracking | A several-hundred-halt route scrolls to the end with rows still readable (recycling correctness) | `TrackingFlowTest#longRouteScrollsWithoutBlankRows` | all |
 | `back-nav` | tracking → search | Back returns to the search screen with the previous query intact | `TrackingFlowTest#backKeepsTheSearchQuery` | all |
 | `density-change` | tracking | The station table remains within the screen at the tested density (no overflow) | `TrackingFlowTest#tableHasGeometryAtThisDensity` | large, density |
