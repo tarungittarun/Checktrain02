@@ -102,7 +102,7 @@ class PositionEngineTest {
             mapOf("MID" to LiveStopFields(actualArrivalMin = 600)), 625,
             boardSeq = 1, alightSeq = 3, runEpochDay = 19949L,
             note = a.note, positionOnly = true)
-        assertTrue(screen.headline.contains("arrived at Mid Jn"))
+        assertTrue(screen.headline.contains("arrived at MID Jn"))
         assertFalse(screen.headline.contains("departed"))
         assertNull(screen.rows.first { it.code == "MID" }.showDep)
     }

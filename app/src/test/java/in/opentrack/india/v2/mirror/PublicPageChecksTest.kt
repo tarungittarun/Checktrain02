@@ -27,7 +27,7 @@ class PublicPageChecksTest {
         assertTrue(r.detail.contains("TKE departed"))
         assertTrue(r.detail.contains("route not verified against selected timetable"))
         assertEquals(null, r.stationClaim)
-        assertTrue(r.detail.contains("not observed Act"))
+        assertTrue(r.detail.contains("ETA/ETD and timetable rows are not Act"))
         assertFalse(r.detail.contains("BDVT 04:40"))
     }
 

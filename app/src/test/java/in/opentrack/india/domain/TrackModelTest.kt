@@ -115,7 +115,9 @@ class TrackModelTest {
         assertFalse("schedule must not be reported as departure: ${m.headline}",
             m.headline.contains("10:10"))
         assertEquals(TrackModel.MinuteSource.SCHEDULE, m.rows[1].source)
-        assertEquals(0, m.progressPct)
+        // The confirmed station is halfway along the scheduled route, not at its origin.
+        assertEquals(50, m.progressPct)
+        assertTrue(m.progressLabel.contains("Last reported halt"))
         assertEquals("feed 3 min old", m.ageLabel)
     }
 
