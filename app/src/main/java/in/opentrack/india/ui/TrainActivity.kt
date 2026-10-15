@@ -279,17 +279,19 @@ class TrainActivity : AppCompatActivity() {
                     // Reordering after a background answer must never select the first
                     // item by accident. Only a traveller-initiated dropdown choice fetches.
                     if (!sourceSelectionTouched) return
+                    // Opening the popup can report its already-selected row again.
+                    // Do not spend the pending touch before the traveller taps a
+                    // different entry; a background probe may have repainted it.
+                    if (name == lastUi?.activeSource) return
                     sourceSelectionTouched = false
-                    if (name != lastUi?.activeSource) {
-                        if (spinnerStates[name]?.first !in listOf("live", "last-known", "candidate")) {
-                            Toast.makeText(this@TrainActivity,
-                                "Checking ${sourceName(name)}…",
-                                Toast.LENGTH_SHORT).show()
-                            val previous = names.indexOf(lastUi?.activeSource)
-                            if (previous >= 0) binding.sourceSpinner.setSelection(previous, false)
-                            vm.probeSource(name)
-                        } else vm.setActiveSource(name)
-                    }
+                    if (spinnerStates[name]?.first !in listOf("live", "last-known", "candidate")) {
+                        Toast.makeText(this@TrainActivity,
+                            "Checking ${sourceName(name)}…",
+                            Toast.LENGTH_SHORT).show()
+                        val previous = names.indexOf(lastUi?.activeSource)
+                        if (previous >= 0) binding.sourceSpinner.setSelection(previous, false)
+                        vm.probeSource(name)
+                    } else vm.setActiveSource(name)
                 }
 
                 override fun onNothingSelected(p: AdapterView<*>?) {}

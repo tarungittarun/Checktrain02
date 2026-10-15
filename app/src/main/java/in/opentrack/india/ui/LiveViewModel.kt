@@ -41,6 +41,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 
 /**
@@ -225,6 +226,10 @@ class LiveViewModel(
     private var wimtCandidate: WimtCandidate.Result? = null
     private var wimtCheckedAt = 0L
     private var manualProbeJob: Job? = null
+    private var manualProbeSource: String? = null
+    private var sourceProbeOrder = 0L
+    private val latestProbeOrder = mutableMapOf<String, Long>()
+    private val latestManualProbeOrder = mutableMapOf<String, Long>()
     private var firstSourceSurveyStarted = false
     private val publicChecks = mutableMapOf<String, PublicPageChecks.Result>()
     /** Phone-measured wall time for the selected source, not a synthetic network speed claim. */
@@ -235,6 +240,10 @@ class LiveViewModel(
      * actuals mislabeled as the selected website's observations. */
     fun setActiveSource(name: String) {
         if (name == "NTES (official)" || name == "last known") {
+            // Switching back while a different manual source is in flight must not
+            // let that older reply re-select itself over the traveller's tap.
+            manualProbeJob?.cancel()
+            manualProbeSource = null
             mirrorActiveSource = name
             val u = _ui.value ?: return
             _ui.postValue(buildUi(u.route, lastAnswer ?: u.answer, u.tried).copy(relayOk = u.relayOk))
@@ -257,11 +266,28 @@ class LiveViewModel(
 
     fun probeSource(name: String) = probeSource(name, select = true)
 
-    private fun probeSource(name: String, select: Boolean): Job? {
+    private fun probeSource(name: String, select: Boolean,
+                            allowMapRecheck: Boolean = false): Job? {
         if (select && manualProbeJob?.isActive == true) {
-            _mirrorState.postValue("Already checking a source; wait for its result")
+            if (manualProbeSource == name) {
+                _mirrorState.postValue("Already checking $name; wait for its result")
+                return manualProbeJob
+            }
+            // A previous manual check must never swallow a different selected
+            // source. Cancel its publication, then ask the new source directly.
+            Diary.get()?.log("SOURCE", "replacing unfinished $manualProbeSource check with $name")
+            manualProbeJob?.cancel()
+        }
+        if (!select && !allowMapRecheck && name == PublicPageChecks.ORG &&
+            manualProbeSource == name && manualProbeJob?.isActive == true) {
+            // The selected website request will notice any newly arrived map and
+            // recheck once it publishes. Do not supersede its visible tap result.
             return manualProbeJob
         }
+        if (select) manualProbeSource = name
+        val order = ++sourceProbeOrder
+        latestProbeOrder[name] = order
+        if (select) latestManualProbeOrder[name] = order
         Diary.get()?.log("SOURCE", "${if (select) "manual" else "first-load"} probe requested: $name")
         if (name == RunningStatusMirror.SOURCE || name == ConfirmTktMirror.SOURCE) {
             maybeMirror(force = true, preferred = if (select) name else null)
@@ -273,19 +299,31 @@ class LiveViewModel(
             val job = viewModelScope.launch {
                 if (select) _mirrorState.value = "Checking $name…"
                 val route = _ui.value?.route ?: return@launch
+                // Snapshot the map alongside this request. If a full static route
+                // arrives while the HTTP call is in flight, the first reply cannot
+                // contain its intermediate points; recheck once after publishing it.
+                val mapAtRequest = _ui.value?.staticRoute ?: geoRoute ?: confirmStaticRoute
                 val result = withContext(Dispatchers.IO) {
                     PublicPageChecks.fetch(Http(app), name, trainNo, originEpochDay,
                         System.currentTimeMillis(), route.srcCode, route.dstCode,
-                        route.stops.map { it.code.uppercase() }.toSet(), route,
-                        _ui.value?.staticRoute ?: geoRoute ?: confirmStaticRoute)
+                        route.stops.map { it.code.uppercase() }.toSet(), route, mapAtRequest)
                 }
                 if (_ui.value == null) return@launch
+                if (latestProbeOrder[name] != order) {
+                    Diary.get()?.log("SOURCE", "ignoring older $name reply after a newer probe started")
+                    return@launch
+                }
                 publicChecks[name] = result
                 manualProbeMs[name] = System.currentTimeMillis() - started
                 if (select) mirrorActiveSource = name
                 _ui.value?.let { u -> _ui.value = buildUi(u.route, lastAnswer ?: u.answer, u.tried) }
                 if (select) _mirrorState.value = result.detail
                 Diary.get()?.log("SOURCE", "$name: ${result.detail}")
+                if (name == PublicPageChecks.ORG && result.pageAnswered &&
+                    (_ui.value?.staticRoute?.stops?.size ?: 0) > (mapAtRequest?.stops?.size ?: 0)) {
+                    Diary.get()?.log("SOURCE", "static map arrived during website request; rechecking intermediate stops")
+                    probeSource(name, select = false, allowMapRecheck = true)
+                }
                 result.orgReport?.let { website ->
                     val last = website.rows[website.anchorCode]
                     Diary.get()?.log("ORG") {
@@ -325,6 +363,7 @@ class LiveViewModel(
                         knownKms = u.route.stops.filter { it.isHalt && it.schedKm >= 0 }
                             .associate { it.code.uppercase() to it.schedKm })
                 }
+                if (latestProbeOrder[name] != order) return@launch
                 wimtCandidate = result
                 wimtCheckedAt = System.currentTimeMillis()
                 manualProbeMs[name] = wimtCheckedAt - probeStarted
@@ -355,6 +394,8 @@ class LiveViewModel(
                 if (select) _mirrorState.postValue("Checking erail…")
                 val u = _ui.value ?: return@launch
                 val live = runCatching { repo()?.probeErail(trainNo, u.route, originEpochDay) }.getOrNull()
+                if (!isActive) return@launch // runCatching can swallow CancellationException
+                if (latestProbeOrder[name] != order) return@launch
                 manualErail = live?.answer?.takeIf { it.position.provenance.live &&
                     it.perStop.values.any { f -> f.actualArrivalMin != null || f.actualDepartureMin != null } }
                 manualErailDetail = if (manualErail != null) "verified run stops from erail"
@@ -905,7 +946,7 @@ class LiveViewModel(
                         staticRouteSource = "ConfirmTkt")
                     // An early website reply used halts only. Once a dated, matched
                     // map arrives, ask it once again for its missing intermediate card.
-                    if (old.staticRoute == null && publicChecks[PublicPageChecks.ORG]?.pageAnswered == true)
+                    if (publicChecks[PublicPageChecks.ORG]?.pageAnswered == true)
                         probeSource(PublicPageChecks.ORG, select = false)
                 }
             }
@@ -1082,6 +1123,7 @@ class LiveViewModel(
         val nowWall = System.currentTimeMillis()
         if (!force && nowWall - lastMirrorPoll < CROWD_POLL_MIN_MILLIS) return
         lastMirrorPoll = nowWall
+        val mirrorOrder = ++sourceProbeOrder
         val job = viewModelScope.launch {
             val route = _ui.value?.route ?: runCatching { repo()?.queries?.route(trainNo) }.getOrNull()
                 ?: return@launch
@@ -1134,6 +1176,9 @@ class LiveViewModel(
                     "does not prove requested run $expectedDay; refusing all minutes")
                 rawCk.copy(lines = emptyMap(), stops = emptyList(), halts = 0, ok = false)
             }
+            if (!isActive) return@launch // superseded manual probe cannot publish its witness
+            if (preferred == null && listOf(RunningStatusMirror.SOURCE, ConfirmTktMirror.SOURCE)
+                    .any { (latestManualProbeOrder[it] ?: 0L) > mirrorOrder }) return@launch
             val u = _ui.value ?: return@launch
             val nowRail = nowMinute(System.currentTimeMillis())
             val base = TrackModel.build(route, u.answer.position, u.answer.perStop, nowRail,
