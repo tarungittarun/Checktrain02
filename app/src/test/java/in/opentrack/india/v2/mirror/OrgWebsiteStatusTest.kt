@@ -175,6 +175,16 @@ class OrgWebsiteStatusTest {
             regressed.pageUpdatedAt))
         assertNull(OrgWebsiteStatus.forwardOnly(later, regressed, laterPosition, halts,
             later.pageUpdatedAt + 301_000)) // old report expired; unknown, not KMSI
+        // Loading a longer dated route can insert three earlier halts. The floor
+        // must be recomputed from its station CODE on the grown route, not cached
+        // as the original BDVT index (which KMSI would now exceed numerically).
+        val grown = halts.copy(stops = listOf(halts.stops[0],
+            stop(2, "AAA", 925, 926, 20), stop(3, "AAB", 935, 936, 34),
+            stop(4, "AAC", 945, 946, 48)) +
+            halts.stops.drop(1).mapIndexed { i, s -> s.copy(seq = i + 5) })
+        assertTrue(OrgWebsiteStatus.progress(regressed, grown)!! > laterPosition)
+        assertEquals(later, OrgWebsiteStatus.forwardOnly(later, regressed,
+            OrgWebsiteStatus.progress(later, grown), grown, regressed.pageUpdatedAt))
     }
 
     @Test fun `blue highlight alone or a single schedule clock is never a reported arrival`() {

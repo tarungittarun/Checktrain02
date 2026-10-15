@@ -232,9 +232,10 @@ class LiveViewModel(
     private val latestManualProbeOrder = mutableMapOf<String, Long>()
     private var firstSourceSurveyStarted = false
     private val publicChecks = mutableMapOf<String, PublicPageChecks.Result>()
-    /** Forward-only floor for website claims within this screen's single selected origin run.
-     * A regressing reply is not turned into a new event or a refreshed old timestamp. */
-    private var maxOrgWebsiteProgress: `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.Progress? = null
+    /** Forward-only floor for this screen's selected origin run. Store the actual
+     * report, not an index: the dated route can gain earlier halts while loading,
+     * so progress must be recalculated against the CURRENT route on each reply. */
+    private var maxOrgWebsiteReport: `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.Report? = null
     /** Phone-measured wall time for the selected source, not a synthetic network speed claim. */
     private val manualProbeMs = mutableMapOf<String, Long>()
 
@@ -318,15 +319,16 @@ class LiveViewModel(
                 }
                 val resolved = if (name == PublicPageChecks.ORG && result.orgReport != null) {
                     val previous = publicChecks[name]?.orgReport
-                    val accepted = `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.forwardOnly(
-                        previous, result.orgReport, maxOrgWebsiteProgress, route,
+                    val site = `in`.opentrack.india.v2.mirror.OrgWebsiteStatus
+                    val floor = maxOrgWebsiteReport?.let { site.progress(it, route) }
+                    val accepted = site.forwardOnly(previous, result.orgReport, floor, route,
                         System.currentTimeMillis())
                     if (accepted === result.orgReport) {
-                        accepted?.let { `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.progress(it, route) }
-                            ?.let { position ->
-                                if (maxOrgWebsiteProgress == null || position > maxOrgWebsiteProgress!!)
-                                    maxOrgWebsiteProgress = position
+                        accepted?.let { report ->
+                            site.progress(report, route)?.let { position ->
+                                if (floor == null || position > floor) maxOrgWebsiteReport = report
                             }
+                        }
                         result
                     } else result.copy(orgReport = accepted,
                         detail = result.detail + if (accepted == null)
