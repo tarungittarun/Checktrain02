@@ -104,8 +104,11 @@ class InlineLegView @JvmOverloads constructor(
             paint.color = markerColor
             paint.textSize = dp(11f)
             val label = if (seconds < 3600) "${seconds / 60}m old"
-                else "${seconds / 3600}h old"
-            canvas.drawText(label, x + dp(21f), y + dp(4f), paint)
+                else "${seconds / 3600}h ${(seconds % 3600) / 60}m old"
+            // The marker can coincide with a named static station tick. Put its
+            // age beneath that label, not on top of it or outside the leg view.
+            canvas.drawText(label, x + dp(21f),
+                (y + dp(19f)).coerceAtMost(height - dp(3f)), paint)
         }
     }
 }
