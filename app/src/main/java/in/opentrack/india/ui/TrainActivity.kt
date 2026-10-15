@@ -295,7 +295,11 @@ class TrainActivity : AppCompatActivity() {
                 override fun onNothingSelected(p: AdapterView<*>?) {}
             }
         }
-        (binding.sourceSpinner.adapter as? android.widget.BaseAdapter)?.notifyDataSetChanged()
+        // Even a data-only adapter notification can fire onItemSelected for the
+        // currently highlighted item while its popup is open. Do not consume the
+        // pending touch as if that programmatic callback were the traveller's choice.
+        if (!touchFresh)
+            (binding.sourceSpinner.adapter as? android.widget.BaseAdapter)?.notifyDataSetChanged()
         if (!touchFresh) ui.activeSource?.let { src ->
             val at = names.indexOf(src)
             if (at >= 0 && binding.sourceSpinner.selectedItemPosition != at) {
