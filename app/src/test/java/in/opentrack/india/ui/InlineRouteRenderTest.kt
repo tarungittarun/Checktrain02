@@ -61,6 +61,24 @@ class InlineRouteRenderTest {
         assertEquals(0f, holder.inlineLeg.projection!!.fraction, .001f)
     }
 
+    @Test fun stationClaimMarkerNeverPretendsToHaveAReportedMinute() {
+        val ctx = RuntimeEnvironment.getApplication()
+        val adapter = StopAdapter()
+        adapter.setProjectedLeg(RouteBetween.LegProjection("Arasalu", "Kumsi", 0f,
+            "Arasalu", 57, "ARU", "KMSI", emptyList(), RouteBetween.MarkerKind.STATION_CLAIM))
+        val row = TrackModel.Stop(1, "ARU", "Arasalu", 960, 961,
+            960, 961, null, TrackModel.MinuteSource.SCHEDULE, null,
+            TrackModel.State.PASSED, true, 57, 0, 15, false, false, false, -12)
+        adapter.submitList(listOf(row))
+        val holder = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
+        adapter.onBindViewHolder(holder, 0)
+        assertTrue(holder.inlineLegCaption.text.contains("RailYatri claims"))
+        assertTrue(holder.inlineLegCaption.text.contains("passage time unknown"))
+        assertEquals(null, holder.inlineLeg.ageSeconds)
+        assertEquals(0f, holder.inlineLeg.projection!!.fraction, .001f)
+        assertEquals("—", holder.liveArr.text.toString())
+    }
+
     @Test fun websiteLastStopIsPinnedAtHaltAndAgesWithoutMovingAlongLeg() {
         val ctx = RuntimeEnvironment.getApplication()
         val adapter = StopAdapter()
@@ -85,6 +103,28 @@ class InlineRouteRenderTest {
         adapter.onBindViewHolder(holder, 0)
         assertEquals(70 * 60L, holder.inlineLeg.ageSeconds)
         assertEquals(0f, holder.inlineLeg.projection!!.fraction, .001f)
+    }
+
+    @Test fun denseLegRetainsAllOrderedStaticPointsInAccessibilityAndExpandedMap() {
+        val ctx = RuntimeEnvironment.getApplication()
+        val adapter = StopAdapter()
+        val points = (1..11).map { i ->
+            RouteBetween.LegPoint("P$i", "Static point $i", 100 + i * i,
+                (i * i).toFloat() / (12 * 12))
+        }
+        adapter.setProjectedLeg(RouteBetween.LegProjection("A", "B", 0f,
+            "A", 100, "AAA", "BBB", points, RouteBetween.MarkerKind.REPORTED_HALT))
+        val row = TrackModel.Stop(1, "AAA", "A", 500, 505, 507,
+            null, null, TrackModel.MinuteSource.REPORTED, null,
+            TrackModel.State.PASSED, true, 100, 0, 44, false, false, false, -10)
+        adapter.submitList(listOf(row))
+        val holder = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
+        adapter.onBindViewHolder(holder, 0)
+        assertEquals(View.VISIBLE, holder.inlineLegGroup.visibility)
+        val description = holder.inlineLeg.contentDescription.toString()
+        assertTrue(description.contains("P1 → P2 → P3"))
+        assertTrue(description.contains("P9 → P10 → P11"))
+        assertEquals(points, holder.inlineLeg.projection!!.points)
     }
 
     @Test fun tappingHaltShowsUntimedPointsThenCollapsesWithoutClaimingArrival() {

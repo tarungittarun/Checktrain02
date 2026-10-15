@@ -296,7 +296,9 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             val site = leg.markerKind == RouteBetween.MarkerKind.SITE_INTERMEDIATE
             val siteHalt = leg.markerKind == RouteBetween.MarkerKind.SITE_LAST_STOP
             val reportedHalt = leg.markerKind == RouteBetween.MarkerKind.REPORTED_HALT
+            val stationClaim = leg.markerKind == RouteBetween.MarkerKind.STATION_CLAIM
             val caption = when {
+                stationClaim -> "RailYatri claims ${leg.from} · passage time unknown; later position unknown · not GPS"
                 reportedHalt -> "${sourceNameForMarker} last reported ${leg.from}; between-stop position unknown · not GPS"
                 siteHalt -> "Website last reported ${leg.from}; between-stop position unknown · not GPS"
                 site -> "Website reports reached ${leg.nearestPoint} · map position at station, not GPS"
@@ -307,9 +309,12 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             holder.inlineLegCaption.setTextColor(ctx.getColor(if (reportedHalt) R.color.live else R.color.warn))
             holder.inlineLeg.contentDescription = caption + " · ${leg.from} to ${leg.to} " +
                 "${(leg.fraction * 100).toInt()} percent of scheduled leg by " +
-                (if (reportedHalt || siteHalt) "last reported halt (no measured distance since)"
+                (if (stationClaim) "unverified station claim (no passage time or measured distance)"
+                    else if (reportedHalt || siteHalt) "last reported halt (no measured distance since)"
                     else if (site) "static map of the site-reported station"
-                    else if (web) "web-cache km claim" else "estimated distance")
+                    else if (web) "web-cache km claim" else "estimated distance") +
+                (if (leg.points.isEmpty()) "" else " · static points in order: " +
+                    leg.points.joinToString(" → ") { it.code })
         }
         holder.row.setOnClickListener(if (points.isEmpty()) null else View.OnClickListener {
             val previous = expandedCode

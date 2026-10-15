@@ -376,7 +376,10 @@ class TrainActivity : AppCompatActivity() {
                     it.source == TrackModel.MinuteSource.SITE_REPORTED })
                 RouteBetween.siteLastStopLeg(ui.route, ui.staticRoute, report.anchorCode)
             else null
-        } ?: if (ui.activeSource in setOf("NTES (official)", "erail", "last known",
+        } ?: ui.railYatriClaim?.takeIf {
+            ui.activeSource == `in`.opentrack.india.v2.mirror.PublicPageChecks.RAIL_YATRI
+        }?.let { RouteBetween.stationClaimLeg(ui.route, ui.staticRoute, it.code) }
+            ?: if (ui.activeSource in setOf("NTES (official)", "erail", "last known",
                 `in`.opentrack.india.v2.mirror.RunningStatusMirror.SOURCE,
                 `in`.opentrack.india.v2.mirror.ConfirmTktMirror.SOURCE)) {
             val reported = m.rows.firstOrNull { it.code.equals(ui.anchorCode, true) &&
@@ -662,7 +665,11 @@ class TrainActivity : AppCompatActivity() {
         stopAdapter.haltMarker = atAnchor ?: if (fromOfficial && ui.orgWebsiteReport?.intermediate == null)
             rows.lastOrNull { it.source == TrackModel.MinuteSource.REPORTED }?.let {
                 TableMarker.atHalt(rows, it.code, vm.originDate, now)
-            } else null
+            } else ui.railYatriClaim?.takeIf {
+                ui.activeSource == `in`.opentrack.india.v2.mirror.PublicPageChecks.RAIL_YATRI &&
+                    rows.any { row -> row.code.equals(it.code, true) }
+            }?.let { TableMarker.Halt(it.code,
+                "RailYatri station claim · passage time unknown · not GPS", true) }
         // The marker never moves with this clock. Recompute only the age of the
         // source's last event, including a website halt at 0% of the next leg.
         val timedHalt = rows.firstOrNull { it.code.equals(anchor, true) &&
@@ -677,6 +684,24 @@ class TrainActivity : AppCompatActivity() {
                 RailTime.railMinuteToEpochMillis(vm.originDate, it)
             }
         stopAdapter.legAgeSeconds = eventAt?.let { ((now - it).coerceAtLeast(0L) / 1_000L) }
+        // The primary age line used to freeze at e.g. "6 min ago" while a static
+        // website/NTES event remained unchanged. A refresh is a receipt, NOT a new
+        // station event: age the original event locally, also at the last halt where
+        // there is no next leg on which to draw an inline icon.
+        val elapsed = eventAt?.takeIf { it <= now }?.let {
+            TableMarker.elapsedLabel(now - it) + " ago"
+        }
+        when {
+            ui.activeSource == `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG &&
+                ui.orgWebsiteReport != null && elapsed != null ->
+                binding.age.text = "Site's last reported stop $elapsed · page updated " +
+                    "${RailTime.formatClock(ui.orgWebsiteReport!!.pageUpdatedAt)} IST (not event time)"
+            ui.activeSource == `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE &&
+                ui.wimtWebPoint != null && elapsed != null ->
+                binding.age.text = "Web-cache point $elapsed · unverified; not phone GPS"
+            ui.activeSource == "NTES (official)" && timedHalt != null && elapsed != null ->
+                binding.age.text = "NTES last reported stop $elapsed · location since then unknown"
+        }
     }
 
     private fun showRefreshFeedback() {

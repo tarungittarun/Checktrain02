@@ -95,8 +95,19 @@ class RouteBetweenTest {
         assertEquals("BBB", RouteBetween.reportedHaltLeg(halts, route, "AAA")!!
             .points.single().code)
         assertEquals(null, RouteBetween.reportedHaltLeg(halts, route, "DDD"))
-        assertEquals(null, RouteBetween.reportedHaltLeg(halts,
-            route.copy(trainNo = "wrong"), "AAA"))
+        assertTrue(RouteBetween.reportedHaltLeg(halts,
+            route.copy(trainNo = "wrong"), "AAA")!!.points.isEmpty()) // discard wrong map, retain dated halt
+    }
+
+    @Test fun providerStationClaimIsPinnedButNeverCreatesEventOrDistanceProgress() {
+        val halts = route.copy(stops = route.stops.filter { it.isHalt }
+            .mapIndexed { i, s -> s.copy(seq = i + 1) })
+        val claim = RouteBetween.stationClaimLeg(halts, route, "AAA")!!
+        assertEquals(RouteBetween.MarkerKind.STATION_CLAIM, claim.markerKind)
+        assertEquals(0f, claim.fraction, .001f)
+        assertEquals("BBB", claim.points.single().code)
+        assertEquals(null, RouteBetween.stationClaimLeg(halts, route, "BBB"))
+        assertTrue(RouteBetween.stationClaimLeg(halts, null, "AAA")!!.points.isEmpty())
     }
 
     @Test fun websiteHaltMarkerStaysAtZeroWithoutInventingBetweenStopDistance() {
@@ -109,8 +120,8 @@ class RouteBetweenTest {
         assertEquals("CCC", leg.toCode)
         assertEquals(.5f, leg.points.single().fraction, .001f) // static map, not train progress
         assertEquals(null, RouteBetween.siteLastStopLeg(halts, route, "DDD"))
-        assertEquals(null, RouteBetween.siteLastStopLeg(halts,
-            route.copy(trainNo = "another train"), "AAA"))
+        assertTrue(RouteBetween.siteLastStopLeg(halts,
+            route.copy(trainNo = "another train"), "AAA")!!.points.isEmpty()) // no foreign ticks
         val withoutMap = RouteBetween.siteLastStopLeg(halts, null, "AAA")!!
         assertEquals(RouteBetween.MarkerKind.SITE_LAST_STOP, withoutMap.markerKind)
         assertEquals(0f, withoutMap.fraction, .001f)

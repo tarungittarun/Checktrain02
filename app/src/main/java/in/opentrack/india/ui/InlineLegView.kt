@@ -59,15 +59,23 @@ class InlineLegView @JvmOverloads constructor(
         canvas.drawLine(x, top, x, top + span * leg.fraction, paint)
         paint.color = context.getColor(R.color.text2)
         paint.textSize = dp(11f)
-        val labels = if (leg.points.size <= 8) leg.points else emptyList()
-        for (point in labels) {
-            val y = top + span * point.fraction
-            canvas.drawCircle(x, y, dp(3.5f), paint)
-            canvas.drawText("${point.code} · map ${point.mapKm} km", x + dp(18f), y + dp(4f), paint)
+        // Every validated intermediate point gets its distance-proportional tick.
+        // Dense legs still show ticks; suppress only colliding TEXT labels (the
+        // expandable station table names all points). Never drop the whole map at 9+.
+        var lastLabelY = Float.NEGATIVE_INFINITY
+        for (point in leg.points) {
+            val tickY = top + span * point.fraction
+            canvas.drawCircle(x, tickY, dp(3.5f), paint)
+            if (tickY - lastLabelY >= dp(19f)) {
+                canvas.drawText("${point.code} · map ${point.mapKm} km",
+                    x + dp(18f), tickY + dp(4f), paint)
+                lastLabelY = tickY
+            }
         }
         val y = top + span * leg.fraction
-        // A soft stationary halo says "this estimate is on screen"; the marker does NOT
-        // travel with wall-clock time. Only a new NTES answer may change its fraction.
+        // A soft stationary halo says "this source claim is on screen"; the marker
+        // does NOT travel with wall-clock time. Only a newly qualified source event
+        // or distance claim may change its fraction.
         val elapsed = SystemClock.uptimeMillis() - pulseStartedAt
         if (isShown && pulseStartedAt > 0L && elapsed < 7_200L &&
             (Build.VERSION.SDK_INT < 26 || ValueAnimator.areAnimatorsEnabled())) {

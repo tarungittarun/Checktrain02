@@ -43,6 +43,17 @@ class TableMarkerTest {
         assertEquals("1 h 10 min", TableMarker.elapsedLabel(70 * 60_000L))
     }
 
+    @Test fun unchangedSourceEventAgesFromSixToSevenMinutesWithoutNetwork() {
+        val event = RailTime.railMinuteToEpochMillis(day, 500)
+        val reported = listOf(row(TrackModel.MinuteSource.REPORTED, 500))
+        assertTrue(TableMarker.atHalt(reported, "TK", day, event + 6 * 60_000L)!!
+            .caption.contains("6m ago"))
+        assertTrue(TableMarker.atHalt(reported, "TK", day, event + 7 * 60_000L)!!
+            .caption.contains("7m ago"))
+        assertEquals("6 min", TableMarker.elapsedLabel(6 * 60_000L + 20_000L))
+        assertEquals("7 min", TableMarker.elapsedLabel(7 * 60_000L))
+    }
+
     @Test fun passageAgeAppearsOnlyFromOneMinuteNotFromPageRefresh() {
         val event = RailTime.railMinuteToEpochMillis(day, 500)
         val row = row(TrackModel.MinuteSource.SITE_REPORTED, 500)

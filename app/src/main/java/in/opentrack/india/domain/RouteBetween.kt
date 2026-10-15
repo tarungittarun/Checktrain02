@@ -58,7 +58,7 @@ object RouteBetween {
     /** A *projected* train icon within the two NTES halts. Never display this as observed
      * GPS or as an actual passage through an intermediate point. Hide on stale/schedule-only data. */
     data class LegPoint(val code: String, val name: String, val mapKm: Int, val fraction: Float)
-    enum class MarkerKind { PROJECTED, WEB_CACHE_CANDIDATE, SITE_INTERMEDIATE, SITE_LAST_STOP, REPORTED_HALT }
+    enum class MarkerKind { PROJECTED, WEB_CACHE_CANDIDATE, SITE_INTERMEDIATE, SITE_LAST_STOP, REPORTED_HALT, STATION_CLAIM }
     data class LegProjection(
         val from: String, val to: String, val fraction: Float,
         val nearestPoint: String?, val estimateKm: Int,
@@ -95,15 +95,24 @@ object RouteBetween {
 
     /** No measured between-stop distance: pin the locomotive to the site's last reported
      * halt, at ZERO of the next scheduled leg. This is deliberately not the current
-     * position. Only use a train-matched, ordered map with usable distances for the ticks. */
+     * position. Only use a train-matched, ordered map with usable distances for the ticks;
+     * without a validated map, the dated halt schedule still locates the reported halt. */
     fun siteLastStopLeg(halts: TrainRoute, map: TrainRoute?, anchorCode: String): LegProjection? =
-        lastReportedLeg(halts, map ?: halts, anchorCode, MarkerKind.SITE_LAST_STOP)
+        lastReportedLeg(halts, map?.takeIf { withVerifiedHalts(it, halts) != null } ?: halts,
+            anchorCode, MarkerKind.SITE_LAST_STOP)
 
     /** NTES or another source with an actual stop minute: pin at that reported halt.
      * A timetable alone never calls this. If the expanded map is unavailable, the
      * dated halt timetable still supplies bounding halts, but no intermediate ticks. */
     fun reportedHaltLeg(halts: TrainRoute, map: TrainRoute?, anchorCode: String): LegProjection? =
-        lastReportedLeg(halts, map ?: halts, anchorCode, MarkerKind.REPORTED_HALT)
+        lastReportedLeg(halts, map?.takeIf { withVerifiedHalts(it, halts) != null } ?: halts,
+            anchorCode, MarkerKind.REPORTED_HALT)
+
+    /** Same-run provider station/status claim, but no event minute. Keep it amber and
+     * pinned to the claimed stop, without inventing a train clock or moving distance. */
+    fun stationClaimLeg(halts: TrainRoute, map: TrainRoute?, code: String): LegProjection? =
+        lastReportedLeg(halts, map?.takeIf { withVerifiedHalts(it, halts) != null } ?: halts,
+            code, MarkerKind.STATION_CLAIM)
 
     private fun lastReportedLeg(halts: TrainRoute, map: TrainRoute, anchorCode: String,
                                 kind: MarkerKind): LegProjection? {
