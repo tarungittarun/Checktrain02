@@ -55,7 +55,12 @@ def card_rows(body):
         past = bool(cls and "bg-green-50" in cls.group(1) and "opacity-90" in cls.group(1))
         arr = piece.split("<!-- Arrival -->", 1)[-1].split("<!-- Departure -->", 1)[0]
         dep = piece.split("<!-- Departure -->", 1)[-1][:950]
-        values = (past, CLOCK.findall(arr[:650])[:2], CLOCK.findall(dep[:650])[:2])
+        class_text = cls.group(1)[:180] if cls else '(no outer div class)'
+        # Record the exact card style: a current blue card may contain a reached
+        # arrival while the old parser only accepts green cards. Do not call it
+        # actual until its clock and run pass independent gates.
+        values = (class_text, past, CLOCK.findall(arr[:650])[:2],
+                  CLOCK.findall(dep[:650])[:2])
         # Same stop can have both a past and a future card; report both, without deduping it away.
         rows.setdefault(code, []).append(values)
     return rows
