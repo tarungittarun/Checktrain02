@@ -2,6 +2,8 @@ package `in`.opentrack.india.e2e
 
 import android.content.Context
 import android.content.Intent
+import android.os.Build
+import `in`.opentrack.india.R
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.BySelector
@@ -117,7 +119,15 @@ object E2E {
         o.setText(value)
         ui.waitForIdle()
         val actual = o.text.orEmpty()
-        check(actual == value || (value.isEmpty() && actual == o.hint.orEmpty())) {
+        // UiAutomator's UiObject2.hint calls AccessibilityNodeInfo.getHintText(), which
+        // does not exist before API 26. API 24 exposes a blank edit field's hint as its
+        // text instead; compare only against the app's actual displayed hint strings.
+        val hintText = if (value.isEmpty()) {
+            if (Build.VERSION.SDK_INT >= 26) listOf(runCatching { o.hint.orEmpty() }.getOrDefault(""))
+            else listOf(R.string.hint_from, R.string.hint_to, R.string.hint_train)
+                .map { context().getString(it) }
+        } else emptyList()
+        check(actual == value || (value.isEmpty() && actual in hintText)) {
             "the field did not accept the replacement: expected '$value', got '$actual'"
         }
     }

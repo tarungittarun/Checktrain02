@@ -185,6 +185,10 @@ class StationSearchFlowTest {
         assertTrue("no −1d control", E2E.tap("dayBack"))
         assertNotEquals("−1d left the date on 'now'", start, E2E.text("whenValue"))
         // The window itself has to be stated, or ±24 h is an invisible rule the traveller cannot use.
+        // The date buttons can be visible at the bottom edge while their explanation sits
+        // beneath the viewport on a short API 24 device. Scroll to read it like a user.
+        assertTrue("the ±24 h window is not reachable in the search card",
+            E2E.reveal("whenHint", "searchCardScroll"))
         assertTrue("the ±24 h window is never explained on screen", E2E.text("whenHint").isNotBlank())
     }
 
