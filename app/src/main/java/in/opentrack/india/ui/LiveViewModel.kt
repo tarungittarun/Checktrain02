@@ -234,7 +234,7 @@ class LiveViewModel(
     private val publicChecks = mutableMapOf<String, PublicPageChecks.Result>()
     /** Forward-only floor for website claims within this screen's single selected origin run.
      * A regressing reply is not turned into a new event or a refreshed old timestamp. */
-    private var maxOrgWebsiteKm = -1
+    private var maxOrgWebsiteProgress: `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.Progress? = null
     /** Phone-measured wall time for the selected source, not a synthetic network speed claim. */
     private val manualProbeMs = mutableMapOf<String, Long>()
 
@@ -319,11 +319,14 @@ class LiveViewModel(
                 val resolved = if (name == PublicPageChecks.ORG && result.orgReport != null) {
                     val previous = publicChecks[name]?.orgReport
                     val accepted = `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.forwardOnly(
-                        previous, result.orgReport, maxOrgWebsiteKm, route,
+                        previous, result.orgReport, maxOrgWebsiteProgress, route,
                         System.currentTimeMillis())
                     if (accepted === result.orgReport) {
-                        accepted?.let { `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.routeKm(it, route) }
-                            ?.let { maxOrgWebsiteKm = maxOf(maxOrgWebsiteKm, it) }
+                        accepted?.let { `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.progress(it, route) }
+                            ?.let { position ->
+                                if (maxOrgWebsiteProgress == null || position > maxOrgWebsiteProgress!!)
+                                    maxOrgWebsiteProgress = position
+                            }
                         result
                     } else result.copy(orgReport = accepted,
                         detail = result.detail + if (accepted == null)

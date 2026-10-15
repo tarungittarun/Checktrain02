@@ -31,20 +31,40 @@ object OrgWebsiteStatus {
     )
     data class Outcome(val report: Report?, val reason: String)
 
+    /** Ordered route progress, NOT an absolute km. Map intermediate km and dated halt km
+     * can be on different static axes; BEI 905 in a separately mapped leg must still
+     * precede the next scheduled BDVT halt at 116 km on the timetable axis. */
+    data class Progress(val haltIndex: Int, val afterHalt: Int, val mapKm: Int = 0) :
+        Comparable<Progress> {
+        override fun compareTo(other: Progress): Int {
+            val halt = haltIndex.compareTo(other.haltIndex)
+            if (halt != 0) return halt
+            val relative = afterHalt.compareTo(other.afterHalt)
+            return if (relative != 0) relative else mapKm.compareTo(other.mapKm)
+        }
+    }
+
+    fun progress(report: Report, route: TrainRoute): Progress? {
+        val point = report.intermediate
+        val index = route.stops.indexOfFirst {
+            it.code.equals(point?.precedingHalt ?: report.anchorCode, true)
+        }
+        if (index < 0 || point != null && (index >= route.stops.lastIndex ||
+                point.mapKm < 0 || !route.stops[index + 1].code.equals(point.followingHalt, true)))
+            return null
+        return Progress(index, if (point == null) 0 else 1, point?.mapKm ?: 0)
+    }
+
     /** A newer website reply can omit/retract a previously reached card. Do not turn that
      * into backwards motion. The floor is scoped by the caller to ONE train and origin run.
      * A prior card may be retained only inside its original five-minute freshness window;
      * once stale, show no position rather than resurrecting it with a newer page clock. */
-    fun routeKm(report: Report, route: TrainRoute): Int? = report.intermediate?.mapKm
-        ?: route.stops.firstOrNull { it.code.equals(report.anchorCode, true) }?.schedKm
-            ?.takeIf { it >= 0 }
-
-    fun forwardOnly(previous: Report?, next: Report?, floorKm: Int, route: TrainRoute,
+    fun forwardOnly(previous: Report?, next: Report?, floor: Progress?, route: TrainRoute,
                     now: Long): Report? {
         if (next == null) return null
-        val km = routeKm(next, route) ?: return null
-        if (km >= floorKm) return next
-        return previous?.takeIf { old -> routeKm(old, route)?.let { it >= floorKm } == true &&
+        val candidate = progress(next, route) ?: return null
+        if (floor == null || candidate >= floor) return next
+        return previous?.takeIf { old -> progress(old, route)?.let { it >= floor } == true &&
             now - old.pageUpdatedAt in 0L..300_000L }
     }
 

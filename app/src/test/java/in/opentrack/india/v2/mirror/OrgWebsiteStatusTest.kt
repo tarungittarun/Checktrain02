@@ -157,18 +157,23 @@ class OrgWebsiteStatusTest {
         assertEquals(17 * 60 + 10, later.rows["BDVT"]?.actualArrivalMin)
         assertNull("last blue card departure is provisional", later.rows["BDVT"]?.actualDepartureMin)
         assertNull("white future MYS is not actual", later.rows["MYS"])
-        val earlyKm = OrgWebsiteStatus.routeKm(early, halts)!!
-        val laterKm = OrgWebsiteStatus.routeKm(later, halts)!!
-        assertTrue(laterKm > earlyKm)
-        assertEquals(later, OrgWebsiteStatus.forwardOnly(early, later, earlyKm, halts,
+        val earlyPosition = OrgWebsiteStatus.progress(early, halts)!!
+        val laterPosition = OrgWebsiteStatus.progress(later, halts)!!
+        assertTrue(laterPosition > earlyPosition)
+        assertEquals(later, OrgWebsiteStatus.forwardOnly(early, later, earlyPosition, halts,
             later.pageUpdatedAt))
+        // Two static distance axes may disagree by hundreds of km; route ORDER
+        // still makes the next halt later than a named intermediate before it.
+        val differentAxis = early.copy(intermediate = early.intermediate!!.copy(mapKm = 905))
+        assertEquals(later, OrgWebsiteStatus.forwardOnly(differentAxis, later,
+            OrgWebsiteStatus.progress(differentAxis, halts), halts, later.pageUpdatedAt))
         // If another reply regresses to a previously passed station, keep the
         // original report while fresh. Never advance its page/event clock.
         val regressed = early.copy(anchorCode = "KMSI", intermediate = null,
             eventMinute = 16 * 60 + 21, pageUpdatedAt = later.pageUpdatedAt + 60_000)
-        assertEquals(later, OrgWebsiteStatus.forwardOnly(later, regressed, laterKm, halts,
+        assertEquals(later, OrgWebsiteStatus.forwardOnly(later, regressed, laterPosition, halts,
             regressed.pageUpdatedAt))
-        assertNull(OrgWebsiteStatus.forwardOnly(later, regressed, laterKm, halts,
+        assertNull(OrgWebsiteStatus.forwardOnly(later, regressed, laterPosition, halts,
             later.pageUpdatedAt + 301_000)) // old report expired; unknown, not KMSI
     }
 
