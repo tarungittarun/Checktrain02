@@ -100,6 +100,10 @@ def inspect(tag, params):
     rows = card_rows(body)
     print("  cards=%d, codes=%d, shown(last six)=%s" % (sum(map(len, rows.values())), len(rows),
         {k: v for k, v in list(rows.items())[-6:]}), flush=True)
+    for code, cards in rows.items():
+        if code in ("KMSI", "SMET", "SME", "BEI", "BDVT", "MSS") or any(
+                "bg-blue" in c[0] for c in cards):
+            print("  focus %s: %s" % (code, cards), flush=True)
     return rows
 
 
