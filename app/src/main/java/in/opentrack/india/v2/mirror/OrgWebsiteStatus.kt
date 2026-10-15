@@ -24,7 +24,10 @@ object OrgWebsiteStatus {
     )
     data class Outcome(val report: Report?, val reason: String)
 
-    private val clock = Regex("(?i)\\b(\\d{1,2}):(\\d{2})\\s*(AM|PM)\\b")
+    // The page update clock includes seconds (06:06:19 AM) while station cells do
+    // not (05:50 AM). Parse the whole value; otherwise a substring matcher sees
+    // "06:19 AM" inside 06:06:19 and invents a thirteen-minute-future clock.
+    private val clock = Regex("(?i)\\b(\\d{1,2}):(\\d{2})(?::\\d{2})?\\s*(AM|PM)\\b")
     private val heading = Regex("(?is)<h3\\b[^>]*>\\s*[^<]*?\\(([A-Z0-9]{1,6})\\)\\s*</h3>")
     private val updated = Regex("(?i)\\bLast\\s+Updated\\s*:\\s*(\\d{1,2}:\\d{2}(?::\\d{2})?\\s*(?:AM|PM))")
     private val card = Regex("(?i)<!--\\s*Station Details Card\\s*-->")
