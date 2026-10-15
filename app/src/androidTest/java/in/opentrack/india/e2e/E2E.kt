@@ -259,9 +259,22 @@ object E2E {
         return null
     }
 
+    /** The box can be above or below the visible part of the search card after a tap.
+     * Accessibility reports off-screen fields as absent, not as empty text. */
+    private fun reachableBoxField(box: String): UiObject2? {
+        var field = boxField(box, 300)
+        repeat(8) {
+            if (field == null) {
+                if (!swipeIn("searchCardScroll", up = box != "fromBox")) return null
+                field = boxField(box, 300)
+            }
+        }
+        return field
+    }
+
     fun boxText(box: String): String {
         repeat(2) {
-            val value = runCatching { boxField(box)?.text.orEmpty().trim() }.getOrNull()
+            val value = runCatching { reachableBoxField(box)?.text.orEmpty().trim() }.getOrNull()
             if (value != null) return value
         }
         return ""
@@ -277,13 +290,7 @@ object E2E {
         // Suggestions expand inside the scrollable search card. On a large-font phone the
         // previous panel can push the next field out of the accessibility viewport;
         // physically scroll to it before typing rather than silently using old results.
-        var field = boxField(box, 300)
-        repeat(8) {
-            if (field != null) return@repeat
-            if (!swipeIn("searchCardScroll", up = box != "fromBox")) return false
-            field = boxField(box, 300)
-        }
-        val input = field ?: return false
+        val input = reachableBoxField(box) ?: return false
         setTextIn(input, value)
         return true
     }
