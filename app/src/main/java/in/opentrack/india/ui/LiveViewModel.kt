@@ -332,6 +332,16 @@ class LiveViewModel(
                 _ui.value = buildUi(latest.route, lastAnswer ?: latest.answer, latest.tried)
                     .copy(relayOk = latest.relayOk)
                 Diary.get()?.log("SOURCE", "$name: ${result.detail}")
+                result.webPoint?.let { point ->
+                    viewModelScope.launch {
+                        delay((point.cacheAtMillis + 120_001L - System.currentTimeMillis())
+                            .coerceAtLeast(1_000L))
+                        if (wimtCandidate === result && mirrorActiveSource == name)
+                            _ui.value?.let { latest ->
+                                _ui.value = buildUi(latest.route, lastAnswer ?: latest.answer, latest.tried)
+                            }
+                    }
+                }
             }
             if (select) manualProbeJob = job
         } else if (name == "erail") {
@@ -1236,6 +1246,9 @@ class LiveViewModel(
         }
         val nowRail = nowRailOverride ?: nowMinute(now)
         val erailSelected = mirrorActiveSource == "erail"
+        val wimtSelected = mirrorActiveSource == WimtCandidate.SOURCE
+        val officialUnavailable = mirrorActiveSource == "NTES (official)" &&
+            answer.position.provenance == SourceKind.PROVIDER
         val erailAnswer = if (erailSelected) manualErail ?: answer.takeIf {
             it.position.provenance == SourceKind.PROVIDER
         } else null
@@ -1248,12 +1261,14 @@ class LiveViewModel(
         val selectedMirrorForTable = freshShift() && mirrorSelected &&
             mirrorStops[mirrorActiveSource].orEmpty().isNotEmpty()
         val webPoint = wimtCandidate?.webPoint?.takeIf { p ->
-            mirrorActiveSource == WimtCandidate.SOURCE &&
+            wimtSelected &&
                 now - p.eventAtMillis in 0L..600_000L &&
                 now - p.cacheAtMillis in 0L..120_000L &&
                 route.stops.indexOfFirst { it.code.equals(p.followingHalt, true) } ==
                     route.stops.indexOfFirst { it.code.equals(p.precedingHalt, true) } + 1 &&
-                route.stops.any { it.code.equals(p.precedingHalt, true) }
+                route.stops.any { it.code.equals(p.precedingHalt, true) } &&
+                RouteBetween.webCacheLeg(route, null, p.precedingHalt,
+                    p.followingHalt, p.routeKm) != null
         }
         val webAnchor = webPoint?.let { p -> route.stops.firstOrNull {
             it.code.equals(p.precedingHalt, true) } }
@@ -1309,7 +1324,8 @@ class LiveViewModel(
                     .coerceAtLeast(0L) / 1000,
                 feedAgeSeconds = (now - railClaim!!.updateAt).coerceAtLeast(0L) / 1000,
                 feedStampMillis = railClaim.updateAt)
-            mirrorSelected || publicSelected || (erailSelected && erailAnswer == null) -> pos.copy(
+            mirrorSelected || publicSelected || (wimtSelected && webPoint == null) ||
+                (erailSelected && erailAnswer == null) || officialUnavailable -> pos.copy(
                 provenance = SourceKind.OFFLINE_SCHEDULE, anchorSeq = 0, nextSeq = 0,
                 fraction = 0f, delayMinutes = null, etaNextMinute = null, feedStampMillis = null)
             else -> pos
@@ -1317,7 +1333,7 @@ class LiveViewModel(
         val model = TrackModel.build(
             route = route, pos = tablePos,
             perStop = if (orgReport != null) orgReport.rows
-                else if (mirrorSelected || webPoint != null || publicSelected) emptyMap()
+                else if (mirrorSelected || wimtSelected || publicSelected || officialUnavailable) emptyMap()
                 else if (erailSelected) erailAnswer?.perStop.orEmpty()
                 else answer.perStop,
             nowRailMinute = nowRail,
@@ -1334,7 +1350,10 @@ class LiveViewModel(
             note = (if (orgReport != null) "Website reports past stops; not independently verified. Future stops use the timetable."
                 else if (publicSelected) "No confirmed times from this site; timetable shown."
                 else if (mirrorSelected && !selectedMirrorForTable ||
-                    erailSelected && erailAnswer == null) "No confirmed times from this source; timetable shown."
+                    erailSelected && erailAnswer == null || officialUnavailable)
+                    "No confirmed times from this source; timetable shown."
+                else if (wimtSelected && webPoint == null)
+                    "No usable site distance point; timetable shown."
                 else if (webPoint != null) "Site distance claim, not phone location; other stops use the timetable."
                 else null)
                 ?: positionNote ?: notes.firstOrNull { it.isNotBlank() } ?: answer.note
@@ -1403,8 +1422,17 @@ class LiveViewModel(
             ConfirmTktMirror.SOURCE to (mirrorSourceStates[ConfirmTktMirror.SOURCE]
                 ?: ("none" to "not answered yet")),
             WimtCandidate.SOURCE to (wimtCandidate?.let {
-                (if (it.webPoint != null && now - it.webPoint.eventAtMillis in 0L..600_000L &&
-                    now - it.webPoint.cacheAtMillis in 0L..120_000L) "candidate" else "unverified") to
+                val p = it.webPoint
+                val at = route.stops.indexOfFirst { stop -> stop.code.equals(p?.precedingHalt, true) }
+                val from = route.stops.getOrNull(at)
+                val to = route.stops.getOrNull(at + 1)
+                val usable = p != null && from != null && to != null &&
+                    to.code.equals(p.followingHalt, true) &&
+                    from.schedKm >= 0 && to.schedKm > from.schedKm &&
+                    p.routeKm in from.schedKm.toDouble()..to.schedKm.toDouble() &&
+                    now - p.eventAtMillis in 0L..600_000L &&
+                    now - p.cacheAtMillis in 0L..120_000L
+                (if (usable) "candidate" else "unverified") to
                     "${it.detail}; web point is not phone-app GPS or a verified stop Act"
             } ?: ("none" to "manual check available; not a verified source")),
             "erail" to (if (manualErail != null) "live" to (manualErailDetail ?: "verified manual result")

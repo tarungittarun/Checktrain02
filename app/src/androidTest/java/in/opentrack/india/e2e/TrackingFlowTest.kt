@@ -231,11 +231,16 @@ class TrackingFlowTest {
         val website = E2E.ui.wait(Until.findObject(By.textContains("whereismytrain.org.in (website)")), E2E.LOCAL_MS)
         assertNotNull("org website not selectable", website)
         website!!.click()
-        assertTrue("org website selection produced no result",
-            E2E.ui.wait(Until.hasObject(By.res(E2E.PKG, "sourceSummary")), E2E.NETWORK_MS))
+        // A usable site report explains itself in the source badge + table; an
+        // unavailable source instead shows one short line, not old station excerpts.
+        val resultVisible = E2E.ui.wait(
+            Until.hasObject(By.textContains("No confirmed times")), 8_000L) ||
+            E2E.ui.wait(Until.hasObject(By.textContains("WEBSITE ·")), E2E.NETWORK_MS)
+        assertTrue("site check returned no visible result", resultVisible)
         val summary = E2E.text("sourceSummary")
-        assertTrue("source result has no origin/claim explanation: $summary",
-            summary.contains("No confirmed times") || summary.contains("Site's past-stop claims"))
+        assertTrue("source result has no plain-language result: $summary",
+            summary.contains("No confirmed times") ||
+                E2E.text("provenance").contains("WEBSITE"))
         assertTrue("org selection lost the station table", E2E.count(stopsBy) > 0)
         val live = rowTexts("liveArr") + rowTexts("liveDep")
         assertTrue("org selection misattributes NTES actuals: $live",

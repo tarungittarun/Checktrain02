@@ -48,7 +48,15 @@ class TrainActivity : AppCompatActivity() {
     private var receiptReady = false
     private var refreshStartedAt = 0L
     private val hideFeedback = Runnable { binding.refreshFeedback.visibility = View.GONE }
+    // Age is a local clock display, NOT a network poll or a projected train movement.
+    private val ageTicker = object : Runnable {
+        override fun run() {
+            lastUi?.let(::updateTableMarker)
+            binding.stops.postDelayed(this, 30_000L)
+        }
+    }
     private var sourceDetails = "No sources checked yet."
+    private var spinnerStates: Map<String, Pair<String, String>> = emptyMap()
     private var lastUi: LiveViewModel.Ui? = null
     private var chainBusy = false
     private var mirrorBusy = false
@@ -124,12 +132,15 @@ class TrainActivity : AppCompatActivity() {
             renderChecking()
             // A timeout can finish without a live receipt. Still centre on the
             // last *reported* anchor after this manual request, even if unchanged.
-            if (wasBusy && !chainBusy && focusAfterRefresh) {
+            if (wasBusy && !chainBusy && refreshStartedAt > 0L) {
+                // A fast live receipt may already have cleared focusAfterRefresh. The
+                // latency receipt belongs to this button press either way.
                 showRefreshFeedback()
-                binding.stops.post {
-                    focusCurrentLeg()
-                    focusAfterRefresh = false
-                }
+                refreshStartedAt = 0L
+            }
+            if (wasBusy && !chainBusy && focusAfterRefresh) binding.stops.post {
+                focusCurrentLeg()
+                focusAfterRefresh = false
             }
         }
         // The sources box: fetching while the witnesses work. Once actuals exist, the line goes quiet -
@@ -198,16 +209,19 @@ class TrainActivity : AppCompatActivity() {
         val names = ui.sourceLines.keys.toList()
         binding.sourceSpinner.visibility = if (names.isEmpty()) View.GONE else View.VISIBLE
         if (names.isEmpty()) return
-        val states = ui.sourceStates
-        if (binding.sourceSpinner.tag != (names to states)) {
-            binding.sourceSpinner.tag = names to states
+        spinnerStates = ui.sourceStates
+        // State updates recolor the existing adapter. Rebuilding the Spinner for every
+        // background answer can fire a selection callback for its default first item,
+        // silently changing the user's chosen source back to NTES.
+        if (binding.sourceSpinner.tag != names) {
+            binding.sourceSpinner.tag = names
             binding.sourceSpinner.adapter = object : ArrayAdapter<String>(
                 this, android.R.layout.simple_spinner_item, names,
             ) {
                 override fun getView(position: Int, convertView: View?, parent: android.view.ViewGroup): View {
                     val view = super.getView(position, convertView, parent)
                     (view as TextView).apply {
-                        val (state, detail) = states[names[position]] ?: ("none" to "checking on first load")
+                        val (state, detail) = spinnerStates[names[position]] ?: ("none" to "checking on first load")
                         val indicator = SourceIndicator.of(names[position], state, detail)
                         text = "● ${sourceName(names[position])}  ▾"
                         textSize = 14f
@@ -220,7 +234,7 @@ class TrainActivity : AppCompatActivity() {
                 override fun getDropDownView(position: Int, convertView: View?, parent: android.view.ViewGroup): View {
                     val view = super.getDropDownView(position, convertView, parent)
                     val name = names[position]
-                    val (state, detail) = states[name] ?: ("none" to "checking on first load")
+                    val (state, detail) = spinnerStates[name] ?: ("none" to "checking on first load")
                     val indicator = SourceIndicator.of(name, state, detail)
                     (view as TextView).apply {
                         val density = resources.displayMetrics.density
@@ -237,7 +251,7 @@ class TrainActivity : AppCompatActivity() {
                 override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
                     val name = names.getOrNull(pos) ?: return
                     if (name != lastUi?.activeSource) {
-                        if (states[name]?.first !in listOf("live", "last-known", "candidate")) {
+                        if (spinnerStates[name]?.first !in listOf("live", "last-known", "candidate")) {
                             Toast.makeText(this@TrainActivity,
                                 "Checking ${sourceName(name)}…",
                                 Toast.LENGTH_SHORT).show()
@@ -251,6 +265,7 @@ class TrainActivity : AppCompatActivity() {
                 override fun onNothingSelected(p: AdapterView<*>?) {}
             }
         }
+        (binding.sourceSpinner.adapter as? android.widget.BaseAdapter)?.notifyDataSetChanged()
         ui.activeSource?.let { src ->
             val at = names.indexOf(src)
             if (at >= 0 && binding.sourceSpinner.selectedItemPosition != at) {
@@ -269,8 +284,13 @@ class TrainActivity : AppCompatActivity() {
         val publicCheck = ui.activeSource?.takeIf {
             it in `in`.opentrack.india.v2.mirror.PublicPageChecks.names
         }
-        binding.sourceSummary.visibility = if (publicCheck != null || ui.activeSource ==
-            `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE) View.VISIBLE else View.GONE
+        // One explanation only: the qualified site's badge + labelled table already state
+        // provenance. Show this line only when its selected source has no usable point.
+        binding.sourceSummary.visibility = if (
+            publicCheck != null && ui.orgWebsiteReport == null && ui.railYatriClaim == null ||
+            ui.activeSource == `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE &&
+                ui.wimtWebPoint == null
+        ) View.VISIBLE else View.GONE
         binding.sourceSummary.text = when {
             ui.orgWebsiteReport != null -> "Site's past-stop claims; not confirmed railway actuals."
             ui.wimtWebPoint != null -> "Site distance claim; not phone GPS."
@@ -389,15 +409,15 @@ class TrainActivity : AppCompatActivity() {
                 it.code.equals(org.anchorCode, true) }
                 else claim?.let { c -> ui.route.stops.firstOrNull { it.code.equals(c.code, true) } }
             binding.headline.text = when {
-                org != null && station != null -> "Website reports " +
+                org != null && station != null -> "Site reports " +
                     (if (org.departed) "departed" else "arrived at") + " ${station.name} · " +
-                    "${RailTime.formatRailMinute(org.eventMinute)} · last site-marked past stop, position since unknown"
+                    "${RailTime.formatRailMinute(org.eventMinute)} · current position unknown"
                 claim != null && station != null ->
                     "RailYatri reports ${claim.status} ${station.name} · passage time unknown"
                 else -> "${sourceName(publicCheck)}: no qualifying past-stop report for this run"
             }
             binding.provenance.text = when {
-                org != null -> "WEBSITE · reported past card, unverified"
+                org != null -> "WEBSITE · past-stop claims, unverified"
                 claim != null -> "RAILYATRI · station claim only"
                 else -> "${sourceName(publicCheck)} · comparison only"
             }
@@ -408,7 +428,7 @@ class TrainActivity : AppCompatActivity() {
                 claim != null -> "provider updated ${RailTime.formatClock(claim.updateAt)} IST · upstream ${claim.upstream} · not an event time"
                 else -> "No qualifying past-stop report from selected source"
             }
-            binding.delay.text = if (org != null) "Site stop times · not independently confirmed"
+            binding.delay.text = if (org != null) "— · no independently verified delay"
                 else "— · no verified delay from ${sourceName(publicCheck)}"
             binding.delay.setTextColor(getColor(R.color.warn))
             binding.next.text = if (station != null) {
@@ -433,13 +453,8 @@ class TrainActivity : AppCompatActivity() {
         }
         stopAdapter.setProjectedLeg(leg)
         renderSourceChips(ui)
-        val lastStop = ui.anchorCode ?: if (ui.activeSource == "NTES (official)" ||
-            ui.activeSource == "erail" || ui.activeSource == "last known")
-            ui.answer.anchorStopCode else null
-        stopAdapter.haltMarker = if (ui.wimtWebPoint == null)
-            TableMarker.atHalt(m.rows, lastStop, vm.originDate, System.currentTimeMillis())
-            else null // the independently supplied km point belongs inside the leg view
-        stopAdapter.highlightCode = ui.anchorCode ?: stopAdapter.haltMarker?.code
+        updateTableMarker(ui)
+        stopAdapter.highlightCode = stopAdapter.haltMarker?.code ?: ui.anchorCode
         if (ui.reports.isNotEmpty()) {
             Diary.get()?.log("UISTATE") {
                 "crowd on screen: " + ui.reports.entries.joinToString(" ; ") { it.key + " -> " + it.value }
@@ -536,6 +551,20 @@ class TrainActivity : AppCompatActivity() {
         else -> "Source checked. Open Info for details."
     }
 
+    private fun updateTableMarker(ui: LiveViewModel.Ui) {
+        val rows = ui.model.rows
+        val fromOfficial = ui.activeSource in listOf("NTES (official)", "erail", "last known")
+        val anchor = ui.anchorCode ?: if (fromOfficial) ui.answer.anchorStopCode else null
+        val now = System.currentTimeMillis()
+        val atAnchor = if (ui.wimtWebPoint == null)
+            TableMarker.atHalt(rows, anchor, vm.originDate, now) else null
+        stopAdapter.haltMarker = atAnchor ?: if (fromOfficial)
+            rows.lastOrNull { it.source == TrackModel.MinuteSource.REPORTED }?.let {
+                TableMarker.atHalt(rows, it.code, vm.originDate, now)
+            } else null
+        ui.wimtWebPoint?.let { stopAdapter.legAgeSeconds = ((now - it.eventAtMillis) / 1_000).coerceAtLeast(0) }
+    }
+
     private fun showRefreshFeedback() {
         val elapsed = (SystemClock.elapsedRealtime() - refreshStartedAt).coerceAtLeast(0L)
         val u = lastUi
@@ -551,7 +580,7 @@ class TrainActivity : AppCompatActivity() {
     /** Bring the current reported halt/leg to the top without manufacturing a position. */
     private fun focusCurrentLeg() {
         val ui = lastUi ?: return
-        val anchor = ui.anchorCode ?: ui.model.rows.firstOrNull { it.isAnchor }?.code ?: return
+        val anchor = stopAdapter.haltMarker?.code ?: ui.wimtWebPoint?.precedingHalt ?: return
         val idx = stopAdapter.currentList.indexOfFirst { it.code.equals(anchor, true) }
         if (idx < 0) return
         lastAnchor = anchor
@@ -644,6 +673,13 @@ class TrainActivity : AppCompatActivity() {
     override fun onStart() {
         super.onStart()
         vm.start()
+        binding.stops.postDelayed(ageTicker, 30_000L)
+    }
+
+    override fun onStop() {
+        binding.stops.removeCallbacks(ageTicker)
+        binding.refreshFeedback.removeCallbacks(hideFeedback)
+        super.onStop()
     }
 
     companion object {

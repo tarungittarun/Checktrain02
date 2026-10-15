@@ -116,6 +116,12 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
     private var routePoints: Map<String, List<StopRow>> = emptyMap()
     private var projectedLeg: RouteBetween.LegProjection? = null
     var legAgeSeconds: Long? = null
+        set(value) {
+            if (field?.div(60) != value?.div(60)) {
+                field = value
+                if (projectedLeg != null) notifyDataSetChanged()
+            } else field = value
+        }
 
     fun setProjectedLeg(leg: RouteBetween.LegProjection?) {
         if (projectedLeg == leg) return
