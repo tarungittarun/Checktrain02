@@ -179,7 +179,10 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             if (s.showKm) append(" · Sch ").append(s.kmFromOrigin).append(" km")
             if (s.isBoarding) append(" · ").append(ctx.getString(R.string.tag_board))
             else if (s.isAlighting) append(" · ").append(ctx.getString(R.string.tag_alight))
-            s.platform?.takeIf { it.isNotBlank() }?.let { append(" · feed pf ").append(it) }
+            s.platform?.takeIf { it.isNotBlank() }?.let {
+                append(if (s.source == TrackModel.MinuteSource.SITE_REPORTED) " · web pf "
+                    else " · feed pf ").append(it)
+            }
         }
         val verified = s.source == TrackModel.MinuteSource.REPORTED
         val website = s.source == TrackModel.MinuteSource.SITE_REPORTED

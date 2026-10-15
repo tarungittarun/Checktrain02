@@ -71,3 +71,15 @@ At ~06:06 IST the site's upcoming (white) ANF card showed first-clock arrival 06
 ## R95: source-specific end-to-end evidence, not a silent green badge
 
 The phone diary previously listed only the first eight stops, hiding the exact later website row the user needed to verify. The R95 diary logs the last four `Web` rows with their website-published arrival/departure minutes; the copied report lists these beside their static Sch times and the source's last past-card station, while explicitly separating the page-update clock from passage. The API 34 device flow now opens the actual `.org.in` dropdown, demands a concrete response, keeps the station table, forbids NTES `Act` from being attributed to the selected website, and—if a `Web` row is present—requires website provenance and a labelled non-event page clock. A read-only source trial prints the source's first/grey field pairs and past/upcoming CSS state for four named stations to compare with those logged app cells. The site remains undated and can publish revisions of forecast values; these tests do not establish independent observation or exact moving-train location. VersionCode 25 retains the stable updateable debug signing key.
+
+Follow-up field map: public past-card `• PF n` is printed as `web pf n` on the same row (and in the copied report/diary), not as an official platform; upcoming-card platform values are not promoted to live row metadata. The original 06:06 read-only trial captured `• PF 1` beside ARU's green past card and `• PF 2` beside ANF's white upcoming card. A subsequent R95 trial at 06:24 returned `Network is unreachable` from the CI runner for `.org.in` even though other hosts answered, so its website comparison was **not** successful. The next trial retries one transient socket failure and still reports a repeat failure honestly.
+
+Concrete same-run comparison to check on an installed R96 (site observations at different instants, not a phone screenshot):
+
+| IST / site card | Site first clocks | OpenTrack with `.org.in` selected | Why |
+| --- | --- | --- | --- |
+| ~05:53 ARU arrival past but departure 05:54 still future | 05:50 / 05:54 | `Web 05:50` arrival, **no** `Web` departure yet | A future departure cannot be an observed passage at 05:53. |
+| 06:06 ARU green, ANF white | ARU 05:50 / 05:54; ANF forecast 06:08 / 06:10 | ARU `Web` 05:50 / 05:54; ANF `Sch` 06:00 / 06:02 | Upcoming first clocks are projections; no remote future rows. |
+| ~06:23 ANF past if green, SRF upcoming | ANF 06:11 / 06:22; SRF 06:44 / 06:46 | ANF `Web` 06:11 / 06:22; SRF `Sch` 06:27 / 06:29 | A later revised past-card claim replaces the earlier white-card ANF projection; do not replace the static SRF schedule. |
+
+This predicts app behavior from the parser and captured page fields; it is **not** an installed-device verification. The page supplies neither origin-run identity nor a GPS distance/coordinate; the last reported station is not a continuous train location.

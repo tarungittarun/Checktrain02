@@ -52,7 +52,8 @@ object UiState {
             val website = rows.filter { it.source == TrackModel.MinuteSource.SITE_REPORTED }.takeLast(4)
             if (website.isNotEmpty()) append(" | website-published=").append(website.joinToString(" ; ") {
                 it.code + " Web arr " + (it.showArr?.let(RailTime::formatRailMinute) ?: "–") +
-                    " dep " + (it.showDep?.let(RailTime::formatRailMinute) ?: "–")
+                    " dep " + (it.showDep?.let(RailTime::formatRailMinute) ?: "–") +
+                    " pf " + (it.platform ?: "–")
             })
         }
     }

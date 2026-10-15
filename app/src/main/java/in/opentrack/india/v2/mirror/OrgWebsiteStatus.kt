@@ -114,7 +114,10 @@ object OrgWebsiteStatus {
             var dep = published(depSection, stop.departureMin)
             if (arr != null && dep != null && dep < arr) dep = null
             if (arr == null && dep == null) continue
-            rows[code] = LiveStopFields(actualArrivalMin = arr, actualDepartureMin = dep)
+            val platform = Regex("(?i)\\bPF\\s*([A-Z0-9]{1,3})\\b")
+                .find(part.substringBefore("<!-- Arrival -->"))?.groupValues?.get(1)
+            rows[code] = LiveStopFields(actualArrivalMin = arr, actualDepartureMin = dep,
+                platform = platform)
             previousSeq = stop.seq
             anchorCode = code
             anchorDep = dep != null

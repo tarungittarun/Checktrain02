@@ -137,7 +137,13 @@ def once():
 if __name__ == '__main__':
     print('16227 browser-page trial, 15 Oct 2026; website is NOT Google WIMT app or an independently verified live feed.', flush=True)
     try:
-        a = once()
+        try:
+            a = once()
+        except OSError as exc:
+            print(f'  first website request failed ({type(exc).__name__}: {str(exc)[:100]}); '
+                  'retrying once after 1s, not treating a connection failure as an empty train', flush=True)
+            time.sleep(1)
+            a = once()
         time.sleep(12)
         b = once()
         print(f'  12s repeat: rowDigest unchanged={a == b}; a stable page plus advancing clock is NOT movement', flush=True)

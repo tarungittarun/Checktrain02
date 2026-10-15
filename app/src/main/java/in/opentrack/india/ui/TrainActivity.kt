@@ -582,7 +582,8 @@ class TrainActivity : AppCompatActivity() {
                     "${RailTime.formatClock(p.pageUpdatedAt)} IST (not event clock); " +
                     "origin run inferred, not printed on page\n")
                 for (row in website.takeLast(4)) append("  ${row.code} Web " +
-                    "arr ${hhmm(row.showArr)} dep ${hhmm(row.showDep)} vs " +
+                    "arr ${hhmm(row.showArr)} dep ${hhmm(row.showDep)} " +
+                    "pf ${row.platform ?: "–"} vs " +
                     "Sch ${hhmm(row.schedArr)}/${hhmm(row.schedDep)}\n")
             }
             append("providers ${u.tried.joinToString(" ")}\n")
