@@ -110,7 +110,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun setSearchCollapsed(collapsed: Boolean) {
         searchCollapsed = collapsed
-        binding.searchCard.visibility = if (collapsed) View.GONE else View.VISIBLE
+        binding.searchCardScroll.visibility = if (collapsed) View.GONE else View.VISIBLE
         binding.searchCompact.visibility = if (collapsed) View.VISIBLE else View.GONE
     }
 

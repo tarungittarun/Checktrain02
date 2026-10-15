@@ -124,7 +124,8 @@ class StationSearchFlowTest {
     fun unknownStationNamesTheFix() {
         E2E.typeInBox("fromBox", "qqzzxxy")
         E2E.typeInBox("toBox", "yes")
-        assertTrue("Find never ran", E2E.tap("find"))
+        assertTrue("Find cannot be reached after typing on a large-font screen",
+            E2E.reveal("find", "searchCardScroll") && E2E.tap("find"))
         val status = E2E.text("statusLine")
         assertTrue("an unknown boarding station produced no message", status.isNotBlank())
         // The advice that actually helps at a station: use the code.

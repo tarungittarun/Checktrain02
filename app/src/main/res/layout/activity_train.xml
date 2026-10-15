@@ -110,10 +110,14 @@
             android:text="@string/first_load" />
     </LinearLayout>
 
+    <!-- Give the long source/status card and the stop table separate scrollable viewports.
+         A wrap-content card can consume the entire screen at 440 dpi / large font and leave
+         the weighted station list at zero height, hiding even a real reported train marker. -->
     <ScrollView
         android:id="@+id/scroller"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="0dp"
+        android:layout_weight="1"
         android:clipToPadding="false"
         android:paddingBottom="@dimen/gap"
         android:scrollbars="none">

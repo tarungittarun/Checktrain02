@@ -5,6 +5,7 @@
   them: what is installed, where live data comes from, how often to ask, then the two levers.
 -->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/settingsScroll"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/bg"

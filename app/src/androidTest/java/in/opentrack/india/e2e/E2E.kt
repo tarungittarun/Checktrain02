@@ -61,6 +61,29 @@ object E2E {
 
     fun visible(name: String, timeoutMs: Long = LOCAL_MS): Boolean = find(name, timeoutMs) != null
 
+    /** One real finger swipe *inside* a scrolling viewport, never on the whole window.
+     * On a large-font device both Settings and the train's source card exceed one screen;
+     * off-screen children are not accessibility nodes until a traveller scrolls there. */
+    fun swipeIn(container: String, up: Boolean = true): Boolean {
+        val bounds = find(container, 500)?.visibleBounds ?: return false
+        if (bounds.width() < 50 || bounds.height() < 90) return false
+        val x = bounds.centerX()
+        val top = bounds.top + bounds.height() / 5
+        val bottom = bounds.bottom - bounds.height() / 5
+        ui.swipe(x, if (up) bottom else top, x, if (up) top else bottom, 28)
+        ui.waitForIdle()
+        return true
+    }
+
+    fun reveal(name: String, container: String, swipes: Int = 6): Boolean {
+        if (visible(name, 300)) return true
+        repeat(swipes) {
+            if (!swipeIn(container) || !visible(container, 300)) return false
+            if (visible(name, 300)) return true
+        }
+        return false
+    }
+
     /** A tap on a control's centre. Works whether or not the node reports itself clickable. */
     fun tap(name: String, timeoutMs: Long = LOCAL_MS): Boolean {
         repeat(2) {

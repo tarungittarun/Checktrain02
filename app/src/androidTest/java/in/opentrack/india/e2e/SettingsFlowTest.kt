@@ -43,17 +43,21 @@ class SettingsFlowTest {
     @Test
     fun everyControlIsReachableAndBackReturns() {
         assertTrue("the Data source button does not open settings", openSettings())
+        assertTrue("the install state is blank: '${E2E.text("state")}'",
+            E2E.text("state").isNotBlank())
         for (
             id in listOf(
-                "state", "overrideUrl", "columnHint", "save", "clear", "about",
-                "diagToggle", "diagShare", "diagSave", "diagClear", "diagState",
+                "state", "overrideUrl", "columnHint", "save", "clear",
+                "diagToggle", "diagShare", "diagSave", "diagClear", "diagState", "about",
             )
         ) {
-            assertTrue("settings screen is missing the control '$id'", E2E.visible(id))
+            assertTrue("settings screen is missing or cannot scroll to '$id'",
+                E2E.reveal(id, "settingsScroll"))
         }
-        assertTrue("the install state is blank: '${E2E.text("state")}'", E2E.text("state").isNotBlank())
         E2E.shot("settings")
-        assertTrue("back does not leave settings", E2E.tap("back"))
+        // The about text is below the fold on large-font phones: Back remains reachable
+        // through Android navigation without pretending the top button is still visible.
+        E2E.ui.pressBack()
         assertTrue("back did not return to search", E2E.visible("fromBox"))
     }
 
@@ -67,11 +71,14 @@ class SettingsFlowTest {
     @Test
     fun diagnosticCollectorIsInertThenLiveThenEmpty() {
         assertTrue(openSettings())
+        assertTrue("diagnostic card cannot be reached by scrolling",
+            E2E.reveal("diagState", "settingsScroll"))
         val idle = E2E.text("diagState")
         assertTrue(
             "the card does not explain how to start collecting: '" + idle + "'",
             idle.contains("reproduce", ignoreCase = true) || idle.contains("Turn on", ignoreCase = true),
         )
+        if (!E2E.visible("diagToggle", 300)) E2E.swipeIn("settingsScroll", up = false)
         assertTrue("collection cannot be turned on", E2E.tap("diagToggle"))
         E2E.ui.wait(Until.hasObject(E2E.res("diagState")), E2E.LOCAL_MS)
         val live = E2E.text("diagState") + " " + E2E.text("diagToggle")

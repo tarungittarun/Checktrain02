@@ -109,11 +109,22 @@ class TrackingFlowTest {
     // @flow distance-ladder
     @Test
     fun distancesRunFromZeroToTheTotal() {
-        val meta = rowTexts("stopMeta")
-        val km = meta.mapNotNull { line -> Regex("(\\d+)\\s*km").find(line)?.groupValues?.get(1)?.toIntOrNull() }
-        assertTrue("no row prints a distance: ${meta.take(2)}", km.isNotEmpty())
+        // RecyclerView exposes only rows in the viewport. On a large-font phone that can
+        // be one row, not the whole route; scroll as a passenger would to inspect both ends.
+        repeat(8) { E2E.swipeIn("stops", up = false) }
+        val km = mutableListOf<Int>()
+        fun readVisibleKm() {
+            rowTexts("stopMeta").mapNotNull { line ->
+                Regex("(\\d+)\\s*km").find(line)?.groupValues?.get(1)?.toIntOrNull()
+            }.forEach { value ->
+                if (value != km.lastOrNull()) km.add(value)
+            }
+        }
+        readVisibleKm()
+        assertTrue("no row prints a distance", km.isNotEmpty())
         assertEquals("the first halt is not 0 km", 0, km.first())
-        assertTrue("the last halt is not the far end (${km.last()} km)", km.last() > km.first())
+        repeat(16) { E2E.swipeIn("stops"); readVisibleKm() }
+        assertTrue("scrolling did not reveal the far end: $km", km.last() > km.first())
         for (i in 1 until km.size) {
             assertTrue("distance goes backwards at row $i: $km", km[i] >= km[i - 1])
         }
@@ -133,7 +144,12 @@ class TrackingFlowTest {
         // The old segment/full-route toggle was removed at the owner's request. A device
         // flow must test the shipped table, not demand that removed button back.
         assertTrue("the old route-window toggle returned", E2E.find("toggle", 500) == null)
-        assertTrue("the full timetable has no station rows", E2E.count(stopsBy) > 1)
+        val seen = mutableSetOf<String>()
+        repeat(8) {
+            seen += rowTexts("stopName").filter { it.isNotBlank() }
+            E2E.swipeIn("stops")
+        }
+        assertTrue("scrolling the full timetable did not reveal multiple stations: $seen", seen.size > 1)
         assertTrue("a hidden-row caption appeared on the full route", E2E.find("rowsNote", 500) == null)
     }
 

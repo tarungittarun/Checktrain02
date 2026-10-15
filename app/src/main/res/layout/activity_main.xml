@@ -75,6 +75,16 @@
             android:text="@string/edit_search" />
     </LinearLayout>
 
+    <!-- Keep Find reachable when the keyboard and large font consume the viewport. The
+         results list remains a separate weighted viewport; after a search the whole card
+         scroller disappears, so result rows get the screen back. -->
+    <ScrollView
+        android:id="@+id/searchCardScroll"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="2"
+        android:fillViewport="false"
+        android:scrollbars="vertical">
     <LinearLayout
         android:id="@+id/searchCard"
         android:layout_width="match_parent"
@@ -234,6 +244,7 @@
             android:layout_marginTop="14dp"
             android:text="@string/search" />
     </LinearLayout>
+    </ScrollView>
 
     <TextView
         android:id="@+id/statusLine"
