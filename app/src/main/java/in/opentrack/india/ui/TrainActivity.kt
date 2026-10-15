@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.os.Bundle
+import android.os.SystemClock
 import android.util.Log
 import android.widget.AdapterView
 import android.widget.TextView
@@ -45,6 +46,8 @@ class TrainActivity : AppCompatActivity() {
     private var lastAnchor: String? = null
     private var focusAfterRefresh = false
     private var receiptReady = false
+    private var refreshStartedAt = 0L
+    private val hideFeedback = Runnable { binding.refreshFeedback.visibility = View.GONE }
     private var sourceDetails = "No sources checked yet."
     private var lastUi: LiveViewModel.Ui? = null
     private var chainBusy = false
@@ -77,6 +80,7 @@ class TrainActivity : AppCompatActivity() {
 
         binding.refresh.setOnClickListener {
             focusAfterRefresh = true
+            refreshStartedAt = SystemClock.elapsedRealtime()
             vm.refresh(manual = true)
             // Refresh the source the traveller actually selected, too. An old cache
             // candidate must not masquerade as a new observation after an NTES tick.
@@ -120,9 +124,12 @@ class TrainActivity : AppCompatActivity() {
             renderChecking()
             // A timeout can finish without a live receipt. Still centre on the
             // last *reported* anchor after this manual request, even if unchanged.
-            if (wasBusy && !chainBusy && focusAfterRefresh) binding.stops.post {
-                focusCurrentLeg()
-                focusAfterRefresh = false
+            if (wasBusy && !chainBusy && focusAfterRefresh) {
+                showRefreshFeedback()
+                binding.stops.post {
+                    focusCurrentLeg()
+                    focusAfterRefresh = false
+                }
             }
         }
         // The sources box: fetching while the witnesses work. Once actuals exist, the line goes quiet -
@@ -180,6 +187,13 @@ class TrainActivity : AppCompatActivity() {
      * witness is an entry; picking one re-renders the table from that witness. Rebuilt only when the
      * witness set changes, so a re-selection never fights the observer.
      */
+    private fun sourceColor(tone: SourceIndicator.Tone): Int = when (tone) {
+        SourceIndicator.Tone.READY -> R.color.accent
+        SourceIndicator.Tone.UNAVAILABLE -> R.color.late
+        SourceIndicator.Tone.OLD -> R.color.warn
+        SourceIndicator.Tone.PENDING -> R.color.text2
+    }
+
     private fun renderSourceChips(ui: LiveViewModel.Ui) {
         val names = ui.sourceLines.keys.toList()
         binding.sourceSpinner.visibility = if (names.isEmpty()) View.GONE else View.VISIBLE
@@ -193,10 +207,12 @@ class TrainActivity : AppCompatActivity() {
                 override fun getView(position: Int, convertView: View?, parent: android.view.ViewGroup): View {
                     val view = super.getView(position, convertView, parent)
                     (view as TextView).apply {
-                        text = sourceName(names[position]) + "  ▾"
+                        val (state, detail) = states[names[position]] ?: ("none" to "checking on first load")
+                        val indicator = SourceIndicator.of(names[position], state, detail)
+                        text = "● ${sourceName(names[position])}  ▾"
                         textSize = 14f
                         maxLines = 1
-                        setTextColor(getColor(R.color.text1))
+                        setTextColor(getColor(sourceColor(indicator.tone)))
                     }
                     return view
                 }
@@ -204,22 +220,15 @@ class TrainActivity : AppCompatActivity() {
                 override fun getDropDownView(position: Int, convertView: View?, parent: android.view.ViewGroup): View {
                     val view = super.getDropDownView(position, convertView, parent)
                     val name = names[position]
-                    val (state, _) = states[name] ?: ("last-known" to "last known")
+                    val (state, detail) = states[name] ?: ("none" to "checking on first load")
+                    val indicator = SourceIndicator.of(name, state, detail)
                     (view as TextView).apply {
                         val density = resources.displayMetrics.density
                         setPadding((12 * density).toInt(), (12 * density).toInt(),
                             (12 * density).toInt(), (12 * density).toInt())
                         textSize = 14f
-                        text = sourceName(name) + " · " + when (state) {
-                            "live" -> "times available"
-                            "candidate" -> "compare only"
-                            "none" -> "tap to check"
-                            else -> "tap to check"
-                        }
-                        setTextColor(getColor(when (state) {
-                            "live" -> R.color.live
-                            else -> R.color.text1
-                        }))
+                        text = "● ${sourceName(name)} · ${indicator.label}"
+                        setTextColor(getColor(sourceColor(indicator.tone)))
                     }
                     return view
                 }
@@ -262,13 +271,12 @@ class TrainActivity : AppCompatActivity() {
         }
         binding.sourceSummary.visibility = if (publicCheck != null || ui.activeSource ==
             `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE) View.VISIBLE else View.GONE
-        binding.sourceSummary.text = if (publicCheck != null)
-            (ui.sourceStates[publicCheck]?.second ?: "Not checked yet").take(290) +
-                (if (ui.orgWebsiteReport != null) "\nWeb = site-published past-card claim, not independently verified. Future rows are Sch."
-                else "\nThis source is shown separately; Sch is static, page excerpts are not Act. Info has details.")
-        else if (ui.wimtWebPoint == null)
-            "WIMT web: no recent route-checked point; row notes are not Act or phone-app GPS."
-        else "WIMT web point · unverified; cache clock is not movement or phone-app GPS."
+        binding.sourceSummary.text = when {
+            ui.orgWebsiteReport != null -> "Site's past-stop claims; not confirmed railway actuals."
+            ui.wimtWebPoint != null -> "Site distance claim; not phone GPS."
+            publicCheck != null -> "No confirmed times from ${sourceName(publicCheck)}; timetable shown."
+            else -> "No confirmed position from this site; timetable shown."
+        }
         binding.headline.text = m.headline
         // No NTES time-interpolated icon in position-only mode. A separate amber
         // marker can scale a fresh, explicitly UNVERIFIED WIMT web-cache km claim
@@ -396,11 +404,11 @@ class TrainActivity : AppCompatActivity() {
             binding.provenance.setBackgroundResource(R.drawable.bg_badge_schedule)
             binding.provenance.setTextColor(getColor(R.color.warn))
             binding.age.text = when {
-                org != null -> "page updated ${RailTime.formatClock(org.pageUpdatedAt)} IST · not the event time · origin run inferred"
+                org != null -> "Site updated ${RailTime.formatClock(org.pageUpdatedAt)} IST · not the event time · run day unconfirmed"
                 claim != null -> "provider updated ${RailTime.formatClock(claim.updateAt)} IST · upstream ${claim.upstream} · not an event time"
                 else -> "No qualifying past-stop report from selected source"
             }
-            binding.delay.text = if (org != null) "Website times · not independently verified"
+            binding.delay.text = if (org != null) "Site stop times · not independently confirmed"
                 else "— · no verified delay from ${sourceName(publicCheck)}"
             binding.delay.setTextColor(getColor(R.color.warn))
             binding.next.text = if (station != null) {
@@ -420,9 +428,18 @@ class TrainActivity : AppCompatActivity() {
                     "(${RailTime.formatClock(p.eventAtMillis)} IST); unverified point after this halt, not Act/GPS")
         } ?: sourceReports
         stopAdapter.setRoutePoints(RouteBetween.groupedPoints(ui.staticRoute, ui.route))
+        stopAdapter.legAgeSeconds = ui.wimtWebPoint?.let {
+            ((System.currentTimeMillis() - it.eventAtMillis) / 1_000).coerceAtLeast(0)
+        }
         stopAdapter.setProjectedLeg(leg)
         renderSourceChips(ui)
-        stopAdapter.highlightCode = ui.anchorCode
+        val lastStop = ui.anchorCode ?: if (ui.activeSource == "NTES (official)" ||
+            ui.activeSource == "erail" || ui.activeSource == "last known")
+            ui.answer.anchorStopCode else null
+        stopAdapter.haltMarker = if (ui.wimtWebPoint == null)
+            TableMarker.atHalt(m.rows, lastStop, vm.originDate, System.currentTimeMillis())
+            else null // the independently supplied km point belongs inside the leg view
+        stopAdapter.highlightCode = ui.anchorCode ?: stopAdapter.haltMarker?.code
         if (ui.reports.isNotEmpty()) {
             Diary.get()?.log("UISTATE") {
                 "crowd on screen: " + ui.reports.entries.joinToString(" ; ") { it.key + " -> " + it.value }
@@ -478,11 +495,7 @@ class TrainActivity : AppCompatActivity() {
             else append(sourceText(ui.model)).append("\n\n")
             ui.sourceStates.forEach { (name, status) ->
                 append(sourceName(name)).append(": ")
-                if (name in `in`.opentrack.india.v2.mirror.PublicPageChecks.names &&
-                    status.second != "manual check available") {
-                    append(status.second).append('\n')
-                    return@forEach
-                }
+                // Keep long source diagnostics in the copied diary, not in the tracking UI.
                 append(when (status.first) {
                     "live" -> "reported times available"
                     "candidate" -> if (name == `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE &&
@@ -503,13 +516,13 @@ class TrainActivity : AppCompatActivity() {
                 append('\n')
             }
             append("\nWIMT web cache is not the WIMT phone app. ")
-            append("Station distances can differ between timetables and maps.")
+            append("Site claims are not verified actuals. Station distances can differ between maps.")
             ui.lastUpdated?.let { append("\n").append(it) }
         }
     }
 
     private fun sourceName(name: String): String = when (name) {
-        `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE -> "WIMT web"
+        `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE -> "WIMT website"
         "NTES (official)" -> "NTES · official"
         else -> name
     }
@@ -521,6 +534,18 @@ class TrainActivity : AppCompatActivity() {
             "No independently confirmed times; current view stays."
         status.startsWith("WIMT") -> "WIMT web checked; any position shown is unverified."
         else -> "Source checked. Open Info for details."
+    }
+
+    private fun showRefreshFeedback() {
+        val elapsed = (SystemClock.elapsedRealtime() - refreshStartedAt).coerceAtLeast(0L)
+        val u = lastUi
+        val ageSeconds = u?.answer?.position?.feedAgeSeconds ?: u?.answer?.position?.ageSeconds
+        val age = if (u?.answer?.position?.provenance?.live == true && ageSeconds != null)
+            "NTES feed ${ageSeconds / 60}m old" else "no new official report"
+        binding.refreshFeedback.text = "↻ ${elapsed} ms · $age"
+        binding.refreshFeedback.visibility = View.VISIBLE
+        binding.refreshFeedback.removeCallbacks(hideFeedback)
+        binding.refreshFeedback.postDelayed(hideFeedback, 1_200L)
     }
 
     /** Bring the current reported halt/leg to the top without manufacturing a position. */
@@ -625,7 +650,7 @@ class TrainActivity : AppCompatActivity() {
         /** Plain-language key for the optional source explanation, separate from feed diagnostics. */
         fun sourceText(m: TrackModel.View): String = buildString {
             append("Act = reported. Est = predicted, not an arrival report. ")
-            append("Web = website's past-card claim, not independently verified Act or GPS. ")
+            append("Site = site's past-stop claim, not independently verified Act or GPS. ")
             append("A blue train, if shown, is projected, not GPS. An amber WIMT web marker " +
                 "is an unverified cache-distance claim, not phone-app GPS.\n")
             append("Position: ${m.provenanceLabel} · ${m.ageLabel}")

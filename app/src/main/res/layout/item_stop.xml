@@ -74,6 +74,15 @@
         android:layout_weight="1"
         android:orientation="vertical">
 
+        <!-- Source-attributed marker at the last reported halt, not a moving/GPS position. -->
+        <TextView
+            android:id="@+id/haltMarker"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="12sp"
+            android:contentDescription="Last reported train halt"
+            android:visibility="gone" />
+
         <TextView
             android:id="@+id/stopName"
             style="@style/TextBody"

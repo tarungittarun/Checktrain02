@@ -27,6 +27,9 @@ class InlineLegView @JvmOverloads constructor(
             invalidate()
         }
 
+    var ageSeconds: Long? = null
+        set(value) { field = value; invalidate() }
+
     private var pulseStartedAt = 0L
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -85,5 +88,12 @@ class InlineLegView @JvmOverloads constructor(
             dp(2f), dp(2f), paint)
         canvas.drawCircle(x - dp(7f), y + dp(11f), dp(2.5f), paint)
         canvas.drawCircle(x + dp(7f), y + dp(11f), dp(2.5f), paint)
+        ageSeconds?.takeIf { it >= 60 }?.let { seconds ->
+            paint.color = markerColor
+            paint.textSize = dp(11f)
+            val label = if (seconds < 3600) "${seconds / 60}m old"
+                else "${seconds / 3600}h old"
+            canvas.drawText(label, x + dp(21f), y + dp(4f), paint)
+        }
     }
 }

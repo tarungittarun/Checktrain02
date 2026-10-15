@@ -95,9 +95,9 @@ class TrackingFlowTest {
                 qualified++
             } else {
                 assertTrue(
-                    "row $i prints a minute ('${live[i]}') without an Act/Est/Web source prefix",
+                    "row $i prints a minute ('${live[i]}') without an Act/Est/Site source prefix",
                     live[i].startsWith("Act ") || live[i].startsWith("Est ") ||
-                        live[i].startsWith("Web "),
+                        live[i].startsWith("Site "),
                 )
             }
         }
@@ -216,9 +216,9 @@ class TrackingFlowTest {
             E2E.ui.wait(Until.hasObject(By.res(E2E.PKG, "sourceSummary")), E2E.NETWORK_MS))
         val summary = E2E.text("sourceSummary")
         assertTrue("source returned no result: '$summary'",
-            summary.contains("ixigo:") || summary.contains("Request failed:"))
+            summary.contains("ixigo") || summary.contains("No confirmed times"))
         assertTrue("page result silently replaced official Act/position: '$summary'",
-            summary.contains("Sch is static, page excerpts are not Act."))
+            summary.contains("No confirmed times"))
         assertTrue("selected alternate removed the station table", E2E.count(stopsBy) > 0)
         assertTrue("page selection must not display NTES minutes as this page's Act",
             rowTexts("liveArr").all { it == "—" })
@@ -235,19 +235,19 @@ class TrackingFlowTest {
             E2E.ui.wait(Until.hasObject(By.res(E2E.PKG, "sourceSummary")), E2E.NETWORK_MS))
         val summary = E2E.text("sourceSummary")
         assertTrue("source result has no origin/claim explanation: $summary",
-            summary.contains("whereismytrain.org.in") || summary.contains("Request failed:"))
+            summary.contains("No confirmed times") || summary.contains("Site's past-stop claims"))
         assertTrue("org selection lost the station table", E2E.count(stopsBy) > 0)
         val live = rowTexts("liveArr") + rowTexts("liveDep")
         assertTrue("org selection misattributes NTES actuals: $live",
             live.none { it.startsWith("Act ") })
-        if (live.any { it.startsWith("Web ") }) {
+        if (live.any { it.startsWith("Site ") }) {
             assertTrue("Web cell without site provenance", E2E.text("provenance").contains("WEBSITE"))
             assertTrue("site page clock confused with an event clock",
                 E2E.text("age").contains("not the event time"))
         } else {
             assertTrue("no Web cells but source pretends to verify station events: $summary",
                 summary.contains("NOT Act") || summary.contains("static") ||
-                    summary.contains("Web = site-published") ||
+                    summary.contains("No confirmed times") ||
                     summary.contains("failed", ignoreCase = true))
         }
         E2E.shot("org-website-source")

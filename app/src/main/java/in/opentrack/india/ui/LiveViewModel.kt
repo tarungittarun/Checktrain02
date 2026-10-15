@@ -224,13 +224,14 @@ class LiveViewModel(
     private var wimtCandidate: WimtCandidate.Result? = null
     private var wimtCheckedAt = 0L
     private var manualProbeJob: Job? = null
+    private var firstSourceSurveyStarted = false
     private val publicChecks = mutableMapOf<String, PublicPageChecks.Result>()
     /** Phone-measured wall time for the selected source, not a synthetic network speed claim. */
     private val manualProbeMs = mutableMapOf<String, Long>()
 
-    /** Explicit selection is a *fetch*, even when the official feed is healthy. Only a
-     * same-run, past-stop verified response can replace its table. On refusal the official
-     * view stays in place and the selected source's failure is shown. */
+    /** Explicit selection is a fresh fetch. Only qualified source-specific data can populate
+     * its table; on refusal that source shows the timetable and its own failure, never NTES
+     * actuals mislabeled as the selected website's observations. */
     fun setActiveSource(name: String) {
         if (name == "NTES (official)" || name == "last known") {
             mirrorActiveSource = name
@@ -253,20 +254,22 @@ class LiveViewModel(
         _mirrorState.postValue("$name: no verified per-stop feed available to ask")
     }
 
-    fun probeSource(name: String) {
-        if (manualProbeJob?.isActive == true) {
+    fun probeSource(name: String) = probeSource(name, select = true)
+
+    private fun probeSource(name: String, select: Boolean) {
+        if (select && manualProbeJob?.isActive == true) {
             _mirrorState.postValue("Already checking a source; wait for its result")
             return
         }
-        Diary.get()?.log("SOURCE", "manual probe requested: $name")
+        Diary.get()?.log("SOURCE", "${if (select) "manual" else "first-load"} probe requested: $name")
         if (name == RunningStatusMirror.SOURCE || name == ConfirmTktMirror.SOURCE) {
-            maybeMirror(force = true, preferred = name)
+            maybeMirror(force = true, preferred = if (select) name else null)
         } else if (name in PublicPageChecks.names) {
             // Manual checks always go to the selected public endpoint, even when NTES is healthy.
             // Their reply is displayed, NEVER promoted into Act or the train marker.
             val started = System.currentTimeMillis()
-            manualProbeJob = viewModelScope.launch {
-                _mirrorState.value = "Checking $name…"
+            val job = viewModelScope.launch {
+                if (select) _mirrorState.value = "Checking $name…"
                 val route = _ui.value?.route ?: return@launch
                 val result = withContext(Dispatchers.IO) {
                     PublicPageChecks.fetch(Http(app), name, trainNo, originEpochDay,
@@ -276,9 +279,9 @@ class LiveViewModel(
                 if (_ui.value == null) return@launch
                 publicChecks[name] = result
                 manualProbeMs[name] = System.currentTimeMillis() - started
-                mirrorActiveSource = name
+                if (select) mirrorActiveSource = name
                 _ui.value?.let { u -> _ui.value = buildUi(u.route, lastAnswer ?: u.answer, u.tried) }
-                _mirrorState.value = result.detail
+                if (select) _mirrorState.value = result.detail
                 Diary.get()?.log("SOURCE", "$name: ${result.detail}")
                 result.orgReport?.let { website ->
                     val last = website.rows[website.anchorCode]
@@ -305,10 +308,11 @@ class LiveViewModel(
                     }
                 }
             }
+            if (select) manualProbeJob = job
         } else if (name == WimtCandidate.SOURCE) {
             val probeStarted = System.currentTimeMillis()
-            manualProbeJob = viewModelScope.launch {
-                _mirrorState.postValue("Checking WIMT candidate independently; official actuals stay on screen…")
+            val job = viewModelScope.launch {
+                if (select) _mirrorState.postValue("Checking WIMT web source…")
                 val u = _ui.value ?: return@launch
                 val route = u.staticRoute ?: u.route
                 val result = withContext(Dispatchers.IO) {
@@ -322,35 +326,49 @@ class LiveViewModel(
                 manualProbeMs[name] = wimtCheckedAt - probeStarted
                 // Always show the chosen probe's own result. A failed point does not erase
                 // official actuals; a valid web point gets its own schedule-only table.
-                mirrorActiveSource = name
-                _mirrorState.postValue("$name: ${result.detail}")
+                if (select) mirrorActiveSource = name
+                if (select) _mirrorState.postValue("$name: ${result.detail}")
                 val latest = _ui.value ?: u
                 _ui.value = buildUi(latest.route, lastAnswer ?: latest.answer, latest.tried)
                     .copy(relayOk = latest.relayOk)
                 Diary.get()?.log("SOURCE", "$name: ${result.detail}")
             }
+            if (select) manualProbeJob = job
         } else if (name == "erail") {
             val probeStarted = System.currentTimeMillis()
-            manualProbeJob = viewModelScope.launch {
-                _mirrorState.postValue("Checking erail independently; keeping the official view until verified…")
+            val job = viewModelScope.launch {
+                if (select) _mirrorState.postValue("Checking erail…")
                 val u = _ui.value ?: return@launch
                 val live = runCatching { repo()?.probeErail(trainNo, u.route, originEpochDay) }.getOrNull()
                 manualErail = live?.answer?.takeIf { it.position.provenance.live &&
                     it.perStop.values.any { f -> f.actualArrivalMin != null || f.actualDepartureMin != null } }
                 manualErailDetail = if (manualErail != null) "verified run stops from erail"
                     else "checked; no verified same-run stop minutes"
-                if (manualErail != null) {
-                    manualErailAt = System.currentTimeMillis()
-                    mirrorActiveSource = name
-                }
+                if (manualErail != null) manualErailAt = System.currentTimeMillis()
+                if (select) mirrorActiveSource = name
                 manualProbeMs[name] = System.currentTimeMillis() - probeStarted
-                _mirrorState.postValue("erail: $manualErailDetail")
+                if (select) _mirrorState.postValue("erail: $manualErailDetail")
                 val latest = _ui.value ?: u
-                _ui.value = buildUi(latest.route, manualErail ?: (lastAnswer ?: latest.answer), latest.tried)
+                _ui.value = buildUi(latest.route, if (select) manualErail ?: (lastAnswer ?: latest.answer)
+                    else lastAnswer ?: latest.answer, latest.tried)
                     .copy(relayOk = latest.relayOk)
-                Diary.get()?.log("SOURCE", "manual erail: $manualErailDetail")
+                Diary.get()?.log("SOURCE", "${if (select) "manual" else "first-load"} erail: $manualErailDetail")
             }
-        } else _mirrorState.postValue("$name: no verified per-stop endpoint is configured")
+            if (select) manualProbeJob = job
+        } else if (select) _mirrorState.postValue("$name: no verified per-stop endpoint is configured")
+    }
+
+    /** First opening asks every configured independent status path. Each result updates its own
+     * dropdown state; none switches the selected table or gates the fast official request. */
+    private fun surveySourcesOnce() {
+        if (firstSourceSurveyStarted || _ui.value == null) return
+        firstSourceSurveyStarted = true
+        Diary.get()?.log("SOURCE", "first load: checking all independent sources without selecting them")
+        // The mirror checks ConfirmTkt and runningstatus together, even when NTES succeeded.
+        maybeMirror(force = true)
+        (PublicPageChecks.names + listOf(WimtCandidate.SOURCE, "erail")).forEach {
+            probeSource(it, select = false)
+        }
     }
 
     /**
@@ -640,7 +658,7 @@ class LiveViewModel(
                     )
                     _error.value = null
                     maybeCrowd()
-                    maybeMirror()
+                    surveySourcesOnce()
                     maybeRouteExtent()
                     return
                 }
@@ -663,7 +681,7 @@ class LiveViewModel(
                 _ui.value = buildUi(route, answer, emptyList(), listOf(fallbackNote(id, fromCode, toCode)))
                 _error.value = null
                 maybeCrowd()
-                maybeMirror()
+                surveySourcesOnce()
                 maybeRouteExtent()
                 return
             }
@@ -675,11 +693,14 @@ class LiveViewModel(
             if (live.answer.position.provenance.live) _liveReceipt.value = System.currentTimeMillis()
             maybeCrowd()
             if (officialStaticKnown) maybeRailGeo(live.route)
+            surveySourcesOnce()
             if (live.answer.position.provenance != SourceKind.PROVIDER_NTES) {
-                maybeMirror()
+                // The first-load survey already asks independent status sources; later manual
+                // refreshes retain the usual throttle when the official request fails.
+                if (firstSourceSurveyStarted && lastMirrorPoll + CROWD_POLL_MIN_MILLIS < System.currentTimeMillis()) maybeMirror()
                 if (!officialStaticKnown) maybeRouteExtent()
             } else {
-                _mirrorState.postValue("Official NTES answered; slow independent page probes skipped")
+                _mirrorState.postValue("Official NTES answered; checking other sources in the background")
             }
         }
     }
@@ -966,7 +987,7 @@ class LiveViewModel(
                 ?: return@launch
             if (!freshShift()) loadMirrorCache()
             val names = route.stops.map { it.code to it.name }
-            _mirrorState.postValue("Checking independent feeds; page times are not actuals until validated…")
+            if (preferred != null) _mirrorState.postValue("Checking $preferred…")
             val ckDeferred = async {
                 val direct = withContext(Dispatchers.IO) { ConfirmTktMirror.fetchOrWhy(trainNo, names) }
                 if (direct.ok) direct else {
@@ -1075,11 +1096,9 @@ class LiveViewModel(
             )
             // Never silently switch away from the selected feed, except when the previous selection
             // was a deprecated cache entry. The dropdown and the table must describe the same witness.
-            if (preferred != null) {
-                if (mirrorStops[preferred].orEmpty().isNotEmpty()) mirrorActiveSource = preferred
-            } else if (mirrorActiveSource == null || mirrorActiveSource == "last known")
-                mirrorActiveSource = if (verifiedPrimary.isNotEmpty()) RunningStatusMirror.SOURCE
-                    else if (verifiedCk.isNotEmpty()) ConfirmTktMirror.SOURCE else null
+            if (preferred != null) mirrorActiveSource = preferred
+            else if (mirrorActiveSource == "last known") mirrorActiveSource = null
+            // A background first-load check must never silently replace the official selection.
             mirrorRefreshedAt = System.currentTimeMillis()
             if (preferred != null) manualProbeMs[preferred] = mirrorRefreshedAt - nowWall
             mirrorShiftAt = mirrorRefreshedAt
@@ -1097,16 +1116,15 @@ class LiveViewModel(
             mirrorAnchorCode = null
             mirrorSources = "${verifiedPrimary.size} verified on runningstatus.in · " +
                 "${verifiedCk.size} corroborated on confirmtkt · checked $refreshed"
-            _mirrorState.postValue(if (preferred != null) {
+            if (preferred != null) _mirrorState.postValue(
                 if (mirrorStops[preferred].orEmpty().isNotEmpty())
                     "$preferred: verified for this run · $mirrorSources"
                 else if (preferred == ConfirmTktMirror.SOURCE)
                     "ConfirmTkt returned ${ck.stops.size} page rows for ${ck.pageDay ?: "unknown day"}; " +
-                        "0 independently corroborated actuals. Kept NTES."
+                        "0 independently corroborated actuals; timetable shown for this source."
                 else "$preferred: ${primary?.stops?.size ?: 0} page rows, " +
-                    "0 verified same-run actuals (${direct.why.take(45)}); kept NTES."
-            } else if (verifiedPrimary.isNotEmpty()) "Verified actuals · $mirrorSources"
-                else "No verified actual arrival/departure this refresh — showing timetable only")
+                    "0 verified same-run actuals (${direct.why.take(45)}); timetable shown."
+            )
             val latest = _ui.value ?: u
             _ui.value = buildUi(latest.route, lastAnswer ?: latest.answer, latest.tried)
                 .copy(relayOk = latest.relayOk)
@@ -1119,7 +1137,7 @@ class LiveViewModel(
                     "unverified minutes never drive position or delay"
             }
         }
-        if (force) manualProbeJob = job
+        if (force && preferred != null) manualProbeJob = job
     }
 
     /** The traveller's half: publish one observation, then re-read the topic so the report shows. */
@@ -1217,12 +1235,17 @@ class LiveViewModel(
             if (mirrorActiveSource == "erail") mirrorActiveSource = null
         }
         val nowRail = nowRailOverride ?: nowMinute(now)
-        val pos = answer.position
+        val erailSelected = mirrorActiveSource == "erail"
+        val erailAnswer = if (erailSelected) manualErail ?: answer.takeIf {
+            it.position.provenance == SourceKind.PROVIDER
+        } else null
+        val pos = (erailAnswer ?: answer).position
         // An explicit mirror selection is an independent witness, not an overlay on
         // NTES's 15 actuals. Start from the schedule and add ONLY that mirror's
         // validated cells; otherwise the dropdown would misattribute official minutes.
-        val selectedMirrorForTable = freshShift() && mirrorActiveSource in
-            setOf(RunningStatusMirror.SOURCE, ConfirmTktMirror.SOURCE, "last known") &&
+        val mirrorSelected = mirrorActiveSource in
+            setOf(RunningStatusMirror.SOURCE, ConfirmTktMirror.SOURCE, "last known")
+        val selectedMirrorForTable = freshShift() && mirrorSelected &&
             mirrorStops[mirrorActiveSource].orEmpty().isNotEmpty()
         val webPoint = wimtCandidate?.webPoint?.takeIf { p ->
             mirrorActiveSource == WimtCandidate.SOURCE &&
@@ -1286,7 +1309,7 @@ class LiveViewModel(
                     .coerceAtLeast(0L) / 1000,
                 feedAgeSeconds = (now - railClaim!!.updateAt).coerceAtLeast(0L) / 1000,
                 feedStampMillis = railClaim.updateAt)
-            selectedMirrorForTable || publicSelected -> pos.copy(
+            mirrorSelected || publicSelected || (erailSelected && erailAnswer == null) -> pos.copy(
                 provenance = SourceKind.OFFLINE_SCHEDULE, anchorSeq = 0, nextSeq = 0,
                 fraction = 0f, delayMinutes = null, etaNextMinute = null, feedStampMillis = null)
             else -> pos
@@ -1294,7 +1317,8 @@ class LiveViewModel(
         val model = TrackModel.build(
             route = route, pos = tablePos,
             perStop = if (orgReport != null) orgReport.rows
-                else if (selectedMirrorForTable || webPoint != null || publicSelected) emptyMap()
+                else if (mirrorSelected || webPoint != null || publicSelected) emptyMap()
+                else if (erailSelected) erailAnswer?.perStop.orEmpty()
                 else answer.perStop,
             nowRailMinute = nowRail,
             boardSeq = route.stops.firstOrNull { it.code.equals(fromCode, true) }?.seq
@@ -1307,12 +1331,12 @@ class LiveViewModel(
             // on — no network, a timeout, a refusal, or the case this endpoint really is: it answered about
             // the train and published no arrival or departure minute at all. "No live report reached this
             // device" is the last resort, for when no source had anything more specific to say.
-            note = (if (orgReport != null) "Website-reported past-card times only; " +
-                "not independently verified Act or GPS. Remaining stations are timetable." else if (publicSelected)
-                "Selected public source: its rows are static schedule; " +
-                "any comparison notes are not Act or GPS." else if (webPoint != null)
-                "Web-cache point, not the WIMT phone app; " +
-                "its passage minute may be inferred. Other stations are timetable only." else null)
+            note = (if (orgReport != null) "Website reports past stops; not independently verified. Future stops use the timetable."
+                else if (publicSelected) "No confirmed times from this site; timetable shown."
+                else if (mirrorSelected && !selectedMirrorForTable ||
+                    erailSelected && erailAnswer == null) "No confirmed times from this source; timetable shown."
+                else if (webPoint != null) "Site distance claim, not phone location; other stops use the timetable."
+                else null)
                 ?: positionNote ?: notes.firstOrNull { it.isNotBlank() } ?: answer.note
                 ?: if (pos.provenance.live) null
                 else "No live report reached this device — every minute below is the timetable, " +
@@ -1379,7 +1403,8 @@ class LiveViewModel(
             ConfirmTktMirror.SOURCE to (mirrorSourceStates[ConfirmTktMirror.SOURCE]
                 ?: ("none" to "not answered yet")),
             WimtCandidate.SOURCE to (wimtCandidate?.let {
-                (if (webPoint != null) "candidate" else "unverified") to
+                (if (it.webPoint != null && now - it.webPoint.eventAtMillis in 0L..600_000L &&
+                    now - it.webPoint.cacheAtMillis in 0L..120_000L) "candidate" else "unverified") to
                     "${it.detail}; web point is not phone-app GPS or a verified stop Act"
             } ?: ("none" to "manual check available; not a verified source")),
             "erail" to (if (manualErail != null) "live" to (manualErailDetail ?: "verified manual result")
@@ -1391,7 +1416,7 @@ class LiveViewModel(
         )
         for (name in PublicPageChecks.names) {
             val result = publicChecks[name]
-            sourceNames[name] = if (result == null) "none" to "manual check available" else
+            sourceNames[name] = if (result == null) "none" to "checking on first load" else
                 (if (result.orgReport != null && now - result.orgReport.pageUpdatedAt in 0L..300_000L)
                     "candidate" else if (result.stationClaim != null &&
                     now - result.stationClaim.updateAt in 0L..300_000L)
@@ -1409,8 +1434,12 @@ class LiveViewModel(
             "last-known" to "cached for this run; not a new observation"
         for (name in sourceNames.keys) selectable[name] = when {
             name == WimtCandidate.SOURCE -> wimtCandidate?.lines.orEmpty()
-            name == PublicPageChecks.ORG && orgReport != null -> emptyMap()
-            name in PublicPageChecks.names -> publicChecks[name]?.lines.orEmpty() +
+            // The website's past-card times already live in the table. Do not repeat old
+            // extracted snippets beside the stations after the five-minute gate expires.
+            name == PublicPageChecks.ORG -> emptyMap()
+            name in PublicPageChecks.names -> publicChecks[name]?.lines?.takeIf {
+                now - (publicChecks[name]?.checkedAt ?: 0L) in 0L..300_000L
+            }.orEmpty() +
                 (if (name == PublicPageChecks.RAIL_YATRI && railClaim != null)
                     mapOf(railClaim.code to "RailYatri root claims ${railClaim.status} here · " +
                         "provider updated ${RailTime.formatClock(railClaim.updateAt)} IST; " +

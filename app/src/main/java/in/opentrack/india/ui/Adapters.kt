@@ -115,6 +115,7 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
     private var expandedCode: String? = null
     private var routePoints: Map<String, List<StopRow>> = emptyMap()
     private var projectedLeg: RouteBetween.LegProjection? = null
+    var legAgeSeconds: Long? = null
 
     fun setProjectedLeg(leg: RouteBetween.LegProjection?) {
         if (projectedLeg == leg) return
@@ -131,6 +132,14 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
     }
 
     /** The halt the mirror's actuals say the train is at or making for - tinted, never silent. */
+    var haltMarker: TableMarker.Halt? = null
+        set(value) {
+            if (field != value) {
+                field = value
+                notifyDataSetChanged()
+            }
+        }
+
     var highlightCode: String? = null
         set(value) {
             if (field != value) {
@@ -156,6 +165,7 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         val inlineLeg: InlineLegView = view.findViewById(R.id.inlineLeg)
         val inlineLegCaption: TextView = view.findViewById(R.id.inlineLegCaption)
         val dot: View = view.findViewById(R.id.stopDot)
+        val marker: TextView = view.findViewById(R.id.haltMarker)
         val name: TextView = view.findViewById(R.id.stopName)
         val meta: TextView = view.findViewById(R.id.stopMeta)
         val status: TextView = view.findViewById(R.id.stopStatus)
@@ -180,15 +190,20 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             if (s.isBoarding) append(" · ").append(ctx.getString(R.string.tag_board))
             else if (s.isAlighting) append(" · ").append(ctx.getString(R.string.tag_alight))
             s.platform?.takeIf { it.isNotBlank() }?.let {
-                append(if (s.source == TrackModel.MinuteSource.SITE_REPORTED) " · web pf "
+                append(if (s.source == TrackModel.MinuteSource.SITE_REPORTED) " · site pf "
                     else " · feed pf ").append(it)
             }
         }
+        val marker = haltMarker?.takeIf { it.code.equals(s.code, true) }
+        holder.marker.visibility = if (marker == null) View.GONE else View.VISIBLE
+        holder.marker.text = marker?.let { "🚆 ${it.caption}" }.orEmpty()
+        holder.marker.contentDescription = marker?.caption ?: ""
+        holder.marker.setTextColor(ctx.getColor(if (marker?.website == true) R.color.warn else R.color.live))
         val verified = s.source == TrackModel.MinuteSource.REPORTED
         val website = s.source == TrackModel.MinuteSource.SITE_REPORTED
         val stationClaim = reports[s.code]?.startsWith("RailYatri root claims") == true
         holder.status.text = when {
-            website -> "WEBSITE PAST-CARD REPORT · unverified, not GPS"
+            website -> "SITE REPORT · unverified"
             stationClaim -> "RAILYATRI STATION CLAIM · passage time unknown"
             verified && s.showDep != null -> "LEFT · departure reported"
             // A separate provider departed flag may be present without an ATD minute.
@@ -225,13 +240,13 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         holder.liveArr.text = when {
             !reported -> "—"
             s.source == TrackModel.MinuteSource.PROJECTED -> act("Est", s.showArr)
-            website -> act("Web", s.showArr)
+            website -> act("Site", s.showArr)
             else -> act("Act", s.showArr)
         }
         holder.liveDep.text = when {
             !reported -> "—"
             s.source == TrackModel.MinuteSource.PROJECTED -> act("Est", s.showDep)
-            website -> act("Web", s.showDep)
+            website -> act("Site", s.showDep)
             else -> act("Act", s.showDep)
         }
         // Late = red (the colour a traveller scans for); on-time actual = green; estimate = amber.
@@ -264,6 +279,8 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         val leg = projectedLeg?.takeIf { it.fromCode.equals(s.code, true) }
         holder.inlineLegGroup.visibility = if (leg == null) View.GONE else View.VISIBLE
         holder.inlineLeg.projection = leg
+        holder.inlineLeg.ageSeconds = if (leg?.markerKind == RouteBetween.MarkerKind.WEB_CACHE_CANDIDATE)
+            legAgeSeconds else null
         if (leg != null) {
             val web = leg.markerKind == RouteBetween.MarkerKind.WEB_CACHE_CANDIDATE
             val caption = if (web)
@@ -325,7 +342,7 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             s.minutesFromNow?.let { TrackModel.formatGap(it) } ?: ctx.getString(R.string.tag_due)
         s.showArr == null && s.showDep == null -> ctx.getString(R.string.tag_no_report)
         s.source == TrackModel.MinuteSource.PROJECTED -> ctx.getString(R.string.tag_expected)
-        s.source == TrackModel.MinuteSource.SITE_REPORTED -> "Web report"
+        s.source == TrackModel.MinuteSource.SITE_REPORTED -> "Site report"
         s.source == TrackModel.MinuteSource.SCHEDULE -> ctx.getString(R.string.tag_timetable)
         else -> ctx.getString(R.string.tag_actual)
     }

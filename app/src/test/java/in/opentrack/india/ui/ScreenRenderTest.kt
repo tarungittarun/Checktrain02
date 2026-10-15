@@ -186,6 +186,25 @@ Render.save("02-track-live", shot.bitmap)
     }
 
     @Test
+    fun lastReportedHaltMarkerRendersInsideTheTableNotOnScheduledRows() {
+        val p = pos(anchor = 4, status = StopStatus.DEPARTED, delay = 14, live = true)
+        val m = model(p, now = 432, per = perStop)
+        val now = `in`.opentrack.india.core.RailTime.railMinuteToEpochMillis(19949L, 440)
+        val marker = TableMarker.atHalt(m.rows, "YPA", 19949L, now)
+        assertNotNull("reported halt did not earn a table marker", marker)
+        val shot = Render.render(R.layout.activity_train) { root ->
+            Render.track(root, m, p, 432)
+            val list = root.findViewById<RecyclerView>(R.id.stops)
+            (list.adapter as StopAdapter).haltMarker = marker
+        }
+        val list = shot.root.findViewById<RecyclerView>(R.id.stops)
+        val reported = list.getChildAt(1)
+        assertTrue("train/age did not render inside the reported station row",
+            text(reported, R.id.haltMarker).contains("🚆 Last reported stop · 1h 22m ago"))
+        assertEquals(View.GONE, list.getChildAt(2).findViewById<View>(R.id.haltMarker).visibility)
+    }
+
+    @Test
     fun websitePastCardPaintsWebMinutesAndWebPlatformNeverAct() {
         val p = pos(anchor = 4, status = StopStatus.DEPARTED, delay = null, live = true)
         val base = model(p, now = 432, per = emptyMap())
@@ -199,10 +218,10 @@ Render.save("02-track-live", shot.bitmap)
         assertNotNull("website row did not render", row)
         val arr = text(row, R.id.liveArr)
         val dep = text(row, R.id.liveDep)
-        assertTrue("website arrival was not attributed: $arr", arr.startsWith("Web "))
-        assertTrue("website departure was not attributed: $dep", dep.startsWith("Web "))
+        assertTrue("website arrival was not attributed: $arr", arr.startsWith("Site "))
+        assertTrue("website departure was not attributed: $dep", dep.startsWith("Site "))
         assertTrue("website platform was mislabelled: ${text(row, R.id.stopMeta)}",
-            text(row, R.id.stopMeta).contains("web pf 2"))
+            text(row, R.id.stopMeta).contains("site pf 2"))
         assertTrue("website row was presented as a verified event: ${text(row, R.id.stopStatus)}",
             text(row, R.id.stopStatus).contains("unverified"))
         assertEquals("next station must stay scheduled", "—",
