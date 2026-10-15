@@ -181,7 +181,19 @@ class StationSearchFlowTest {
         val ahead = E2E.text("whenValue")
         assertNotEquals("+1d left the date unchanged", start, ahead)
         assertTrue("no 'now' control to get back", E2E.tap("dayNow"))
-        assertEquals("'now' did not return to the original date", start, E2E.text("whenValue"))
+        val backToNow = E2E.text("whenValue")
+        assertEquals("'now' did not return to the original day",
+            start.substringBefore(" · "), backToNow.substringBefore(" · "))
+        // 'Now' reads the actual clock again, not the time at test startup. At a
+        // minute boundary its HH:MM is legitimately one minute later.
+        fun minute(label: String): Int {
+            val clock = Regex("(\\d{2}):(\\d{2})").find(label)
+                ?: error("date has no readable clock: '$label'")
+            return clock.groupValues[1].toInt() * 60 + clock.groupValues[2].toInt()
+        }
+        val elapsedMinutes = (minute(backToNow) - minute(start) + 1440) % 1440
+        assertTrue("'now' jumped by $elapsedMinutes minutes: '$start' → '$backToNow'",
+            elapsedMinutes <= 2)
         assertTrue("no −1d control", E2E.tap("dayBack"))
         assertNotEquals("−1d left the date on 'now'", start, E2E.text("whenValue"))
         // The window itself has to be stated, or ±24 h is an invisible rule the traveller cannot use.

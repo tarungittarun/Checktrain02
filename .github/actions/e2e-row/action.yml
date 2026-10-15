@@ -336,12 +336,12 @@ runs:
             "${sel[@]}" \
             "$TEST_ID/androidx.test.runner.AndroidJUnitRunner" 2>&1 | tee "/tmp/instrument-$label.log"
           local rc=${PIPESTATUS[0]}
-          if [ "$label" = online ] && [ "$rc" = 0 ] &&
+          if { [ "$label" = online ] || [ "$label" = offline ]; } && [ "$rc" = 0 ] &&
              grep -q 'shortMsg=Process crashed' "/tmp/instrument-$label.log" &&
              ! grep -Eq 'Tests run: [1-9][0-9]*|OK \([1-9][0-9]* tests?\)' "/tmp/instrument-$label.log"; then
-            # Some hosted API 34 images kill the first instrument process after a
-            # single test dot, report rc=0 and leave no Java crash buffer. Never
-            # count that as a pass; restart this short feed class once, preserving
+            # Some hosted API 34 images kill a short online/offline instrument
+            # process after zero or one test dots, report rc=0 and leave no Java
+            # crash buffer. Never count that as a pass; restart once, preserving
             # both raw outputs. A second silent exit still fails the row.
             echo "::warning::$label instrumentation exited without a summary; retrying once"
             mv "/tmp/instrument-$label.log" "/tmp/instrument-$label-first.log"
