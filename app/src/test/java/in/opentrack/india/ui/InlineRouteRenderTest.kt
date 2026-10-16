@@ -37,7 +37,7 @@ class InlineRouteRenderTest {
         assertTrue(holder.inlineLeg.contentDescription.contains("not GPS"))
         assertTrue(holder.inlineLegCaption.text.contains("Between halts"))
         assertTrue(holder.report.text.contains("13:13"))
-        assertEquals("Act 13:12", holder.liveArr.text.toString())
+        assertEquals("↓ 13:12", holder.liveArr.text.toString())
         adapter.setProjectedLeg(null)
         adapter.onBindViewHolder(holder, 0)
         assertEquals(View.GONE, holder.inlineLegGroup.visibility)
@@ -79,7 +79,7 @@ class InlineRouteRenderTest {
         assertTrue(holder.inlineLeg.contentDescription.contains("passage time"))
         assertEquals(null, holder.inlineLeg.ageSeconds)
         assertEquals(0f, holder.inlineLeg.projection!!.fraction, .001f)
-        assertEquals("—", holder.liveArr.text.toString())
+        assertEquals("↓ —", holder.liveArr.text.toString())
     }
 
     @Test fun websiteLastStopIsPinnedAtHaltAndAgesWithoutMovingAlongLeg() {
@@ -138,13 +138,13 @@ class InlineRouteRenderTest {
         assertEquals(0f, ruler.projection!!.fraction, .001f)
         ruler.showLabels = true
         ruler.measure(width, height)
-        assertEquals("opening map points stretched the distance ruler",
-            compact, ruler.measuredHeight)
+        assertTrue("station dots need room on the same line",
+            ruler.measuredHeight > compact)
         assertEquals("disclosing map points moved the last-reported train", 0f,
             ruler.projection!!.fraction, .001f)
         ruler.showLabels = false
         ruler.measure(width, height)
-        assertEquals("closing map points did not restore the compact leg",
+        assertEquals("closing stations did not restore the compact leg",
             compact, ruler.measuredHeight)
     }
 
@@ -255,71 +255,40 @@ class InlineRouteRenderTest {
             official.sameAs(paint(RouteBetween.MarkerKind.SITE_LAST_STOP)))
     }
 
-    @Test fun pastAndArrivedStopDotsKeepTheSameSkinAcrossSources() {
-        val ctx = RuntimeEnvironment.getApplication()
-        data class RowPaint(val dot: android.graphics.Bitmap, val nameColor: Int,
-                            val timeType: String, val dotStyle: Int)
-        fun row(source: TrackModel.MinuteSource, state: TrackModel.State,
-                departed: Boolean): RowPaint {
-            val adapter = StopAdapter()
-            val stop = TrackModel.Stop(1, "AAA", "From", 500, 505, 507,
-                if (departed) 509 else null, null, source, null,
-                state, true, 100, 0, 20, false, false, false, -5)
-            adapter.submitList(listOf(stop))
-            val holder = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
-            adapter.onBindViewHolder(holder, 0)
-            val background = holder.dot.background
-            background.setBounds(0, 0, 24, 24)
-            val bitmap = android.graphics.Bitmap.createBitmap(24, 24,
-                android.graphics.Bitmap.Config.ARGB_8888)
-            background.draw(android.graphics.Canvas(bitmap))
-            return RowPaint(bitmap, holder.name.currentTextColor,
-                holder.timeType.text.toString(), adapter.dotFor(stop))
-        }
-        for ((state, departed) in listOf(TrackModel.State.PASSED to true,
-                TrackModel.State.HERE to false)) {
-            val official = row(TrackModel.MinuteSource.REPORTED, state, departed)
-            val website = row(TrackModel.MinuteSource.SITE_REPORTED, state, departed)
-            assertTrue("switching sources recoloured the $state stop dot",
-                official.dot.sameAs(website.dot))
-            assertEquals("switching sources recoloured the $state stop name",
-                official.nameColor, website.nameColor)
-            assertTrue(official.timeType.startsWith("ACTUAL"))
-            assertEquals("SITE CLAIM", website.timeType)
-        }
-        // Robolectric's GradientDrawable raster shadow stretches these small
-        // XML circles to the same forced bounds. Check the distinct resource
-        // chosen by the real row instead of mistaking its bitmap stub for UI.
-        assertEquals("arrived-at-station ring", R.drawable.dot_here,
-            row(TrackModel.MinuteSource.REPORTED, TrackModel.State.HERE, false).dotStyle)
-        assertEquals("passed-stop dot", R.drawable.dot_passed,
-            row(TrackModel.MinuteSource.REPORTED, TrackModel.State.PASSED, true).dotStyle)
-    }
-
-    @Test fun tappingHaltShowsUntimedPointsThenCollapsesWithoutClaimingArrival() {
+    @Test fun tappingAnOrdinaryStopShowsProportionalStationDotsWithoutATimeSheet() {
         val ctx = RuntimeEnvironment.getApplication()
         val adapter = StopAdapter()
         adapter.setRoutePoints(mapOf("YPR" to listOf(
             StopRow(2, "MWM", "Malleswaram", null, null, null,
-                null, null, 0, 368, false))))
-        val row = TrackModel.Stop(1, "YPR", "Yesvantpur Jn", 670, 672,
+                null, null, 0, 367, false),
+            StopRow(3, "ABC", "Another station", null, null, null,
+                null, null, 0, 370, false))))
+        val from = TrackModel.Stop(1, "YPR", "Yesvantpur Jn", 670, 672,
             670, 672, null, TrackModel.MinuteSource.REPORTED, null,
             TrackModel.State.PASSED, true, 366, 0, 6, true, true, false, -20)
-        adapter.submitList(listOf(row))
+        val next = TrackModel.Stop(2, "AAA", "Next stop", 684, 686,
+            684, 686, null, TrackModel.MinuteSource.SCHEDULE, null,
+            TrackModel.State.NEXT, true, 372, 6, 8, false, false, false, 4)
+        adapter.submitList(listOf(from, next))
         val holder = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
         adapter.onBindViewHolder(holder, 0)
-        assertEquals(View.GONE, holder.intermediateScroll.visibility)
+        assertEquals(View.GONE, holder.inlineLegGroup.visibility)
+        assertEquals(View.GONE, holder.details.visibility)
+        assertEquals("↓ 11:10", holder.schedArr.text.toString())
         holder.row.performClick()
         adapter.onBindViewHolder(holder, 0)
-        assertEquals(View.VISIBLE, holder.intermediateScroll.visibility)
-        assertEquals("MAP POINTS · NO STOP TIMES",
-            (holder.intermediateGroup.getChildAt(0) as TextView).text.toString())
-        val text = (holder.intermediateGroup.getChildAt(1) as TextView).text.toString()
-        assertTrue(text.contains("Malleswaram"))
-        assertEquals("• Malleswaram · 368 km", text)
-        assertFalse(text.contains("Act "))
+        assertEquals(View.VISIBLE, holder.inlineLegGroup.visibility)
+        assertTrue(holder.inlineLeg.showLabels)
+        assertFalse(holder.inlineLeg.showTrain)
+        assertEquals(2, holder.inlineLeg.projection!!.points.size)
+        assertEquals(367, holder.inlineLeg.projection!!.points[0].mapKm)
+        assertTrue(holder.inlineLeg.projection!!.points[0].approximate)
+        assertEquals(View.GONE, holder.details.visibility)
+        val positions = LegGeometry.pointPositionsDp(holder.inlineLeg.projection!!.points, 6)
+        assertTrue("1 km and 3 km must create different vertical gaps",
+            positions[0] - 24f < positions[1] - positions[0])
         holder.row.performClick()
         adapter.onBindViewHolder(holder, 0)
-        assertEquals(View.GONE, holder.intermediateScroll.visibility)
+        assertEquals(View.GONE, holder.inlineLegGroup.visibility)
     }
 }

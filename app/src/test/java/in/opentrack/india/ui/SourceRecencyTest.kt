@@ -1,10 +1,25 @@
 package `in`.opentrack.india.ui
 
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SourceRecencyTest {
+    @Test fun onlySameStopRecentEventsCanBeDescribedAsAgreeing() {
+        assertEquals(1, SourceRecency.agreementMinutes("ASK", 1047, "ASK", 1046,
+            30_000L, 240_000L))
+        assertNull(SourceRecency.agreementMinutes("TK", 982, "TTR", 1026,
+            30_000L, 180_000L))
+        assertNull(SourceRecency.agreementMinutes("ASK", 1047, "ASK", 1046,
+            301_000L, 240_000L))
+        assertNull(SourceRecency.agreementMinutes("ASK", 1047, "ASK", 1046,
+            30_000L, 601_000L))
+        assertNull(SourceRecency.agreementMinutes("ASK", null, "ASK", 1046,
+            30_000L, 240_000L))
+    }
+
     @Test fun newerPastMarkedHaltCanBeOfferedAsUnverifiedComparison() {
         assertTrue(SourceRecency.showComparison(10, 11, 12 * 60_000L, 30_000L, 60_000L))
         assertFalse("site page clock alone is not movement",

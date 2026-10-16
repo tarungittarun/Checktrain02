@@ -22,6 +22,8 @@ class InlineLegView @JvmOverloads constructor(
     var distanceKm: Int = 0
         set(value) { if (field != value) { field = value; requestLayout(); invalidate() } }
     var showLabels: Boolean = false
+        set(value) { if (field != value) { field = value; requestLayout(); invalidate() } }
+    var showTrain: Boolean = true
         set(value) { field = value; invalidate() }
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -32,7 +34,9 @@ class InlineLegView @JvmOverloads constructor(
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val screenDp = resources.displayMetrics.heightPixels / resources.displayMetrics.density
         setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec),
-            dp(LegGeometry.heightDp(distanceKm, screenDp).toFloat()).roundToInt())
+            dp((if (showLabels && projection?.points?.isNotEmpty() == true)
+                LegGeometry.expandedHeightDp(projection!!.points, distanceKm)
+                else LegGeometry.heightDp(distanceKm, screenDp)).toFloat()).roundToInt())
     }
 
     // An unattached renderer can be skipped by Robolectric. Exercise the same
@@ -45,7 +49,18 @@ class InlineLegView @JvmOverloads constructor(
         val x = dp(36f)
         val y0 = dp(24f)
         val y1 = height - dp(24f)
-        val y = y0 + (y1 - y0) * leg.fraction.coerceIn(0f, 1f)
+        val positions = if (showLabels) LegGeometry.pointPositionsDp(leg.points, distanceKm)
+            .map(::dp) else emptyList()
+        val breaks = listOf(0f) + leg.points.map { it.fraction.coerceIn(0f, 1f) } + listOf(1f)
+        val heights = listOf(y0) + positions + listOf(y1)
+        val fraction = leg.fraction.coerceIn(0f, 1f)
+        val segment = breaks.indices.dropLast(1).indexOfFirst { fraction <= breaks[it + 1] }
+            .coerceAtLeast(0)
+        val proportion = ((fraction - breaks[segment]) /
+            (breaks[segment + 1] - breaks[segment]).coerceAtLeast(.001f)).coerceIn(0f, 1f)
+        val y = if (showLabels && positions.isNotEmpty())
+            heights[segment] + (heights[segment + 1] - heights[segment]) * proportion
+            else y0 + (y1 - y0) * fraction
         val blue = context.getColor(R.color.live)
         val ink = context.getColor(R.color.bg)
         paint.style = Paint.Style.STROKE
@@ -61,17 +76,29 @@ class InlineLegView @JvmOverloads constructor(
         paint.style = Paint.Style.FILL
         paint.color = context.getColor(R.color.text2)
         paint.textSize = sp(11f)
-        var lastLabelY = Float.NEGATIVE_INFINITY
-        for (point in leg.points) {
-            val tickY = y0 + (y1 - y0) * point.fraction.coerceIn(0f, 1f)
-            canvas.drawCircle(x, tickY, dp(2.5f), paint)
-            if (showLabels && tickY - lastLabelY >= dp(22f) &&
-                kotlin.math.abs(tickY - y) > dp(25f) && tickY > y0 + dp(20f)) {
-                canvas.drawText("map · ${point.code} · ${point.mapKm} km",
-                    x + dp(26f), tickY + dp(4f), paint)
-                lastLabelY = tickY
+        for ((index, point) in leg.points.withIndex()) {
+            val tickY = positions.getOrNull(index) ?:
+                y0 + (y1 - y0) * point.fraction.coerceIn(0f, 1f)
+            paint.color = context.getColor(R.color.text2)
+            canvas.drawCircle(x, tickY, dp(if (showLabels) 4f else 2.5f), paint)
+            if (showLabels) {
+                val clock = point.passageMinute?.let {
+                    (if (point.approximate) "~" else "") +
+                        `in`.opentrack.india.core.RailTime.formatRailMinute(it)
+                }.orEmpty()
+                paint.textSize = sp(12f)
+                paint.textAlign = Paint.Align.RIGHT
+                if (clock.isNotEmpty()) canvas.drawText(clock, width - dp(12f), tickY + dp(4f), paint)
+                paint.textAlign = Paint.Align.LEFT
+                paint.textSize = sp(13f)
+                val room = width - dp(if (clock.isEmpty()) 90f else 164f)
+                val label = android.text.TextUtils.ellipsize(
+                    RowText.of(point.name), android.text.TextPaint(paint), room.coerceAtLeast(dp(45f)),
+                    android.text.TextUtils.TruncateAt.END).toString()
+                canvas.drawText(label, x + dp(26f), tickY + dp(4f), paint)
             }
         }
+        if (!showTrain) return // Static stations are not evidence of the train's location.
         // A quiet, fixed-size locomotive: no pulsing/moving halo that could imply
         // fresh telemetry. Badge and rail have the same shape for every source.
         paint.color = blue
@@ -134,6 +161,25 @@ object LegGeometry {
         val ceiling = (screenHeightDp * 0.035f).roundToInt().coerceIn(12, 27)
         return (6 + distanceKm.coerceAtLeast(0) * 0.45f)
             .roundToInt().coerceIn(6, ceiling)
+    }
+
+    /** Every disclosed dot has a readable minimum gap; the remaining pixels are
+     * distributed by the source map's kilometre fractions. No elapsed-time movement. */
+    fun pointPositionsDp(points: List<RouteBetween.LegPoint>, distanceKm: Int): List<Float> {
+        val ratios = (listOf(0f) + points.map { it.fraction.coerceIn(0f, 1f) } + listOf(1f))
+        val bonus = distanceKm.coerceIn(0, 100) * 1.4f
+        var y = 24f
+        return points.mapIndexed { i, _ ->
+            y += 36f + bonus * (ratios[i + 1] - ratios[i]).coerceAtLeast(0f)
+            y
+        }
+    }
+
+    fun expandedHeightDp(points: List<RouteBetween.LegPoint>, distanceKm: Int): Int {
+        val positions = pointPositionsDp(points, distanceKm)
+        val remaining = (1f - (points.lastOrNull()?.fraction ?: 0f)).coerceIn(0f, 1f)
+        return ((positions.lastOrNull() ?: 24f) + 36f +
+            distanceKm.coerceIn(0, 100) * 1.4f * remaining + 24f).roundToInt()
     }
 
     fun ageLabel(ageSeconds: Long): String = when {

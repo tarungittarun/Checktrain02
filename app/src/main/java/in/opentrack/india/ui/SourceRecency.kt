@@ -9,6 +9,17 @@ object SourceRecency {
         officialIndex >= 0 && siteIndex > officialIndex && officialAgeMs >= 300_000L &&
             pageAgeMs in 0L..300_000L && siteEventAgeMs in 0L..300_000L
 
+    /** Agreement, not proof of present position: a dated railway stop and a
+     * recent undated website page named the SAME stop at nearly the same minute. */
+    fun agreementMinutes(officialCode: String?, officialMinute: Int?,
+                         siteCode: String?, siteMinute: Int?, pageAgeMs: Long,
+                         siteEventAgeMs: Long): Int? {
+        if (officialCode == null || siteCode == null ||
+            !officialCode.equals(siteCode, true) || officialMinute == null || siteMinute == null ||
+            pageAgeMs !in 0L..300_000L || siteEventAgeMs !in 0L..600_000L) return null
+        return kotlin.math.abs(officialMinute - siteMinute).takeIf { it <= 2 }
+    }
+
     /** Compare passage/event clocks, never either source's page/feed update stamp. */
     fun officialIsNewer(officialEventAgeMs: Long?, siteEventAgeMs: Long?): Boolean =
         officialEventAgeMs != null && siteEventAgeMs != null &&

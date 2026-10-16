@@ -162,15 +162,22 @@ class TrainActivity : AppCompatActivity() {
             }
         }
         binding.sourceToggle.setOnClickListener {
+            val website = lastUi?.activeSource ==
+                `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG
             AlertDialog.Builder(this)
-                .setTitle("Sources · ${BuildStamp.ROUND}")
-                .setMessage(sourceDetails + "\n\nOn the route: the train stays at the last reported " +
-                    "stop unless a source supplies a qualified distance. Small ticks use static map " +
-                    "kilometres; they are not stop reports. Late minutes are shown in the top card; " +
-                    "the distance ruler has the same shape for every source. A reported " +
-                    "departure cannot tell whether the train is now running, at another stop, " +
-                    "or halted between stops. A phone app's on-board location signal is " +
-                    "not the same as its public web page.")
+                .setTitle("About these times")
+                .setMessage("↓ Arrival   ↑ Departure\n\n" +
+                    "Dim times are the timetable. Bright times are reported by " +
+                    (if (website) "the selected website." else "the selected source.") +
+                    " A dash means no time was reported. ~ on an intermediate " +
+                    "station is a planned passing time estimated from the timetable and distances.\n\n" +
+                    "The train icon stays at the last reported place; its age is the " +
+                    "age of that event, not the age of the page or proof of its current position.")
+                .setNeutralButton("Source details") { _, _ ->
+                    AlertDialog.Builder(this).setTitle("Source details · ${BuildStamp.ROUND}")
+                        .setMessage(sourceDetails)
+                        .setPositiveButton("Close", null).show()
+                }
                 .setPositiveButton("Close", null)
                 .show()
         }
@@ -318,7 +325,10 @@ class TrainActivity : AppCompatActivity() {
                     (view as TextView).apply {
                         val (state, detail) = spinnerStates[names[position]] ?: ("none" to "checking on first load")
                         val indicator = SourceIndicator.of(names[position], state, detail)
-                        text = "● ${sourceName(names[position])}  ▾"
+                        val shortName = if (names[position] ==
+                            `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG) "Website"
+                            else sourceName(names[position])
+                        text = "● $shortName  ▾"
                         textSize = 14f
                         maxLines = 1
                         setTextColor(getColor(sourceColor(indicator.tone)))
@@ -584,15 +594,28 @@ class TrainActivity : AppCompatActivity() {
             if (org != null) binding.headline.contentDescription =
                 "Unverified website claim: ${binding.headline.text}, " +
                     "${RailTime.formatRailMinute(org.eventMinute)}; current position and motion unknown"
+            val ntesAgree = org?.let { report ->
+                val officialCell = ui.answer.perStop[report.anchorCode]
+                val officialMinute = if (report.departed) officialCell?.actualDepartureMin
+                    else officialCell?.actualArrivalMin
+                if (ui.answer.position.provenance !=
+                    `in`.opentrack.india.model.SourceKind.PROVIDER_NTES) null else
+                    SourceRecency.agreementMinutes(report.anchorCode, officialMinute,
+                        report.anchorCode, report.eventMinute,
+                        System.currentTimeMillis() - report.pageUpdatedAt,
+                        System.currentTimeMillis() - RailTime.railMinuteToEpochMillis(
+                            vm.originDate, report.eventMinute))
+            }
             binding.provenance.text = when {
-                org != null -> "WEBSITE · past-stop claims, unverified"
+                ntesAgree != null -> "WEBSITE · NTES agrees within ${ntesAgree}m"
+                org != null -> "WEBSITE · reported stop"
                 claim != null -> "RAILYATRI · station claim only"
                 else -> "${sourceName(publicCheck)} · comparison only"
             }
             binding.provenance.setBackgroundResource(R.drawable.bg_badge_schedule)
             binding.provenance.setTextColor(getColor(R.color.warn))
             binding.age.text = when {
-                org != null -> "Site page updated ${RailTime.formatClock(org.pageUpdatedAt)} IST · " +
+                org != null -> "Website page updated ${RailTime.formatClock(org.pageUpdatedAt)} IST · " +
                     "not a movement time · site omits run date"
                 claim != null -> "provider updated ${RailTime.formatClock(claim.updateAt)} IST · upstream ${claim.upstream} · not an event time"
                 else -> "No qualifying past-stop report from selected source"
@@ -604,9 +627,9 @@ class TrainActivity : AppCompatActivity() {
             binding.delay.text = if (siteArrivalDelay != null && org != null) {
                 val at = RailTime.formatRailMinute(org.eventMinute)
                 when {
-                    siteArrivalDelay > 0 -> "+${siteArrivalDelay}m · $at site claim"
-                    siteArrivalDelay < 0 -> "${-siteArrivalDelay}m early · $at site claim"
-                    else -> "On time · $at site claim"
+                    siteArrivalDelay > 0 -> "+${siteArrivalDelay}m · $at"
+                    siteArrivalDelay < 0 -> "${-siteArrivalDelay}m early · $at"
+                    else -> "On time · $at"
                 }
             } else if (org != null) "— · delay not confirmed"
             else "— · no verified delay"

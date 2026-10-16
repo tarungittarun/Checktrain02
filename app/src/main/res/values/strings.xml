@@ -80,7 +80,7 @@
     <string name="suggestions_title">Matches</string>
     <string name="col_station">Station</string>
     <string name="source_label">Source</string>
-    <string name="source_info">Info</string>
+    <string name="source_info">About times</string>
     <string name="col_scheduled">Scheduled</string>
     <string name="col_arrival">Arrival</string>
     <string name="col_departure">Departure</string>

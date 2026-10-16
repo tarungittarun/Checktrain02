@@ -57,7 +57,8 @@ object RouteBetween {
 
     /** A *projected* train icon within the two NTES halts. Never display this as observed
      * GPS or as an actual passage through an intermediate point. Hide on stale/schedule-only data. */
-    data class LegPoint(val code: String, val name: String, val mapKm: Int, val fraction: Float)
+    data class LegPoint(val code: String, val name: String, val mapKm: Int, val fraction: Float,
+                        val passageMinute: Int? = null, val approximate: Boolean = false)
     enum class MarkerKind { PROJECTED, WEB_CACHE_CANDIDATE, SITE_INTERMEDIATE, SITE_LAST_STOP, REPORTED_HALT, STATION_CLAIM }
     data class LegProjection(
         val from: String, val to: String, val fraction: Float,

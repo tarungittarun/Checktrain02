@@ -136,3 +136,33 @@ shorter locomotive leg continues the same neutral-colour stroke.
 The NTES diary's old `40 stops with reported cells` counted all timetable
 rows, not the subset with timed reports. Its wording now prints both counts
 separately; a long schedule never masquerades as forty observed halts.
+
+## R112 phone follow-up (17:09 and 17:33 screenshots, 16 October)
+
+The second comparison screenshot is of **12089**, not the tracked **20651**;
+its exact scheduled minutes must not be copied into 20651's route. On the
+tracked phone at 17:08–17:09, three separate website GETs returned Tiptur's
+same 17:06 past-marked arrival / +18 at that stop; refreshed HTTP/page clocks
+did not create a new train event. At 17:30, an independently fetched dated NTES
+answer reported Arsikere arrival 17:27 / +14 and the website reported the
+**same** station's arrival 17:26 / +13. This supports “the two sources agree
+within 1 minute on that stop,” not proof of today's exact position or of a
+website run date. R112 labels that narrow agreement explicitly where present;
+otherwise it attributes a stop report to its selected source, without
+repeating “unverified” over the whole screen or silently making it an official
+railway actual. The source details retain the run-date and page-update limits.
+
+The time sheet and the separately inset intermediate list in the first phone
+screenshot made users tap just to see arrival/departure and disconnected the
+small stations from the locomotive's route. R112 shows the scheduled and
+source-reported arrival/departure pairs on each main stop before tapping, with
+↓/↑ indicators and a short explanation in About times. A stop tap now expands
+intermediate station dots **on the same vertical rail**, with kilometre-based
+spacing and a legible floor between points. Intermediate points show only one
+planned passage/arrival clock, never a departure or an “intermediate means no
+stop” disclaimer. ConfirmTkt's intermediate rows have distance but no clock;
+when both dated bounding halt times and distances exist, a `~`-prefixed minute
+is a *timetable interpolation*, never a claimed train observation. Missing
+inputs stay blank. An actual scheduled halt remains a main stop row with its
+arrival/departure pair. The `Source details` sheet keeps the diagnostics behind
+a brief plain-language `About times` panel.

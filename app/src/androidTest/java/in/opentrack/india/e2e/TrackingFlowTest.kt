@@ -62,14 +62,10 @@ class TrackingFlowTest {
         return emptyList()
     }
 
-    /** On compact/dense displays the selected-source card can push an opened
-     * stop's time sheet just below the station viewport. Bring a real cell into
-     * view; never count an off-screen/GONE time sheet as an E2E pass. */
-    private fun revealTimeSheet(): Boolean {
-        if (rowTexts("liveArr").isNotEmpty()) return true
-        if (E2E.reveal("liveArr", "stops", swipes = 2)) return true
-        return E2E.tap("stopRow") && E2E.reveal("liveArr", "stops", swipes = 5)
-    }
+    /** Times are visible without tapping a station; reveal a real onscreen cell
+     * rather than accepting an offscreen RecyclerView item as a pass. */
+    private fun revealTimeSheet(): Boolean =
+        rowTexts("liveArr").isNotEmpty() || E2E.reveal("liveArr", "stops", swipes = 5)
 
     // @flow track-open
     @Test
@@ -115,44 +111,25 @@ class TrackingFlowTest {
     // @flow stop-table-columns
     @Test
     fun liveCellIsAMinuteOrADashNeverTheTimetable() {
-        // Round 45: the stacked columns name their kind - "Sch hh:mm" over "Act hh:mm"/"Est hh:mm";
-        // a row nothing moved shows "—" on the Act line. The prefix IS the tag now.
-        // The new journey timeline keeps the full arrival/departure comparison
-        // behind a stop tap. Reveal one if the reported anchor is off-screen;
-        // a hidden sheet is not an empty train schedule.
-        if (rowTexts("schedArr").isEmpty() &&
-            !E2E.reveal("schedArr", "stops", swipes = 2)) {
-            // An opened anchor sheet can sit BELOW the visible edge. First
-            // scroll to it; blindly tapping that row would CLOSE the sheet.
-            assertTrue("no stop can reveal its time sheet", E2E.tap("stopRow"))
-            assertTrue("tapping a stop did not disclose a VISIBLE scheduled arrival; " +
-                "viewport=${E2E.find("stops", 300)?.visibleBounds} " +
-                "names=${rowTexts("stopName")}",
-                E2E.reveal("schedArr", "stops", swipes = 5))
-        }
+        assertTrue("arrival/departure pair is not visible until a stop is tapped",
+            revealTimeSheet())
         val sched = rowTexts("schedArr")
         val live = rowTexts("liveArr")
-        assertTrue("no disclosed rows to compare", sched.isNotEmpty() && sched.size == live.size)
-        var qualified = 0
+        assertTrue("no visible rows to compare", sched.isNotEmpty() && sched.size == live.size)
+        var missing = 0
         for (i in sched.indices) {
-            assertTrue(
-                "row $i scheduled arrival is not prefixed 'Sch ': '${sched[i]}'",
-                sched[i].startsWith("Sch "),
-            )
-            val isDash = live[i] == "—" || live[i] == "-" || live[i].isEmpty()
-            if (isDash) {
-                qualified++
-            } else {
-                assertTrue(
-                    "row $i prints a minute ('${live[i]}') without an Act/Est/Site source prefix",
-                    live[i].startsWith("Act ") || live[i].startsWith("Est ") ||
-                        live[i].startsWith("Site "),
-                )
-            }
+            assertTrue("row $i has no arrival arrow or schedule: '${sched[i]}'",
+                sched[i].startsWith("↓ "))
+            assertTrue("row $i has no arrival arrow in the source column: '${live[i]}'",
+                live[i].startsWith("↓ "))
+            if (live[i] == "↓ —") missing++ else assertTrue(
+                "row $i has no time after its arrival arrow: '${live[i]}'",
+                Regex("""^↓ \d{2}:\d{2}""").containsMatchIn(live[i]))
         }
-        // A schedule-only run must qualify *every* row; anything else and the rule is untested, not true.
-        assertTrue("no row was unreported (every row printed an Act/Est minute) — the rule above never ran", qualified > 0)
-        E2E.shot("live-column")
+        assertTrue("a missing source time must remain a dash, not a timetable copy", missing > 0)
+        assertTrue("no visible departure pair", rowTexts("schedDep").isNotEmpty() &&
+            rowTexts("liveDep").isNotEmpty())
+        E2E.shot("visible-arrival-departure")
     }
 
     // @flow distance-ladder
@@ -278,7 +255,12 @@ class TrackingFlowTest {
     // @flow source-disclosure
     @Test
     fun sourceBlockExplainsTheAnswer() {
-        assertTrue("source Info is missing", E2E.tap("sourceToggle"))
+        assertTrue("About times is missing", E2E.tap("sourceToggle"))
+        assertNotNull("plain-language times guide never appeared",
+            E2E.ui.wait(Until.findObject(By.textContains("Dim times are the timetable")), E2E.LOCAL_MS))
+        val detailsButton = E2E.ui.wait(Until.findObject(By.text("Source details")), E2E.LOCAL_MS)
+        assertNotNull("technical details not reachable", detailsButton)
+        detailsButton!!.click()
         val detail = E2E.ui.wait(Until.findObject(By.textContains("Act = reported")), E2E.LOCAL_MS)
         assertNotNull("source explanation never appeared", detail)
         val text = detail!!.text.orEmpty()
@@ -309,11 +291,11 @@ class TrackingFlowTest {
         assertTrue("selected alternate removed the station table", E2E.count(stopsBy) > 0)
         val sheetVisible = revealTimeSheet()
         if (!sheetVisible) E2E.shot("public-source-no-visible-time-sheet")
-        assertTrue("site selection disclosed no visible stop time sheet", sheetVisible)
+        assertTrue("selected page hid the visible arrival/departure pair", sheetVisible)
         val pageMinutes = rowTexts("liveArr")
         assertTrue("site selection disclosed no stop to compare", pageMinutes.isNotEmpty())
         assertTrue("page selection must not display NTES minutes as this page's Act",
-            pageMinutes.all { it == "—" })
+            pageMinutes.all { it == "↓ —" })
         E2E.shot("public-source-check")
     }
 
@@ -338,7 +320,8 @@ class TrackingFlowTest {
             val badge = E2E.text("provenance", 300)
             resultVisible = (summary.contains("whereismytrain.org.in") &&
                 summary.contains("Timetable shown") && !summary.contains("Checking")) ||
-                badge.contains("WEBSITE · past-stop claims")
+                (badge.contains("WEBSITE · reported stop") ||
+                badge.contains("WEBSITE · NTES agrees within"))
             if (!resultVisible) Thread.sleep(200)
         }
         if (!resultVisible) E2E.shot("org-website-missing-result")
@@ -347,20 +330,25 @@ class TrackingFlowTest {
             "checking='${E2E.text("mirrorState", 200)}' headline='${E2E.text("headline", 200)}'",
             resultVisible)
         val summary = E2E.text("sourceSummary")
-        val siteReportVisible = E2E.text("provenance").contains("WEBSITE · past-stop claims")
+        val siteReportVisible = (E2E.text("provenance").contains("WEBSITE · reported stop") ||
+            E2E.text("provenance").contains("WEBSITE · NTES agrees within"))
         assertTrue("source result has no plain-language result: $summary",
             (summary.contains("whereismytrain.org.in") && summary.contains("Timetable shown")) ||
                 siteReportVisible)
         assertTrue("org selection lost the station table", E2E.count(stopsBy) > 0)
         val sheetVisible = revealTimeSheet()
         if (!sheetVisible) E2E.shot("org-source-no-visible-time-sheet")
-        assertTrue("website selection disclosed no visible stop time sheet", sheetVisible)
+        assertTrue("website selection hid the visible arrival/departure pair", sheetVisible)
         val live = rowTexts("liveArr") + rowTexts("liveDep")
         assertTrue("site selection disclosed no stop to compare", live.isNotEmpty())
-        assertTrue("org selection misattributes NTES actuals: $live",
-            live.none { it.startsWith("Act ") })
-        if (live.any { it.startsWith("Site ") }) {
+        val spoken = E2E.all(By.res(E2E.PKG, "liveArr"))
+            .map { it.contentDescription.orEmpty() }
+        assertTrue("org selection misattributes NTES actuals: $spoken",
+            spoken.none { it.startsWith("Reported arrival") })
+        if (live.any { it != "↓ —" && it != "↑ —" }) {
             assertTrue("Web cell without site provenance", E2E.text("provenance").contains("WEBSITE"))
+            assertTrue("Web cell without spoken website source: $spoken",
+                spoken.any { it.startsWith("Website arrival") })
             repeat(5) { if (!E2E.visible("age", 300)) E2E.swipeIn("scroller", up = false) }
             val age = E2E.text("age")
             assertTrue("site page clock confused with an event clock: '$age'",

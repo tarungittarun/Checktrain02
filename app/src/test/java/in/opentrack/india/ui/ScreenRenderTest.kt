@@ -167,14 +167,14 @@ class ScreenRenderTest {
             // traveller can never mistake a timetable minute for a report.
             listOf(R.id.schedArr, R.id.schedDep).forEach { id ->
                 assertTrue("row $i scheduled minute not prefixed in ${name(shot, id)}",
-                    text(row, id).startsWith("Sch "))
+                    text(row, id).startsWith(if (id == R.id.schedArr) "↓ " else "↑ "))
             }
             // The complaint this pins: an offline screen printed the schedule twice, and the right-hand copy
             // read like a report about the train. A row nothing moved must show a dash, not a second "05:52".
             if (m.rows[i].source == TrackModel.MinuteSource.SCHEDULE) {
                 listOf(R.id.liveArr, R.id.liveDep).forEach { id ->
                     assertEquals("a timetable-only row must not look reported in ${name(shot, id)}",
-                        "—", text(row, id))
+                        if (id == R.id.liveArr) "↓ —" else "↑ —", text(row, id))
                 }
             }
             assertTrue("row $i is missing its distance/platform line", text(row, R.id.stopMeta).isNotBlank())
@@ -280,13 +280,14 @@ Render.save("02-track-live", shot.bitmap)
         assertNotNull("website row did not render", row)
         val arr = text(row, R.id.liveArr)
         val dep = text(row, R.id.liveDep)
-        assertTrue("website arrival was not attributed: $arr", arr.startsWith("Site "))
-        assertTrue("website departure was not attributed: $dep", dep.startsWith("Site "))
+        assertEquals("↓ 05:55", arr)
+        assertEquals("Website arrival 05:55", row.findViewById<TextView>(R.id.liveArr).contentDescription)
+        assertEquals("↑ 05:58", dep)
         assertTrue("website platform was mislabelled: ${text(row, R.id.stopMeta)}",
             text(row, R.id.stopMeta).contains("site pf 2"))
         assertTrue("website row was presented as a verified event: ${text(row, R.id.stopStatus)}",
-            text(row, R.id.stopStatus).contains("unverified"))
-        assertEquals("next station must stay scheduled", "—",
+            text(row, R.id.stopStatus).contains("Website"))
+        assertEquals("next station must stay scheduled", "↓ —",
             text(shot.root.findViewById<RecyclerView>(R.id.stops).getChildAt(2), R.id.liveArr))
     }
 
