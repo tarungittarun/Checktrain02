@@ -179,7 +179,7 @@ class TrainActivity : AppCompatActivity() {
                 `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG
             AlertDialog.Builder(this)
                 .setTitle("About these times")
-                .setMessage("↘ Arrival   ↖ Departure\n\n" +
+                .setMessage("↘ Arrival   ↙ Departure\n\n" +
                     "Dim times are the timetable. Bright times are reported by " +
                     (if (website) "the selected website." else "the selected source.") +
                     " A dash means no time was reported. ~ on an intermediate " +

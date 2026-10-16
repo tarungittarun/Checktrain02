@@ -266,3 +266,9 @@ only changes static dots, never the last sourced train event. GitHub's
 workflow-dispatch API returned 403 in this session, so the next push requests
 the same full strict device matrix using the workflow's `[e2e-full]` commit
 marker; it must still finish green on that final head before claiming success.
+
+Final UI-copy audit also aligned the “About these times” legend with the
+corrected ↙ departure arrow and advanced the diagnostic build stamp to R114
+on 17 October; a packaged-version test guards against a diagnostic claiming
+an older round than the APK. The final-head strict-device marker must be in
+the last commit so the matrix validates these changes too.
