@@ -283,6 +283,13 @@ Render.save("02-track-live", shot.bitmap)
         assertEquals("↓ 05:55", arr)
         assertEquals("Website arrival 05:55", row.findViewById<TextView>(R.id.liveArr).contentDescription)
         assertEquals("↑ 05:58", dep)
+        val plannedY = IntArray(2)
+        val reportedY = IntArray(2)
+        row.findViewById<TextView>(R.id.schedArr).getLocationOnScreen(plannedY)
+        row.findViewById<TextView>(R.id.liveArr).getLocationOnScreen(reportedY)
+        assertTrue("arrival columns do not line up on a real row: ${plannedY[1]} vs ${reportedY[1]}",
+            kotlin.math.abs(plannedY[1] - reportedY[1]) <=
+                (6 * shot.context.resources.displayMetrics.density).toInt())
         assertTrue("website platform was mislabelled: ${text(row, R.id.stopMeta)}",
             text(row, R.id.stopMeta).contains("site pf 2"))
         assertTrue("website row lost its last-stop state: ${text(row, R.id.stopStatus)}",

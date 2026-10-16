@@ -113,22 +113,43 @@ class TrackingFlowTest {
     fun liveCellIsAMinuteOrADashNeverTheTimetable() {
         assertTrue("arrival/departure pair is not visible until a stop is tapped",
             revealTimeSheet())
-        val sched = rowTexts("schedArr")
-        val live = rowTexts("liveArr")
-        assertTrue("no visible rows to compare", sched.isNotEmpty() && sched.size == live.size)
+        // Read each fully visible halt as one unit. The old independent lists
+        // included a half-clipped fourth row on the large-font density device:
+        // its right clock could be visible while its lower-left clock was not.
+        // Comparing lists by index made that correct viewport look like bad data.
+        // Never skip a missing cell on a FULLY visible row.
+        data class PairOfPairs(val plannedArr: String, val reportedArr: String,
+                               val plannedDep: String, val reportedDep: String)
+        val viewport = E2E.find("stops")?.visibleBounds
+            ?: throw AssertionError("station viewport missing")
+        fun fullyVisiblePairs(): List<PairOfPairs> = E2E.all(By.res(E2E.PKG, "stopRow"))
+            .filter { row ->
+                val b = row.visibleBounds
+                b.height() > 0 && b.top > viewport.top && b.bottom < viewport.bottom
+            }.map { row ->
+                fun cell(id: String): String = row.findObject(By.res(E2E.PKG, id))?.text
+                    ?.trim() ?: throw AssertionError("fully visible station lost its $id cell")
+                PairOfPairs(cell("schedArr"), cell("liveArr"),
+                    cell("schedDep"), cell("liveDep"))
+            }
+        val pairs = fullyVisiblePairs()
+        assertTrue("no fully visible stop with both time pairs to compare; " +
+            "route=${viewport} names=${rowTexts("stopName")}", pairs.isNotEmpty())
         var missing = 0
-        for (i in sched.indices) {
-            assertTrue("row $i has no arrival arrow or schedule: '${sched[i]}'",
-                sched[i].startsWith("↓ "))
-            assertTrue("row $i has no arrival arrow in the source column: '${live[i]}'",
-                live[i].startsWith("↓ "))
-            if (live[i] == "↓ —") missing++ else assertTrue(
-                "row $i has no time after its arrival arrow: '${live[i]}'",
-                Regex("""^↓ \d{2}:\d{2}""").containsMatchIn(live[i]))
+        pairs.forEachIndexed { i, pair ->
+            assertTrue("row $i has no scheduled arrival arrow: '${pair.plannedArr}'",
+                pair.plannedArr.startsWith("↓ "))
+            assertTrue("row $i has no source arrival arrow: '${pair.reportedArr}'",
+                pair.reportedArr.startsWith("↓ "))
+            assertTrue("row $i has no scheduled departure arrow: '${pair.plannedDep}'",
+                pair.plannedDep.startsWith("↑ "))
+            assertTrue("row $i has no source departure arrow: '${pair.reportedDep}'",
+                pair.reportedDep.startsWith("↑ "))
+            if (pair.reportedArr == "↓ —") missing++ else assertTrue(
+                "row $i has no time after its arrival arrow: '${pair.reportedArr}'",
+                Regex("""^↓ \d{2}:\d{2}""").containsMatchIn(pair.reportedArr))
         }
         assertTrue("a missing source time must remain a dash, not a timetable copy", missing > 0)
-        assertTrue("no visible departure pair", rowTexts("schedDep").isNotEmpty() &&
-            rowTexts("liveDep").isNotEmpty())
         E2E.shot("visible-arrival-departure")
     }
 

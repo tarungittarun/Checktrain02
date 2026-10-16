@@ -282,7 +282,9 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         val points = routePoints[s.code].orEmpty()
         val hasPoints = points.isNotEmpty() || projectedLeg?.takeIf {
             it.fromCode.equals(s.code, true) }?.points?.isNotEmpty() == true
-        holder.stopToggle.visibility = if (hasPoints) View.VISIBLE else View.GONE
+        // Tapping the station reveals dots. A second button under the report clocks
+        // displaced their pair above the scheduled clocks on large-font phones.
+        holder.stopToggle.visibility = View.GONE
         holder.stopToggle.text = if (expandedCode == s.code) "Hide ▴" else "Stations ▾"
         holder.dot.setBackgroundResource(dotFor(s))
         // Keep the next stop directly after the compact leg. The former 34dp
