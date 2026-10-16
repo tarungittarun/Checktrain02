@@ -601,11 +601,14 @@ class TrainActivity : AppCompatActivity() {
             val scheduled = org?.intermediate?.scheduledMinute ?: station?.arrivalMin
             val siteArrivalDelay = if (siteStop?.actualArrivalMin != null && scheduled != null)
                 siteStop.actualArrivalMin - scheduled else null
-            binding.delay.text = if (siteArrivalDelay != null)
-                if (siteArrivalDelay > 0) "+${siteArrivalDelay}m late · site claim"
-                else if (siteArrivalDelay < 0) "${-siteArrivalDelay}m early · site claim"
-                else "On time · site claim"
-            else if (org != null) "— · delay not confirmed"
+            binding.delay.text = if (siteArrivalDelay != null && org != null) {
+                val at = RailTime.formatRailMinute(org.eventMinute)
+                when {
+                    siteArrivalDelay > 0 -> "+${siteArrivalDelay}m · $at site claim"
+                    siteArrivalDelay < 0 -> "${-siteArrivalDelay}m early · $at site claim"
+                    else -> "On time · $at site claim"
+                }
+            } else if (org != null) "— · delay not confirmed"
             else "— · no verified delay"
             binding.delay.setTextColor(getColor(R.color.warn))
             val next = org?.intermediate?.let { p -> ui.route.stops.firstOrNull {

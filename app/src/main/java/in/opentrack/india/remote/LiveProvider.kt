@@ -335,7 +335,9 @@ class NtesProvider(
         }
         Diary.get()?.log(
             "NTES",
-            "accepted: " + snap.perStop.size + " stops with reported cells; live cells " +
+            "accepted: " + snap.perStop.size + " timetable stops, " +
+                snap.perStop.values.count { it.actualArrivalMin != null ||
+                    it.actualDepartureMin != null } + " with reported minutes; live cells " +
                 (if (parsed.hasLiveColumns) "present" else "none yet") +
                 "; last timed stop=" + (snap.atCode ?: "unknown") +
                 " event minute=" + (snap.eventMinute?.toString() ?: "unknown") +

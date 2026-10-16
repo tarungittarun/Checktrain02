@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- A journey timeline, not a three-column timetable. The one glance: stop, state,
      and the most useful time. Tap a stop for its fully labelled comparison. -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<in.opentrack.india.ui.RouteStopGroup xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical">
@@ -22,11 +22,6 @@
             android:layout_width="48dp"
             android:layout_height="match_parent"
             android:layout_marginEnd="5dp">
-            <View
-                android:layout_width="2dp"
-                android:layout_height="match_parent"
-                android:layout_gravity="center_horizontal"
-                android:background="@color/stroke" />
             <View
                 android:id="@+id/stopDot"
                 android:layout_width="12dp"
@@ -206,4 +201,4 @@
         android:paddingBottom="12dp"
         android:visibility="visible" />
     </ScrollView>
-</LinearLayout>
+</in.opentrack.india.ui.RouteStopGroup>

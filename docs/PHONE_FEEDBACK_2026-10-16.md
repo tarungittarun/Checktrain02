@@ -123,3 +123,16 @@ stop-event age. Those are different clocks: a newly stamped response still
 could carry Bageshapura's old departure. Ranking now compares stop-event
 ages on both sides (only where each event time exists); it never promotes a
 refreshed feed header into new train movement.
+
+When the card is collapsed, the website's claimed delay also retains the
+claimed stop minute (for example, `+25m · 12:10 site claim`); hiding the
+expanded age evidence must not turn it into an apparent current delay.
+
+The compact route's rail is now drawn continuously behind each stop item,
+including the variable-km gap and the optional time sheet. Previously the
+line was confined to the stop header and appeared broken between dots; the
+shorter locomotive leg continues the same neutral-colour stroke.
+
+The NTES diary's old `40 stops with reported cells` counted all timetable
+rows, not the subset with timed reports. Its wording now prints both counts
+separately; a long schedule never masquerades as forty observed halts.

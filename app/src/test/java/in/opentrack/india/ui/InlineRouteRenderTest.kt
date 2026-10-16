@@ -146,6 +146,21 @@ class InlineRouteRenderTest {
             compact, ruler.measuredHeight)
     }
 
+    @Test fun routeSpineContinuesThroughTheFullStopItemIncludingItsSpacing() {
+        val ctx = RuntimeEnvironment.getApplication()
+        val root = android.view.LayoutInflater.from(ctx)
+            .inflate(R.layout.item_stop, FrameLayout(ctx), false) as RouteStopGroup
+        root.measure(View.MeasureSpec.makeMeasureSpec(360, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+        root.layout(0, 0, root.measuredWidth, root.measuredHeight)
+        val bitmap = android.graphics.Bitmap.createBitmap(root.width, root.height,
+            android.graphics.Bitmap.Config.ARGB_8888)
+        root.paintForTest(android.graphics.Canvas(bitmap))
+        val x = (36 * ctx.resources.displayMetrics.density).toInt()
+        assertEquals("route spine must reach the item boundary, not stop at the text",
+            ctx.getColor(R.color.stroke), bitmap.getPixel(x, root.height - 2))
+    }
+
     @Test fun verticalDistanceRulerScalesByScheduledKmWithoutOutgrowingTheViewport() {
         assertEquals(82, LegGeometry.heightDp(2))
         assertTrue(LegGeometry.heightDp(20) > LegGeometry.heightDp(6))
@@ -200,9 +215,9 @@ class InlineRouteRenderTest {
             ruler.ageSeconds = age
             val bmp = android.graphics.Bitmap.createBitmap(ruler.width, ruler.height,
                 android.graphics.Bitmap.Config.ARGB_8888)
-            // A bare View.draw() may skip onDraw before attachment in Robolectric.
+            // A bare renderer may skip painting before attachment in Robolectric.
             // Exercise the painter directly on this software canvas instead.
-            ruler.onDraw(android.graphics.Canvas(bmp))
+            ruler.paintForTest(android.graphics.Canvas(bmp))
             val d = ctx.resources.displayMetrics.density
             return bmp.getPixel(((36 + 15 + 5) * d).toInt(), ((24 - 14) * d).toInt())
         }
@@ -227,7 +242,7 @@ class InlineRouteRenderTest {
             ruler.layout(0, 0, ruler.measuredWidth, ruler.measuredHeight)
             return android.graphics.Bitmap.createBitmap(ruler.width, ruler.height,
                 android.graphics.Bitmap.Config.ARGB_8888).also {
-                ruler.onDraw(android.graphics.Canvas(it))
+                ruler.paintForTest(android.graphics.Canvas(it))
             }
         }
         val official = paint(RouteBetween.MarkerKind.REPORTED_HALT)

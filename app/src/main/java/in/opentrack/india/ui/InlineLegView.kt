@@ -35,6 +35,10 @@ class InlineLegView @JvmOverloads constructor(
             dp(LegGeometry.heightDp(distanceKm, screenDp).toFloat()).roundToInt())
     }
 
+    // An unattached renderer can be skipped by Robolectric. Exercise the same
+    // painter directly in the bitmap test, without changing production draw logic.
+    internal fun paintForTest(canvas: Canvas) = onDraw(canvas)
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         val leg = projection ?: return
