@@ -27,6 +27,7 @@ class InlineLegView @JvmOverloads constructor(
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val box = RectF()
     private fun dp(v: Float) = v * resources.displayMetrics.density
+    private fun sp(v: Float) = v * resources.displayMetrics.scaledDensity
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val screenDp = resources.displayMetrics.heightPixels / resources.displayMetrics.density
@@ -46,14 +47,16 @@ class InlineLegView @JvmOverloads constructor(
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = dp(2f)
         paint.color = context.getColor(R.color.stroke)
-        canvas.drawLine(x, y0, x, y1, paint)
+        // Continue the stop rows' rail right to both edges of this View. A
+        // 24dp blank at each end used to leave a broken-looking route line.
+        canvas.drawLine(x, 0f, x, height.toFloat(), paint)
         if (leg.fraction > 0f) {
             paint.color = blue
             canvas.drawLine(x, y0, x, y, paint)
         }
         paint.style = Paint.Style.FILL
         paint.color = context.getColor(R.color.text2)
-        paint.textSize = dp(11f)
+        paint.textSize = sp(11f)
         var lastLabelY = Float.NEGATIVE_INFINITY
         for (point in leg.points) {
             val tickY = y0 + (y1 - y0) * point.fraction.coerceIn(0f, 1f)
@@ -103,7 +106,7 @@ class InlineLegView @JvmOverloads constructor(
             paint.style = Paint.Style.FILL
         } else {
             val label = LegGeometry.ageLabel(age)
-            paint.textSize = dp(11f)
+            paint.textSize = sp(11f)
             val left = x + dp(23f)
             val right = left + paint.measureText(label) + dp(14f)
             box.set(left, y - dp(11f), right, y + dp(11f))

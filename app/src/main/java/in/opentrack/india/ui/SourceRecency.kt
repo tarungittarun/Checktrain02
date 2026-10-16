@@ -8,4 +8,10 @@ object SourceRecency {
                        pageAgeMs: Long, siteEventAgeMs: Long): Boolean =
         officialIndex >= 0 && siteIndex > officialIndex && officialAgeMs >= 300_000L &&
             pageAgeMs in 0L..300_000L && siteEventAgeMs in 0L..300_000L
+
+    /** Compare passage/event clocks, never either source's page/feed update stamp. */
+    fun officialIsNewer(officialEventAgeMs: Long?, siteEventAgeMs: Long?): Boolean =
+        officialEventAgeMs != null && siteEventAgeMs != null &&
+            officialEventAgeMs >= 0L && siteEventAgeMs >= 0L &&
+            officialEventAgeMs + 120_000L < siteEventAgeMs
 }

@@ -120,11 +120,11 @@ class TrackingFlowTest {
         // The new journey timeline keeps the full arrival/departure comparison
         // behind a stop tap. Reveal one if the reported anchor is off-screen;
         // a hidden sheet is not an empty train schedule.
-        if (rowTexts("schedArr").isEmpty()) {
+        if (rowTexts("schedArr").isEmpty() &&
+            !E2E.reveal("schedArr", "stops", swipes = 2)) {
+            // An opened anchor sheet can sit BELOW the visible edge. First
+            // scroll to it; blindly tapping that row would CLOSE the sheet.
             assertTrue("no stop can reveal its time sheet", E2E.tap("stopRow"))
-            // Large-font rows may open their sheet just BELOW the RecyclerView's
-            // visible edge. Actually scroll to a visible schedule cell; never
-            // count an off-screen element as proof that disclosure worked.
             assertTrue("tapping a stop did not disclose a VISIBLE scheduled arrival; " +
                 "viewport=${E2E.find("stops", 300)?.visibleBounds} " +
                 "names=${rowTexts("stopName")}",

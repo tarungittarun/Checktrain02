@@ -200,7 +200,9 @@ class InlineRouteRenderTest {
             ruler.ageSeconds = age
             val bmp = android.graphics.Bitmap.createBitmap(ruler.width, ruler.height,
                 android.graphics.Bitmap.Config.ARGB_8888)
-            ruler.draw(android.graphics.Canvas(bmp))
+            // A bare View.draw() may skip onDraw before attachment in Robolectric.
+            // Exercise the painter directly on this software canvas instead.
+            ruler.onDraw(android.graphics.Canvas(bmp))
             val d = ctx.resources.displayMetrics.density
             return bmp.getPixel(((36 + 15 + 5) * d).toInt(), ((24 - 14) * d).toInt())
         }
@@ -225,12 +227,15 @@ class InlineRouteRenderTest {
             ruler.layout(0, 0, ruler.measuredWidth, ruler.measuredHeight)
             return android.graphics.Bitmap.createBitmap(ruler.width, ruler.height,
                 android.graphics.Bitmap.Config.ARGB_8888).also {
-                ruler.draw(android.graphics.Canvas(it))
+                ruler.onDraw(android.graphics.Canvas(it))
             }
         }
+        val official = paint(RouteBetween.MarkerKind.REPORTED_HALT)
+        val d = ctx.resources.displayMetrics.density
+        assertEquals("source-neutral train body must actually be painted",
+            ctx.getColor(R.color.live), official.getPixel((20 * d).toInt(), (24 * d).toInt()))
         assertTrue("switching from NTES to the website changed the route skin",
-            paint(RouteBetween.MarkerKind.REPORTED_HALT).sameAs(
-                paint(RouteBetween.MarkerKind.SITE_LAST_STOP)))
+            official.sameAs(paint(RouteBetween.MarkerKind.SITE_LAST_STOP)))
     }
 
     @Test fun pastAndArrivedStopDotsKeepTheSameSkinAcrossSources() {

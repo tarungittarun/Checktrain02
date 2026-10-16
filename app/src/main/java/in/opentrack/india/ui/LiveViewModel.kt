@@ -351,7 +351,8 @@ class LiveViewModel(
                 resolved.orgReport?.let { website ->
                     val last = website.rows[website.anchorCode]
                     Diary.get()?.log("ORG") {
-                        "source-selected=$name train=$trainNo run=${RailTime.formatDate(originEpochDay)} " +
+                        "probe=${if (select) "selected" else "background comparison"} source=$name " +
+                            "train=$trainNo run=${RailTime.formatDate(originEpochDay)} " +
                             "(inferred, website undated); past-card=${website.anchorCode} " +
                             "Web arr=${last?.actualArrivalMin?.let(RailTime::formatRailMinute) ?: "—"} " +
                             "dep=${last?.actualDepartureMin?.let(RailTime::formatRailMinute) ?: "—"}; " +
@@ -690,21 +691,20 @@ class LiveViewModel(
         val stop = answer.perStop[code] ?: return@let null
         val minute = stop.actualDepartureMin ?: stop.actualArrivalMin ?: return@let null
         (System.currentTimeMillis() - RailTime.railMinuteToEpochMillis(originEpochDay,
-            minute)).coerceAtLeast(0L)
+            minute)).takeIf { it >= 0L }
     }
 
     /** Prefer another usable, fresh site over NTES. No cached schedule or HTTP 200 is a success. */
     private fun bestAvailableSource(ui: Ui, rejected: String): String? {
-        val officialAge = ui.answer.position.takeIf {
-            it.provenance == SourceKind.PROVIDER_NTES }?.feedAgeSeconds
-        val siteAge = publicChecks[PublicPageChecks.ORG]?.orgReport?.let { report ->
-            (System.currentTimeMillis() - RailTime.railMinuteToEpochMillis(originEpochDay,
-                report.eventMinute)).coerceAtLeast(0L) / 1_000
+        val officialEventAge = ui.answer.position.takeIf {
+            it.provenance == SourceKind.PROVIDER_NTES }?.let { officialStopAgeMillis() }
+        val siteEventAge = publicChecks[PublicPageChecks.ORG]?.orgReport?.let { report ->
+            System.currentTimeMillis() - RailTime.railMinuteToEpochMillis(originEpochDay,
+                report.eventMinute)
         }
-        // If NTES already has a newer event, do not mistake the site's freshly
-        // regenerated page clock for a fresher *train* report.
-        val officialFirst = officialAge != null && siteAge != null &&
-            officialAge + 120 < siteAge
+        // A fresh NTES LUPDT clock with an old stop is not a newer TRAIN event.
+        // Website page clocks have the same limitation. Only event ages decide.
+        val officialFirst = SourceRecency.officialIsNewer(officialEventAge, siteEventAge)
         val preferred = if (officialFirst)
             listOf("NTES (official)", PublicPageChecks.ORG, WimtCandidate.SOURCE,
                 RunningStatusMirror.SOURCE, ConfirmTktMirror.SOURCE, "erail")

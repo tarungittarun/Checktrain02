@@ -17,5 +17,13 @@ class SourceRecencyTest {
             SourceRecency.showComparison(10, 11, 60_000L, 0L, 60_000L))
         assertFalse("a freshly checked page cannot redate an old stop event",
             SourceRecency.showComparison(10, 11, 12 * 60_000L, 0L, 12 * 60_000L))
+        assertFalse("new NTES response stamp does not redate a 15-minute-old stop",
+            SourceRecency.officialIsNewer(15 * 60_000L, 60_000L))
+        assertTrue("a genuinely newer official stop can outrank an older site claim",
+            SourceRecency.officialIsNewer(60_000L, 15 * 60_000L))
+        assertFalse("an undated official event cannot win via a fresh feed header",
+            SourceRecency.officialIsNewer(null, 15 * 60_000L))
+        assertFalse("a future-looking clock is not a source event",
+            SourceRecency.officialIsNewer(-1L, 15 * 60_000L))
     }
 }

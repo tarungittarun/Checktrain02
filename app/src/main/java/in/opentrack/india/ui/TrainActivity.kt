@@ -478,8 +478,9 @@ class TrainActivity : AppCompatActivity() {
         binding.age.text = m.ageLabel
         binding.delay.text = m.delayLabel
         binding.delay.contentDescription = null // never retain a previous source's delay in TalkBack
-        binding.delayLabel.text = if (ui.activeSource == "NTES (official)")
-            "Delay at last report" else "Delay"
+        binding.delayLabel.text = if (ui.actualsHeadline != null ||
+            m.rows.any { it.source == TrackModel.MinuteSource.REPORTED &&
+                (it.showArr != null || it.showDep != null) }) "Delay at stop" else "Delay"
         binding.delay.setTextColor(getColor(
             when (m.tone) {
                 TrackModel.Tone.LIVE_LATE, TrackModel.Tone.PROBLEM -> R.color.late

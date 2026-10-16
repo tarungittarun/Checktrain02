@@ -110,3 +110,16 @@ because the busy flag had not changed yet. Its weighted height squeezed
 the route to one stop until the HTTP chain completed. The UI observer now
 removes that panel immediately on the first painted state; the thin
 checking bar remains visible until the network actually completes.
+
+The old diagnostic tag `ORG source-selected=website` was printed for a
+background website comparison even while NTES remained selected. This was a
+log label error, not an automatic source switch; the diary now explicitly
+says `probe=selected` or `probe=background comparison`. The supplied diary
+only measures train 16221; other trains need their own dated on-device
+source/event traces before claiming whether their upstream feeds are stale.
+
+Fallback ranking previously compared NTES's feed-update age to the site's
+stop-event age. Those are different clocks: a newly stamped response still
+could carry Bageshapura's old departure. Ranking now compares stop-event
+ages on both sides (only where each event time exists); it never promotes a
+refreshed feed header into new train movement.
