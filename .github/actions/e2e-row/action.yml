@@ -378,17 +378,25 @@ runs:
               "$TEST_ID/androidx.test.runner.AndroidJUnitRunner" 2>&1 | tee "/tmp/instrument-$label.log"
             rc=${PIPESTATUS[0]}
           fi
-          if [ "$label" = cold ] && [ "$rc" = 124 ] &&
-             [ ! -s "/tmp/instrument-$label.log" ]; then
+          if [ "$label" = cold ] &&
+             ! grep -Eq 'Tests run: [1-9][0-9]*|OK \([1-9][0-9]* tests?\)' "/tmp/instrument-$label.log" &&
+             { { [ "$rc" = 124 ] && [ ! -s "/tmp/instrument-$label.log" ]; } ||
+               grep -Eq 'shortMsg=failed to attach|longMsg=.*failed to attach' "/tmp/instrument-$label.log"; }; then
             # A hosted emulator can hang before AndroidJUnitRunner connects to
-            # UiAutomation (zero test output; the crash buffer says disconnect
-            # while connecting). This is NOT a passed test. Preserve its empty
-            # first attempt, clear the app AGAIN, and require a real cold-start
+            # UiAutomation (zero output), or Android may report 'failed to attach'
+            # with exit code zero. Neither executed a test. Preserve the first
+            # attempt, clear app data AGAIN, and require a real strict cold-start
             # summary from one more bounded instrumentation pass. An assertion
-            # or a runner that emitted output never receives this retry.
-            echo "::warning::cold runner never connected; resetting the test process and retrying a genuinely cleared install once"
+            # or a runner that emitted test output never receives this retry.
+            echo "::warning::cold runner did not attach; resetting the test process and retrying a genuinely cleared install once"
             mv "/tmp/instrument-$label.log" "/tmp/instrument-$label-first.log"
             adb shell pm clear "$APP_ID" || true
+            # pm clear can return while the direct-launch process is still
+            # exiting. A fresh instrumentation must not attach to that corpse.
+            for n in 1 2 3 4 5; do
+              adb shell pidof "$APP_ID" >/dev/null 2>&1 || break
+              sleep 1
+            done
             case "$LOCATION" in
               granted) adb shell pm grant "$APP_ID" android.permission.ACCESS_COARSE_LOCATION || true ;;
               *) adb shell pm revoke "$APP_ID" android.permission.ACCESS_COARSE_LOCATION || true ;;
@@ -449,6 +457,10 @@ runs:
         # the 14 MB timetable, and `-e requireCleared true` makes the test fail if that promise is broken.
         if [ "$VARIANT" = debug ] && { [ -z "$GROUP" ] || [ "$GROUP" = settings ] || [ "$GROUP" = settings-ui ]; }; then
           adb shell pm clear "$APP_ID" || true
+          for n in 1 2 3 4 5; do
+            adb shell pidof "$APP_ID" >/dev/null 2>&1 || break
+            sleep 1
+          done
           case "$LOCATION" in
             granted) adb shell pm grant "$APP_ID" android.permission.ACCESS_COARSE_LOCATION || true ;;
             *) adb shell pm revoke "$APP_ID" android.permission.ACCESS_COARSE_LOCATION || true ;;
