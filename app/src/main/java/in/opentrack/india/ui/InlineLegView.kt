@@ -125,14 +125,19 @@ object LegGeometry {
 
     fun stopGapDp(distanceKm: Int, screenHeightDp: Float = 760f): Int {
         val ceiling = (screenHeightDp * 0.035f).roundToInt().coerceIn(12, 27)
-        return (6 + kotlin.math.sqrt(distanceKm.coerceAtLeast(0).toFloat()) * 2f)
+        return (6 + distanceKm.coerceAtLeast(0) * 0.45f)
             .roundToInt().coerceIn(6, ceiling)
     }
 
     fun ageLabel(ageSeconds: Long): String = when {
         ageSeconds < 60 -> "under 1 min" // drawn as a check, never as fresh GPS
         ageSeconds < 3600 -> "${ageSeconds / 60} min ago"
-        ageSeconds < 86400 -> "${ageSeconds / 3600} h ${ageSeconds % 3600 / 60} min ago"
+        ageSeconds < 86400 -> {
+            val hours = ageSeconds / 3600
+            val minutes = ageSeconds % 3600 / 60
+            "$hours ${if (hours == 1L) "hour" else "hours"}" +
+                (if (minutes == 0L) "" else " $minutes min") + " ago"
+        }
         else -> "${ageSeconds / 86400} d ago"
     }
 }

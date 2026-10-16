@@ -185,7 +185,15 @@ class TrainActivity : AppCompatActivity() {
             true
         }
 
-        vm.ui.observe(this) { it?.let { u -> lastUi = u; bind(u); renderNote() } }
+        vm.ui.observe(this) { it?.let { u ->
+            lastUi = u
+            bind(u)
+            // The offline timetable can paint while the network is still in flight.
+            // Without this call the first-load panel kept its layout_weight until
+            // checking changed, crushing the route viewport on dense phones.
+            renderChecking()
+            renderNote()
+        } }
         vm.checking.observe(this) { busy ->
             val wasBusy = chainBusy
             chainBusy = busy == true
@@ -469,6 +477,7 @@ class TrainActivity : AppCompatActivity() {
         binding.provenance.text = m.provenanceLabel
         binding.age.text = m.ageLabel
         binding.delay.text = m.delayLabel
+        binding.delay.contentDescription = null // never retain a previous source's delay in TalkBack
         binding.delayLabel.text = if (ui.activeSource == "NTES (official)")
             "Delay at last report" else "Delay"
         binding.delay.setTextColor(getColor(
@@ -761,7 +770,7 @@ class TrainActivity : AppCompatActivity() {
             ?: (timedHalt?.showDep ?: timedHalt?.showArr)?.let {
                 RailTime.railMinuteToEpochMillis(vm.originDate, it)
             }
-        stopAdapter.legAgeSeconds = eventAt?.let { ((now - it).coerceAtLeast(0L) / 1_000L) }
+        stopAdapter.legAgeSeconds = eventAt?.takeIf { it <= now }?.let { (now - it) / 1_000L }
         // The primary age line used to freeze at e.g. "6 min ago" while a static
         // website/NTES event remained unchanged. A refresh is a receipt, NOT a new
         // station event: age the original event locally, also at the last halt where
@@ -834,15 +843,29 @@ class TrainActivity : AppCompatActivity() {
         }
         val report = eventKey(ui, requestedRefreshSource)
         val cachedResponse = status?.second?.contains("Cached HTTP body", ignoreCase = true) == true
-        val changed = !switched && report != null && report != previousRefreshEvent
+        val change = if (switched) RefreshEvidence.Change.UNCHANGED else
+            RefreshEvidence.compare(previousRefreshEvent, report)
         val checked = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.ROOT)
             .format(java.util.Date(now))
         binding.refreshFeedback.text = when {
+            switched && cachedResponse -> "Checked $checked · $source timed out; cached " +
+                "body ignored; now ${sourceName(active)} · $age"
             switched -> "Checked $checked · $source unavailable; now ${sourceName(active)}"
-            cachedResponse -> "$source timed out · cached response only · $age"
+            cachedResponse -> "Checked $checked · $source timed out; cached response only · $age"
             status?.first !in listOf("live", "candidate") ->
                 "Checked $checked · no usable new report from $source · $age"
-            changed -> "New stop report · $source · checked $checked · $age"
+            change == RefreshEvidence.Change.REVISED_AT_SAME_STOP -> {
+                val label = when (active) {
+                    `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG ->
+                        "Revised website time at same stop (unverified)"
+                    `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE ->
+                        "Updated web distance claim at same leg (not GPS)"
+                    else -> "Revised time at same reported stop"
+                }
+                "$label · $source · checked $checked · $age"
+            }
+            change == RefreshEvidence.Change.NEW_STOP ->
+                "New stop report · $source · checked $checked · $age"
             else -> "Checked $checked · no newer stop from $source · $age"
         }
         binding.refreshFeedback.visibility = View.VISIBLE

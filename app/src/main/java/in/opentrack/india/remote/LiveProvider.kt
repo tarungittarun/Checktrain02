@@ -336,7 +336,11 @@ class NtesProvider(
         Diary.get()?.log(
             "NTES",
             "accepted: " + snap.perStop.size + " stops with reported cells; live cells " +
-                (if (parsed.hasLiveColumns) "present" else "none yet"),
+                (if (parsed.hasLiveColumns) "present" else "none yet") +
+                "; last timed stop=" + (snap.atCode ?: "unknown") +
+                " event minute=" + (snap.eventMinute?.toString() ?: "unknown") +
+                " delay at that stop=" + (snap.delayMinutes?.toString() ?: "unknown") +
+                " feed update (NOT movement)=" + (parsed.feedStampMillis?.toString() ?: "unknown"),
         )
         // Said out loud so a screenshot explains itself: "live, via a shape learned on this device" is a
         // different support conversation from "live, via the shipped request".
@@ -404,9 +408,9 @@ object NtesAdapter {
         val anchor = anchorIdx.takeIf { it >= 0 }?.let { rows[it] }
         val next = anchorIdx.takeIf { it >= 0 }?.let { rows.getOrNull(it + 1) }
         val anchorCode = anchor?.code
-        // A "current station" the feed names is only useful if it exists on the timetable we hold; the
-        // domain matches on station code, so an unknown code is dropped rather than guessed at.
-        val feedCode = parsed.currentCode?.takeIf { c -> perStop.containsKey(c) } ?: anchorCode
+        // A status header may name a later timetable stop without a reported event.
+        // Do not pair that station with an older halt's arrival/departure minute.
+        val feedCode = anchorCode
         // No halt with an event and no station named in the header: the feed knows nothing about where
         // this train is, which is a different screen from "it is standing at a halt".
         val positionKnown = anchor != null || anchorCode != null
@@ -421,8 +425,9 @@ object NtesAdapter {
             scheduledMinuteAtEvent = anchor?.schedDep ?: anchor?.schedArr,
             nextCode = parsed.nextCode?.takeIf { it.isNotBlank() } ?: next?.code,
             expectedNextMinute = next?.actArr,
-            delayMinutes = anchor?.let { it.delayDep ?: it.delayArr }
-                ?: rows.lastOrNull { (it.delayDep ?: it.delayArr) != null }?.let { it.delayDep ?: it.delayArr },
+            // An older stop's +18 is not this stop's delay. If its own delay is
+            // absent, let the event/schedule comparison decide or show unknown.
+            delayMinutes = anchor?.let { it.delayDep ?: it.delayArr },
             platform = anchor?.platform,
             perStop = perStop,
             fetchedAtMillis = System.currentTimeMillis(),
@@ -473,8 +478,6 @@ object ErailAdapter {
         }
         val anchor = anchorIdx.takeIf { it >= 0 }?.let { rows[it] }
         val next = anchorIdx.takeIf { it >= 0 }?.let { rows.getOrNull(it + 1) }
-        val anyDelay = rows.lastOrNull { (it.delayDep ?: it.delayArr) != null }
-            ?.let { it.delayDep ?: it.delayArr }
         return LiveSnapshot(
             trainNo = trainNo,
             journeyEpochDay = journeyEpochDay,
@@ -486,7 +489,7 @@ object ErailAdapter {
             scheduledMinuteAtEvent = anchor?.schedDep ?: anchor?.schedArr,
             nextCode = next?.code,
             expectedNextMinute = next?.actArr ?: next?.schedArr,
-            delayMinutes = anchor?.let { it.delayDep ?: it.delayArr } ?: anyDelay,
+            delayMinutes = anchor?.let { it.delayDep ?: it.delayArr },
             platform = anchor?.platform,
             perStop = perStop,
             fetchedAtMillis = System.currentTimeMillis() - ageMillis,

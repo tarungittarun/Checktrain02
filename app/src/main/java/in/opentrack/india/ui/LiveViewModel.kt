@@ -716,6 +716,10 @@ class LiveViewModel(
             else when (name) {
                 PublicPageChecks.ORG -> publicChecks[name]?.orgReport?.let { report ->
                     System.currentTimeMillis() - report.pageUpdatedAt in 0L..300_000L &&
+                        // Fresh HTML alone must not make an old station claim a useful
+                        // fallback when the selected source stops answering.
+                        System.currentTimeMillis() - RailTime.railMinuteToEpochMillis(
+                            originEpochDay, report.eventMinute) in 0L..300_000L &&
                         (ui.route.stops.any { it.code.equals(report.anchorCode, true) } ||
                             report.intermediate?.let { p ->
                                 RouteBetween.siteIntermediateLeg(ui.route, ui.staticRoute,

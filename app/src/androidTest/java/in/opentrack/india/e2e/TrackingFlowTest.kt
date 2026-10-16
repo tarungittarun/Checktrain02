@@ -46,6 +46,8 @@ class TrackingFlowTest {
         )
         assertTrue("the Track button did not open the tracking screen", E2E.openTrackFromFirstResult())
         assertNotNull("no headline on the tracking screen", E2E.find("headline", E2E.NETWORK_MS))
+        assertTrue("first-load overlay still occupies the route after the timetable painted",
+            E2E.find("firstLoad", 300) == null)
     }
 
     private fun rowTexts(id: String): List<String> {
@@ -120,8 +122,13 @@ class TrackingFlowTest {
         // a hidden sheet is not an empty train schedule.
         if (rowTexts("schedArr").isEmpty()) {
             assertTrue("no stop can reveal its time sheet", E2E.tap("stopRow"))
-            assertTrue("tapping a stop did not disclose scheduled arrival",
-                E2E.ui.wait(Until.hasObject(By.res(E2E.PKG, "schedArr")), E2E.LOCAL_MS))
+            // Large-font rows may open their sheet just BELOW the RecyclerView's
+            // visible edge. Actually scroll to a visible schedule cell; never
+            // count an off-screen element as proof that disclosure worked.
+            assertTrue("tapping a stop did not disclose a VISIBLE scheduled arrival; " +
+                "viewport=${E2E.find("stops", 300)?.visibleBounds} " +
+                "names=${rowTexts("stopName")}",
+                E2E.reveal("schedArr", "stops", swipes = 5))
         }
         val sched = rowTexts("schedArr")
         val live = rowTexts("liveArr")
@@ -168,8 +175,11 @@ class TrackingFlowTest {
         readVisibleKm()
         assertTrue("no row prints a distance", km.isNotEmpty())
         assertEquals("the first halt is not 0 km", 0, km.first())
-        repeat(16) { E2E.swipeIn("stops"); readVisibleKm() }
-        assertTrue("scrolling did not reveal the far end: $km", km.last() > km.first())
+        val swipeOutcomes = mutableListOf<Boolean>()
+        repeat(16) { swipeOutcomes += E2E.swipeIn("stops"); readVisibleKm() }
+        assertTrue("scrolling did not reveal the far end: $km; " +
+            "viewport=${E2E.find("stops", 300)?.visibleBounds} " +
+            "swipes=$swipeOutcomes visible=${rowTexts("stopName")}", km.last() > km.first())
         for (i in 1 until km.size) {
             assertTrue("distance goes backwards at row $i: $km", km[i] >= km[i - 1])
         }
@@ -236,7 +246,10 @@ class TrackingFlowTest {
         assertTrue("the station table overflows ${width}x$height: $bounds",
             bounds.left >= 0 && bounds.right <= width &&
                 bounds.top >= 0 && bounds.bottom <= height)
-        assertTrue("the table has no named station", E2E.count(stopsBy) > 0)
+        val visibleStations = rowTexts("stopName").filter { it.isNotBlank() }
+        assertTrue("default compact route should fit at least three named stations " +
+            "($visibleStations) in $bounds at ${E2E.widthDp()}dp",
+            visibleStations.size >= 3)
         val summary = E2E.find("scroller")?.visibleBounds
         if (summary != null) assertTrue(
             "blank band between refresh/summary and the route: summary=$summary route=$bounds",
@@ -398,11 +411,15 @@ class TrackingFlowTest {
             val checked = Regex("^Checked \\d{2}:\\d{2}:\\d{2} · ").containsMatchIn(receipt)
             val changed = Regex("^New stop report · .+ · checked \\d{2}:\\d{2}:\\d{2} · ")
                 .containsMatchIn(receipt)
+            val revised = Regex("^(Revised (website )?time at same (reported )?stop|Updated web distance claim at same leg).+ · checked \\d{2}:\\d{2}:\\d{2} · ")
+                .containsMatchIn(receipt)
             assertTrue("auto refresh must show a check clock and source: $receipt",
-                (checked || changed) && listOf("NTES", "erail", "website", "WIMT",
+                (checked || changed || revised) && listOf("NTES", "erail", "website", "WIMT",
                     "ConfirmTkt", "runningstatus").any { receipt.contains(it) })
             assertTrue("auto refresh must distinguish a new event, unchanged event, or no report: $receipt",
                 receipt.contains("no newer stop") || receipt.contains("New stop report") ||
+                    receipt.contains("Revised ") || receipt.contains("Updated web distance claim") ||
+                    receipt.contains("cached response only") || receipt.contains("cached body ignored") ||
                     receipt.contains("unavailable") || receipt.contains("no usable new report"))
         } finally {
             // Each flow starts in the same installed app; never contaminate another test.

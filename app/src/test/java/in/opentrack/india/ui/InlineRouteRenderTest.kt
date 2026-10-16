@@ -156,7 +156,8 @@ class InlineRouteRenderTest {
         assertTrue(LegGeometry.stopGapDp(60) > LegGeometry.stopGapDp(2))
         assertTrue(LegGeometry.stopGapDp(200, 480f) <= 17)
         assertEquals("1 min ago", LegGeometry.ageLabel(60))
-        assertEquals("1 h 2 min ago", LegGeometry.ageLabel(3720))
+        assertEquals("1 hour ago", LegGeometry.ageLabel(3600))
+        assertEquals("1 hour 2 min ago", LegGeometry.ageLabel(3720))
     }
 
     @Test fun sourceSwitchKeepsTheSameVerticalLegGeometry() {
@@ -183,6 +184,32 @@ class InlineRouteRenderTest {
         assertEquals("source choice changed the train ruler's footprint",
             height(RouteBetween.MarkerKind.REPORTED_HALT),
             height(RouteBetween.MarkerKind.SITE_LAST_STOP))
+    }
+
+    @Test fun onlyARecentSourceEventPaintsTheGreenCheckOnTheLocomotive() {
+        val ctx = RuntimeEnvironment.getApplication()
+        val ruler = InlineLegView(ctx).apply {
+            distanceKm = 20
+            projection = RouteBetween.LegProjection("From", "To", 0f, "From", 100,
+                "AAA", "BBB", emptyList(), RouteBetween.MarkerKind.REPORTED_HALT)
+        }
+        ruler.measure(View.MeasureSpec.makeMeasureSpec(360, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+        ruler.layout(0, 0, ruler.measuredWidth, ruler.measuredHeight)
+        fun pixelAtCheck(age: Long?): Int {
+            ruler.ageSeconds = age
+            val bmp = android.graphics.Bitmap.createBitmap(ruler.width, ruler.height,
+                android.graphics.Bitmap.Config.ARGB_8888)
+            ruler.draw(android.graphics.Canvas(bmp))
+            val d = ctx.resources.displayMetrics.density
+            return bmp.getPixel(((36 + 15 + 5) * d).toInt(), ((24 - 14) * d).toInt())
+        }
+        assertEquals("<1 min must draw green at the icon's upper-right",
+            ctx.getColor(R.color.accent), pixelAtCheck(30))
+        assertTrue("a minute-old event must not display a freshness check",
+            pixelAtCheck(60) != ctx.getColor(R.color.accent))
+        assertTrue("unknown event time must not display a freshness check",
+            pixelAtCheck(null) != ctx.getColor(R.color.accent))
     }
 
     @Test fun officialAndWebsitePaintTheSameRulerAndLocomotive() {

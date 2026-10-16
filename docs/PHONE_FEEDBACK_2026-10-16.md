@@ -81,13 +81,21 @@ changed within minutes, and its page-update clock is not an arrival. It is
 not independent verification or a replacement for NTES actuals. The app
 may offer the later *site claim* for comparison if both its stop-event time
 and page clock are recent; a page clock alone can no longer redate an old
-claim. Refresh receipts and marker ages refer to stop events, not downloads.
+claim or make it a fresh fallback. A separate verified adapter defect was
+also fixed: if a newly timed halt has no delay cell, NTES/erail may not
+borrow an older halt's delay and assign it to the new halt; an untimed
+status-header station may not take an older event's minute. A short diary
+line now records the decoded last timed stop, event minute, and delay there,
+separately from the feed update clock, so a future phone report can expose
+a parser/selection disagreement instead of equating HTTP length with new
+train data. Refresh receipts and marker ages refer to stop events, not downloads.
 
 R111 makes the official delay explicitly **at the last reported stop/time**,
 not a current +18-minute prediction. The card starts expanded, with a
 persistent More/Less handle; collapsing it keeps only delay, next stop and
 source (plus its toggle). The vertical map is capped against screen height,
-station row spacing varies with scheduled km, and disclosing map points no
+station row spacing scales linearly with scheduled km until screen caps, reported-stop dots share the icon's blue, full-width row bands are gone,
+and disclosing map points no
 longer prints the same labels both on the ruler and in the list. The train's
 age is a local clock by its icon: a green check only for a <60-second-old
 source event, otherwise a minute/hour label. A green check is recency, not
@@ -95,3 +103,10 @@ verified motion or GPS. No station, delay or locomotive position moves just
 because the user refreshed or a minute passed. CI and on-phone validation
 are required before this interpretation is considered complete; PR #3 stays
 open until the owner's confirmation.
+
+Dense-emulator E2E exposed another screen defect: the first-load panel
+could stay visible after the offline timetable and headline had painted,
+because the busy flag had not changed yet. Its weighted height squeezed
+the route to one stop until the HTTP chain completed. The UI observer now
+removes that panel immediately on the first painted state; the thin
+checking bar remains visible until the network actually completes.

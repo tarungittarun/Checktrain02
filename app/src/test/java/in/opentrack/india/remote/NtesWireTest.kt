@@ -156,6 +156,19 @@ class NtesWireTest {
     }
 
     @Test
+    fun `an earlier delay or untimed status header cannot redate the latest arrival`() {
+        val body = """{"CTT":"FUT","S":[
+          {"STN":"OLD","ARR":"10.00","ATA":"10.18","DEP":"10.03","ATD":"10.21","DELAY":"18"},
+          {"STN":"NEW","ARR":"10.40","ATA":"10.45","DEP":"10.42","ATD":""},
+          {"STN":"FUT","ARR":"11.10","DEP":"11.12"}]}"""
+        val snap = NtesAdapter.toSnapshot(NtesWire.parse(body)!!, "16221", 20742L)!!
+        assertEquals("NEW", snap.atCode)
+        assertEquals(645, snap.eventMinute)
+        assertNull("the previous stop's +18m cannot belong to NEW", snap.delayMinutes)
+        assertEquals(18, snap.perStop["OLD"]?.delayArrivalMin)
+    }
+
+    @Test
     fun `future timetable rows cannot turn an arrival-only anchor into a departure`() {
         val body = """{"S":[
           {"STN":"MYS","DEP":"19.40","ATD":"19.40"},

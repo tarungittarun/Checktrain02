@@ -61,6 +61,19 @@ class ErailWireTest {
     }
 
     @Test
+    fun aNewHaltWithoutDelayMustNotInheritAnOlderStopsDelay() {
+        val old = ErailWire.WireStop(0, "OLD", "Old", 600, 603, 618, 621,
+            18, 18, null, "departed", 0)
+        val latest = ErailWire.WireStop(1, "NEW", "New", 640, 642, 645, null,
+            null, null, null, "arrived", 0)
+        val snap = ErailAdapter.toSnapshot(ErailWire.Parsed(null, listOf(old, latest), 0),
+            "16221", 20742L, false, 0L)!!
+        assertEquals("NEW", snap.atCode)
+        assertNull("18 minutes late belongs to OLD, not NEW", snap.delayMinutes)
+        assertEquals(18, snap.perStop["OLD"]?.delayArrivalMin)
+    }
+
+    @Test
     fun aFeedThatSaysOnTimeIsAReportAndNotAnAbsenceOfOne() {
         // "+0" is a statement. Dropping it so the delay could be "re-derived" from the clocks made an on-time
         // halt past midnight inherit whatever the wrap-around subtraction happened to produce.

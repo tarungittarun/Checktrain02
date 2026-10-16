@@ -304,21 +304,20 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         // Keep the next stop directly after the compact leg. The former 34dp
         // projected-row spacer looked like missing content on a phone.
         val nextKm = currentList.getOrNull(position + 1)?.kmFromOrigin
-        val betweenKm = nextKm?.minus(s.kmFromOrigin)?.coerceAtLeast(0) ?: 0
+        val betweenKm = nextKm?.takeIf { it >= 0 && s.kmFromOrigin >= 0 &&
+            it >= s.kmFromOrigin }?.minus(s.kmFromOrigin)
         val screenDp = ctx.resources.displayMetrics.heightPixels / ctx.resources.displayMetrics.density
         val hasTrainLeg = projectedLeg?.fromCode.equals(s.code, true)
-        val gapPx = (LegGeometry.stopGapDp(betweenKm, screenDp) * ctx.resources.displayMetrics.density).toInt()
+        val gapPx = betweenKm?.let {
+            (LegGeometry.stopGapDp(it, screenDp) * ctx.resources.displayMetrics.density).toInt()
+        } ?: 0
         holder.row.setPadding(holder.row.paddingLeft,
             ctx.resources.getDimensionPixelSize(R.dimen.gap_s),
             holder.row.paddingRight,
             ctx.resources.getDimensionPixelSize(R.dimen.gap_s) + if (hasTrainLeg || nextKm == null) 0 else gapPx)
-        // The route uses one accent for all sources. Trust and late minutes are
-        // qualified in the hero and time sheet, not a different map skin.
-        holder.row.setBackgroundColor(when {
-            s.code.equals(highlightCode, true) || s.isAnchor -> 0x2054A9FF
-            s.isBoarding || s.isAlighting -> 0x0AFFFFFF
-            else -> 0x00000000
-        })
+        // The stop dot and its label already mark the reported halt. Full-width
+        // row bands made this look like a data table, not a continuous route.
+        holder.row.setBackgroundColor(0x00000000)
         val points = routePoints[s.code].orEmpty()
         val leg = projectedLeg?.takeIf { it.fromCode.equals(s.code, true) }
         holder.inlineLegGroup.visibility = if (leg == null) View.GONE else View.VISIBLE
