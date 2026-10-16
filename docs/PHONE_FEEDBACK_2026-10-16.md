@@ -204,3 +204,9 @@ Kotlin Gradle plugin before compilation. `android.yml` now makes at most two
 brief retries for that exact upstream throttle, never for a compiler or test
 failure. Its new-head APK and full E2E gates still need to pass before a phone
 validation claim; PR #3 remains unmerged.
+
+Final expanded/collapsed audit: the hidden-leg painter still emitted two tiny
+anonymous station dots when the names and km were folded away. A second tap
+now returns to the plain rail, with no orphan dots; the source-evidenced
+locomotive remains anchored independently. A pixel assertion checks the rail
+where the first dot used to linger.

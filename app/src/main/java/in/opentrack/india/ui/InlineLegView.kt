@@ -76,35 +76,36 @@ class InlineLegView @JvmOverloads constructor(
         paint.style = Paint.Style.FILL
         paint.color = context.getColor(R.color.text2)
         paint.textSize = sp(11f)
-        for ((index, point) in leg.points.withIndex()) {
+        // Closed really means closed: no anonymous third/fourth dots left on the
+        // rail after hiding the named intermediate stations. The locomotive (if
+        // a source actually places it on this leg) remains independent.
+        if (showLabels) for ((index, point) in leg.points.withIndex()) {
             val tickY = positions.getOrNull(index) ?:
                 y0 + (y1 - y0) * point.fraction.coerceIn(0f, 1f)
             paint.color = context.getColor(R.color.text2)
-            canvas.drawCircle(x, tickY, dp(if (showLabels) 4f else 2.5f), paint)
-            if (showLabels) {
-                val clock = point.passageMinute?.let {
-                    (if (point.approximate) "~" else "") +
-                        `in`.opentrack.india.core.RailTime.formatRailMinute(it)
-                }.orEmpty()
-                paint.textSize = sp(12f)
-                val clockWidth = paint.measureText(clock)
-                paint.textAlign = Paint.Align.RIGHT
-                if (clock.isNotEmpty()) canvas.drawText(clock, width - dp(12f), tickY + dp(4f), paint)
-                paint.textAlign = Paint.Align.LEFT
-                paint.textSize = sp(13f)
-                val left = x + dp(26f)
-                val right = width - dp(12f) -
-                    (if (clock.isEmpty()) 0f else clockWidth + dp(10f))
-                val room = (right - left).coerceAtLeast(dp(40f))
-                val label = android.text.TextUtils.ellipsize(
-                    RowText.of(point.name), android.text.TextPaint(paint), room,
-                    android.text.TextUtils.TruncateAt.END).toString()
-                canvas.drawText(label, left, tickY + dp(2f), paint)
-                paint.color = context.getColor(R.color.text3)
-                paint.textSize = sp(11f)
-                canvas.drawText(if (point.mapKm >= 0) "${point.mapKm} km · route map" else "distance unavailable",
-                    left, tickY + dp(17f), paint)
-            }
+            canvas.drawCircle(x, tickY, dp(4f), paint)
+            val clock = point.passageMinute?.let {
+                (if (point.approximate) "~" else "") +
+                    `in`.opentrack.india.core.RailTime.formatRailMinute(it)
+            }.orEmpty()
+            paint.textSize = sp(12f)
+            val clockWidth = paint.measureText(clock)
+            paint.textAlign = Paint.Align.RIGHT
+            if (clock.isNotEmpty()) canvas.drawText(clock, width - dp(12f), tickY + dp(4f), paint)
+            paint.textAlign = Paint.Align.LEFT
+            paint.textSize = sp(13f)
+            val left = x + dp(26f)
+            val right = width - dp(12f) -
+                (if (clock.isEmpty()) 0f else clockWidth + dp(10f))
+            val room = (right - left).coerceAtLeast(dp(40f))
+            val label = android.text.TextUtils.ellipsize(
+                RowText.of(point.name), android.text.TextPaint(paint), room,
+                android.text.TextUtils.TruncateAt.END).toString()
+            canvas.drawText(label, left, tickY + dp(2f), paint)
+            paint.color = context.getColor(R.color.text3)
+            paint.textSize = sp(11f)
+            canvas.drawText(if (point.mapKm >= 0) "${point.mapKm} km · route map" else "distance unavailable",
+                left, tickY + dp(17f), paint)
         }
         if (!showTrain) return // Static stations are not evidence of the train's location.
         // A quiet, fixed-size locomotive: no pulsing/moving halo that could imply

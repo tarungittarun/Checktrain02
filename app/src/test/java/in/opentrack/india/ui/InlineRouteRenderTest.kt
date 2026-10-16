@@ -397,6 +397,21 @@ class InlineRouteRenderTest {
         assertFalse(holder.inlineLeg.showLabels)
         assertEquals(View.VISIBLE, holder.trainMarker.visibility)
         val ruler = holder.inlineLeg
+        // A second tap must really close the stations; no anonymous small dots
+        // may remain on the otherwise plain route rail.
+        ruler.measure(View.MeasureSpec.makeMeasureSpec(360, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+        ruler.layout(0, 0, ruler.measuredWidth, ruler.measuredHeight)
+        val closed = android.graphics.Bitmap.createBitmap(ruler.width, ruler.height,
+            android.graphics.Bitmap.Config.ARGB_8888)
+        val closedCanvas = android.graphics.Canvas(closed)
+        closedCanvas.drawColor(ctx.getColor(R.color.surface))
+        ruler.paintForTest(closedCanvas)
+        val pointFraction = ruler.projection!!.points[0].fraction
+        val collapsedY = 24f + (ruler.height / d - 48f) * pointFraction
+        assertEquals("hidden intermediate point still leaves an unexplained dot",
+            ctx.getColor(R.color.stroke),
+            closed.getPixel((36 * d).toInt(), (collapsedY * d).toInt()))
         ruler.showLabels = true
         ruler.measure(View.MeasureSpec.makeMeasureSpec(360, View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
