@@ -194,6 +194,37 @@ class ScreenRenderTest {
                         "—", text(row, id))
                 }
             }
+            // A station owns its clocks. The previous two-tier layout passed all
+            // content assertions while its arrival/departure sat ~50-80dp below
+            // the name and dot on the owner's 360dp phone.
+            val stop = row as android.view.ViewGroup
+            fun cell(id: Int): android.graphics.Rect {
+                val view = row.findViewById<View>(id)
+                return android.graphics.Rect(0, 0, view.width, view.height).also {
+                    stop.offsetDescendantRectToMyCoords(view, it)
+                }
+            }
+            val nameBox = cell(R.id.stopName)
+            val plannedArr = cell(R.id.schedArr)
+            val plannedDep = cell(R.id.schedDep)
+            val sourceArr = cell(R.id.liveArr)
+            val sourceDep = cell(R.id.liveDep)
+            val density = shot.context.resources.displayMetrics.density
+            assertTrue("row $i scheduled arrival detached from station: $nameBox / $plannedArr",
+                kotlin.math.abs(plannedArr.top - nameBox.top) <= 24 * density)
+            assertTrue("row $i source arrival detached from station: $nameBox / $sourceArr",
+                kotlin.math.abs(sourceArr.top - nameBox.top) <= 24 * density)
+            assertTrue("row $i arrival clocks not level: $plannedArr / $sourceArr",
+                kotlin.math.abs(plannedArr.top - sourceArr.top) <= 6 * density)
+            assertTrue("row $i departure clocks not level: $plannedDep / $sourceDep",
+                kotlin.math.abs(plannedDep.top - sourceDep.top) <= 8 * density)
+            assertTrue("row $i station cannot fit between dot and report: $nameBox / $sourceArr",
+                nameBox.width() >= 90 * density && nameBox.right <= sourceArr.left)
+            assertTrue("row $i timetable crossed its station rail: $plannedArr / $nameBox",
+                plannedArr.right < nameBox.left)
+            assertTrue("row $i clock escaped its own stop: $plannedDep / $sourceDep / $stop",
+                plannedDep.bottom <= stop.findViewById<View>(R.id.stopRow).bottom &&
+                    sourceDep.bottom <= stop.findViewById<View>(R.id.stopRow).bottom)
             assertTrue("row $i is missing its distance/platform line", text(row, R.id.stopMeta).isNotBlank())
             // No row may have its name or its "code · km · note" line cut with an ellipsis: this is where a
             // traveller reads the boarding and alighting marks, and "…you g…" was on a shipping screen.

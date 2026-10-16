@@ -108,7 +108,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        part: [ui, rules, sources]
+        part: [ui-render, ui-logic, rules, sources]
     permissions:
       contents: write
     steps:
@@ -135,7 +135,21 @@ jobs:
         run: |
           set -o pipefail
           case "$PART" in
-            ui) filters=(--tests 'in.opentrack.india.ui.*') ;;
+            ui-render|ui-logic)
+              # Every UI test class belongs to exactly one partition, including
+              # classes added later; no hand-maintained list that silently skips one.
+              filters=()
+              for file in app/src/test/java/in/opentrack/india/ui/*Test.kt; do
+                cls=${file##*/}; cls=${cls%.kt}
+                case "$cls" in
+                  InlineRouteRenderTest|ScreenRenderTest|LargeScreenRenderTest) slice=ui-render ;;
+                  *) slice=ui-logic ;;
+                esac
+                if [ "$PART" = "$slice" ]; then
+                  filters+=(--tests "in.opentrack.india.ui.$cls")
+                fi
+              done
+              [ "${#filters[@]}" -gt 0 ] || exit 2 ;;
             rules) filters=(--tests 'in.opentrack.india.core.*' --tests 'in.opentrack.india.domain.*' --tests 'in.opentrack.india.data.*') ;;
             sources) filters=(--tests 'in.opentrack.india.remote.*' --tests 'in.opentrack.india.v2.*') ;;
             *) exit 2 ;;
@@ -155,15 +169,6 @@ jobs:
           path: app/build/reports/tests/
           if-no-files-found: warn
           retention-days: 3
-      # Pixels, not a green tick: `gh api .../commits/$SHA/comments` is readable from anywhere, so the
-      # render is reviewable by whoever wrote it. GitHub strips data: URIs from markdown, hence a code
-      # block of base64 to decode rather than an <img>.
-      - name: Publish the rendered screens onto the commit
-        if: matrix.part == 'ui' && always()
-        shell: bash
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python3 tools/ci/preview_comment.py --dir app/build/reports/previews --max-kb 58
       - name: Report the failure on the commit
         if: failure()
         shell: bash
@@ -191,6 +196,28 @@ jobs:
           gh api -X POST "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/comments" -F body=@/tmp/report.md \
             || echo "::warning::could not post the log comment"
 
+  screens:
+    needs: ui
+    if: always() && needs.ui.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: ui-previews-ui-render
+          path: app/build/reports/previews/
+      # Pixels, not a green tick: `gh api .../commits/$SHA/comments` is readable from anywhere, so the
+      # render is reviewable by whoever wrote it. GitHub strips data: URIs from markdown, hence a code
+      # block of base64 to decode rather than an <img>.
+      - name: Publish the rendered screens onto the commit
+        if: always()
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 tools/ci/preview_comment.py --dir app/build/reports/previews --max-kb 58
+
   # Compile device-only field tests independently from the installable APK. A red
   # instrumented source must not hold up the APK or screen tests.
   field-tests:
@@ -212,6 +239,81 @@ jobs:
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
       - name: Compile instrumented field tests
         run: ./gradlew --no-daemon :app:assembleDebugAndroidTest --stacktrace
+
+  diagnostics:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: write
+    steps:
+      - name: Capture ntfy.sh's real poll shape (the crowd parser was written against an assumed shape)
+        # The traveller-report parser filters ntfy's JSON stream by hand, and every on-device poll has
+        # returned "relay answered, 0 reports" while publishes return HTTP 200 - paste #19 even lost the
+        # owner's OWN report. The sandbox has no ntfy egress, so CI - which does - publishes a canned
+        # marker to a throwaway topic and captures the poll bytes as a commit comment (marker "live-feed",
+        # the same channel the erail captures used). The parser gets fixed against THESE bytes, and the
+        # capture doubles as the relay-side verdict: if CI's own publish is missing from CI's own poll,
+        # the relay itself is the broken link. A convenience, never a gate: set +e, check=False.
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          python3 - << 'PY'
+          import json, os, subprocess, time, urllib.request
+          topic = "ct-cap-" + str(os.environ.get("GITHUB_RUN_ID", "0"))
+          payload = '{"trainNo":"00000","stationCode":"CAP","kind":"DEPARTED","railMinute":1025,"reportedAt":1791810000000}'
+          req = urllib.request.Request(
+              "https://ntfy.sh/" + topic, data=payload.encode(), method="POST",
+              headers={"Content-Type": "text/plain; charset=utf-8",
+                       "User-Agent": "OpenTrackIndia-ci/1.0 (capture)"},
+          )
+          pubid = "?"
+          try:
+              pubid = json.loads(urllib.request.urlopen(req, timeout=20).read().decode()).get("id", "?")
+          except Exception as e:
+              print("publish failed:", e)
+          time.sleep(3)
+          try:
+              poll = urllib.request.urlopen(
+                  "https://ntfy.sh/" + topic + "/json?poll=1&since=10m", timeout=20,
+              ).read().decode()
+          except Exception as e:
+              print("poll failed:", e)
+              poll = ""
+          body = ("live-feed ntfy poll shape - publish id=%s, topic=%s, poll=%d bytes\n\n" % (pubid, topic, len(poll))) + poll[:3500]
+          subprocess.run(
+              ["gh", "api", "-X", "POST",
+               "repos/tarungittarun/Checktrain02/commits/" + os.environ["GITHUB_SHA"] + "/comments",
+               "-f", "body=" + body],
+              check=False, capture_output=True,
+          )
+          print("capture done: publish id", pubid, "poll bytes", len(poll))
+          # Backup mirrors for the ACTUAL-arr/dep path: runningstatus.in is behind Cloudflare on the
+          # owner's phone (paste #21: direct wire HTTP 403, WebView challenge page). Before any parser
+          # is written for a backup, CI captures what those pages REALLY serve for the owner's train
+          # (20651) - no parser against an assumed shape. One commit comment each, marker "live-feed".
+          for name, url in [
+              ("railmitra", "https://railmitra.in/live-running-status/20651"),
+              ("confirmtkt", "https://www.confirmtkt.com/train-running-status/20651"),
+          ]:
+              try:
+                  req = urllib.request.Request(url, headers={
+                      "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+                  })
+                  page = urllib.request.urlopen(req, timeout=25).read().decode("utf-8", "replace")
+                  mark = ("live-feed %s capture (%d bytes) - " % (name, len(page)))
+                  c = mark + page[:3000]
+                  subprocess.run(
+                      ["gh", "api", "-X", "POST",
+                       "repos/tarungittarun/Checktrain02/commits/" + os.environ["GITHUB_SHA"] + "/comments",
+                       "-f", "body=" + c],
+                      check=False, capture_output=True,
+                  )
+                  print("captured", name, len(page))
+              except Exception as e:
+                  print("capture failed:", name, e)
+          PY
 
   build:
     # No `needs: checks`, on purpose: the static checkers are the agent's safety net, and a false positive
@@ -284,118 +386,6 @@ jobs:
           # The installable APK lives on the `latest-apk` RELEASE (permanent, no sign-in, direct URL);
           # this artifact copy is a convenience only, so its life is short (ADR-001).
           retention-days: 7
-      - name: Publish the APK on a rolling release so a phone can fetch it directly
-        # Artifacts are CI's own copy of the build: they expire, they want a signed-in browser, and their bytes
-        # live on a blob host that neither this project's sandbox nor some phone browsers can reach. A
-        # prerelease with a fixed tag turns "send me the latest APK" into one URL that works from the device
-        # itself - tap, download, open, install - and it outlives the 30-day retention window, which matters
-        # when a report arrives about a build from last week. Rebuilt on every push, so the link is the
-        # current APK by construction rather than by discipline.
-        shell: bash
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          # `set +e` and `|| true` on the probes, because this step is a convenience and a convenience that
-          # turns a green build red is worse than no convenience: Actions runs `run:` blocks with `-e`, and a
-          # `grep` for a versionName written in some other style exits 1, which failed the whole job the first
-          # time this step ran while the APK above it had built perfectly.
-          set +e
-          apk=app/build/outputs/apk/debug/app-debug.apk
-          tag=latest-apk
-          ver=$(grep -o 'versionName *\(=[ \t]*\)*"[^"]*"' app/build.gradle | head -1 | sed 's/.*"\(.*\)"/\1/')
-          code=$(grep -o 'versionCode *[0-9]*' app/build.gradle | head -1 | grep -o '[0-9]*')
-          notes="Debug APK for testing on a real device. Built from ${GITHUB_SHA:0:7} by android.yml on every push. versionCode: ${code:-unknown}, versionName: ${ver:-unknown}. On the tracking screen, long-press the provenance badge to copy a live-feed report."
-          gh release create "$tag" --title "Rolling debug APK" --notes "$notes" --prerelease 2>/dev/null || true
-          if [ ! -f "$apk" ]; then
-            echo "::warning::no APK at $apk to publish; the build step already said why"
-            exit 0
-          fi
-          if gh release upload "$tag" "$apk" --clobber; then
-            # `create` is a no-op once the rolling tag exists. Without edit, the
-            # release page kept saying R83 while the asset had already become R97.
-            # Change provenance only AFTER the new asset was uploaded successfully.
-            gh release edit "$tag" --title "Rolling debug APK" --notes "$notes" ||
-              echo "::warning::could not update rolling APK provenance notes"
-          else
-            echo "::warning::could not publish to the release; the artifact on this run still has the APK"
-          fi
-      - name: Capture ntfy.sh's real poll shape (the crowd parser was written against an assumed shape)
-        # The traveller-report parser filters ntfy's JSON stream by hand, and every on-device poll has
-        # returned "relay answered, 0 reports" while publishes return HTTP 200 - paste #19 even lost the
-        # owner's OWN report. The sandbox has no ntfy egress, so CI - which does - publishes a canned
-        # marker to a throwaway topic and captures the poll bytes as a commit comment (marker "live-feed",
-        # the same channel the erail captures used). The parser gets fixed against THESE bytes, and the
-        # capture doubles as the relay-side verdict: if CI's own publish is missing from CI's own poll,
-        # the relay itself is the broken link. A convenience, never a gate: set +e, check=False.
-        shell: bash
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          set +e
-          python3 - << 'PY'
-          import json, os, subprocess, time, urllib.request
-          topic = "ct-cap-" + str(os.environ.get("GITHUB_RUN_ID", "0"))
-          payload = '{"trainNo":"00000","stationCode":"CAP","kind":"DEPARTED","railMinute":1025,"reportedAt":1791810000000}'
-          req = urllib.request.Request(
-              "https://ntfy.sh/" + topic, data=payload.encode(), method="POST",
-              headers={"Content-Type": "text/plain; charset=utf-8",
-                       "User-Agent": "OpenTrackIndia-ci/1.0 (capture)"},
-          )
-          pubid = "?"
-          try:
-              pubid = json.loads(urllib.request.urlopen(req, timeout=20).read().decode()).get("id", "?")
-          except Exception as e:
-              print("publish failed:", e)
-          time.sleep(3)
-          try:
-              poll = urllib.request.urlopen(
-                  "https://ntfy.sh/" + topic + "/json?poll=1&since=10m", timeout=20,
-              ).read().decode()
-          except Exception as e:
-              print("poll failed:", e)
-              poll = ""
-          body = ("live-feed ntfy poll shape - publish id=%s, topic=%s, poll=%d bytes\n\n" % (pubid, topic, len(poll))) + poll[:3500]
-          subprocess.run(
-              ["gh", "api", "-X", "POST",
-               "repos/tarungittarun/Checktrain02/commits/" + os.environ["GITHUB_SHA"] + "/comments",
-               "-f", "body=" + body],
-              check=False, capture_output=True,
-          )
-          print("capture done: publish id", pubid, "poll bytes", len(poll))
-          # Backup mirrors for the ACTUAL-arr/dep path: runningstatus.in is behind Cloudflare on the
-          # owner's phone (paste #21: direct wire HTTP 403, WebView challenge page). Before any parser
-          # is written for a backup, CI captures what those pages REALLY serve for the owner's train
-          # (20651) - no parser against an assumed shape. One commit comment each, marker "live-feed".
-          for name, url in [
-              ("railmitra", "https://railmitra.in/live-running-status/20651"),
-              ("confirmtkt", "https://www.confirmtkt.com/train-running-status/20651"),
-          ]:
-              try:
-                  req = urllib.request.Request(url, headers={
-                      "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
-                  })
-                  page = urllib.request.urlopen(req, timeout=25).read().decode("utf-8", "replace")
-                  mark = ("live-feed %s capture (%d bytes) - " % (name, len(page)))
-                  c = mark + page[:3000]
-                  subprocess.run(
-                      ["gh", "api", "-X", "POST",
-                       "repos/tarungittarun/Checktrain02/commits/" + os.environ["GITHUB_SHA"] + "/comments",
-                       "-f", "body=" + c],
-                      check=False, capture_output=True,
-                  )
-                  print("captured", name, len(page))
-              except Exception as e:
-                  print("capture failed:", name, e)
-          PY
-          if [ "$rc" -ne 0 ]; then exit 0; fi
-          {
-            echo ""
-            echo "### Install on a phone"
-            echo ""
-            echo "- APK (tap on the device): <https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/app-debug.apk>"
-            echo "- Release page: <https://github.com/$GITHUB_REPOSITORY/releases/tag/$tag>"
-          } >> "$GITHUB_STEP_SUMMARY"
-          echo "direct link: https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/app-debug.apk"
       # The Actions log host is not reachable from every environment that has to debug this build (the
       # agent sandbox that writes most of it, for one). Echoing the failure onto the commit through the
       # REST API — a host that is always reachable — turns "CI is red" into an actual error message,
@@ -447,6 +437,54 @@ jobs:
           gh api -X POST "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/comments" -F body=@/tmp/report.md \
             || echo "::warning::could not post the log comment"
 
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: opentrack-debug-apk
+          path: /tmp/apk
+      - name: Publish the APK on a rolling release so a phone can fetch it directly
+        # Artifacts are CI's own copy of the build: they expire, they want a signed-in browser, and their bytes
+        # live on a blob host that neither this project's sandbox nor some phone browsers can reach. A
+        # prerelease with a fixed tag turns "send me the latest APK" into one URL that works from the device
+        # itself - tap, download, open, install - and it outlives the 30-day retention window, which matters
+        # when a report arrives about a build from last week. Rebuilt on every push, so the link is the
+        # current APK by construction rather than by discipline.
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          # `set +e` and `|| true` on the probes, because this step is a convenience and a convenience that
+          # turns a green build red is worse than no convenience: Actions runs `run:` blocks with `-e`, and a
+          # `grep` for a versionName written in some other style exits 1, which failed the whole job the first
+          # time this step ran while the APK above it had built perfectly.
+          set +e
+          apk=/tmp/apk/app-debug.apk
+          tag=latest-apk
+          ver=$(grep -o 'versionName *\(=[ \t]*\)*"[^"]*"' app/build.gradle | head -1 | sed 's/.*"\(.*\)"/\1/')
+          code=$(grep -o 'versionCode *[0-9]*' app/build.gradle | head -1 | grep -o '[0-9]*')
+          notes="Debug APK for testing on a real device. Built from ${GITHUB_SHA:0:7} by android.yml on every push. versionCode: ${code:-unknown}, versionName: ${ver:-unknown}. On the tracking screen, long-press the provenance badge to copy a live-feed report."
+          gh release create "$tag" --title "Rolling debug APK" --notes "$notes" --prerelease 2>/dev/null || true
+          if [ ! -f "$apk" ]; then
+            echo "::warning::no APK at $apk to publish; the build step already said why"
+            exit 0
+          fi
+          if gh release upload "$tag" "$apk" --clobber; then
+            # `create` is a no-op once the rolling tag exists. Without edit, the
+            # release page kept saying R83 while the asset had already become R97.
+            # Change provenance only AFTER the new asset was uploaded successfully.
+            gh release edit "$tag" --title "Rolling debug APK" --notes "$notes" ||
+              echo "::warning::could not update rolling APK provenance notes"
+          else
+            echo "::warning::could not publish to the release; the artifact on this run still has the APK"
+          fi
 
   release:
     # Only for tagged pushes: a release build is the one place R8 and resource shrinking run, so it is

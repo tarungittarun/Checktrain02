@@ -6,101 +6,89 @@
     android:layout_height="wrap_content"
     android:orientation="vertical">
 
-    <!-- Two-tier row keeps long station names readable while clocks flank the rail. -->
+    <!-- A single station band: the schedule, dot/name and selected-source clocks
+         share one vertical origin. The old second tier put each train's times a
+         whole station below its name on a phone, even though the values were right. -->
     <LinearLayout
         android:id="@+id/stopRow"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:minHeight="86dp"
-        android:orientation="vertical"
+        android:minHeight="80dp"
+        android:orientation="horizontal"
         android:paddingTop="7dp"
         android:paddingEnd="12dp"
         android:paddingBottom="7dp">
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
-            <!-- 100 + half of 48 = x124, same as both rail painters. -->
-            <Space android:layout_width="100dp" android:layout_height="1dp" />
-            <FrameLayout
+        <LinearLayout android:id="@+id/scheduleTimes"
+            android:layout_width="118dp" android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:gravity="end" android:orientation="vertical">
+            <TextView android:id="@+id/schedArr" style="@style/TextClockDim"
+                android:minHeight="32dp" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:contentDescription="Scheduled arrival" />
+            <TextView android:id="@+id/schedDep" style="@style/TextClockDim"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_marginTop="3dp" android:contentDescription="Scheduled departure" />
+        </LinearLayout>
+        <!-- Schedule can use x=118, but the rail remains x=124: frame x=100..148. -->
+        <FrameLayout
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_marginStart="-18dp"
+            android:layout_marginEnd="5dp">
+            <View
+                android:id="@+id/stopDot"
+                android:layout_width="12dp"
+                android:layout_height="12dp"
+                android:layout_gravity="center_horizontal|top"
+                android:layout_marginTop="9dp"
+                android:background="@drawable/dot_later" />
+            <in.opentrack.india.ui.StopRailMarkerView
+                android:id="@+id/stopTrainMarker"
                 android:layout_width="48dp"
                 android:layout_height="48dp"
-                android:layout_marginEnd="5dp">
-                <View
-                    android:id="@+id/stopDot"
-                    android:layout_width="12dp"
-                    android:layout_height="12dp"
-                    android:layout_gravity="center_horizontal|top"
-                    android:layout_marginTop="9dp"
-                    android:background="@drawable/dot_later" />
-                <in.opentrack.india.ui.StopRailMarkerView
-                    android:id="@+id/stopTrainMarker"
-                    android:layout_width="48dp"
-                    android:layout_height="48dp"
-                    android:layout_gravity="top|center_horizontal"
-                    android:layout_marginTop="2dp"
-                    android:visibility="gone" />
-            </FrameLayout>
-            <LinearLayout
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:orientation="vertical">
-                <TextView android:id="@+id/haltMarker" style="@style/TextMicro"
-                    android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:textColor="@color/live" android:visibility="gone" />
-                <TextView android:id="@+id/stopName" style="@style/TextTitle"
-                    android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:maxLines="2" android:ellipsize="end" />
-                <TextView android:id="@+id/stopMeta" style="@style/TextMicro"
-                    android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:layout_marginTop="3dp" android:maxLines="2" />
-                <TextView android:id="@+id/stopStatus" style="@style/TextMeta"
-                    android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp" android:maxLines="2" />
-                <TextView android:id="@+id/stopReport" style="@style/TextMicro"
-                    android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp" android:textColor="@color/warn"
-                    android:visibility="gone" />
-            </LinearLayout>
+                android:layout_gravity="top|center_horizontal"
+                android:layout_marginTop="2dp"
+                android:visibility="gone" />
+        </FrameLayout>
+        <LinearLayout android:id="@+id/stationIdentity"
+            android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:orientation="vertical">
+            <TextView android:id="@+id/haltMarker" style="@style/TextMicro"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:textColor="@color/live" android:visibility="gone" />
+            <TextView android:id="@+id/stopName" style="@style/TextTitle"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:maxLines="2" android:ellipsize="end" />
+            <TextView android:id="@+id/stopMeta" style="@style/TextMicro"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="3dp" android:maxLines="5" />
+            <TextView android:id="@+id/stopStatus" style="@style/TextMeta"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="4dp" android:maxLines="5" />
+            <TextView android:id="@+id/stopReport" style="@style/TextMicro"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="4dp" android:textColor="@color/warn"
+                android:visibility="gone" />
         </LinearLayout>
-        <!-- The 118dp schedule column ends before x124; the live clocks stay to its right. -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="3dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
-            <LinearLayout android:id="@+id/scheduleTimes"
-                android:layout_width="118dp" android:layout_height="wrap_content"
-                android:gravity="end" android:orientation="vertical">
-                <TextView android:id="@+id/schedArr" style="@style/TextClockDim"
-                    android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:contentDescription="Scheduled arrival" />
-                <TextView android:id="@+id/schedDep" style="@style/TextClockDim"
-                    android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:layout_marginTop="3dp" android:contentDescription="Scheduled departure" />
-            </LinearLayout>
-            <Space android:layout_width="12dp" android:layout_height="1dp" />
-            <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
-                android:layout_weight="1" android:gravity="end" android:orientation="vertical">
-                <TextView android:id="@+id/liveArr" style="@style/TextClock"
-                    android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:gravity="end" />
-                <TextView android:id="@+id/liveDep" style="@style/TextClock"
-                    android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:layout_marginTop="3dp" android:gravity="end" />
-                <TextView android:id="@+id/stopPrimaryTime" style="@style/TextMicro"
-                    android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:visibility="gone" />
-                <TextView android:id="@+id/stopTimeType" style="@style/TextMicro"
-                    android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:visibility="gone" />
-                <TextView android:id="@+id/stopToggle" style="@style/TextMicro"
-                    android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:visibility="gone" android:text="Stations  ▾" />
-            </LinearLayout>
+        <LinearLayout android:id="@+id/reportTimes"
+            android:layout_width="88dp" android:layout_height="wrap_content"
+            android:layout_marginTop="6dp" android:gravity="end"
+            android:orientation="vertical">
+            <TextView android:id="@+id/liveArr" style="@style/TextClock"
+                android:minHeight="32dp" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:maxLines="2" android:gravity="end" />
+            <TextView android:id="@+id/liveDep" style="@style/TextClock"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="3dp" android:maxLines="2" android:gravity="end" />
+            <TextView android:id="@+id/stopPrimaryTime" style="@style/TextMicro"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:visibility="gone" />
+            <TextView android:id="@+id/stopTimeType" style="@style/TextMicro"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:visibility="gone" />
+            <TextView android:id="@+id/stopToggle" style="@style/TextMicro"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:visibility="gone" android:text="Stations  ▾" />
         </LinearLayout>
     </LinearLayout>
 

@@ -95,8 +95,13 @@ class TrackingFlowTest {
         assertNotNull("first load did not open the journey card", E2E.find("headline"))
         assertNotNull("expanded card lost its source evidence", E2E.find("provenance"))
         assertTrue("collapse handle not tappable", E2E.tap("heroToggle"))
-        assertTrue("headline survived compact mode", E2E.find("headline", 300) == null)
-        assertTrue("evidence survived compact mode", E2E.find("provenance", 300) == null)
+        // UiAutomator's click returns before the activity's main-thread layout
+        // commits on older API 24 emulators; wait for the REAL gone state, never
+        // treat a tap acknowledgement as proof of a collapsed card.
+        assertTrue("headline survived compact mode",
+            E2E.ui.wait(Until.gone(By.res(E2E.PKG, "headline")), E2E.LOCAL_MS))
+        assertTrue("evidence survived compact mode",
+            E2E.ui.wait(Until.gone(By.res(E2E.PKG, "provenance")), E2E.LOCAL_MS))
         assertNotNull("compact card lost its delay", E2E.find("delay"))
         assertNotNull("compact card lost the next stop", E2E.find("next"))
         assertNotNull("compact card lost the source chooser", E2E.find("sourceSpinner"))
@@ -259,6 +264,26 @@ class TrackingFlowTest {
         assertTrue("the station table overflows ${width}x$height: $bounds",
             bounds.left >= 0 && bounds.right <= width &&
                 bounds.top >= 0 && bounds.bottom <= height)
+        // Compare boxes on an installed APK, not just XML or Robolectric pixels.
+        // A previous build placed both pairs in a second tier below their names.
+        val stationNodes = E2E.all(By.res(E2E.PKG, "stopName"))
+        val scheduledNodes = E2E.all(By.res(E2E.PKG, "schedArr"))
+        val sourceNodes = E2E.all(By.res(E2E.PKG, "liveArr"))
+        assertTrue("no complete onscreen station/clock band",
+            stationNodes.size >= 2 && stationNodes.size == scheduledNodes.size &&
+                stationNodes.size == sourceNodes.size)
+        val pxPerDp = E2E.ui.displayWidth / E2E.widthDp()
+        for (index in stationNodes.indices) {
+            val name = stationNodes[index].visibleBounds
+            val planned = scheduledNodes[index].visibleBounds
+            val report = sourceNodes[index].visibleBounds
+            assertTrue("stop $index timetable shifted away from its name: $name / $planned",
+                kotlin.math.abs(name.top - planned.top) <= 24 * pxPerDp)
+            assertTrue("stop $index report shifted away from its name: $name / $report",
+                kotlin.math.abs(name.top - report.top) <= 24 * pxPerDp)
+            assertTrue("stop $index clocks are on different lines: $planned / $report",
+                kotlin.math.abs(planned.top - report.top) <= 6 * pxPerDp)
+        }
         val visibleStations = rowTexts("stopName").filter { it.isNotBlank() }
         assertTrue("default compact route should fit at least three named stations " +
             "($visibleStations) in $bounds at ${E2E.widthDp()}dp",
