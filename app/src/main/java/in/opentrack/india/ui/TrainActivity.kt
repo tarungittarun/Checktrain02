@@ -531,6 +531,11 @@ class TrainActivity : AppCompatActivity() {
             }
             binding.provenance.setBackgroundResource(R.drawable.bg_badge_schedule)
             binding.provenance.setTextColor(getColor(R.color.warn))
+            binding.delay.contentDescription = if (siteArrivalDelay != null && org != null)
+                "Website reported ${if (siteArrivalDelay >= 0) "+${siteArrivalDelay}" else siteArrivalDelay} " +
+                    "minutes at ${RowText.of(station?.name ?: org.anchorCode)} " +
+                    "${RailTime.formatRailMinute(org.eventMinute)}; current delay unknown"
+                else "No reported delay from selected website"
             binding.delay.setTextColor(getColor(R.color.warn))
         }
         if (ui.actualsHeadline != null) {
@@ -592,7 +597,7 @@ class TrainActivity : AppCompatActivity() {
                 else -> "${sourceName(publicCheck)}: no qualifying past-stop report for this run"
             }
             if (org != null) binding.headline.contentDescription =
-                "Unverified website claim: ${binding.headline.text}, " +
+                "Website reports ${binding.headline.text}, " +
                     "${RailTime.formatRailMinute(org.eventMinute)}; current position and motion unknown"
             val ntesAgree = org?.let { report ->
                 val officialCell = ui.answer.perStop[report.anchorCode]
@@ -624,6 +629,7 @@ class TrainActivity : AppCompatActivity() {
             val scheduled = org?.intermediate?.scheduledMinute ?: station?.arrivalMin
             val siteArrivalDelay = if (siteStop?.actualArrivalMin != null && scheduled != null)
                 siteStop.actualArrivalMin - scheduled else null
+            binding.delayLabel.text = if (siteArrivalDelay != null) "Delay at stop" else "Delay"
             binding.delay.text = if (siteArrivalDelay != null && org != null) {
                 val at = RailTime.formatRailMinute(org.eventMinute)
                 when {
@@ -1014,8 +1020,9 @@ class TrainActivity : AppCompatActivity() {
         fun sourceText(m: TrackModel.View): String = buildString {
             append("Act = reported. Est = predicted, not an arrival report. ")
             append("Site = site's past-stop claim, not independently verified Act or GPS. ")
-            append("A blue train, if shown, is projected, not GPS. An amber WIMT web marker " +
-                "is an unverified cache-distance claim, not phone-app GPS.\n")
+            append("A blue train marks the last source event, not current GPS. " +
+                "It can appear between stops only with a qualified distance. " +
+                "A WIMT web-cache distance is not phone-app GPS.\n")
             append("Position: ${m.provenanceLabel} · ${m.ageLabel}")
             if (m.feedStampLabel.isNotEmpty()) append(" · ${m.feedStampLabel}")
             append("\nLong-press the source badge to copy a detailed report.")

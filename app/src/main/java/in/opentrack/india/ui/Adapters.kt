@@ -280,7 +280,9 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         holder.timeType.text = if (hasShownTime) evidence else "SCHEDULE"
         holder.details.visibility = View.GONE
         val points = routePoints[s.code].orEmpty()
-        holder.stopToggle.visibility = if (points.isNotEmpty()) View.VISIBLE else View.GONE
+        val hasPoints = points.isNotEmpty() || projectedLeg?.takeIf {
+            it.fromCode.equals(s.code, true) }?.points?.isNotEmpty() == true
+        holder.stopToggle.visibility = if (hasPoints) View.VISIBLE else View.GONE
         holder.stopToggle.text = if (expandedCode == s.code) "Hide ▴" else "Stations ▾"
         holder.dot.setBackgroundResource(dotFor(s))
         // Keep the next stop directly after the compact leg. The former 34dp
@@ -302,8 +304,8 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         holder.row.setBackgroundColor(0x00000000)
         val nextStop = currentList.getOrNull(position + 1)
         val leg = projectedLeg?.takeIf { it.fromCode.equals(s.code, true) }
-        val disclosed = expandedCode == s.code && points.isNotEmpty()
-        val available = points.mapIndexed { index, point ->
+        val disclosed = expandedCode == s.code && hasPoints
+        val available = if (points.isEmpty()) leg?.points.orEmpty() else points.mapIndexed { index, point ->
             val matching = leg?.points?.firstOrNull { it.code.equals(point.code, true) }
             val kmFraction = nextStop?.let { next ->
                 val length = next.kmFromOrigin - s.kmFromOrigin
@@ -353,8 +355,8 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
                 else "Last reported event ${holder.inlineLegAge.text}"
             holder.routeToggle.text = if (disclosed) "Hide ▴" else "Stations ▾"
             holder.routeToggle.contentDescription = if (disclosed)
-                "Hide intermediate stations" else "Show ${points.size} intermediate stations"
-            holder.routeToggle.visibility = if (points.isEmpty()) View.GONE else View.VISIBLE
+                "Hide intermediate stations" else "Show ${available.size} intermediate stations"
+            holder.routeToggle.visibility = if (available.isEmpty()) View.GONE else View.VISIBLE
             holder.routeToggle.setOnClickListener {
                 val previous = expandedCode
                 expandedCode = if (previous == s.code) null else s.code
@@ -363,20 +365,30 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
                 currentList.indexOfFirst { it.code == s.code }
                     .takeIf { it >= 0 }?.let(::notifyItemChanged)
             }
-            holder.inlineLeg.contentDescription = caption +
+            val pointDescription = available.joinToString("; ") { point ->
+                val clock = point.passageMinute?.let {
+                    (if (point.approximate) "approximately " else "scheduled ") +
+                        RailTime.formatRailMinute(it)
+                } ?: "passage time unavailable"
+                "${RowText.of(point.name)} (${point.code}), $clock" +
+                    (if (point.mapKm >= 0) ", ${point.mapKm} km" else ", distance unavailable")
+            }
+            holder.inlineLeg.contentDescription = if (leg == null)
+                "Intermediate stations on the static route; no train-position claim. " +
+                    pointDescription
+            else caption +
                 (holder.inlineLeg.ageSeconds?.let { " · reported event ${LegGeometry.ageLabel(it)}" }
-                    ?: if (leg == null) " · no train-position claim" else " · event time unknown") +
+                    ?: " · event time unknown") +
                 " · not GPS · ${displayedLeg.from} to ${displayedLeg.to} " +
                 "${(displayedLeg.fraction * 100).toInt()} percent of scheduled leg by " +
                 (if (stationClaim) "unverified station claim (no passage time or measured distance)"
                     else if (reportedHalt || siteHalt) "last reported halt (no measured distance since)"
                     else if (site) "static map of the site-reported station"
                     else if (web) "web-cache km claim" else "estimated distance") +
-                (if (available.isEmpty()) "" else " · scheduled stations in order: " +
-                    available.joinToString(" → ") { it.code })
+                (if (pointDescription.isEmpty()) "" else " · intermediate stations: $pointDescription")
         }
         holder.row.setOnClickListener {
-            if (points.isNotEmpty()) {
+            if (hasPoints) {
                 val previous = expandedCode
                 expandedCode = if (previous == s.code) null else s.code
                 if (previous != null && previous != s.code) currentList.indexOfFirst { it.code == previous }
@@ -385,12 +397,12 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
                     ?: position)
             }
         }
-        holder.row.isClickable = points.isNotEmpty()
+        holder.row.isClickable = hasPoints
         holder.row.contentDescription = "${s.name}; " +
             "${holder.schedArr.contentDescription}; ${holder.schedDep.contentDescription}; " +
             "${holder.liveArr.contentDescription}; ${holder.liveDep.contentDescription}" +
-            if (points.isNotEmpty()) "; tap to ${if (disclosed) "hide" else "show"} " +
-                "${points.size} intermediate stations" else ""
+            if (hasPoints) "; tap to ${if (disclosed) "hide" else "show"} " +
+                "${available.size} intermediate stations" else ""
     }
 
     /**

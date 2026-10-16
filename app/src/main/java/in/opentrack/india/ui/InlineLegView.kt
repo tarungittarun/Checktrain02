@@ -87,15 +87,19 @@ class InlineLegView @JvmOverloads constructor(
                         `in`.opentrack.india.core.RailTime.formatRailMinute(it)
                 }.orEmpty()
                 paint.textSize = sp(12f)
+                val clockWidth = paint.measureText(clock)
                 paint.textAlign = Paint.Align.RIGHT
                 if (clock.isNotEmpty()) canvas.drawText(clock, width - dp(12f), tickY + dp(4f), paint)
                 paint.textAlign = Paint.Align.LEFT
                 paint.textSize = sp(13f)
-                val room = width - dp(if (clock.isEmpty()) 90f else 164f)
+                val left = x + dp(26f)
+                val right = width - dp(12f) -
+                    (if (clock.isEmpty()) 0f else clockWidth + dp(10f))
+                val room = (right - left).coerceAtLeast(dp(40f))
                 val label = android.text.TextUtils.ellipsize(
-                    RowText.of(point.name), android.text.TextPaint(paint), room.coerceAtLeast(dp(45f)),
+                    RowText.of(point.name), android.text.TextPaint(paint), room,
                     android.text.TextUtils.TruncateAt.END).toString()
-                canvas.drawText(label, x + dp(26f), tickY + dp(4f), paint)
+                canvas.drawText(label, left, tickY + dp(4f), paint)
             }
         }
         if (!showTrain) return // Static stations are not evidence of the train's location.

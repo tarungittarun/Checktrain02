@@ -1550,7 +1550,7 @@ class LiveViewModel(
             // on — no network, a timeout, a refusal, or the case this endpoint really is: it answered about
             // the train and published no arrival or departure minute at all. "No live report reached this
             // device" is the last resort, for when no source had anything more specific to say.
-            note = (if (orgReport != null) "Website reports past stops; not independently verified. Future stops use the timetable."
+            note = (if (orgReport != null) "Website reports past stops. The source badge says when NTES agrees; future stops use the timetable."
                 else if (publicSelected) "No confirmed times from this site; timetable shown."
                 else if (mirrorSelected && !selectedMirrorForTable ||
                     erailSelected && erailAnswer == null || officialUnavailable)

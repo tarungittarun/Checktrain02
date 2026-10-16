@@ -237,7 +237,7 @@ Render.save("02-track-live", shot.bitmap)
         val reported = list.getChildAt(3)
         val icon = reported.findViewById<InlineLegView>(R.id.inlineLeg)
         assertEquals(View.VISIBLE, reported.findViewById<View>(R.id.inlineLegGroup).visibility)
-        assertTrue(icon.contentDescription.contains("static points in order: NMP"))
+        assertTrue(icon.contentDescription.contains("Static Point (NMP)"))
         assertTrue("the mini-leg lost its source/event label",
             text(reported, R.id.inlineLegCaption).contains("Last stop"))
         assertTrue("distance ruler has a bounded vertical footprint",
@@ -323,7 +323,7 @@ Render.save("02-track-live", shot.bitmap)
         val offline = shot.root.findViewById<RecyclerView>(R.id.stops)!!
         val dashed = (0 until offline.childCount).count {
             val row = offline.getChildAt(it)
-            Render.read(row, R.id.liveArr) == "—" && Render.read(row, R.id.liveDep) == "—"
+            Render.read(row, R.id.liveArr) == "↓ —" && Render.read(row, R.id.liveDep) == "↑ —"
         }
         assertEquals("an offline screen must dash both live cells in every row", offline.childCount, dashed)
 Render.save("01-track-schedule", shot.bitmap)

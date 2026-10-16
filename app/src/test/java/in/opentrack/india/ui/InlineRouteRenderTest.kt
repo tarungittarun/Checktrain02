@@ -127,8 +127,10 @@ class InlineRouteRenderTest {
         adapter.onBindViewHolder(holder, 0)
         assertEquals(View.VISIBLE, holder.inlineLegGroup.visibility)
         val description = holder.inlineLeg.contentDescription.toString()
-        assertTrue(description.contains("P1 → P2 → P3"))
-        assertTrue(description.contains("P9 → P10 → P11"))
+        assertTrue(description.contains("Static point 1 (P1)") &&
+            description.contains("Static point 3 (P3)"))
+        assertTrue(description.contains("Static point 9 (P9)") &&
+            description.contains("Static point 11 (P11)"))
         assertEquals(points, holder.inlineLeg.projection!!.points)
         val ruler = holder.inlineLeg
         val width = View.MeasureSpec.makeMeasureSpec(360, View.MeasureSpec.EXACTLY)
@@ -313,6 +315,8 @@ class InlineRouteRenderTest {
         assertEquals(2, holder.inlineLeg.projection!!.points.size)
         assertEquals(367, holder.inlineLeg.projection!!.points[0].mapKm)
         assertTrue(holder.inlineLeg.projection!!.points[0].approximate)
+        assertTrue(holder.inlineLeg.contentDescription.contains("Malleswaram (MWM), approximately"))
+        assertTrue(holder.inlineLeg.contentDescription.contains("no train-position claim"))
         assertEquals(View.GONE, holder.details.visibility)
         val positions = LegGeometry.pointPositionsDp(holder.inlineLeg.projection!!.points, 6)
         assertTrue("1 km and 3 km must create different vertical gaps",
