@@ -266,6 +266,22 @@ runs:
         echo "installing $apk"
         adb install -r -g "$apk"
         adb install -r "/tmp/apk/app-debug-androidTest.apk"
+        # `adb install` can return before PackageManager exposes the test runner
+        # on a just-booted emulator. One hosted row reached INSTRUMENTATION_FAILED
+        # in every pass while its siblings ran the SAME APK. Verify the component
+        # before accepting an install as ready; retry installation once, fail loudly
+        # if the emulator still cannot register it. Never treat an unrun test as green.
+        runner="$APP_ID.test/androidx.test.runner.AndroidJUnitRunner"
+        if ! adb shell pm list instrumentation | grep -Fq "$runner"; then
+          echo "::warning::test runner not registered after install; reinstalling once"
+          sleep 4
+          adb install -r -g "$apk"
+          adb install -r "/tmp/apk/app-debug-androidTest.apk"
+          if ! adb shell pm list instrumentation | grep -Fq "$runner"; then
+            echo "::error::test instrumentation absent after reinstall: $runner"
+            exit 1
+          fi
+        fi
         # The permission row of the matrix: granted means `pm grant`, denied means an explicit revoke so
         # the app is not merely missing a permission it never asked for.
         case "$LOCATION" in

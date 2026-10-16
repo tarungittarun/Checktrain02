@@ -68,6 +68,7 @@ class TrainActivity : AppCompatActivity() {
         override fun run() {
             if (!screenStarted || !binding.autoSwitch.isChecked) return
             if (!chainBusy) requestRefresh(auto = true)
+            else pendingAutoRefresh = true // first load must not silently consume the minute tick
             binding.root.postDelayed(this, 60_000L)
         }
     }
@@ -85,6 +86,7 @@ class TrainActivity : AppCompatActivity() {
     private var lastUi: LiveViewModel.Ui? = null
     private var lastScreenLoadKey: Pair<String?, Long?>? = null
     private var screenLoadedAtMillis = 0L
+    private var pendingAutoRefresh = false
     private var chainBusy = false
     private var mirrorBusy = false
     private var heroExpanded = true
@@ -165,6 +167,7 @@ class TrainActivity : AppCompatActivity() {
         binding.autoSwitch.setOnCheckedChangeListener { _, enabled ->
             refreshPrefs.edit().putBoolean("every_minute", enabled).apply()
             binding.root.removeCallbacks(autoRefreshTicker)
+            if (!enabled) pendingAutoRefresh = false
             if (enabled && screenStarted) binding.root.postDelayed(autoRefreshTicker, 60_000L)
         }
         vm.liveReceipt.observe(this) {
@@ -244,6 +247,15 @@ class TrainActivity : AppCompatActivity() {
             if (wasBusy && !chainBusy && focusAfterRefresh) binding.stops.post {
                 focusCurrentLeg()
                 focusAfterRefresh = false
+            }
+            if (wasBusy && !chainBusy && pendingAutoRefresh) binding.root.post {
+                if (screenStarted && binding.autoSwitch.isChecked && !chainBusy && pendingAutoRefresh) {
+                    pendingAutoRefresh = false
+                    // Restart the interval after the deferred check; never overlap chains.
+                    binding.root.removeCallbacks(autoRefreshTicker)
+                    binding.root.postDelayed(autoRefreshTicker, 60_000L)
+                    requestRefresh(auto = true)
+                }
             }
         }
         // The sources box: fetching while the witnesses work. Once actuals exist, the line goes quiet -
@@ -1046,6 +1058,7 @@ class TrainActivity : AppCompatActivity() {
 
     override fun onStop() {
         screenStarted = false
+        pendingAutoRefresh = false
         binding.root.removeCallbacks(autoRefreshTicker)
         binding.stops.removeCallbacks(ageTicker)
         super.onStop()
