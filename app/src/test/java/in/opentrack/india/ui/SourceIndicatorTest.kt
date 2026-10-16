@@ -23,20 +23,20 @@ class SourceIndicatorTest {
         assertEquals("3.81 s", SourceIndicator.seconds("HTTP 403 · checked in 3810 ms"))
         assertEquals(null, SourceIndicator.seconds("not checked yet"))
         assertEquals(0, SourceIndicator.priority(SourceIndicator.Tone.READY))
-        assertEquals(3, SourceIndicator.priority(SourceIndicator.Tone.UNAVAILABLE))
+        assertEquals(4, SourceIndicator.priority(SourceIndicator.Tone.UNAVAILABLE))
         assertEquals("run day unclear", SourceIndicator.of(PublicPageChecks.ORG,
             "unverified", "selected origin run is not unambiguously active").label)
         assertEquals("site update too old", SourceIndicator.of(PublicPageChecks.ORG,
             "unverified", "website update clock missing or over five minutes old").label)
     }
 
-    @Test fun siteClaimsAreGreenButNeverLabelledAsVerifiedActuals() {
+    @Test fun siteClaimsAreAmberAndNeverLabelledAsVerifiedActuals() {
         val site = SourceIndicator.of(PublicPageChecks.ORG, "candidate", "13 past-card rows")
-        assertEquals(SourceIndicator.Tone.READY, site.tone)
+        assertEquals(SourceIndicator.Tone.CANDIDATE, site.tone)
         assertEquals(true, site.label.contains("unverified"))
-        assertEquals(SourceIndicator.Tone.READY,
+        assertEquals(SourceIndicator.Tone.CANDIDATE,
             SourceIndicator.of(WimtCandidate.SOURCE, "candidate", "dated km point").tone)
-        assertEquals(SourceIndicator.Tone.UNAVAILABLE,
+        assertEquals(SourceIndicator.Tone.CANDIDATE,
             SourceIndicator.of(PublicPageChecks.RAIL_YATRI, "candidate", "no passage minute").tone)
         assertEquals(SourceIndicator.Tone.READY,
             SourceIndicator.of("NTES (official)", "live", "11 actual stops").tone)

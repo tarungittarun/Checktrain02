@@ -4,17 +4,19 @@ import `in`.opentrack.india.v2.mirror.PublicPageChecks
 import `in`.opentrack.india.v2.mirror.WimtCandidate
 import java.util.Locale
 
-/** Green means usable train-specific information, not automatically independently verified Act. */
+/** Green is an independently attributed stop report; amber is a usable but
+ * unverified website claim. A successful HTTP request alone is neither. */
 object SourceIndicator {
-    enum class Tone { READY, UNAVAILABLE, PENDING, OLD }
+    enum class Tone { READY, CANDIDATE, UNAVAILABLE, PENDING, OLD }
     data class Indicator(val tone: Tone, val label: String)
 
     fun of(name: String, state: String, detail: String): Indicator = when {
         state == "live" -> Indicator(Tone.READY, "reported times")
         state == "candidate" && name == PublicPageChecks.ORG ->
-            Indicator(Tone.READY, "site stops · unverified")
+            Indicator(Tone.CANDIDATE, "site stops · unverified")
         state == "candidate" && name == WimtCandidate.SOURCE ->
-            Indicator(Tone.READY, "site distance · not GPS")
+            Indicator(Tone.CANDIDATE, "site distance · not GPS")
+        state == "candidate" -> Indicator(Tone.CANDIDATE, "unverified station claim")
         state == "last-known" -> Indicator(Tone.OLD, "saved · not new")
         detail.contains("not answered yet") || detail.contains("checking on first load") ||
             detail.contains("manual check available") -> Indicator(Tone.PENDING, "checking…")
@@ -37,8 +39,9 @@ object SourceIndicator {
 
     fun priority(tone: Tone): Int = when (tone) {
         Tone.READY -> 0
-        Tone.OLD -> 1
-        Tone.PENDING -> 2
-        Tone.UNAVAILABLE -> 3
+        Tone.CANDIDATE -> 1
+        Tone.OLD -> 2
+        Tone.PENDING -> 3
+        Tone.UNAVAILABLE -> 4
     }
 }

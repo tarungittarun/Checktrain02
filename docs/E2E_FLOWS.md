@@ -151,4 +151,6 @@ boot, and tests add time. Splitting the slow shards shortens the device critical
 make a cold pipeline reliably meet that goal by itself. Each emulator job is capped at fifteen
 minutes (twelve minutes to report a result). The CI result, not an elapsed-time target, gates
 an APK handoff. A follow-up commit gets a separate concurrency group so an older composite
-emulator that is slow to cancel cannot block its replacement.
+emulator that is slow to cancel cannot block its replacement. The new head's `plan` job
+also requests cancellation of obsolete runs on this same branch with its restricted
+`actions:write` token; this is best-effort, never an excuse to skip a device gate.

@@ -51,10 +51,9 @@ permissions:
   actions: read
 
 concurrency:
-  # A slow older emulator cannot block validation of the NEW SHA. Branch-scoped
-  # cancellation waited for its composite action to unwind (tens of minutes), leaving
-  # the replacement run pending; auth for manual cancellation is unavailable here.
-  # Keep same-SHA dispatches distinct, but let every new commit start immediately.
+  # Keep distinct SHAs independent so a slow composite cancellation cannot block
+  # the new plan. That plan requests cancellation of obsolete runs via its narrowly
+  # scoped actions:write token, freeing queued device runners for the new head.
   group: e2e-${{ github.sha }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || 'push' }}
   cancel-in-progress: false
 
@@ -139,9 +138,30 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      actions: write # only plan can cancel superseded E2E runs on THIS branch
     timeout-minutes: 6
     steps:
       - uses: actions/checkout@v4
+      - name: Reclaim runners from superseded branch sweeps
+        if: github.ref != 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          # Best effort: a GitHub token that cannot cancel is NOT a reason to
+          # skip testing. Never cancel a same-SHA focus/dispatch or another branch.
+          set +e
+          ids=$(gh api -X GET "repos/$GITHUB_REPOSITORY/actions/workflows/e2e.yml/runs?branch=$GITHUB_REF_NAME&per_page=100" \
+            --jq ".workflow_runs[] | select(.head_sha != \"$GITHUB_SHA\") | select(.status == \"queued\" or .status == \"in_progress\" or .status == \"waiting\" or .status == \"pending\") | .id" 2>/tmp/cancel-list-error)
+          if [ $? -ne 0 ]; then
+            echo "::warning::could not list obsolete E2E runs: $(head -c 180 /tmp/cancel-list-error)"
+            exit 0
+          fi
+          for id in $ids; do
+            gh api -X POST "repos/$GITHUB_REPOSITORY/actions/runs/$id/cancel" >/dev/null 2>&1 &&
+              echo "::notice::cancel requested for older branch E2E run $id" ||
+              echo "::warning::could not cancel older E2E run $id"
+          done
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'

@@ -331,9 +331,9 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             val reportedHalt = leg.markerKind == RouteBetween.MarkerKind.REPORTED_HALT
             val stationClaim = leg.markerKind == RouteBetween.MarkerKind.STATION_CLAIM
             val caption = when {
-                stationClaim -> "Station claimed · time unknown"
-                leg.fraction > 0f -> "Between halts · motion unknown · not GPS"
-                else -> "Last reported stop · later position unknown"
+                stationClaim -> "Station claim · time unknown"
+                leg.fraction > 0f -> "Between halts · motion unknown"
+                else -> "Last stop · now unknown"
             }
             holder.inlineLegCaption.text = caption
             holder.inlineLegCaption.setTextColor(ctx.getColor(R.color.text2))
@@ -392,12 +392,18 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
                 else android.view.ViewGroup.LayoutParams.WRAP_CONTENT
         }
         if (holder.intermediateScroll.visibility == View.VISIBLE) {
+            holder.intermediateGroup.addView(TextView(ctx).apply {
+                text = "MAP POINTS · NO STOP TIMES"
+                setTextColor(ctx.getColor(R.color.text3))
+                textSize = 10f
+                setPadding(0, 6, 0, 6)
+            })
             for (point in points) {
                 holder.intermediateGroup.addView(TextView(ctx).apply {
                     // Static map points are not evidence that a train stopped or passed here.
-                    text = "map point  ·  ${RowText.of(point.name)}" +
-                        (if (point.schedKm >= 0) "  ·  ${point.schedKm} km" else "  ·  km unknown")
-                    setTextColor(ctx.getColor(if (point.isHalt) R.color.text1 else R.color.text2))
+                    text = "• ${RowText.of(point.name)}" +
+                        (if (point.schedKm >= 0) " · ${point.schedKm} km" else " · km unknown")
+                    setTextColor(ctx.getColor(R.color.text2))
                     textSize = 11f
                     val pad = (3 * ctx.resources.displayMetrics.density).toInt()
                     setPadding(0, pad, 0, pad)

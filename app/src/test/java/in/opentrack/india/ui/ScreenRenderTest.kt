@@ -239,7 +239,7 @@ Render.save("02-track-live", shot.bitmap)
         assertEquals(View.VISIBLE, reported.findViewById<View>(R.id.inlineLegGroup).visibility)
         assertTrue(icon.contentDescription.contains("static points in order: NMP"))
         assertTrue("the mini-leg lost its source/event label",
-            text(reported, R.id.inlineLegCaption).contains("reported stop"))
+            text(reported, R.id.inlineLegCaption).contains("Last stop"))
         assertTrue("distance ruler has a bounded vertical footprint",
             icon.height >= (104 * shot.context.resources.displayMetrics.density).toInt())
         assertTrue(icon.contentDescription.contains("no measured distance since"))

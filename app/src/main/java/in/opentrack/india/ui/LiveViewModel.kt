@@ -755,11 +755,12 @@ class LiveViewModel(
                 // intermediate points BEFORE the first network request of this opening.
                 loadConfirmScheduleCache()
                 val savedStatic = repo.savedSchedule(trainNo, fromCode, toCode, originEpochDay)
-                val cachedRoute = saved?.route ?: savedStatic
-                    ?: runCatching { repo.queries.route(trainNo) }.getOrNull()
-                    ?: confirmHaltRoute
+                val cachedRoute = listOfNotNull(saved?.route, savedStatic,
+                    runCatching { repo.queries.route(trainNo) }.getOrNull(), confirmHaltRoute)
+                    .firstOrNull { JourneyRouteGate.covers(
+                        it.stops.map { stop -> stop.code }, fromCode, toCode) }
                 if (cachedRoute != null) {
-                    officialStaticKnown = saved != null || savedStatic != null
+                    officialStaticKnown = cachedRoute === saved?.route || cachedRoute === savedStatic
                     // Reopen today's validated full static route BEFORE asking any live source.
                     loadGeoCache(cachedRoute, repo)
                     val cached = saved?.answer ?: PositionEngine.locate(
@@ -792,10 +793,13 @@ class LiveViewModel(
             // Previously repo.live() returned null BEFORE asking NTES in that case (20689).
             // Use the dated live-list identity only as an endpoint scaffold; the official STNS
             // must independently prove its train, day and passenger span before gaining any rows.
-            val hasDeviceRoute = runCatching { repo.queries.route(trainNo) }.getOrNull() != null
+            val hasDeviceRoute = runCatching { repo.queries.route(trainNo) }.getOrNull()
+                ?.let { JourneyRouteGate.covers(it.stops.map { stop -> stop.code },
+                    fromCode, toCode) } == true
             val fallbackRoute = if (!hasDeviceRoute &&
                 repo.savedSchedule(trainNo, fromCode, toCode, originEpochDay) == null) {
-                confirmHaltRoute ?: (liveIdentity ?:
+                confirmHaltRoute?.takeIf { JourneyRouteGate.covers(
+                    it.stops.map { stop -> stop.code }, fromCode, toCode) } ?: (liveIdentity ?:
                     runCatching { identityFetch.identityOf(trainNo) }.getOrNull())
                     ?.takeIf { it.identity.number == trainNo }
                     ?.also { liveIdentity = it }
@@ -825,8 +829,10 @@ class LiveViewModel(
                 // device - and the owner's 16:47 paste reported exactly that: "some stations are
                 // also missing after refresh". So before any endpoint-only view, re-read the offline
                 // route; the synthetic two-stop view is ONLY for trains the offline copy truly lacks.
-                val cachedRoute = runCatching { repo.queries.route(trainNo) }.getOrNull()
-                    ?: confirmHaltRoute
+                val cachedRoute = listOfNotNull(
+                    runCatching { repo.queries.route(trainNo) }.getOrNull(), confirmHaltRoute)
+                    .firstOrNull { JourneyRouteGate.covers(
+                        it.stops.map { stop -> stop.code }, fromCode, toCode) }
                 if (cachedRoute != null) {
                     val now = System.currentTimeMillis()
                     val answer = PositionEngine.locate(

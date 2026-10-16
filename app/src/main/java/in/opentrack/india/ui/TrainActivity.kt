@@ -246,6 +246,7 @@ class TrainActivity : AppCompatActivity() {
      */
     private fun sourceColor(tone: SourceIndicator.Tone): Int = when (tone) {
         SourceIndicator.Tone.READY -> R.color.accent
+        SourceIndicator.Tone.CANDIDATE -> R.color.warn
         SourceIndicator.Tone.UNAVAILABLE -> R.color.late
         SourceIndicator.Tone.OLD -> R.color.warn
         SourceIndicator.Tone.PENDING -> R.color.text2
@@ -504,7 +505,9 @@ class TrainActivity : AppCompatActivity() {
             // a future arrival. The old official Act cells are deliberately not shown
             // while this source is selected (buildUi constructs a static-only table).
             val webKm = String.format(java.util.Locale.ROOT, "%.1f", point.routeKm)
-            binding.headline.text = "WIMT web reports near $pointName · ≈$webKm route km"
+            binding.headline.text = "Near ${RowText.of(pointName)}"
+            binding.headline.contentDescription = "Unverified WIMT web-cache claim near $pointName " +
+                "at approximately $webKm route km; current motion unknown, not phone GPS"
             binding.provenance.text = "WIMT WEB · position candidate"
             binding.provenance.setBackgroundResource(R.drawable.bg_badge_schedule)
             binding.provenance.setTextColor(getColor(R.color.warn))
@@ -533,6 +536,9 @@ class TrainActivity : AppCompatActivity() {
                     "RailYatri reports ${claim.status} ${station.name} · passage time unknown"
                 else -> "${sourceName(publicCheck)}: no qualifying past-stop report for this run"
             }
+            if (org != null) binding.headline.contentDescription =
+                "Unverified website claim: ${binding.headline.text}, " +
+                    "${RailTime.formatRailMinute(org.eventMinute)}; current position and motion unknown"
             binding.provenance.text = when {
                 org != null -> "WEBSITE · past-stop claims, unverified"
                 claim != null -> "RAILYATRI · station claim only"

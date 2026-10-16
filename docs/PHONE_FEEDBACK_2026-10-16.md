@@ -6,6 +6,10 @@ The source claim belongs in the header; it must not change the route geometry.
 
 ## What the attached device diary proves
 
+- Initial offline paint at 09:35:50 briefly showed a different MYS→MAS run of train
+  16221 instead of the selected TLGP→MYS journey. Provisional device routes are now
+  gated by both selected stops in the right order; the official dated route still
+  replaces the provisional view when it answers.
 - At 09:35:51 NTES answered the first POST with a last departure from SPV at 09:33.
   Repeated manually requested POSTs through 09:45:36 also answered, reporting
   the same stop/event. These were real network requests, not app HTTP cache hits;
@@ -27,7 +31,9 @@ The source claim belongs in the header; it must not change the route geometry.
   Untimed map points are small ticks plus a nested, height-bounded list, not
   full stop cards or fabricated arrival/departure minutes.
 - The top card owns source confidence, late/early claims and checked-at
-  receipts. A new HTTP response with the same source stop/time reads “no newer
+  receipts. Its source selector uses green for a live timed-stop report and amber for
+  usable but unverified site/station claims; the route
+  itself does not change colour with source choice. A new HTTP response with the same source stop/time reads “no newer
   stop”; a changed stop/time reads “New stop report.” Site page clocks do not
   make new events. Manual and opt-in minute refresh ask the selected source
   first. After an unchanged official stop aged five minutes, the app may also
@@ -36,6 +42,10 @@ The source claim belongs in the header; it must not change the route geometry.
 - A separate newer website claim can be offered as a source-picker comparison,
   only when its past-marked stop is farther ahead on the same dated route and
   its page is fresh. This is not proof of the train's current position.
+
+The updateable debug build uses the same stable test-only signing key and bumps
+versionCode to **39** (`1.0.38-r109`) so Android can install it over the owner's
+previous versionCode-38 phone build without clearing the cache or diary.
 
 Acceptance still requires a passing current-head Android build, full E2E run,
 and the owner's on-phone installation/behavior confirmation before PR #3 merges.

@@ -33,7 +33,7 @@ class InlineRouteRenderTest {
         adapter.onBindViewHolder(holder, 0)
         assertEquals(View.VISIBLE, holder.inlineLegGroup.visibility)
         assertTrue(holder.inlineLeg.contentDescription.contains("not GPS"))
-        assertTrue(holder.inlineLegCaption.text.contains("not GPS"))
+        assertTrue(holder.inlineLegCaption.text.contains("Between halts"))
         assertTrue(holder.report.text.contains("13:13"))
         assertEquals("Act 13:12", holder.liveArr.text.toString())
         adapter.setProjectedLeg(null)
@@ -55,7 +55,7 @@ class InlineRouteRenderTest {
         val holder = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
         adapter.onBindViewHolder(holder, 0)
         assertEquals(View.VISIBLE, holder.inlineLegGroup.visibility)
-        assertTrue(holder.inlineLegCaption.text.contains("Last reported stop"))
+        assertTrue(holder.inlineLegCaption.text.contains("Last stop"))
         assertTrue(holder.inlineLeg.contentDescription.contains("no measured distance since"))
         assertEquals("12 min ago", holder.inlineLegAge.text.toString())
         assertEquals(12 * 60L, holder.inlineLeg.ageSeconds)
@@ -73,7 +73,7 @@ class InlineRouteRenderTest {
         adapter.submitList(listOf(row))
         val holder = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
         adapter.onBindViewHolder(holder, 0)
-        assertTrue(holder.inlineLegCaption.text.contains("Station claimed"))
+        assertTrue(holder.inlineLegCaption.text.contains("Station claim"))
         assertTrue(holder.inlineLeg.contentDescription.contains("passage time"))
         assertEquals(null, holder.inlineLeg.ageSeconds)
         assertEquals(0f, holder.inlineLeg.projection!!.fraction, .001f)
@@ -96,7 +96,7 @@ class InlineRouteRenderTest {
         val holder = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
         adapter.onBindViewHolder(holder, 0)
         assertEquals(View.VISIBLE, holder.inlineLegGroup.visibility)
-        assertTrue(holder.inlineLegCaption.text.contains("Last reported stop"))
+        assertTrue(holder.inlineLegCaption.text.contains("Last stop"))
         assertEquals("9 min ago", holder.inlineLegAge.text.toString())
         assertTrue(holder.inlineLeg.contentDescription.contains("no measured distance since"))
         assertEquals(0f, holder.inlineLeg.projection!!.fraction, .001f)
@@ -179,6 +179,27 @@ class InlineRouteRenderTest {
             height(RouteBetween.MarkerKind.SITE_LAST_STOP))
     }
 
+    @Test fun officialAndWebsitePaintTheSameRulerAndLocomotive() {
+        val ctx = RuntimeEnvironment.getApplication()
+        fun paint(kind: RouteBetween.MarkerKind): android.graphics.Bitmap {
+            val ruler = InlineLegView(ctx)
+            ruler.distanceKm = 20
+            ruler.projection = RouteBetween.LegProjection("From", "To", 0f,
+                "From", 100, "AAA", "BBB", listOf(
+                    RouteBetween.LegPoint("MAP", "Untimed map point", 110, .5f)), kind)
+            ruler.measure(View.MeasureSpec.makeMeasureSpec(360, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+            ruler.layout(0, 0, ruler.measuredWidth, ruler.measuredHeight)
+            return android.graphics.Bitmap.createBitmap(ruler.width, ruler.height,
+                android.graphics.Bitmap.Config.ARGB_8888).also {
+                ruler.draw(android.graphics.Canvas(it))
+            }
+        }
+        assertTrue("switching from NTES to the website changed the route skin",
+            paint(RouteBetween.MarkerKind.REPORTED_HALT).sameAs(
+                paint(RouteBetween.MarkerKind.SITE_LAST_STOP)))
+    }
+
     @Test fun tappingHaltShowsUntimedPointsThenCollapsesWithoutClaimingArrival() {
         val ctx = RuntimeEnvironment.getApplication()
         val adapter = StopAdapter()
@@ -195,9 +216,11 @@ class InlineRouteRenderTest {
         holder.row.performClick()
         adapter.onBindViewHolder(holder, 0)
         assertEquals(View.VISIBLE, holder.intermediateScroll.visibility)
-        val text = (holder.intermediateGroup.getChildAt(0) as TextView).text.toString()
+        assertEquals("MAP POINTS · NO STOP TIMES",
+            (holder.intermediateGroup.getChildAt(0) as TextView).text.toString())
+        val text = (holder.intermediateGroup.getChildAt(1) as TextView).text.toString()
         assertTrue(text.contains("Malleswaram"))
-        assertEquals("map point  ·  Malleswaram  ·  368 km", text)
+        assertEquals("• Malleswaram · 368 km", text)
         assertFalse(text.contains("Act "))
         holder.row.performClick()
         adapter.onBindViewHolder(holder, 0)
