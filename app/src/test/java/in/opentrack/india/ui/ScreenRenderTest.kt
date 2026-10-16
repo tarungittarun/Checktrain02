@@ -131,6 +131,12 @@ class ScreenRenderTest {
             headline.contains("Dobetakapur") && !headline.contains("DOBETAKAPUR"))
         assertEquals("screen-load clock must show seconds, not the website minute", "09:05:07",
             shot.text(R.id.checkClock))
+        assertEquals("do not print a second caption inside the compact clock", 0,
+            shot.context.resources.getIdentifier("checkClockLabel", "id", shot.context.packageName))
+        val clockWave = shot.root.findViewById<View>(R.id.checkClock).parent as android.view.ViewGroup
+        assertTrue("light wave must cover the box, not draw a narrow underline",
+            clockWave.getChildAt(0) is ScreenLoadGlowView &&
+                clockWave.getChildAt(0).height == clockWave.height)
         val delayBox = shot.bounds(R.id.delay)
         val checkBox = shot.bounds(R.id.checkClock)
         val nextBox = shot.bounds(R.id.next)

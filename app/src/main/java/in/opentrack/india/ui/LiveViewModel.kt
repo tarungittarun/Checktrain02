@@ -1811,12 +1811,13 @@ class LiveViewModel(
             val officialIndex = official?.let { r -> route.stops.indexOfFirst {
                 it.code.equals(r.code, true)
             } } ?: -1
-            if (page != null && SourceRecency.showComparison(officialIndex, siteIndex,
+            if (page != null && SourceRecency.showComparison(SourceRecency.progressOrdinal(officialIndex, false),
+                    SourceRecency.progressOrdinal(siteIndex, page.intermediate != null),
                     officialStopAgeMillis() ?: 0L, now - page.pageUpdatedAt,
                     now - RailTime.railMinuteToEpochMillis(originDate, page.eventMinute))) {
-                val stop = route.stops[siteIndex]
-                "Website claims a later stop: ${stop.name} · " +
-                    "${RailTime.formatRailMinute(page.eventMinute)}. Unverified; choose website to compare."
+                val place = page.intermediate?.name ?: route.stops[siteIndex].name
+                "Website reports ${RowText.of(place)} at " +
+                    "${RailTime.formatRailMinute(page.eventMinute)} · unverified; tap to view its report."
             } else null
         } else null
         return Ui(

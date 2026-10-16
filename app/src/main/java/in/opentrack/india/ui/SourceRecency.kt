@@ -4,6 +4,10 @@ package `in`.opentrack.india.ui
  * along the same dated official route earns a comparison hint, never a location
  * change or an automatic promotion to railway-confirmed actuals. */
 object SourceRecency {
+    /** A passing station is after its preceding halt, before the next one. */
+    fun progressOrdinal(haltIndex: Int, intermediate: Boolean): Int =
+        if (haltIndex < 0) -1 else haltIndex * 2 + if (intermediate) 1 else 0
+
     fun showComparison(officialIndex: Int, siteIndex: Int, officialAgeMs: Long,
                        pageAgeMs: Long, siteEventAgeMs: Long): Boolean =
         officialIndex >= 0 && siteIndex > officialIndex && officialAgeMs >= 300_000L &&

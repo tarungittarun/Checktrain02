@@ -227,43 +227,25 @@
                             android:textSize="15sp" />
                     </LinearLayout>
 
-                    <!-- This is a local screen-load clock, not a website page-update or a train event. -->
+                    <!-- Local screen-paint time; the full label lives in TalkBack / Info. -->
                     <FrameLayout
-                        android:layout_width="98dp"
-                        android:layout_height="56dp"
+                        android:layout_width="80dp"
+                        android:layout_height="36dp"
                         android:layout_marginStart="6dp"
                         android:background="@drawable/bg_inset">
-                        <LinearLayout
-                            android:layout_width="match_parent"
-                            android:layout_height="match_parent"
-                            android:paddingStart="4dp"
-                            android:paddingEnd="4dp"
-                            android:gravity="center"
-                            android:orientation="vertical">
-                            <TextView
-                                style="@style/TextLabel"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="SCREEN LOADED"
-                                android:textSize="8sp"
-                                android:letterSpacing="0" />
-                            <TextView
-                                android:id="@+id/checkClock"
-                                style="@style/TextClock"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:layout_marginTop="2dp"
-                                android:text="--:--:--"
-                                android:textColor="@color/live"
-                                android:textSize="12sp" />
-                        </LinearLayout>
                         <in.opentrack.india.ui.ScreenLoadGlowView
                             android:layout_width="match_parent"
-                            android:layout_height="4dp"
-                            android:layout_gravity="bottom"
-                            android:layout_marginStart="8dp"
-                            android:layout_marginEnd="8dp"
-                            android:layout_marginBottom="3dp" />
+                            android:layout_height="match_parent" />
+                        <TextView
+                            android:id="@+id/checkClock"
+                            style="@style/TextClock"
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:gravity="center"
+                            android:singleLine="true"
+                            android:text="--:--:--"
+                            android:textColor="@color/live"
+                            android:textSize="12sp" />
                     </FrameLayout>
 
                     <LinearLayout

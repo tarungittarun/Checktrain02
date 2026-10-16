@@ -179,12 +179,12 @@ object LegGeometry {
 
     /** Enough for an accessible whole-rail tap without pushing mapped halts off-screen. */
     fun compactMappedHeightDp(distanceKm: Int): Int =
-        (48 + distanceKm.coerceAtLeast(0) * .1f).roundToInt().coerceIn(48, 58)
+        (28 + distanceKm.coerceAtLeast(0) * .55f).roundToInt().coerceIn(30, 78)
 
     fun stopGapDp(distanceKm: Int, screenHeightDp: Float = 760f): Int {
-        val ceiling = (screenHeightDp * 0.035f).roundToInt().coerceIn(12, 27)
-        return (6 + distanceKm.coerceAtLeast(0) * 0.45f)
-            .roundToInt().coerceIn(6, ceiling)
+        val ceiling = (screenHeightDp * 0.07f).roundToInt().coerceIn(22, 56)
+        return (8 + distanceKm.coerceAtLeast(0) * 0.8f)
+            .roundToInt().coerceIn(10, ceiling)
     }
 
     /** Every disclosed dot has a readable minimum gap; the remaining pixels are

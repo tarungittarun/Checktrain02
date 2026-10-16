@@ -172,9 +172,15 @@ class InlineRouteRenderTest {
         assertEquals("small screens cap the leg and leave space for three halt rows",
             90, LegGeometry.heightDp(200, 480f))
         assertTrue(LegGeometry.heightDp(65) + 3 * 82 < 360)
-        assertTrue(LegGeometry.compactMappedHeightDp(65) in 48..58)
-        assertTrue(LegGeometry.stopGapDp(60) > LegGeometry.stopGapDp(2))
-        assertTrue(LegGeometry.stopGapDp(200, 480f) <= 17)
+        assertEquals(64, LegGeometry.compactMappedHeightDp(65))
+        assertTrue("short mapped legs must not all look identical",
+            LegGeometry.compactMappedHeightDp(3) < LegGeometry.compactMappedHeightDp(18))
+        assertTrue("3 km, 7 km and 18 km need distinct stop separations",
+            LegGeometry.stopGapDp(3) < LegGeometry.stopGapDp(7) &&
+                LegGeometry.stopGapDp(7) < LegGeometry.stopGapDp(18))
+        assertTrue("distance must still change the long-leg layout",
+            LegGeometry.stopGapDp(60) > LegGeometry.stopGapDp(18))
+        assertTrue("small displays retain a bounded leg", LegGeometry.stopGapDp(200, 480f) <= 34)
         assertEquals("1 min ago", LegGeometry.ageLabel(60))
         assertEquals("1 hour ago", LegGeometry.ageLabel(3600))
         assertEquals("1 hour 2 min ago", LegGeometry.ageLabel(3720))
@@ -519,8 +525,11 @@ class InlineRouteRenderTest {
         emptyLeg.submitList(listOf(malleshwaram, to.copy(code = "YPR", kmFromOrigin = 146)))
         val emptyHolder = emptyLeg.onCreateViewHolder(FrameLayout(ctx), 0)
         emptyLeg.onBindViewHolder(emptyHolder, 0)
-        assertEquals("No intermediate stations", emptyHolder.routeToggle.text.toString())
-        emptyHolder.inlineLeg.performClick()
+        assertEquals("no-point leg must not repeat map status prose", View.GONE,
+            emptyHolder.inlineLegGroup.visibility)
+        assertEquals(View.GONE, emptyHolder.routeToggle.visibility)
+        assertFalse("empty historical leg should not pop a toast or map dialog",
+            emptyHolder.row.isClickable)
         assertEquals(0, unavailable)
     }
 

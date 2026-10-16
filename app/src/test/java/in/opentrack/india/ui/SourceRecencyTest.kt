@@ -22,6 +22,12 @@ class SourceRecencyTest {
 
     @Test fun newerPastMarkedHaltCanBeOfferedAsUnverifiedComparison() {
         assertTrue(SourceRecency.showComparison(10, 11, 12 * 60_000L, 30_000L, 60_000L))
+        assertTrue("a source-reported intermediate just beyond the same official halt must be offered",
+            SourceRecency.showComparison(SourceRecency.progressOrdinal(10, false),
+                SourceRecency.progressOrdinal(10, true), 12 * 60_000L, 30_000L, 60_000L))
+        assertFalse("a past-marked card at the same halt is not a later point",
+            SourceRecency.showComparison(SourceRecency.progressOrdinal(10, false),
+                SourceRecency.progressOrdinal(10, false), 12 * 60_000L, 30_000L, 60_000L))
         assertFalse("site page clock alone is not movement",
             SourceRecency.showComparison(10, 10, 12 * 60_000L, 0L, 60_000L))
         assertFalse("regressing page cannot be offered",

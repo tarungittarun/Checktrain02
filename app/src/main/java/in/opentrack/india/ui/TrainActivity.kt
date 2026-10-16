@@ -470,6 +470,10 @@ class TrainActivity : AppCompatActivity() {
             SourceIndicator.of(ui.activeSource.orEmpty(), state, detail).tone ==
                 SourceIndicator.Tone.PENDING
         } == true
+        binding.sourceSummary.isClickable = ui.alternateSiteHint != null
+        binding.sourceSummary.setOnClickListener(if (ui.alternateSiteHint != null)
+            View.OnClickListener { vm.setActiveSource(`in`.opentrack.india.v2.mirror.PublicPageChecks.ORG) }
+            else null)
         binding.sourceSummary.text = when {
             ui.alternateSiteHint != null -> ui.alternateSiteHint
             ui.orgWebsiteReport != null -> "Site's past-stop claims; not confirmed railway actuals."

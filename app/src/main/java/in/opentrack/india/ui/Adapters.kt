@@ -321,7 +321,7 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         holder.row.setPadding(holder.row.paddingLeft,
             ctx.resources.getDimensionPixelSize(R.dimen.gap_s),
             holder.row.paddingRight,
-            ctx.resources.getDimensionPixelSize(R.dimen.gap_s) + if (hasTrainLeg || hasPoints || s.code.uppercase() in mappedLegStarts || nextKm == null) 0 else gapPx)
+            ctx.resources.getDimensionPixelSize(R.dimen.gap_s) + if (hasTrainLeg || hasPoints || nextKm == null) 0 else gapPx)
         // The stop dot and its label already mark the reported halt. Full-width
         // row bands made this look like a data table, not a continuous route.
         holder.row.setBackgroundColor(0x00000000)
@@ -349,14 +349,13 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             RouteBetween.LegPoint(point.code, point.name, point.schedKm, fraction,
                 planned, point.arrivalMin == null && planned != null)
         }
-        val mappedEmpty = nextStop != null && available.isEmpty() &&
-            s.code.uppercase() in mappedLegStarts
         // A mapped leg has a visible, full-width rail even while its station names
         // are folded. Previously only the stop row was tappable until expansion.
-        val displayedLeg = leg?.copy(points = available) ?: if ((hasPoints || mappedEmpty) && nextStop != null)
+        val displayedLeg = leg?.copy(points = available) ?: if (hasPoints && nextStop != null)
             RouteBetween.LegProjection(s.name, nextStop.name, 0f, null, s.kmFromOrigin,
                 s.code, nextStop.code, available) else null
-        val mapUnavailable = nextStop != null && available.isEmpty() && !mappedEmpty
+        val mapUnavailable = nextStop != null && available.isEmpty() &&
+            s.code.uppercase() !in mappedLegStarts
         holder.inlineLegGroup.visibility = if (displayedLeg != null) View.VISIBLE else View.GONE
         holder.inlineLeg.projection = displayedLeg
         holder.inlineLeg.historicalMap = mapSource?.startsWith("Offline historical") == true
@@ -377,13 +376,12 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             val stationClaim = leg?.markerKind == RouteBetween.MarkerKind.STATION_CLAIM
             val caption = when {
                 stationClaim -> "Station claim · time unknown"
-                mappedEmpty -> "Stations · none mapped"
-                leg == null -> "Stations · static map"
-                mapUnavailable -> "Intermediate map unavailable · timed halts only"
+                leg == null -> ""
                 leg.fraction > 0f -> "Between halts · motion unknown"
                 else -> "Last stop · now unknown"
             }
             holder.inlineLegCaption.text = caption
+            holder.inlineLegCaption.visibility = if (caption.isEmpty()) View.GONE else View.VISIBLE
             holder.inlineLegCaption.setTextColor(ctx.getColor(R.color.text2))
             holder.inlineLegAge.text = holder.inlineLeg.ageSeconds?.let { seconds ->
                 if (seconds < 60) "Just now" else TableMarker.elapsedLabel(seconds * 1_000L) + " ago"
@@ -393,24 +391,16 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             holder.inlineLegAge.contentDescription = if (holder.inlineLegAge.text.isEmpty()) ""
                 else "Last reported event ${holder.inlineLegAge.text}"
             holder.routeToggle.text = when {
-                mapUnavailable -> "Map unavailable · why?"
-                mappedEmpty -> "No intermediate stations"
                 disclosed -> "Hide ▴"
                 else -> "Stations ▾"
             }
             holder.routeToggle.contentDescription = when {
-                mapUnavailable -> "Intermediate map unavailable. Tap for explanation and retry."
-                mappedEmpty -> "No other station in the historical corridor between these halts"
                 disclosed -> "Hide intermediate stations"
                 else -> "Show ${available.size} intermediate stations"
             }
-            holder.routeToggle.visibility = if (available.isNotEmpty() || mapUnavailable || mappedEmpty)
-                View.VISIBLE else View.GONE
+            holder.routeToggle.visibility = if (available.isNotEmpty()) View.VISIBLE else View.GONE
             holder.routeToggle.setOnClickListener {
-                if (mapUnavailable) onMapUnavailable?.invoke(s.code)
-                else if (mappedEmpty) android.widget.Toast.makeText(ctx,
-                    "No other mapped station between these scheduled halts", android.widget.Toast.LENGTH_SHORT).show()
-                else toggleStations(s.code, position, holder)
+                toggleStations(s.code, position, holder)
             }
             val pointDescription = available.joinToString("; ") { point ->
                 val clock = point.passageMinute?.let {
@@ -442,16 +432,15 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             }
             if (hasPoints) toggleStations(s.code, position, holder)
             else if (mapUnavailable) onMapUnavailable?.invoke(s.code)
-            else if (mappedEmpty) android.widget.Toast.makeText(ctx,
-                "No other mapped station between these scheduled halts", android.widget.Toast.LENGTH_SHORT).show()
+
         }
         holder.row.setOnClickListener { onLegTap() }
-        holder.row.isClickable = hasPoints || mapUnavailable || mappedEmpty
+        holder.row.isClickable = hasPoints || mapUnavailable
         // The line, dots, blank leg and caption are all one tap target, not only
         // the station name or tiny Hide button. A second tap folds the same leg.
-        holder.inlineLegGroup.isClickable = hasPoints || mapUnavailable || mappedEmpty
+        holder.inlineLegGroup.isClickable = hasPoints || mapUnavailable
         holder.inlineLegGroup.setOnClickListener { onLegTap() }
-        holder.inlineLeg.isClickable = hasPoints || mapUnavailable || mappedEmpty
+        holder.inlineLeg.isClickable = hasPoints || mapUnavailable
         holder.inlineLeg.setOnClickListener { onLegTap() }
         holder.row.contentDescription = "${s.name}; " +
             "${holder.schedArr.contentDescription}; ${holder.schedDep.contentDescription}; " +
@@ -460,7 +449,6 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
                 hasPoints -> "; tap to ${if (disclosed) "hide" else "show"} " +
                     "${available.size} intermediate stations"
                 mapUnavailable -> "; intermediate map unavailable; tap for details"
-                mappedEmpty -> "; historical corridor has no other mapped station on this leg"
                 else -> ""
             }
     }
