@@ -11,7 +11,7 @@ import org.json.JSONObject
  * timetable; unknown/divergent legs remain unmapped. No old clock or halt flag is used. */
 object OfflineCorridorMap {
     const val ASSET = "corridors/16227.json"
-    const val SOURCE = "Offline historical corridor · source 2026-06-20"
+    const val SOURCE = "Offline historical corridor · archive commit 2026-06-20; timetable age unknown"
     data class Result(val route: TrainRoute, val mappedLegStarts: Set<String>)
     private data class Point(val code: String, val name: String, val km: Int)
 

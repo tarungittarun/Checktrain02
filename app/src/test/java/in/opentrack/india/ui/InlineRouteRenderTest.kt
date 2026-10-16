@@ -475,7 +475,7 @@ class InlineRouteRenderTest {
     @Test fun historicalCorridorOpensStationsButMappedEmptyLegNeverShowsFailure() {
         val ctx = RuntimeEnvironment.getApplication()
         val adapter = StopAdapter()
-        adapter.mapSource = "Offline historical corridor · source 2026-06-20"
+        adapter.mapSource = `in`.opentrack.india.remote.OfflineCorridorMap.SOURCE
         adapter.mappedLegStarts = setOf("TK", "MWM")
         var unavailable = 0
         adapter.onMapUnavailable = { _ -> unavailable++ }
@@ -493,7 +493,7 @@ class InlineRouteRenderTest {
         adapter.submitList(listOf(from, to))
         val holder = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
         adapter.onBindViewHolder(holder, 0)
-        assertEquals("Stations ▾", holder.routeToggle.text.toString())
+        assertEquals("Stations · old map ▾", holder.routeToggle.text.toString())
         holder.inlineLeg.performClick()
         assertTrue(holder.inlineLeg.showLabels)
         assertEquals(listOf("HEI", "MLSA"), holder.inlineLeg.projection!!.points.map { it.code })
@@ -501,11 +501,15 @@ class InlineRouteRenderTest {
         assertTrue(holder.inlineLeg.historicalMap)
         assertEquals(0, unavailable)
         val malleshwaram = from.copy(code = "MWM", name = "Malleswaram", kmFromOrigin = 143)
-        adapter.setRoutePoints(emptyMap())
-        adapter.submitList(listOf(malleshwaram, to.copy(code = "YPR", kmFromOrigin = 146)))
-        adapter.onBindViewHolder(holder, 0)
-        assertEquals("No intermediate stations", holder.routeToggle.text.toString())
-        holder.inlineLeg.performClick()
+        val emptyLeg = StopAdapter()
+        emptyLeg.mapSource = adapter.mapSource
+        emptyLeg.mappedLegStarts = adapter.mappedLegStarts
+        emptyLeg.onMapUnavailable = { _ -> unavailable++ }
+        emptyLeg.submitList(listOf(malleshwaram, to.copy(code = "YPR", kmFromOrigin = 146)))
+        val emptyHolder = emptyLeg.onCreateViewHolder(FrameLayout(ctx), 0)
+        emptyLeg.onBindViewHolder(emptyHolder, 0)
+        assertEquals("No intermediate stations", emptyHolder.routeToggle.text.toString())
+        emptyHolder.inlineLeg.performClick()
         assertEquals(0, unavailable)
     }
 

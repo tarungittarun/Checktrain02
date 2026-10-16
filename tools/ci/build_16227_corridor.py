@@ -18,6 +18,8 @@ PARTS = (("16221", "MYS", "SBC"), ("16227", "SBC", "SMET"),
 
 
 def extract(db):
+    vintage = db.execute("SELECT v FROM meta WHERE k='source_vintage'").fetchone()
+    assert vintage == ("2026-06-20",), "upstream revised: re-audit this old corridor"
     corridor = []
     offset = 0
     for train, first, last in PARTS:
@@ -39,7 +41,7 @@ def extract(db):
     assert len({r[0] for r in corridor}) == len(corridor)
     return {"train": "16227", "kind": "historical corridor, not current schedule or location",
             "source": "Spin1234/IndianRailwayOpenReference.github.io",
-            "source_vintage": "2026-06-20", "routes": [list(p) for p in PARTS],
+            "source_vintage": vintage[0], "routes": [list(p) for p in PARTS],
             "points": [list(r) for r in corridor]}
 
 

@@ -286,7 +286,8 @@ create the missing data. A database of station *names* and a schedule of halts
 are not a validated ordered map of all stations on today's run.
 
 R115 bundles a ~2 KB **historical infrastructure corridor**, extracted
-reproducibly from the public full-profile dump (upstream commit date 2026-06-20):
+reproducibly from the public full-profile dump (upstream **repository commit** date 2026-06-20, NOT a certification that
+this timetable was refreshed then):
 old 16221 MYS→SBC, old 16227 SBC→SMET, old 16206 SMET→TLGP. Source and train
 numbers are in `app/src/main/assets/corridors/16227.json`; the extraction recipe
 is `tools/ci/build_16227_corridor.py`. The original raw 16227 route is **not**

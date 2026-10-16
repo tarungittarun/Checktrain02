@@ -57,7 +57,7 @@ class CorridorMapDeviceTest {
             adapter.submitList(listOf(from, to))
             val holder = adapter.onCreateViewHolder(FrameLayout(context), 0)
             adapter.onBindViewHolder(holder, 0)
-            assertEquals("Stations ▾", holder.routeToggle.text.toString())
+            assertEquals("Stations · old map ▾", holder.routeToggle.text.toString())
             assertTrue(holder.inlineLeg.contentDescription.contains("HEI"))
             holder.inlineLeg.performClick()
             assertTrue("tap must reveal dots, not an unavailable dialog", holder.inlineLeg.showLabels)

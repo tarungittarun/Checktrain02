@@ -8,6 +8,7 @@ import android.widget.LinearLayout
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
+import kotlin.math.roundToInt
 import `in`.opentrack.india.R
 import `in`.opentrack.india.core.RailTime
 import `in`.opentrack.india.domain.RouteBetween
@@ -317,7 +318,7 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         holder.row.setPadding(holder.row.paddingLeft,
             ctx.resources.getDimensionPixelSize(R.dimen.gap_s),
             holder.row.paddingRight,
-            ctx.resources.getDimensionPixelSize(R.dimen.gap_s) + if (hasTrainLeg || hasPoints || nextKm == null) 0 else gapPx)
+            ctx.resources.getDimensionPixelSize(R.dimen.gap_s) + if (hasTrainLeg || hasPoints || s.code.uppercase() in mappedLegStarts || nextKm == null) 0 else gapPx)
         // The stop dot and its label already mark the reported halt. Full-width
         // row bands made this look like a data table, not a continuous route.
         holder.row.setBackgroundColor(0x00000000)
@@ -332,19 +333,26 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
                     (point.schedKm - s.kmFromOrigin).toFloat() / length else null
             }
             val fraction = matching?.fraction ?: kmFraction ?: (index + 1f) / (points.size + 1f)
-            // A distance on a static map supplies NO passing clock. Keep the
-            // old timetable's missing minutes absent rather than interpolating a time.
-            val planned = point.arrivalMin
+            // Do not give the historical 16227 corridor invented passing clocks.
+            // Other accepted maps retain their existing explicitly ~ approximate
+            // schedule interpolation; they never become actual or live times.
+            val planned = point.arrivalMin ?: if (mapSource?.startsWith("Offline historical") == true)
+                null else nextStop?.let { next ->
+                val from = s.schedDep ?: s.schedArr
+                val to = next.schedArr ?: next.schedDep
+                if (kmFraction != null && from != null && to != null && to >= from)
+                    (from + (to - from) * kmFraction).roundToInt() else null
+            }
             RouteBetween.LegPoint(point.code, point.name, point.schedKm, fraction,
                 planned, point.arrivalMin == null && planned != null)
         }
+        val mappedEmpty = nextStop != null && available.isEmpty() &&
+            s.code.uppercase() in mappedLegStarts
         // A mapped leg has a visible, full-width rail even while its station names
         // are folded. Previously only the stop row was tappable until expansion.
         val displayedLeg = leg?.copy(points = available) ?: if ((hasPoints || mappedEmpty) && nextStop != null)
             RouteBetween.LegProjection(s.name, nextStop.name, 0f, null, s.kmFromOrigin,
                 s.code, nextStop.code, available) else null
-        val mappedEmpty = nextStop != null && available.isEmpty() &&
-            s.code.uppercase() in mappedLegStarts
         val mapUnavailable = nextStop != null && available.isEmpty() && !mappedEmpty
         holder.inlineLegGroup.visibility = if (displayedLeg != null) View.VISIBLE else View.GONE
         holder.inlineLeg.projection = displayedLeg
@@ -372,7 +380,8 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
                 leg.fraction > 0f -> "Between halts · motion unknown"
                 else -> "Last stop · now unknown"
             }
-            holder.inlineLegCaption.text = caption
+            holder.inlineLegCaption.text = caption +
+                if (holder.inlineLeg.historicalMap && hasPoints) " · older corridor" else ""
             holder.inlineLegCaption.setTextColor(ctx.getColor(R.color.text2))
             holder.inlineLegAge.text = holder.inlineLeg.ageSeconds?.let { seconds ->
                 if (seconds < 60) "Just now" else TableMarker.elapsedLabel(seconds * 1_000L) + " ago"
@@ -385,6 +394,7 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
                 mapUnavailable -> "Map unavailable · why?"
                 mappedEmpty -> "No intermediate stations"
                 disclosed -> "Hide ▴"
+                holder.inlineLeg.historicalMap -> "Stations · old map ▾"
                 else -> "Stations ▾"
             }
             holder.routeToggle.contentDescription = when {
@@ -421,7 +431,8 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
                     else if (reportedHalt || siteHalt) "last reported halt (no measured distance since)"
                     else if (site) "static map of the site-reported station"
                     else if (web) "web-cache km claim" else "estimated distance") +
-                (if (pointDescription.isEmpty()) "" else " · intermediate stations: $pointDescription")
+                (if (pointDescription.isEmpty()) "" else " · intermediate stations from " +
+                    (mapSource ?: "static map") + ": $pointDescription")
         }
         fun onLegTap() {
             `in`.opentrack.india.core.Diary.get()?.log("ROUTE_UI") {
@@ -460,7 +471,8 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         // change animation/rebind while the user scrolls the long train route.
         val opened = expandedCode == code
         holder.inlineLeg.showLabels = opened
-        holder.routeToggle.text = if (opened) "Hide ▴" else "Stations ▾"
+        holder.routeToggle.text = if (opened) "Hide ▴" else if (holder.inlineLeg.historicalMap)
+            "Stations · old map ▾" else "Stations ▾"
         holder.routeToggle.contentDescription = if (opened)
             "Hide intermediate stations" else "Show intermediate stations"
         holder.inlineLeg.requestLayout()
