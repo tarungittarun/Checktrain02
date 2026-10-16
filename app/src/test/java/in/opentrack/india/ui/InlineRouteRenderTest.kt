@@ -200,6 +200,43 @@ class InlineRouteRenderTest {
                 paint(RouteBetween.MarkerKind.SITE_LAST_STOP)))
     }
 
+    @Test fun pastAndArrivedStopDotsKeepTheSameSkinAcrossSources() {
+        val ctx = RuntimeEnvironment.getApplication()
+        data class RowPaint(val dot: android.graphics.Bitmap, val nameColor: Int,
+                            val timeType: String)
+        fun row(source: TrackModel.MinuteSource, state: TrackModel.State,
+                departed: Boolean): RowPaint {
+            val adapter = StopAdapter()
+            val stop = TrackModel.Stop(1, "AAA", "From", 500, 505, 507,
+                if (departed) 509 else null, null, source, null,
+                state, true, 100, 0, 20, false, false, false, -5)
+            adapter.submitList(listOf(stop))
+            val holder = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
+            adapter.onBindViewHolder(holder, 0)
+            val background = holder.dot.background
+            background.setBounds(0, 0, 24, 24)
+            val bitmap = android.graphics.Bitmap.createBitmap(24, 24,
+                android.graphics.Bitmap.Config.ARGB_8888)
+            background.draw(android.graphics.Canvas(bitmap))
+            return RowPaint(bitmap, holder.name.currentTextColor,
+                holder.timeType.text.toString())
+        }
+        for ((state, departed) in listOf(TrackModel.State.PASSED to true,
+                TrackModel.State.HERE to false)) {
+            val official = row(TrackModel.MinuteSource.REPORTED, state, departed)
+            val website = row(TrackModel.MinuteSource.SITE_REPORTED, state, departed)
+            assertTrue("switching sources recoloured the $state stop dot",
+                official.dot.sameAs(website.dot))
+            assertEquals("switching sources recoloured the $state stop name",
+                official.nameColor, website.nameColor)
+            assertTrue(official.timeType.startsWith("ACTUAL"))
+            assertEquals("SITE CLAIM", website.timeType)
+        }
+        assertTrue("an arrival must not look like a passed stop",
+            !row(TrackModel.MinuteSource.REPORTED, TrackModel.State.HERE, false).dot.sameAs(
+                row(TrackModel.MinuteSource.REPORTED, TrackModel.State.PASSED, true).dot))
+    }
+
     @Test fun tappingHaltShowsUntimedPointsThenCollapsesWithoutClaimingArrival() {
         val ctx = RuntimeEnvironment.getApplication()
         val adapter = StopAdapter()

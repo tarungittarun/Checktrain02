@@ -95,6 +95,8 @@ getOrPut getOrElse onFailure onSuccess awaitCancellable current isDisposed dispo
 # the live-feed client: javax.crypto, java.security, org.json and the stdlib calls on their results
 init doFinal indices optJSONObject optBoolean opt optString has keys getJSONArray encodeToString decode nextBytes lines
 setPrimaryClip
+# Android Drawable bounds and Bitmap pixel-parity checks in the source-neutral route render tests.
+setBounds sameAs
 # legacy-cipher factory (2026-10-12): SSLSocket suite lists and the delegate pattern
 enabledCipherSuites supportedCipherSuites defaultCipherSuites createSocket getOrDefault
 # mirror witness (2026-10-12): stdlib Map merge so traveller lines keep their stop and the mirror fills the rest

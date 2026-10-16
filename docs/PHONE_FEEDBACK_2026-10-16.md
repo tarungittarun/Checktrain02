@@ -33,7 +33,9 @@ The source claim belongs in the header; it must not change the route geometry.
 - The top card owns source confidence, late/early claims and checked-at
   receipts. Its source selector uses green for a live timed-stop report and amber for
   usable but unverified site/station claims; the route
-  itself does not change colour with source choice. A new HTTP response with the same source stop/time reads “no newer
+  itself does not change colour with source choice. The passed-stop dots and
+  at-station arrival ring now also paint identically under both sources;
+  `SITE CLAIM` versus `ACTUAL ARR/DEP` text keeps the evidence distinct. A new HTTP response with the same source stop/time reads “no newer
   stop”; a changed stop/time reads “New stop report.” Site page clocks do not
   make new events. Manual and opt-in minute refresh ask the selected source
   first. After an unchanged official stop aged five minutes, the app may also

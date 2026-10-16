@@ -300,7 +300,7 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         holder.stopToggle.text = if (routePoints[s.code].orEmpty().isNotEmpty())
             (if (expandedCode == s.code) "Less  ▴" else "Explore  ▾")
         else if (holder.details.visibility == View.VISIBLE) "Less  ▴" else "Details  ▾"
-        holder.dot.setBackgroundResource(if (s.isAnchor) R.drawable.dot_passed else dotFor(s))
+        holder.dot.setBackgroundResource(dotFor(s))
         // Keep the next stop directly after the compact leg. The former 34dp
         // projected-row spacer looked like missing content on a phone.
         holder.row.setPadding(holder.row.paddingLeft,
@@ -449,11 +449,18 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         else -> R.color.text3
     }
 
+    /** A source does not recolour the route. The row's Site/Act wording and the
+     * hero convey confidence; identical reported stop states get identical dots. */
+    private fun hasStopEvent(s: TrackModel.Stop): Boolean =
+        s.source == TrackModel.MinuteSource.REPORTED ||
+            s.source == TrackModel.MinuteSource.SITE_REPORTED
+
     private fun dotFor(s: TrackModel.Stop): Int = when (s.state) {
-        TrackModel.State.HERE -> if (s.source == TrackModel.MinuteSource.REPORTED &&
-            !(s.showArr != null && s.showDep == null))
+        // An arrival without departure is an at-station report, not a passed
+        // halt. Give it the ring used for HERE on both NTES and the website.
+        TrackModel.State.HERE -> if (hasStopEvent(s))
             R.drawable.dot_here else R.drawable.dot_later
-        TrackModel.State.PASSED -> if (s.source == TrackModel.MinuteSource.REPORTED)
+        TrackModel.State.PASSED -> if (hasStopEvent(s))
             R.drawable.dot_passed else R.drawable.dot_later
         TrackModel.State.CANCELLED, TrackModel.State.SKIPPED -> R.drawable.dot_problem
         else -> R.drawable.dot_later
@@ -461,9 +468,9 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
 
     private fun colorFor(s: TrackModel.Stop): Int = when {
         s.state == TrackModel.State.CANCELLED || s.state == TrackModel.State.SKIPPED -> R.color.late
-        s.state == TrackModel.State.HERE && s.source == TrackModel.MinuteSource.REPORTED &&
+        s.state == TrackModel.State.HERE && hasStopEvent(s) &&
             s.showArr != null && s.showDep == null -> R.color.warn
-        s.state == TrackModel.State.HERE && s.source == TrackModel.MinuteSource.REPORTED -> R.color.accent
+        s.state == TrackModel.State.HERE && hasStopEvent(s) -> R.color.accent
         s.source == TrackModel.MinuteSource.SCHEDULE -> R.color.text2
         s.state == TrackModel.State.LATER -> R.color.text2
         else -> R.color.text1
