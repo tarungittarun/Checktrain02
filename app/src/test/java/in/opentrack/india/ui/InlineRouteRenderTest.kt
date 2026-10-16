@@ -153,6 +153,32 @@ class InlineRouteRenderTest {
         assertEquals("many map points must not stretch the ruler", 210, LegGeometry.heightDp(200))
     }
 
+    @Test fun sourceSwitchKeepsTheSameVerticalLegGeometry() {
+        val ctx = RuntimeEnvironment.getApplication()
+        val from = TrackModel.Stop(1, "AAA", "From", 500, 505, 505,
+            null, 505, TrackModel.MinuteSource.REPORTED, null,
+            TrackModel.State.PASSED, true, 100, 0, 20, false, false, false, -5)
+        val to = from.copy(seq = 2, code = "BBB", name = "To", kmFromOrigin = 120,
+            isAnchor = false, source = TrackModel.MinuteSource.SCHEDULE,
+            showArr = null, showDep = null)
+        val adapter = StopAdapter()
+        adapter.submitList(listOf(from, to))
+        val holder = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
+        val spec = View.MeasureSpec.makeMeasureSpec(360, View.MeasureSpec.EXACTLY)
+        val open = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        fun height(kind: RouteBetween.MarkerKind): Int {
+            adapter.setProjectedLeg(RouteBetween.LegProjection("From", "To", 0f,
+                "From", 100, "AAA", "BBB", emptyList(), kind))
+            adapter.onBindViewHolder(holder, 0)
+            assertEquals(20, holder.inlineLeg.distanceKm)
+            holder.inlineLeg.measure(spec, open)
+            return holder.inlineLeg.measuredHeight
+        }
+        assertEquals("source choice changed the train ruler's footprint",
+            height(RouteBetween.MarkerKind.REPORTED_HALT),
+            height(RouteBetween.MarkerKind.SITE_LAST_STOP))
+    }
+
     @Test fun tappingHaltShowsUntimedPointsThenCollapsesWithoutClaimingArrival() {
         val ctx = RuntimeEnvironment.getApplication()
         val adapter = StopAdapter()

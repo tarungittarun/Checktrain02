@@ -363,7 +363,7 @@ class TrackingFlowTest {
             assertTrue("auto refresh must say what source answered and whether its event changed: $receipt",
                 receipt.contains("Checked ") &&
                     (receipt.contains("no newer stop") || receipt.contains("New stop report") ||
-                        receipt.contains("unavailable")))
+                        receipt.contains("unavailable") || receipt.contains("no usable new report")))
         } finally {
             // Each flow starts in the same installed app; never contaminate another test.
             E2E.tap("autoSwitch")

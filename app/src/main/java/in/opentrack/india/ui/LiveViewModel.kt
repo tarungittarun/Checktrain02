@@ -146,6 +146,8 @@ class LiveViewModel(
         val railYatriClaim: PublicPageChecks.StationClaim? = null,
         /** The .org.in site's own past-card claims, not Google's app or verified GPS. */
         val orgWebsiteReport: `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.Report? = null,
+        /** A newer unverified comparison, not a silent switch away from NTES. */
+        val alternateSiteHint: String? = null,
     )
 
     private val _ui = MutableLiveData<Ui?>()
@@ -662,9 +664,33 @@ class LiveViewModel(
             return
         }
         liveRefreshJob = viewModelScope.launch {
-            try { refreshBody(previous) }
-            finally { _checking.postValue(false) }
+            try {
+                val oldEvent = officialStopEvent()
+                refreshBody(previous) // selected official source always goes FIRST
+                if (manual && (mirrorActiveSource == null || mirrorActiveSource == "NTES (official)") &&
+                    oldEvent != null && oldEvent == officialStopEvent() &&
+                    (officialStopAgeMillis() ?: 0L) >= 300_000L) {
+                    Diary.get()?.log("SOURCE", "official stop unchanged for 5+ min; checking website comparison, not switching source")
+                    probeSource(PublicPageChecks.ORG, select = false)?.join()
+                }
+            } finally { _checking.postValue(false) }
         }
+    }
+
+    /** The event fingerprint ignores both HTTP arrival and the provider's page clock. */
+    private fun officialStopEvent(): String? = lastAnswer?.let { answer ->
+        val code = answer.anchorStopCode ?: return@let null
+        val stop = answer.perStop[code] ?: return@let null
+        if (stop.actualArrivalMin == null && stop.actualDepartureMin == null) null
+        else "$code:${stop.actualArrivalMin}:${stop.actualDepartureMin}"
+    }
+
+    private fun officialStopAgeMillis(): Long? = lastAnswer?.let { answer ->
+        val code = answer.anchorStopCode ?: return@let null
+        val stop = answer.perStop[code] ?: return@let null
+        val minute = stop.actualDepartureMin ?: stop.actualArrivalMin ?: return@let null
+        (System.currentTimeMillis() - RailTime.railMinuteToEpochMillis(originEpochDay,
+            minute)).coerceAtLeast(0L)
     }
 
     /** Prefer another usable, fresh site over NTES. No cached schedule or HTTP 200 is a success. */
@@ -1662,6 +1688,27 @@ class LiveViewModel(
             if (officialStaticKnown) RouteBetween.withVerifiedHalts(candidate, route) ?: candidate
             else candidate
         }
+        val alternateSiteHint = if (selected == "NTES (official)" &&
+            answer.position.provenance == SourceKind.PROVIDER_NTES) {
+            val page = publicChecks[PublicPageChecks.ORG]?.orgReport
+                ?.takeIf { now - it.pageUpdatedAt in 0L..300_000L }
+            val official = withActuals.rows.lastOrNull {
+                it.source == TrackModel.MinuteSource.REPORTED &&
+                    (it.showArr != null || it.showDep != null)
+            }
+            val siteIndex = page?.let { p -> route.stops.indexOfFirst {
+                it.code.equals(p.intermediate?.precedingHalt ?: p.anchorCode, true)
+            } } ?: -1
+            val officialIndex = official?.let { r -> route.stops.indexOfFirst {
+                it.code.equals(r.code, true)
+            } } ?: -1
+            if (page != null && SourceRecency.showComparison(officialIndex, siteIndex,
+                    officialStopAgeMillis() ?: 0L, now - page.pageUpdatedAt)) {
+                val stop = route.stops[siteIndex]
+                "Newer website claim: ${stop.name} · " +
+                    "${RailTime.formatRailMinute(page.eventMinute)}. Unverified; choose website to compare."
+            } else null
+        } else null
         return Ui(
             // Keep the original official answer in state. The selected source's table-only
             // anchor must NEVER become the next refresh's official position or cross-check.
@@ -1698,6 +1745,7 @@ class LiveViewModel(
             wimtWebPoint = webPoint,
             railYatriClaim = railClaim,
             orgWebsiteReport = orgReport,
+            alternateSiteHint = alternateSiteHint,
         )
     }
 
