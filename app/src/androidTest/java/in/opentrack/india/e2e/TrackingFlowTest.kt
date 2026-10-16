@@ -60,6 +60,15 @@ class TrackingFlowTest {
         return emptyList()
     }
 
+    /** On compact/dense displays the selected-source card can push an opened
+     * stop's time sheet just below the station viewport. Bring a real cell into
+     * view; never count an off-screen/GONE time sheet as an E2E pass. */
+    private fun revealTimeSheet(): Boolean {
+        if (rowTexts("liveArr").isNotEmpty()) return true
+        if (E2E.reveal("liveArr", "stops", swipes = 2)) return true
+        return E2E.tap("stopRow") && E2E.reveal("liveArr", "stops", swipes = 5)
+    }
+
     // @flow track-open
     @Test
     fun openingAResultShowsThatTrain() {
@@ -269,7 +278,9 @@ class TrackingFlowTest {
         assertTrue("page result silently replaced official Act/position: '$summary'",
             summary.contains("Timetable shown"))
         assertTrue("selected alternate removed the station table", E2E.count(stopsBy) > 0)
-        if (rowTexts("liveArr").isEmpty()) assertTrue(E2E.tap("stopRow"))
+        val sheetVisible = revealTimeSheet()
+        if (!sheetVisible) E2E.shot("public-source-no-visible-time-sheet")
+        assertTrue("site selection disclosed no visible stop time sheet", sheetVisible)
         val pageMinutes = rowTexts("liveArr")
         assertTrue("site selection disclosed no stop to compare", pageMinutes.isNotEmpty())
         assertTrue("page selection must not display NTES minutes as this page's Act",
@@ -312,7 +323,9 @@ class TrackingFlowTest {
             (summary.contains("whereismytrain.org.in") && summary.contains("Timetable shown")) ||
                 siteReportVisible)
         assertTrue("org selection lost the station table", E2E.count(stopsBy) > 0)
-        if (rowTexts("liveArr").isEmpty()) assertTrue(E2E.tap("stopRow"))
+        val sheetVisible = revealTimeSheet()
+        if (!sheetVisible) E2E.shot("org-source-no-visible-time-sheet")
+        assertTrue("website selection disclosed no visible stop time sheet", sheetVisible)
         val live = rowTexts("liveArr") + rowTexts("liveDep")
         assertTrue("site selection disclosed no stop to compare", live.isNotEmpty())
         assertTrue("org selection misattributes NTES actuals: $live",
