@@ -263,19 +263,23 @@ class InlineRouteRenderTest {
         ruler.measure(View.MeasureSpec.makeMeasureSpec(360, View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
         ruler.layout(0, 0, ruler.measuredWidth, ruler.measuredHeight)
-        fun sourceInk(minute: Int?): Int {
+        fun painted(minute: Int?): android.graphics.Bitmap {
             ruler.siteEventMinute = minute
-            val bmp = android.graphics.Bitmap.createBitmap(ruler.width, ruler.height,
-                android.graphics.Bitmap.Config.ARGB_8888)
-            ruler.paintForTest(android.graphics.Canvas(bmp))
-            val warn = ctx.getColor(R.color.warn)
-            return (0 until bmp.width).sumOf { x ->
-                (0 until bmp.height).count { y -> bmp.getPixel(x, y) == warn }
+            return android.graphics.Bitmap.createBitmap(ruler.width, ruler.height,
+                android.graphics.Bitmap.Config.ARGB_8888).also { bitmap ->
+                ruler.paintForTest(android.graphics.Canvas(bitmap))
             }
         }
-        assertEquals("without a website event no passing clock may appear", 0, sourceInk(null))
-        assertTrue("a qualifying site's 02:16 event must appear beside the non-halt marker",
-            sourceInk(1576) > 0)
+        val noSiteEvent = painted(null)
+        val siteEvent = painted(1576)
+        val d = ctx.resources.displayMetrics.density
+        val fromX = ((RouteRailGeometry.X_DP + 23f) * d).toInt()
+        assertTrue("a qualified website minute must change pixels beside the non-halt marker",
+            (fromX until siteEvent.width).any { x ->
+                (0 until siteEvent.height).any { y ->
+                    siteEvent.getPixel(x, y) != noSiteEvent.getPixel(x, y)
+                }
+            })
     }
 
     @Test fun onlyARecentSourceEventPaintsTheGreenCheckOnTheLocomotive() {
@@ -401,20 +405,22 @@ class InlineRouteRenderTest {
         val holder = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
         adapter.onBindViewHolder(holder, 0)
         assertEquals(View.VISIBLE, holder.inlineLegGroup.visibility)
-        assertTrue(holder.inlineLegCaption.text.contains("map unavailable"))
-        assertEquals("Map unavailable · why?", holder.routeToggle.text.toString())
+        assertEquals("the per-leg map prose was replaced by the single route note", View.GONE,
+            holder.inlineLegCaption.visibility)
+        assertEquals("an empty map cannot offer an empty Stations disclosure", View.GONE,
+            holder.routeToggle.visibility)
         assertTrue("freshness must be beside the pinned locomotive",
             holder.marker.text.toString().startsWith("53 min ago · LAST REPORTED STOP"))
         assertEquals(53 * 60L, holder.trainMarker.ageSeconds)
-        holder.routeToggle.performClick()
         holder.inlineLeg.performClick()
-        assertEquals(2, explanations)
+        assertEquals("the source-supported train leg still explains its unavailable map on tap",
+            1, explanations)
         adapter.onBindViewHolder(holder, 1)
         holder.row.performClick() // even a plain, unmapped station gap explains itself
-        assertEquals(3, explanations)
+        assertEquals(2, explanations)
         adapter.onBindViewHolder(holder, 2)
         holder.row.performClick() // last stop has no following leg; no false promise
-        assertEquals(3, explanations)
+        assertEquals(2, explanations)
         adapter.onBindViewHolder(holder, 0)
         assertFalse(holder.inlineLeg.showLabels)
         assertEquals(0, holder.inlineLeg.projection!!.points.size)

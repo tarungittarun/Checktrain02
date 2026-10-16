@@ -361,6 +361,12 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         val mapUnavailable = nextStop != null && available.isEmpty() &&
             s.code.uppercase() !in mappedLegStarts
         holder.inlineLegGroup.visibility = if (displayedLeg != null) View.VISIBLE else View.GONE
+        if (displayedLeg == null) {
+            // Recycled children must not retain the previous leg's disclosure.
+            holder.inlineLegCaption.visibility = View.GONE
+            holder.routeToggle.visibility = View.GONE
+            holder.inlineLegAge.visibility = View.GONE
+        }
         holder.inlineLeg.projection = displayedLeg
         holder.inlineLeg.historicalMap = mapSource?.startsWith("Offline historical") == true
         holder.inlineLeg.compactStatic = leg == null

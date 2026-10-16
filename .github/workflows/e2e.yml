@@ -287,23 +287,16 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
-      # Debug/test artifacts gate the device partitions. R8 release runs on a
-      # different runner in parallel so its heavy shrink pass does not block them.
-      - name: Assemble debug APK, instrumented test APK and coverage classes
+      # App bytecode and APK are built independently of the instrumented APK.
+      - name: Assemble debug APK and coverage classes
         run: |
           set -o pipefail
-          ./gradlew --no-daemon :app:assembleDebug :app:assembleDebugAndroidTest \
-            :app:compileDebugKotlin --stacktrace 2>&1 | tee /tmp/build.log
+          ./gradlew --no-daemon :app:assembleDebug :app:compileDebugKotlin \
+            --stacktrace 2>&1 | tee /tmp/build.log
       - uses: actions/upload-artifact@v4
         with:
           name: apk-debug
           path: app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
-          retention-days: 3
-      - uses: actions/upload-artifact@v4
-        with:
-          name: apk-debug-androidTest
-          path: app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
           if-no-files-found: error
           retention-days: 3
       # The Actions UI is the only place these logs live for most readers, and a red "build" job with no
@@ -336,6 +329,32 @@ jobs:
         with:
           name: e2e-classes
           path: e2e-classes.zip
+          if-no-files-found: error
+          retention-days: 3
+
+  # Independent compilation: a slow test-APK build no longer serializes the
+  # app APK/coverage build. Both artifacts are required before ANY device row.
+  instrument:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate the packaged timetable asset
+        run: bash tools/ci/prepare_asset.sh
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+      - name: Assemble instrumented test APK
+        run: ./gradlew --no-daemon :app:assembleDebugAndroidTest --stacktrace
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apk-debug-androidTest
+          path: app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
           if-no-files-found: error
           retention-days: 3
 
@@ -378,7 +397,7 @@ jobs:
   # R8-shrunk APK. `plan` enables the sweep for main, dispatch with `full`, or [e2e-full] in a commit.
   # A branch result does NOT claim API 24/release coverage; those require a full sweep before shipping.
   e2e:
-    needs: [build, plan]
+    needs: [build, instrument, plan]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -554,7 +573,7 @@ jobs:
           boot_timeout: ${{ needs.plan.outputs.boot_timeout }}
 
   e2e_full:
-    needs: [build, plan]
+    needs: [build, instrument, plan]
     if: needs.plan.outputs.full == 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -870,7 +889,7 @@ jobs:
   # Release smoke waits for BOTH artifacts, while debug emulators do not wait
   # for R8. Keeping it out of the debug matrix removes the serial shrink delay.
   release_smoke:
-    needs: [build, release_build, plan]
+    needs: [build, instrument, release_build, plan]
     if: needs.plan.outputs.full == 'true'
     runs-on: ubuntu-latest
     permissions:

@@ -104,7 +104,11 @@ jobs:
     needs: checks
     runs-on: ubuntu-latest
     timeout-minutes: 25
-    name: tests + screens (Robolectric)
+    name: tests / ${{ matrix.part }}
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [ui, rules, sources]
     permissions:
       contents: write
     steps:
@@ -124,22 +128,30 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
-      - name: Unit tests (calendar maths, search window, wire parsers, position rules, screen renders)
+      - name: Unit tests in this independent partition
         shell: bash
+        env:
+          PART: ${{ matrix.part }}
         run: |
           set -o pipefail
-          ./gradlew --no-daemon :app:testDebugUnitTest --stacktrace 2>&1 | tee /tmp/test.log
+          case "$PART" in
+            ui) filters=(--tests 'in.opentrack.india.ui.*') ;;
+            rules) filters=(--tests 'in.opentrack.india.core.*' --tests 'in.opentrack.india.domain.*' --tests 'in.opentrack.india.data.*') ;;
+            sources) filters=(--tests 'in.opentrack.india.remote.*' --tests 'in.opentrack.india.v2.*') ;;
+            *) exit 2 ;;
+          esac
+          ./gradlew --no-daemon :app:testDebugUnitTest "${filters[@]}" --stacktrace 2>&1 | tee /tmp/test.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: ui-previews
+          name: ui-previews-${{ matrix.part }}
           path: app/build/reports/previews/
           if-no-files-found: warn
           retention-days: 7
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: test-reports
+          name: test-reports-${{ matrix.part }}
           path: app/build/reports/tests/
           if-no-files-found: warn
           retention-days: 3
@@ -147,7 +159,7 @@ jobs:
       # render is reviewable by whoever wrote it. GitHub strips data: URIs from markdown, hence a code
       # block of base64 to decode rather than an <img>.
       - name: Publish the rendered screens onto the commit
-        if: always()
+        if: matrix.part == 'ui' && always()
         shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -160,7 +172,7 @@ jobs:
         run: |
           set +e
           {
-            echo "### tests / screens failed"
+            echo "### tests / ${{ matrix.part }} failed"
             echo
             echo "Tasks that failed:"
             grep -E "^> Task .* FAILED" /tmp/test.log | sed 's/^> /  - /' || echo "  (none — an earlier step failed)"
@@ -178,6 +190,28 @@ jobs:
           } > /tmp/report.md
           gh api -X POST "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/comments" -F body=@/tmp/report.md \
             || echo "::warning::could not post the log comment"
+
+  # Compile device-only field tests independently from the installable APK. A red
+  # instrumented source must not hold up the APK or screen tests.
+  field-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Generate the packaged timetable asset
+        run: bash tools/ci/prepare_asset.sh
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+      - name: Compile instrumented field tests
+        run: ./gradlew --no-daemon :app:assembleDebugAndroidTest --stacktrace
 
   build:
     # No `needs: checks`, on purpose: the static checkers are the agent's safety net, and a false positive
@@ -231,13 +265,6 @@ jobs:
             echo "::warning::Maven returned 429; retrying dependency resolution ($attempt/3)"
             sleep $((attempt * 20))
           done
-      # No emulator here (no KVM, no system images), so the instrumented sources cannot be *run* in CI.
-      # They are still compiled, because `connectedDebugAndroidTest` is the only check that can see what
-      # the live feed publishes today, and a field test that does not compile is worse than none: the one
-      # person with a phone finds out on the phone.
-      - name: Compile the instrumented field tests
-        shell: bash
-        run: set -o pipefail && ./gradlew --no-daemon :app:assembleDebugAndroidTest --stacktrace 2>&1 | tee -a /tmp/build.log
       - name: Size report (the ultra-lightweight requirement, measured on every build)
         run: |
           apk=app/build/outputs/apk/debug/app-debug.apk
