@@ -19,7 +19,7 @@ import org.robolectric.annotation.Config
 @Config(sdk = [34])
 class OfflineCorridorMapTest {
     private val json by lazy {
-        RuntimeEnvironment.getApplication<android.app.Application>().assets.open(OfflineCorridorMap.ASSET)
+        RuntimeEnvironment.getApplication().assets.open(OfflineCorridorMap.ASSET)
             .bufferedReader().use { it.readText() }
     }
     // A 29-halt fixture along the old infrastructure, NOT a claimed transcript of
