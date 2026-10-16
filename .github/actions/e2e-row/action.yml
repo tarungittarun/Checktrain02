@@ -378,6 +378,28 @@ runs:
               "$TEST_ID/androidx.test.runner.AndroidJUnitRunner" 2>&1 | tee "/tmp/instrument-$label.log"
             rc=${PIPESTATUS[0]}
           fi
+          if [ "$label" = cold ] && [ "$rc" = 124 ] &&
+             [ ! -s "/tmp/instrument-$label.log" ]; then
+            # A hosted emulator can hang before AndroidJUnitRunner connects to
+            # UiAutomation (zero test output; the crash buffer says disconnect
+            # while connecting). This is NOT a passed test. Preserve its empty
+            # first attempt, clear the app AGAIN, and require a real cold-start
+            # summary from one more bounded instrumentation pass. An assertion
+            # or a runner that emitted output never receives this retry.
+            echo "::warning::cold runner never connected; resetting the test process and retrying a genuinely cleared install once"
+            mv "/tmp/instrument-$label.log" "/tmp/instrument-$label-first.log"
+            adb shell pm clear "$APP_ID" || true
+            case "$LOCATION" in
+              granted) adb shell pm grant "$APP_ID" android.permission.ACCESS_COARSE_LOCATION || true ;;
+              *) adb shell pm revoke "$APP_ID" android.permission.ACCESS_COARSE_LOCATION || true ;;
+            esac
+            adb shell run-as "$APP_ID" mkdir -p files || true
+            timeout "$RUN_TIMEOUT" adb shell am instrument -w -e debug false \
+              "${cover_args[@]}" -e release "$release_flag" \
+              -e offline "${OFFLINE_FLAG:-false}" "${sel[@]}" \
+              "$TEST_ID/androidx.test.runner.AndroidJUnitRunner" 2>&1 | tee "/tmp/instrument-$label.log"
+            rc=${PIPESTATUS[0]}
+          fi
           kill "$HB" 2>/dev/null || true
           set -e
           local secs=$(( $(date +%s) - started ))
@@ -432,7 +454,7 @@ runs:
             *) adb shell pm revoke "$APP_ID" android.permission.ACCESS_COARSE_LOCATION || true ;;
           esac
           CLASS_FILTER="in.opentrack.india.e2e.ColdStartFlowTest" \
-            EXTRA_ARGS="-e requireCleared true" RUN_TIMEOUT=360 run_suite cold || true
+            EXTRA_ARGS="-e requireCleared true" RUN_TIMEOUT=210 run_suite cold || true
         fi
         # Order matters for the rest: the live-feed field test needs the network, so it runs before the
         # radio goes off, and the degradation suite runs with it off. Each pass writes its own coverage

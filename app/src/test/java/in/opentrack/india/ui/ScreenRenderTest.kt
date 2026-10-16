@@ -249,6 +249,24 @@ Render.save("02-track-live", shot.bitmap)
     }
 
     @Test
+    fun failedWebsiteResultIsInTheVisibleTopCardEvenAtLargeFont() {
+        val shot = Render.render(R.layout.activity_train, widthDp = 411f,
+            heightDp = 760f, textScale = 1.15f) { root ->
+            root.findViewById<TextView>(R.id.headline).text = "No qualifying past-stop report"
+            root.findViewById<TextView>(R.id.sourceSummary).apply {
+                text = "whereismytrain.org.in (website): connection failed. Timetable shown."
+                visibility = View.VISIBLE
+            }
+        }
+        val summary = shot.bounds(R.id.sourceSummary)
+        val viewport = shot.bounds(R.id.scroller)
+        assertTrue("source result was clipped below the capped card viewport: $summary / $viewport",
+            summary.height() > 0 && summary.top >= viewport.top && summary.bottom <= viewport.bottom)
+        assertTrue("source result must follow its headline", summary.top >= shot.bounds(R.id.headline).bottom)
+        assertTrue("source result was placed below the picker", summary.bottom < shot.bounds(R.id.sourceSpinner).top)
+    }
+
+    @Test
     fun websitePastCardPaintsWebMinutesAndWebPlatformNeverAct() {
         val p = pos(anchor = 4, status = StopStatus.DEPARTED, delay = null, live = true)
         val base = model(p, now = 432, per = emptyMap())

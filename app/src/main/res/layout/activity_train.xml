@@ -137,6 +137,17 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content" />
 
+                <!-- A failed selected source must be visible in the first glance,
+                     not below a capped source card's scroll viewport. -->
+                <TextView
+                    android:id="@+id/sourceSummary"
+                    style="@style/TextMicro"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:textColor="@color/warn"
+                    android:visibility="gone" />
+
                 <!-- The distance-proportional icon lives in the corresponding table leg,
                      not twice in the header. The badge below still identifies its source. -->
 
@@ -258,14 +269,6 @@
                         android:text="@string/source_info"
                         android:textSize="12sp" />
                 </LinearLayout>
-
-                <TextView
-                    android:id="@+id/sourceSummary"
-                    style="@style/TextMicro"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:textColor="@color/warn" />
 
                 <TextView
                     android:id="@+id/lastUpdated"

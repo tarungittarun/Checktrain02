@@ -335,6 +335,9 @@ class TrainActivity : AppCompatActivity() {
                         if (previous >= 0) binding.sourceSpinner.setSelection(previous, false)
                         vm.probeSource(name)
                     } else vm.setActiveSource(name)
+                    // The source's result is at the top of the bounded card. Bring it
+                    // into view after an intentional selection, not on background refresh.
+                    binding.scroller.post { binding.scroller.scrollTo(0, 0) }
                 }
 
                 override fun onNothingSelected(p: AdapterView<*>?) {}
@@ -380,10 +383,15 @@ class TrainActivity : AppCompatActivity() {
             selectedStatus?.let { SourceIndicator.of(name, it.first, it.second).label }
         } ?: "no usable stop report"
         val response = selectedStatus?.second?.let(SourceIndicator::seconds)?.let { " · $it" }.orEmpty()
+        val selectedPending = selectedStatus?.let { (state, detail) ->
+            SourceIndicator.of(ui.activeSource.orEmpty(), state, detail).tone ==
+                SourceIndicator.Tone.PENDING
+        } == true
         binding.sourceSummary.text = when {
             ui.alternateSiteHint != null -> ui.alternateSiteHint
             ui.orgWebsiteReport != null -> "Site's past-stop claims; not confirmed railway actuals."
             ui.wimtWebPoint != null -> "Site distance claim; not phone GPS."
+            selectedPending -> "Checking ${sourceName(ui.activeSource.orEmpty())}…"
             else -> "${sourceName(ui.activeSource.orEmpty())}: $selectedReason$response. Timetable shown."
         }
         binding.headline.text = m.headline
@@ -794,7 +802,7 @@ class TrainActivity : AppCompatActivity() {
         binding.refreshFeedback.text = when {
             switched -> "Checked $checked · $source unavailable; now ${sourceName(active)}"
             status?.first !in listOf("live", "candidate") ->
-                "Tried $source at $checked · no usable new report · $age"
+                "Checked $checked · no usable new report from $source · $age"
             changed -> "New stop report · $source · checked $checked · $age"
             else -> "Checked $checked · no newer stop from $source · $age"
         }

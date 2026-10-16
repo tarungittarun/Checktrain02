@@ -288,20 +288,17 @@ class TrackingFlowTest {
         val deadline = System.currentTimeMillis() + E2E.NETWORK_MS
         var resultVisible = false
         while (System.currentTimeMillis() < deadline && !resultVisible) {
-            // The status exists as a sourceSummary accessibility node even when the
-            // expanded table pushes its TEXT below the current viewport. A global
-            // By.textContains check missed an actual 'connection failed · 8.01 s.
-            // Timetable shown.' result on API 24 and then waited for a nonexistent row.
+            // An unavailable website must show its answer near the headline,
+            // inside the capped card's visible viewport. A valid timed website
+            // report instead earns a clearly attributed badge.
+            // The selected source must finish with either a qualified website
+            // badge or a readable failure receipt at the TOP of the card. A
+            // comparison-only badge and an off-screen summary do not pass.
+            val summary = E2E.text("sourceSummary", 300)
             val badge = E2E.text("provenance", 300)
-            val headline = E2E.text("headline", 300)
-            resultVisible = E2E.text("sourceSummary", 300).contains("Timetable shown") ||
-                badge.contains("WEBSITE ·") ||
-                // On a dense display the sourceSummary is below the visible card.
-                // The on-screen comparison badge + no-report headline are still a
-                // truthful result, but not while the selected source is checking.
-                (badge.contains("comparison only") &&
-                    headline.contains("no qualifying past-stop report") &&
-                    !E2E.visible("checkingBar", 100) && !E2E.visible("mirrorState", 100))
+            resultVisible = (summary.contains("whereismytrain.org.in") &&
+                summary.contains("Timetable shown") && !summary.contains("Checking")) ||
+                badge.contains("WEBSITE · past-stop claims")
             if (!resultVisible) Thread.sleep(200)
         }
         if (!resultVisible) E2E.shot("org-website-missing-result")
@@ -310,11 +307,10 @@ class TrackingFlowTest {
             "checking='${E2E.text("mirrorState", 200)}' headline='${E2E.text("headline", 200)}'",
             resultVisible)
         val summary = E2E.text("sourceSummary")
-        val unavailableInHero = E2E.text("provenance").contains("comparison only") &&
-            E2E.text("headline").contains("no qualifying past-stop report")
+        val siteReportVisible = E2E.text("provenance").contains("WEBSITE · past-stop claims")
         assertTrue("source result has no plain-language result: $summary",
-            summary.contains("Timetable shown") || unavailableInHero ||
-                E2E.text("provenance").contains("WEBSITE"))
+            (summary.contains("whereismytrain.org.in") && summary.contains("Timetable shown")) ||
+                siteReportVisible)
         assertTrue("org selection lost the station table", E2E.count(stopsBy) > 0)
         if (rowTexts("liveArr").isEmpty()) assertTrue(E2E.tap("stopRow"))
         val live = rowTexts("liveArr") + rowTexts("liveDep")
@@ -332,8 +328,8 @@ class TrackingFlowTest {
         } else {
             assertTrue("no Web cells but source pretends to verify station events: $summary",
                 summary.contains("NOT Act") || summary.contains("static") ||
-                    summary.contains("Timetable shown") || unavailableInHero ||
-                    summary.contains("failed", ignoreCase = true))
+                    summary.contains("whereismytrain.org.in") &&
+                    summary.contains("Timetable shown"))
         }
         E2E.shot("org-website-source")
     }
@@ -370,11 +366,15 @@ class TrackingFlowTest {
             assertTrue("no refresh receipt after a minute with Auto on",
                 E2E.ui.wait(Until.hasObject(By.res(E2E.PKG, "refreshFeedback")), 80_000L))
             val receipt = E2E.text("refreshFeedback")
-            assertTrue("auto refresh must say what source answered and whether its event changed: $receipt",
-                (receipt.contains("Checked ") || receipt.contains("Tried ") ||
-                    receipt.contains("New stop report")) &&
-                    (receipt.contains("no newer stop") || receipt.contains("New stop report") ||
-                        receipt.contains("unavailable") || receipt.contains("no usable new report")))
+            val checked = Regex("^Checked \\d{2}:\\d{2}:\\d{2} · ").containsMatchIn(receipt)
+            val changed = Regex("^New stop report · .+ · checked \\d{2}:\\d{2}:\\d{2} · ")
+                .containsMatchIn(receipt)
+            assertTrue("auto refresh must show a check clock and source: $receipt",
+                (checked || changed) && listOf("NTES", "erail", "website", "WIMT",
+                    "ConfirmTkt", "runningstatus").any { receipt.contains(it) })
+            assertTrue("auto refresh must distinguish a new event, unchanged event, or no report: $receipt",
+                receipt.contains("no newer stop") || receipt.contains("New stop report") ||
+                    receipt.contains("unavailable") || receipt.contains("no usable new report"))
         } finally {
             // Each flow starts in the same installed app; never contaminate another test.
             E2E.tap("autoSwitch")

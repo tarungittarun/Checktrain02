@@ -45,9 +45,13 @@ The source claim belongs in the header; it must not change the route geometry.
   only when its past-marked stop is farther ahead on the same dated route and
   its page is fresh. This is not proof of the train's current position.
 
-The updateable debug build uses the same stable test-only signing key and bumps
-versionCode to **39** (`1.0.38-r109`) so Android can install it over the owner's
-previous versionCode-38 phone build without clearing the cache or diary.
+The updateable debug build uses the same stable test-only signing key. The
+strict-check replacement is versionCode **40** (`1.0.39-r110`), so it installs
+over both the owner's versionCode-38 phone build and the interim code-39
+phone-test APK without clearing the cache or diary. It puts an unavailable
+selected source's explanation immediately below the headline and returns to
+the top of the card after a deliberate source change; every completed Refresh
+now has a consistent checked-at receipt.
 
 Acceptance still requires a passing current-head Android build, full E2E run,
 and the owner's on-phone installation/behavior confirmation before PR #3 merges.
