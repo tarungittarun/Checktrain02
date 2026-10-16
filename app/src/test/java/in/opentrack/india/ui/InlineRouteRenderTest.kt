@@ -136,8 +136,8 @@ class InlineRouteRenderTest {
         assertEquals(0f, ruler.projection!!.fraction, .001f)
         ruler.showLabels = true
         ruler.measure(width, height)
-        assertTrue("opening the proportional map did not disclose its ticks",
-            ruler.measuredHeight > compact)
+        assertEquals("opening map points stretched the distance ruler",
+            compact, ruler.measuredHeight)
         assertEquals("disclosing map points moved the last-reported train", 0f,
             ruler.projection!!.fraction, .001f)
         ruler.showLabels = false
@@ -147,11 +147,10 @@ class InlineRouteRenderTest {
     }
 
     @Test fun verticalDistanceRulerScalesByScheduledKmWithoutOutgrowingTheViewport() {
-        assertEquals(104, LegGeometry.heightDp(2, false, 0))
-        assertTrue(LegGeometry.heightDp(20, false, 0) > LegGeometry.heightDp(6, false, 0))
-        assertEquals(210, LegGeometry.heightDp(200, false, 0))
-        assertEquals(300, LegGeometry.heightDp(200, true, 100))
-        assertTrue(LegGeometry.heightDp(6, true, 3) > LegGeometry.heightDp(6, false, 3))
+        assertEquals(104, LegGeometry.heightDp(2))
+        assertTrue(LegGeometry.heightDp(20) > LegGeometry.heightDp(6))
+        assertEquals(210, LegGeometry.heightDp(200))
+        assertEquals("many map points must not stretch the ruler", 210, LegGeometry.heightDp(200))
     }
 
     @Test fun tappingHaltShowsUntimedPointsThenCollapsesWithoutClaimingArrival() {

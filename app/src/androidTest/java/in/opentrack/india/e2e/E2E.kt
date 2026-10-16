@@ -197,12 +197,12 @@ object E2E {
                 if (!ui.wait(Until.hasObject(res("settings")), 10_000L)) {
                     // On a minority of API 24 cold boots Android says the task was
                     // brought forward, yet its window remains behind the launcher.
-                    // Start from Home and force a *process* restart, not pm clear:
-                    // cold-install data and all assertions must remain intact.
+                    // Return to Home, then make a new app task. Never force-stop
+                    // the target: instrumentation itself runs in its process on
+                    // some Android versions, and pm clear would erase cold evidence.
                     ui.pressHome()
-                    ui.executeShellCommand("am force-stop $PKG")
                     val freshStart = ui.executeShellCommand(
-                        "am start -S -W -n $PKG/.ui.MainActivity")
+                        "am start -W -f 0x10008000 -n $PKG/.ui.MainActivity")
                     check(ui.wait(Until.hasObject(res("settings")), 20_000L)) {
                         "search activity absent after context, shell and clean task launch; " +
                             "package=${ui.currentPackageName}; first=${shellStart.take(110)}; " +

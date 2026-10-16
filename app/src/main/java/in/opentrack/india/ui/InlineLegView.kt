@@ -44,8 +44,7 @@ class InlineLegView @JvmOverloads constructor(
     private fun dp(v: Float) = v * resources.displayMetrics.density
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        val count = projection?.points?.size ?: 0
-        val h = LegGeometry.heightDp(distanceKm, showLabels, count)
+        val h = LegGeometry.heightDp(distanceKm)
         setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), dp(h.toFloat()).toInt())
     }
 
@@ -117,11 +116,9 @@ class InlineLegView @JvmOverloads constructor(
     }
 }
 
-/** Bounded height grows with the scheduled station-to-station distance, not elapsed time.
- * Expanding map points never changes the icon's fractional position. */
+/** The leg is distance-scaled but capped to keep the next stop in view.
+ * Expanding map points does not stretch the ruler or shift the train icon. */
 object LegGeometry {
-    fun heightDp(distanceKm: Int, expanded: Boolean, points: Int): Int {
-        val leg = (88 + distanceKm.coerceAtLeast(0) * 4).coerceIn(104, 210)
-        return if (expanded) (leg + points.coerceAtLeast(0) * 12).coerceAtMost(300) else leg
-    }
+    fun heightDp(distanceKm: Int): Int =
+        (88 + distanceKm.coerceAtLeast(0) * 4).coerceIn(104, 210)
 }
