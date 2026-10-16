@@ -487,7 +487,13 @@ runs:
             track0|track1|track2|track3)
               idx=${GROUP#track}
               CLASS_FILTER="in.opentrack.india.e2e.TrackingFlowTest" \
-                EXTRA_ARGS="-e numShards 4 -e shardIndex $idx" RUN_TIMEOUT=300 run_suite "$GROUP" ;;
+                EXTRA_ARGS="-e numShards 4 -e shardIndex $idx" RUN_TIMEOUT=300 run_suite "$GROUP"
+              # Assert the new packaged offline corpus + actual rail disclosure on a
+              # device, independently of whether NTES answers this emulator today.
+              if [ "$idx" = 0 ]; then
+                CLASS_FILTER="in.opentrack.india.e2e.CorridorMapDeviceTest" \
+                  RUN_TIMEOUT=120 run_suite corridor-map
+              fi ;;
             settings-ui)
               CLASS_FILTER="in.opentrack.india.e2e.SettingsFlowTest" run_suite settings
               CLASS_FILTER="in.opentrack.india.e2e.ColdStartFlowTest" run_suite warm ;;
@@ -514,8 +520,8 @@ runs:
         # One `am instrument` per class, not one for the package. Two reasons, both about information: a
         # wedged class then costs only its own budget instead of the row's, and the record says which class
         # and how long - which is what tells you whether a flow needs a device at all.
-        for cls in StationSearchFlowTest TrainSearchFlowTest TrackingFlowTest SettingsFlowTest \
-                   DegradationFlowTest ReleaseSmokeFlowTest; do
+        for cls in StationSearchFlowTest TrainSearchFlowTest TrackingFlowTest CorridorMapDeviceTest \
+                   SettingsFlowTest DegradationFlowTest ReleaseSmokeFlowTest; do
           case "$cls" in
             ReleaseSmokeFlowTest) [ "$VARIANT" = release ] || continue ;;
             *) [ "$VARIANT" = release ] && continue ;;

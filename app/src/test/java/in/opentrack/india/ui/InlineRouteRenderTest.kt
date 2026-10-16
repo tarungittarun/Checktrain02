@@ -353,7 +353,7 @@ class InlineRouteRenderTest {
         val ctx = RuntimeEnvironment.getApplication()
         val adapter = StopAdapter()
         var explanations = 0
-        adapter.onMapUnavailable = { explanations++ }
+        adapter.onMapUnavailable = { _ -> explanations++ }
         adapter.setProjectedLeg(RouteBetween.LegProjection("Yesvantpur", "Tumkur", 0f,
             "Yesvantpur", 144, "YPR", "TK", emptyList(), RouteBetween.MarkerKind.REPORTED_HALT))
         adapter.haltMarker = TableMarker.Halt("YPR", "NTES YPR departure 23:42", true)
@@ -470,6 +470,43 @@ class InlineRouteRenderTest {
         canvas.drawColor(ctx.getColor(R.color.surface))
         ruler.paintForTest(canvas)
         Render.save("11-birur-to-tarikere-two-points", bmp)
+    }
+
+    @Test fun historicalCorridorOpensStationsButMappedEmptyLegNeverShowsFailure() {
+        val ctx = RuntimeEnvironment.getApplication()
+        val adapter = StopAdapter()
+        adapter.mapSource = "Offline historical corridor · source 2026-06-20"
+        adapter.mappedLegStarts = setOf("TK", "MWM")
+        var unavailable = 0
+        adapter.onMapUnavailable = { _ -> unavailable++ }
+        adapter.setRoutePoints(mapOf("TK" to listOf(
+            StopRow(0, "HEI", "Heggere", null, null, null,
+                null, null, 0, 218, false),
+            StopRow(0, "MLSA", "Mallasandra", null, null, null,
+                null, null, 0, 222, false))))
+        val from = TrackModel.Stop(1, "TK", "Tumkur", 1450, 1452,
+            1470, 1472, null, TrackModel.MinuteSource.REPORTED, null,
+            TrackModel.State.PASSED, true, 213, 0, 70, false, false, false, -44)
+        val to = from.copy(seq = 2, code = "TTR", name = "Tiptur",
+            kmFromOrigin = 284, source = TrackModel.MinuteSource.SCHEDULE,
+            showArr = null, showDep = null, isAnchor = false)
+        adapter.submitList(listOf(from, to))
+        val holder = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
+        adapter.onBindViewHolder(holder, 0)
+        assertEquals("Stations ▾", holder.routeToggle.text.toString())
+        holder.inlineLeg.performClick()
+        assertTrue(holder.inlineLeg.showLabels)
+        assertEquals(listOf("HEI", "MLSA"), holder.inlineLeg.projection!!.points.map { it.code })
+        assertTrue(holder.inlineLeg.projection!!.points.all { it.passageMinute == null })
+        assertTrue(holder.inlineLeg.historicalMap)
+        assertEquals(0, unavailable)
+        val malleshwaram = from.copy(code = "MWM", name = "Malleswaram", kmFromOrigin = 143)
+        adapter.setRoutePoints(emptyMap())
+        adapter.submitList(listOf(malleshwaram, to.copy(code = "YPR", kmFromOrigin = 146)))
+        adapter.onBindViewHolder(holder, 0)
+        assertEquals("No intermediate stations", holder.routeToggle.text.toString())
+        holder.inlineLeg.performClick()
+        assertEquals(0, unavailable)
     }
 
     @Test fun arrowsHaveOppositeDiagonalTipsAndSourceLightIsStronger() {

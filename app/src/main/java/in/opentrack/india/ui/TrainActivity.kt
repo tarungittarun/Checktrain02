@@ -132,16 +132,19 @@ class TrainActivity : AppCompatActivity() {
         )[LiveViewModel::class.java]
 
         stopAdapter = StopAdapter()
-        stopAdapter.onMapUnavailable = {
-            Diary.get()?.log("ROUTE_UI", "intermediate map explanation opened; static=${lastUi?.staticRouteSource ?: "none"}")
+        stopAdapter.onMapUnavailable = { from ->
+            val historical = lastUi?.staticRouteSource ==
+                `in`.opentrack.india.remote.OfflineCorridorMap.SOURCE
+            Diary.get()?.log("ROUTE_UI", "unmapped leg from $from; static=${lastUi?.staticRouteSource ?: "none"}")
             AlertDialog.Builder(this)
-                .setTitle("Intermediate map unavailable")
-                .setMessage("This train's timed halts are still shown. Intermediate dots need " +
-                    "a separately validated static route. The map providers did not supply " +
-                    "one for this run, so we cannot invent stations, distances or passage " +
-                    "times. A newer train position needs a source report, not this map.")
+                .setTitle("No verified map for this leg")
+                .setMessage("The scheduled halts are still shown. " +
+                    (if (historical) "The offline historical corridor does not match this " +
+                        "pair of current scheduled halts; other legs may have stations. "
+                    else "Neither live map provider supplied a validated route for this run. ") +
+                    "We cannot invent passing stations or times. The map cannot locate the train.")
                 .setNegativeButton("Close", null)
-                .setPositiveButton("Retry map") { _, _ -> vm.retryIntermediateMap() }
+                .setPositiveButton("Retry map") { _, _ -> vm.retryIntermediateMap(from) }
                 .show()
         }
         binding.stops.layoutManager = LinearLayoutManager(this)
@@ -690,7 +693,8 @@ class TrainActivity : AppCompatActivity() {
         // Page notes stay in Info; the in-table icon and source badge already describe
         // the selected site's qualified claim without repeating an excerpt at the halt.
         stopAdapter.reports = ui.sourceLines[ui.activeSource] ?: ui.reports
-        stopAdapter.staticMapAvailable = ui.staticRoute != null
+        stopAdapter.mappedLegStarts = ui.staticMappedLegStarts
+        stopAdapter.mapSource = ui.staticRouteSource
         stopAdapter.setRoutePoints(RouteBetween.groupedPoints(ui.staticRoute, ui.route))
         stopAdapter.sourceNameForMarker = if (ui.activeSource == "NTES (official)") "NTES"
             else if (ui.activeSource == "last known") "Saved report"

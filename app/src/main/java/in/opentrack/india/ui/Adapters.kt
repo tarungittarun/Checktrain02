@@ -8,7 +8,6 @@ import android.widget.LinearLayout
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
-import kotlin.math.roundToInt
 import `in`.opentrack.india.R
 import `in`.opentrack.india.core.RailTime
 import `in`.opentrack.india.domain.RouteBetween
@@ -113,8 +112,9 @@ class TrainHitAdapter(private val onClick: (TrainHit) -> Unit) :
  */
 class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
     /** Activity supplies the explanation/retry; this adapter never invents map dots. */
-    var onMapUnavailable: (() -> Unit)? = null
-    var staticMapAvailable: Boolean = false
+    var onMapUnavailable: ((String) -> Unit)? = null
+    var mapSource: String? = null
+    var mappedLegStarts: Set<String> = emptySet()
 
     private var expandedCode: String? = null
     private var routePoints: Map<String, List<StopRow>> = emptyMap()
@@ -332,23 +332,23 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
                     (point.schedKm - s.kmFromOrigin).toFloat() / length else null
             }
             val fraction = matching?.fraction ?: kmFraction ?: (index + 1f) / (points.size + 1f)
-            val planned = point.arrivalMin ?: nextStop?.let { next ->
-                val from = s.schedDep ?: s.schedArr
-                val to = next.schedArr ?: next.schedDep
-                if (kmFraction != null && from != null && to != null && to >= from)
-                    (from + (to - from) * kmFraction).roundToInt() else null
-            }
+            // A distance on a static map supplies NO passing clock. Keep the
+            // old timetable's missing minutes absent rather than interpolating a time.
+            val planned = point.arrivalMin
             RouteBetween.LegPoint(point.code, point.name, point.schedKm, fraction,
                 planned, point.arrivalMin == null && planned != null)
         }
         // A mapped leg has a visible, full-width rail even while its station names
         // are folded. Previously only the stop row was tappable until expansion.
-        val displayedLeg = leg?.copy(points = available) ?: if (hasPoints && nextStop != null)
+        val displayedLeg = leg?.copy(points = available) ?: if ((hasPoints || mappedEmpty) && nextStop != null)
             RouteBetween.LegProjection(s.name, nextStop.name, 0f, null, s.kmFromOrigin,
                 s.code, nextStop.code, available) else null
-        val mapUnavailable = nextStop != null && available.isEmpty() && !staticMapAvailable
+        val mappedEmpty = nextStop != null && available.isEmpty() &&
+            s.code.uppercase() in mappedLegStarts
+        val mapUnavailable = nextStop != null && available.isEmpty() && !mappedEmpty
         holder.inlineLegGroup.visibility = if (displayedLeg != null) View.VISIBLE else View.GONE
         holder.inlineLeg.projection = displayedLeg
+        holder.inlineLeg.historicalMap = mapSource?.startsWith("Offline historical") == true
         holder.inlineLeg.compactStatic = leg == null
         holder.inlineLeg.showLabels = disclosed
         // A pinned halt uses the locomotive IN its station row. Do not draw a
@@ -366,7 +366,8 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             val stationClaim = leg?.markerKind == RouteBetween.MarkerKind.STATION_CLAIM
             val caption = when {
                 stationClaim -> "Station claim · time unknown"
-                leg == null -> "Intermediate stations · static route map, not train position"
+                mappedEmpty -> "No other mapped station · ${mapSource ?: "static map"}"
+                leg == null -> "Stations · ${mapSource ?: "static route map"} · not train position"
                 mapUnavailable -> "Intermediate map unavailable · timed halts only"
                 leg.fraction > 0f -> "Between halts · motion unknown"
                 else -> "Last stop · now unknown"
@@ -382,18 +383,22 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
                 else "Last reported event ${holder.inlineLegAge.text}"
             holder.routeToggle.text = when {
                 mapUnavailable -> "Map unavailable · why?"
+                mappedEmpty -> "No intermediate stations"
                 disclosed -> "Hide ▴"
                 else -> "Stations ▾"
             }
             holder.routeToggle.contentDescription = when {
                 mapUnavailable -> "Intermediate map unavailable. Tap for explanation and retry."
+                mappedEmpty -> "No other station in the historical corridor between these halts"
                 disclosed -> "Hide intermediate stations"
                 else -> "Show ${available.size} intermediate stations"
             }
-            holder.routeToggle.visibility = if (available.isNotEmpty() || mapUnavailable)
+            holder.routeToggle.visibility = if (available.isNotEmpty() || mapUnavailable || mappedEmpty)
                 View.VISIBLE else View.GONE
             holder.routeToggle.setOnClickListener {
-                if (mapUnavailable) onMapUnavailable?.invoke()
+                if (mapUnavailable) onMapUnavailable?.invoke(s.code)
+                else if (mappedEmpty) android.widget.Toast.makeText(ctx,
+                    "No other mapped station between these scheduled halts", android.widget.Toast.LENGTH_SHORT).show()
                 else toggleStations(s.code, position, holder)
             }
             val pointDescription = available.joinToString("; ") { point ->
@@ -405,7 +410,7 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
                     (if (point.mapKm >= 0) ", ${point.mapKm} km" else ", distance unavailable")
             }
             holder.inlineLeg.contentDescription = if (leg == null)
-                "Intermediate stations on the static route; no train-position claim. " +
+                "Intermediate stations on ${mapSource ?: "the static route"}; no train-position claim. " +
                     pointDescription
             else caption +
                 (holder.inlineLeg.ageSeconds?.let { " · reported event ${LegGeometry.ageLabel(it)}" }
@@ -424,15 +429,17 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
                     "points=${available.size} expanded=$disclosed map=${if (mapUnavailable) "unavailable" else "available"}"
             }
             if (hasPoints) toggleStations(s.code, position, holder)
-            else if (mapUnavailable) onMapUnavailable?.invoke()
+            else if (mapUnavailable) onMapUnavailable?.invoke(s.code)
+            else if (mappedEmpty) android.widget.Toast.makeText(ctx,
+                "No other mapped station between these scheduled halts", android.widget.Toast.LENGTH_SHORT).show()
         }
         holder.row.setOnClickListener { onLegTap() }
-        holder.row.isClickable = hasPoints || mapUnavailable
+        holder.row.isClickable = hasPoints || mapUnavailable || mappedEmpty
         // The line, dots, blank leg and caption are all one tap target, not only
         // the station name or tiny Hide button. A second tap folds the same leg.
-        holder.inlineLegGroup.isClickable = hasPoints || mapUnavailable
+        holder.inlineLegGroup.isClickable = hasPoints || mapUnavailable || mappedEmpty
         holder.inlineLegGroup.setOnClickListener { onLegTap() }
-        holder.inlineLeg.isClickable = hasPoints || mapUnavailable
+        holder.inlineLeg.isClickable = hasPoints || mapUnavailable || mappedEmpty
         holder.inlineLeg.setOnClickListener { onLegTap() }
         holder.row.contentDescription = "${s.name}; " +
             "${holder.schedArr.contentDescription}; ${holder.schedDep.contentDescription}; " +
@@ -441,6 +448,7 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
                 hasPoints -> "; tap to ${if (disclosed) "hide" else "show"} " +
                     "${available.size} intermediate stations"
                 mapUnavailable -> "; intermediate map unavailable; tap for details"
+                mappedEmpty -> "; historical corridor has no other mapped station on this leg"
                 else -> ""
             }
     }

@@ -10,6 +10,7 @@ import `in`.opentrack.india.core.RailTime
 import `in`.opentrack.india.data.RailRepository
 import `in`.opentrack.india.remote.FeedProbe
 import `in`.opentrack.india.remote.RailGeoRoute
+import `in`.opentrack.india.remote.OfflineCorridorMap
 import `in`.opentrack.india.remote.OfficialScheduleCache
 import `in`.opentrack.india.remote.NtesWire
 import `in`.opentrack.india.domain.PositionEngine
@@ -140,6 +141,8 @@ class LiveViewModel(
         /** Static-only ordered route points, never used to locate the train or generate actuals. */
         val staticRoute: TrainRoute? = null,
         val staticRouteSource: String? = null,
+        /** Map validation is per leg: a changed/missing segment must still say unavailable. */
+        val staticMappedLegStarts: Set<String> = emptySet(),
         /** WIMT's *web-cache* point, only after run/event/route gates; not phone-app GPS. */
         val wimtWebPoint: WimtCandidate.WebPoint? = null,
         /** Same-run, fresh provider station *claim*, never a measured position or Act. */
@@ -194,6 +197,10 @@ class LiveViewModel(
     private var delayDevice = 0
     private var delayDetail: String? = null
     private var mirrorCrossChecked = false
+    private val historicalCorridorJson by lazy {
+        runCatching { app.assets.open(OfflineCorridorMap.ASSET).bufferedReader().use { it.readText() } }
+            .getOrNull()
+    }
     private var geoRoute: TrainRoute? = null
     private var confirmHaltRoute: TrainRoute? = null
     private var confirmStaticRoute: TrainRoute? = null
@@ -993,14 +1000,10 @@ class LiveViewModel(
     }
 
     /** User-initiated static map retry. It is never used as a position source. */
-    fun retryIntermediateMap() {
+    fun retryIntermediateMap(fromCode: String? = null) {
         val route = _ui.value?.route ?: return
         if (mapRetryJob?.isActive == true) {
             _mapRetryStatus.value = "Already checking independent station maps…"
-            return
-        }
-        if (RouteBetween.groupedPoints(_ui.value?.staticRoute, route).isNotEmpty()) {
-            _mapRetryStatus.value = "Intermediate map is ready. Tap the rail to open its stations."
             return
         }
         // An old cached map for a different route is not a reason to skip a
@@ -1017,7 +1020,10 @@ class LiveViewModel(
             geo?.join()
             val u = _ui.value
             val mapped = u?.let { RouteBetween.groupedPoints(it.staticRoute, it.route) }
-            _mapRetryStatus.value = if (!mapped.isNullOrEmpty())
+            _mapRetryStatus.value = if (fromCode != null &&
+                fromCode.uppercase() !in u?.staticMappedLegStarts.orEmpty())
+                "No verified map for this leg yet. Other mapped legs remain available."
+            else if (!mapped.isNullOrEmpty())
                 "Intermediate map ready. Tap a leg to reveal its stations."
             else "No validated intermediate map answered; timed halts remain. Retry later."
             Diary.get()?.log("ROUTE") { "manual map retry: ${mapped?.values?.sumOf { it.size } ?: 0} independent intermediate points" }
@@ -1077,7 +1083,9 @@ class LiveViewModel(
                 if (candidate != null && (old.staticRoute?.stops?.size ?: 0) < candidate.stops.size) {
                     _ui.value = old.copy(staticRoute = if (officialStaticKnown)
                         RouteBetween.withVerifiedHalts(candidate, old.route) ?: candidate else candidate,
-                        staticRouteSource = "ConfirmTkt")
+                        staticRouteSource = "ConfirmTkt",
+                        staticMappedLegStarts = old.route.stops.take(old.route.stops.size - 1)
+                            .map { it.code.uppercase() }.toSet())
                     // An early website reply used halts only. Once a dated, matched
                     // map arrives, ask it once again for its missing intermediate card.
                     if (publicChecks[PublicPageChecks.ORG]?.pageAnswered == true)
@@ -1096,7 +1104,10 @@ class LiveViewModel(
             val repo = repo() ?: return@launch
             if (loadGeoCache(official, repo)) {
                 _ui.value?.let { u ->
-                    _ui.value = u.copy(staticRoute = geoRoute)
+                    _ui.value = u.copy(staticRoute = geoRoute,
+                        staticRouteSource = "RailGeo",
+                        staticMappedLegStarts = u.route.stops.take(u.route.stops.size - 1)
+                            .map { it.code.uppercase() }.toSet())
                     if (u.staticRoute == null && publicChecks[PublicPageChecks.ORG]?.pageAnswered == true)
                         probeSource(PublicPageChecks.ORG, select = false)
                 }
@@ -1130,7 +1141,10 @@ class LiveViewModel(
                 .putString("$trainNo:$originEpochDay", body)
                 .putLong("$trainNo:$originEpochDay:at", System.currentTimeMillis()).apply()
             _ui.value?.let { u -> if (u.route.trainNo == trainNo) {
-                _ui.value = u.copy(staticRoute = grown)
+                _ui.value = u.copy(staticRoute = grown,
+                    staticRouteSource = "RailGeo",
+                    staticMappedLegStarts = u.route.stops.take(u.route.stops.size - 1)
+                        .map { it.code.uppercase() }.toSet())
                 if (u.staticRoute == null && publicChecks[PublicPageChecks.ORG]?.pageAnswered == true)
                     probeSource(PublicPageChecks.ORG, select = false)
             } }
@@ -1765,7 +1779,8 @@ class LiveViewModel(
                 ((r.schedArr ?: r.schedDep)?.let { " · ${RailTime.formatRailMinute(it)}" } ?: "") +
                 " · arrival not confirmed"
         }
-        val staticCandidate = listOfNotNull(geoRoute, confirmStaticRoute)
+        val offline = historicalCorridorJson?.let { OfflineCorridorMap.parse(it, route) }
+        val externalCandidate = listOfNotNull(geoRoute, confirmStaticRoute)
             .filter { candidate ->
                 candidate.srcCode.equals(route.srcCode, true) &&
                     candidate.dstCode.equals(route.dstCode, true) &&
@@ -1773,6 +1788,9 @@ class LiveViewModel(
                         candidate.stops.map { it.code.uppercase() }.filter { it in required } == required
                     }
             }.maxByOrNull { it.stops.size }
+        // A currently dated full map wins. The historical corridor is an offline
+        // fallback checked against each consecutive pair of today's scheduled halts.
+        val staticCandidate = externalCandidate ?: offline?.route
         val staticRoute = staticCandidate?.let { candidate ->
             if (officialStaticKnown) RouteBetween.withVerifiedHalts(candidate, route) ?: candidate
             else candidate
@@ -1832,8 +1850,11 @@ class LiveViewModel(
             staticRouteSource = when (staticCandidate) {
                 geoRoute -> if (staticCandidate == null) null else "RailGeo"
                 confirmStaticRoute -> if (staticCandidate == null) null else "ConfirmTkt"
+                offline?.route -> OfflineCorridorMap.SOURCE
                 else -> null
             },
+            staticMappedLegStarts = if (externalCandidate != null) route.stops.take(route.stops.size - 1)
+                .map { it.code.uppercase() }.toSet() else offline?.mappedLegStarts.orEmpty(),
             wimtWebPoint = webPoint,
             railYatriClaim = railClaim,
             orgWebsiteReport = orgReport,

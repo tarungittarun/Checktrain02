@@ -18,10 +18,11 @@ Design decisions that shape the output
    We repair all three at build time (`plan_stops`), because an unordered stop list makes the live
    marker move backwards - the most visible way a tracker can lose user trust.
 2. **Halts are the default profile (the "light" decision).** Keeping every stop costs 36 MB of
-   SQLite (14 MB gzipped) for 4x the rows and no user-visible feature: passengers read halts, and
-   a train's "last reported position" from any Indian Railways feed is a station it stops at.
-   The halts profile is ~11 MB / 4.4 MB gzipped -> a ~5 MB APK holding the whole timetable.
-   `--profile full` builds the every-stop variant for a downloadable "extended" DB.
+   SQLite (~17 MB gzipped here) for 4x the rows. The halt-only profile remains
+   small, but cannot answer a request for between-halt station names. A small,
+   explicitly historical 16227 corridor extracted from `--profile full` is now
+   bundled separately; it is checked against the selected official halt list at
+   runtime. The whole full profile is NOT the current timetable or shipped asset.
 3. **Distances are reconstructed when the source has none.** The primary schedule dump carries
    `distance = 0` at almost every stop, but the EXP cut carries real per-stop km, so we prefer
    those and otherwise sum geodesic legs and rescale to the train's authoritative total

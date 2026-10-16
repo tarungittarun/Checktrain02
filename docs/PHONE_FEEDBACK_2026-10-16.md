@@ -272,3 +272,44 @@ corrected ↙ departure arrow and advanced the diagnostic build stamp to R114
 on 17 October; a packaged-version test guards against a diagnostic claiming
 an older round than the APK. The final-head strict-device marker must be in
 the last commit so the matrix validates these changes too.
+
+## R115: 17 October, 16227 intermediate-map outage (01:15–01:19 IST diary)
+
+The owner tapped TK→TTR, MWM→YPR and other legs repeatedly. This was **not**
+a touch failure: the app had zero passing points. Its offline `--profile halts`
+SQLite intentionally drops non-halt rows. Worse, its old upstream copy identifies
+16227 as **SBC→SMET**, not today's **MYS→TLGP**. On this phone erail/NTES supplied
+the *current* 29 scheduled halts and NTES supplied 14 reported-minute cells, but
+neither reply included every between-halt station. RailGeo returned maintenance
+HTML; ConfirmTkt had no dated matching static schedule. The R114 retry could not
+create the missing data. A database of station *names* and a schedule of halts
+are not a validated ordered map of all stations on today's run.
+
+R115 bundles a ~2 KB **historical infrastructure corridor**, extracted
+reproducibly from the public full-profile dump (upstream commit date 2026-06-20):
+old 16221 MYS→SBC, old 16227 SBC→SMET, old 16206 SMET→TLGP. Source and train
+numbers are in `app/src/main/assets/corridors/16227.json`; the extraction recipe
+is `tools/ci/build_16227_corridor.py`. The original raw 16227 route is **not**
+passed off as today's complete 16227 timetable. For each *pair of consecutive
+current scheduled halts* from the selected route, the app checks corridor order,
+positive and reasonably consistent kilometre span and absence of a different
+current scheduled halt inside it. Only then are the older **station names**
+placed on the rail. Their approximate kilometre positions are rescaled to the
+current schedule's halt kilometres, labelled an **older corridor**, with **no
+passing times, actuals, live position or current stopping classification**.
+The dated NTES timetable still owns all scheduled halt clocks; reported times
+still require actual source evidence. A matched leg with zero other stations
+says “No intermediate stations”; a changed/unmatched leg says precisely that
+its map is unavailable, without concealing the other mapped legs or claiming
+that a successful retry supplied new data. Current dated, validated full-route
+maps take precedence over this older offline fallback.
+
+**Limit:** this is a historical corridor, not an official certified 2026 list
+of every non-halt for 16227. A reroute, newly built station, missing old row,
+or a current halt absent from the archive may leave one leg unmapped; it must
+remain visibly unresolved rather than populate a guessed dot. The unversioned
+upstream train numbers and non-halt names should be rechecked on the phone.
+The scheduled 29 halts were available *online* on this run, not pre-installed
+as the current 16227 timetable. The existing offline timetable is stale for
+that number. R115 keeps the same updateable test-only debug signing key and
+increases versionCode to 45 (`1.0.44-r115`). PR #3 stays open until owner sign-off.

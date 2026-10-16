@@ -26,6 +26,9 @@ class InlineLegView @JvmOverloads constructor(
     var showTrain: Boolean = true
         set(value) { field = value; invalidate() }
     /** Untimed map-only legs need a full touch target, not a tall empty train leg. */
+    /** Distances rescaled from an older corridor, never a current train timetable. */
+    var historicalMap: Boolean = false
+        set(value) { field = value; invalidate() }
     var compactStatic: Boolean = false
         set(value) { if (field != value) { field = value; requestLayout(); invalidate() } }
 
@@ -108,7 +111,9 @@ class InlineLegView @JvmOverloads constructor(
             canvas.drawText(label, left, tickY + dp(2f), paint)
             paint.color = context.getColor(R.color.text3)
             paint.textSize = sp(11f)
-            canvas.drawText(if (point.mapKm >= 0) "${point.mapKm} km · route map" else "distance unavailable",
+            canvas.drawText(if (point.mapKm >= 0)
+                (if (historicalMap) "~${point.mapKm} km · older corridor" else "${point.mapKm} km · route map")
+                else "distance unavailable",
                 left, tickY + dp(17f), paint)
         }
         if (!showTrain) return // Static stations are not evidence of the train's location.
