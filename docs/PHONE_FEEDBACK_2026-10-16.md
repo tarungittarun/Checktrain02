@@ -210,3 +210,41 @@ anonymous station dots when the names and km were folded away. A second tap
 now returns to the plain rail, with no orphan dots; the source-evidenced
 locomotive remains anchored independently. A pixel assertion checks the rail
 where the first dot used to linger.
+
+## R114: 17 October, Yesvantpur / 16227 (phone diary 00:33–00:35 IST)
+
+The phone's NTES POST **answered** at 00:33:48 and again at 00:35:01, but
+both replies' newest reported event was Yesvantpur (YPR) departure at **23:42**.
+That event was 51→53 minutes old. A fresh network answer, or an updated NTES
+feed clock, does not prove movement since that departure. The separate
+whereismytrain.org.in *website* also answered with YPR as its latest
+qualifying past card; its page-update clock is not a station-passage time.
+RailYatri claimed KIAT T, but its update clock was absent/future/older than
+five minutes and was rejected. The other phone *app* depicted a train near
+Dobbspet, but its on-device cell-tower evidence is not an observation this
+app can read or verify. Neither screenshot nor elapsed time warrants moving
+OpenTrack's marker there. **Present location after YPR is unknown.**
+
+The intermediate map is independent of the 29-halt NTES timetable. This
+phone's ConfirmTkt dated static-map fetch was unavailable; RailGeo returned
+maintenance HTML. A route map for individual non-halt stations therefore
+cannot be guessed from elapsed time or from a list of stops. R114 shows
+“Map unavailable · why?” at the reported leg, makes the leg and blank
+station-row gap tappable, explains the missing map, and offers a manual map
+retry. Where independently verified map points exist, the *collapsed* leg
+itself is tappable rather than requiring a preliminary tap on the stop name.
+
+Arrival is ↘ and departure ↙. The light moves along each **reported time's**
+arrow tail-to-tip; it is decoration on a time cell, not a moving train.
+The train remains pinned at the last sourced event, with its locally updated
+age immediately beside the rail locomotive. Refresh distinguishes an HTTP
+reply carrying the **same old** event, an answered but unusable reply, and a
+failed request. Failed requests preserve a previous valid observation at its
+original event age, and use a working fresh-request fallback when available;
+the fallback's website claims remain explicitly unverified. The request
+receipt includes both its check time and the stop-event age.
+
+R114 increments the updateable debug APK to versionCode 44
+(`1.0.43-r114`) with the unchanged test-only signing identity. PR #3 remains
+open until the owner confirms the update on the phone. CI/head-specific
+validation must be appended only after both runs have actually passed.

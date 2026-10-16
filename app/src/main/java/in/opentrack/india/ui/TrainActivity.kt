@@ -132,6 +132,18 @@ class TrainActivity : AppCompatActivity() {
         )[LiveViewModel::class.java]
 
         stopAdapter = StopAdapter()
+        stopAdapter.onMapUnavailable = {
+            Diary.get()?.log("ROUTE_UI", "intermediate map explanation opened; static=${lastUi?.staticRouteSource ?: "none"}")
+            AlertDialog.Builder(this)
+                .setTitle("Intermediate map unavailable")
+                .setMessage("This train's timed halts are still shown. Intermediate dots need " +
+                    "a separately validated static route. The map providers did not supply " +
+                    "one for this run, so we cannot invent stations, distances or passage " +
+                    "times. A newer train position needs a source report, not this map.")
+                .setNegativeButton("Close", null)
+                .setPositiveButton("Retry map") { _, _ -> vm.retryIntermediateMap() }
+                .show()
+        }
         binding.stops.layoutManager = LinearLayoutManager(this)
         binding.stops.adapter = stopAdapter
         binding.sourceSpinner.setOnTouchListener { _, event ->
@@ -675,6 +687,7 @@ class TrainActivity : AppCompatActivity() {
         // Page notes stay in Info; the in-table icon and source badge already describe
         // the selected site's qualified claim without repeating an excerpt at the halt.
         stopAdapter.reports = ui.sourceLines[ui.activeSource] ?: ui.reports
+        stopAdapter.staticMapAvailable = ui.staticRoute != null
         stopAdapter.setRoutePoints(RouteBetween.groupedPoints(ui.staticRoute, ui.route))
         stopAdapter.sourceNameForMarker = if (ui.activeSource == "NTES (official)") "NTES"
             else if (ui.activeSource == "last known") "Saved report"
@@ -895,27 +908,13 @@ class TrainActivity : AppCompatActivity() {
             RefreshEvidence.compare(previousRefreshEvent, report)
         val checked = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.ROOT)
             .format(java.util.Date(now))
-        binding.refreshFeedback.text = when {
-            switched && cachedResponse -> "Checked $checked · $source timed out; cached " +
-                "body ignored; now ${sourceName(active)} · $age"
-            switched -> "Checked $checked · $source unavailable; now ${sourceName(active)}"
-            cachedResponse -> "Checked $checked · $source timed out; cached response only · $age"
-            status?.first !in listOf("live", "candidate") ->
-                "Checked $checked · no usable new report from $source · $age"
-            change == RefreshEvidence.Change.REVISED_AT_SAME_STOP -> {
-                val label = when (active) {
-                    `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG ->
-                        "Website revised its time at this stop"
-                    `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE ->
-                        "Updated web distance claim at same leg (not GPS)"
-                    else -> "Revised time at same reported stop"
-                }
-                "$label · $source · checked $checked · $age"
-            }
-            change == RefreshEvidence.Change.NEW_STOP ->
-                "New stop report · $source · checked $checked · $age"
-            else -> "Checked $checked · no newer stop from $source · $age"
-        }
+        binding.refreshFeedback.text = RefreshReceiptText.format(
+            requestedRefreshSource, source, sourceName(active), checked, age,
+            status, ui?.officialRequest,
+            ui?.publicSourceAnswered?.get(requestedRefreshSource),
+            cachedResponse, change, switched,
+        )
+        Diary.get()?.log("REFRESH") { binding.refreshFeedback.text.toString() }
         binding.refreshFeedback.visibility = View.VISIBLE
     }
 

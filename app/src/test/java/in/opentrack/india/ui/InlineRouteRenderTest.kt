@@ -313,7 +313,9 @@ class InlineRouteRenderTest {
         adapter.submitList(listOf(from, next))
         val holder = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
         adapter.onBindViewHolder(holder, 0)
-        assertEquals(View.GONE, holder.inlineLegGroup.visibility)
+        assertEquals(View.VISIBLE, holder.inlineLegGroup.visibility)
+        assertFalse(holder.inlineLeg.showLabels)
+        assertEquals("Stations ▾", holder.routeToggle.text.toString())
         assertEquals(View.GONE, holder.details.visibility)
         assertEquals(View.VISIBLE, holder.schedArr.visibility)
         assertEquals(View.VISIBLE, holder.liveArr.visibility)
@@ -334,9 +336,36 @@ class InlineRouteRenderTest {
         val positions = LegGeometry.pointPositionsDp(holder.inlineLeg.projection!!.points, 6)
         assertTrue("1 km and 3 km must create different vertical gaps",
             positions[0] - 24f < positions[1] - positions[0])
-        holder.row.performClick()
+        holder.inlineLeg.performClick()
         adapter.onBindViewHolder(holder, 0)
-        assertEquals(View.GONE, holder.inlineLegGroup.visibility)
+        assertEquals(View.VISIBLE, holder.inlineLegGroup.visibility)
+        assertFalse(holder.inlineLeg.showLabels)
+    }
+
+    @Test fun emptyStaticMapExplainsWhyStationsCannotOpenAndOffersRetry() {
+        val ctx = RuntimeEnvironment.getApplication()
+        val adapter = StopAdapter()
+        var explanations = 0
+        adapter.onMapUnavailable = { explanations++ }
+        adapter.setProjectedLeg(RouteBetween.LegProjection("Yesvantpur", "Tumkur", 0f,
+            "Yesvantpur", 144, "YPR", "TK", emptyList(), RouteBetween.MarkerKind.REPORTED_HALT))
+        val from = TrackModel.Stop(1, "YPR", "Yesvantpur", 1420, 1422,
+            1420, 1422, null, TrackModel.MinuteSource.REPORTED, null,
+            TrackModel.State.PASSED, true, 144, 0, 55, false, false, false, -53)
+        val to = from.copy(seq = 2, code = "TK", name = "Tumkur", kmFromOrigin = 199,
+            isAnchor = false, source = TrackModel.MinuteSource.SCHEDULE)
+        adapter.submitList(listOf(from, to))
+        val holder = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
+        adapter.onBindViewHolder(holder, 0)
+        assertEquals(View.VISIBLE, holder.inlineLegGroup.visibility)
+        assertTrue(holder.inlineLegCaption.text.contains("map unavailable"))
+        assertEquals("Map unavailable · why?", holder.routeToggle.text.toString())
+        holder.routeToggle.performClick()
+        holder.inlineLeg.performClick()
+        assertEquals(2, explanations)
+        adapter.onBindViewHolder(holder, 0)
+        assertFalse(holder.inlineLeg.showLabels)
+        assertEquals(0, holder.inlineLeg.projection!!.points.size)
     }
 
     @Test fun birurMarkerIsOnItsStationAndWholeLegTogglesExactlyTwoMappedPoints() {
@@ -429,6 +458,7 @@ class InlineRouteRenderTest {
         val d = ctx.resources.displayMetrics.density
         fun draw(arrive: Boolean, report: Boolean): android.graphics.Bitmap {
             val arrow = DirectionArrowDrawable(ctx, arrive, report)
+            arrow.phaseForTest = .6f
             val bitmap = android.graphics.Bitmap.createBitmap((22*d).toInt(), (20*d).toInt(),
                 android.graphics.Bitmap.Config.ARGB_8888)
             arrow.setBounds(0, 0, bitmap.width, bitmap.height)
@@ -441,9 +471,21 @@ class InlineRouteRenderTest {
             android.graphics.Color.alpha(bitmap.getPixel((x*d).toInt(), (y*d).toInt()))
         assertTrue("arrival must glow at lower-right, not upper-left",
             alpha(arrival, 18f, 17f) > alpha(arrival, 3f, 17f))
-        assertTrue("departure must glow at upper-left, not lower-right",
-            alpha(departure, 3f, 3f) > alpha(departure, 18f, 3f))
-        assertTrue("reported tip must be brighter than planned tip",
-            alpha(arrival, 18f, 17f) >= alpha(draw(true, false), 18f, 17f))
+        assertTrue("departure must point lower-left, not upper-left",
+            alpha(departure, 3f, 17f) > alpha(departure, 3f, 3f))
+        // The reported highlight moves along the shaft, not a stationary halo at its tip.
+        val early = DirectionArrowDrawable(ctx, true, true).apply { phaseForTest = .1f }
+        val late = DirectionArrowDrawable(ctx, true, true).apply { phaseForTest = .85f }
+        fun frame(arrow: DirectionArrowDrawable): android.graphics.Bitmap {
+            val bitmap = android.graphics.Bitmap.createBitmap((22*d).toInt(), (20*d).toInt(),
+                android.graphics.Bitmap.Config.ARGB_8888)
+            arrow.setBounds(0, 0, bitmap.width, bitmap.height)
+            arrow.draw(android.graphics.Canvas(bitmap))
+            return bitmap
+        }
+        val before = frame(early)
+        val after = frame(late)
+        assertTrue("light must leave the tail", alpha(before, 5f, 5f) > alpha(after, 5f, 5f))
+        assertTrue("light must reach the head", alpha(after, 16f, 15f) > alpha(before, 16f, 15f))
     }
 }

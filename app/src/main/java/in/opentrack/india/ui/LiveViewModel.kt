@@ -148,6 +148,9 @@ class LiveViewModel(
         val orgWebsiteReport: `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.Report? = null,
         /** A newer unverified comparison, not a silent switch away from NTES. */
         val alternateSiteHint: String? = null,
+        /** This request's HTTP outcome, distinct from the last valid train observation. */
+        val officialRequest: OfficialRequestReceipt? = null,
+        val publicSourceAnswered: Map<String, Boolean> = emptyMap(),
     )
 
     private val _ui = MutableLiveData<Ui?>()
@@ -197,6 +200,7 @@ class LiveViewModel(
     private var mirrorSourceStates: Map<String, Pair<String, String>> = emptyMap()
     private var lastFetchAt = 0L
     private var lastOfficialMs: Long? = null
+    private var lastOfficialRequest: OfficialRequestReceipt? = null
     private var mirrorNote: String? = null
     private var mirrorShiftAt = 0L
     private var mirrorAnchorCode: String? = null
@@ -337,7 +341,15 @@ class LiveViewModel(
                             " Newer page regressed behind a previously reached station; position unknown."
                         else " Newer page regressed; holding the previous reported station until its original clock expires.")
                 } else result
-                publicChecks[name] = resolved
+                // A failed HTTP ask must not erase a previously valid observation. Its
+                // page clock is NOT refreshed: keep the older event and surface the
+                // failed request separately, so fallback selection cannot call it new.
+                val previousReport = publicChecks[name]?.orgReport
+                publicChecks[name] = if (name == PublicPageChecks.ORG &&
+                    resolved.orgReport == null && !resolved.pageAnswered && previousReport != null)
+                    resolved.copy(orgReport = previousReport,
+                        detail = resolved.detail + " · previous website report retained, not refreshed")
+                else resolved
                 manualProbeMs[name] = System.currentTimeMillis() - started
                 if (select) mirrorActiveSource = name
                 _ui.value?.let { u -> _ui.value = buildUi(u.route, lastAnswer ?: u.answer, u.tried) }
@@ -646,7 +658,9 @@ class LiveViewModel(
                     val current = _ui.value ?: return@launch
                     val state = current.sourceStates[selected]?.first
                     val usable = state == "live" || state == "candidate" &&
-                        (selected == PublicPageChecks.ORG && current.orgWebsiteReport != null ||
+                        (selected == PublicPageChecks.ORG &&
+                            current.publicSourceAnswered[selected] == true &&
+                            current.orgWebsiteReport != null ||
                             selected == WimtCandidate.SOURCE && current.wimtWebPoint != null)
                     if (!usable) {
                         val fallback = bestAvailableSource(current, selected)
@@ -668,6 +682,18 @@ class LiveViewModel(
             try {
                 val oldEvent = officialStopEvent()
                 refreshBody(previous) // selected official source always goes FIRST
+                if (manual && lastOfficialRequest?.kind == OfficialRequestReceipt.Kind.REQUEST_FAILED) {
+                    probeSource(PublicPageChecks.ORG, select = false)?.join()
+                    val u = _ui.value
+                    val fallback = u?.let { bestAvailableSource(it, "NTES (official)") }
+                    if (fallback != null && fallback != "NTES (official)") {
+                        mirrorActiveSource = fallback
+                        _ui.value?.let { latest ->
+                            _ui.value = buildUi(latest.route, lastAnswer ?: latest.answer, latest.tried)
+                                .copy(relayOk = latest.relayOk)
+                        }
+                    }
+                }
                 if (manual && (mirrorActiveSource == null || mirrorActiveSource == "NTES (official)") &&
                     oldEvent != null && oldEvent == officialStopEvent() &&
                     (officialStopAgeMillis() ?: 0L) >= 300_000L) {
@@ -715,11 +741,10 @@ class LiveViewModel(
                 false
             else when (name) {
                 PublicPageChecks.ORG -> publicChecks[name]?.orgReport?.let { report ->
-                    System.currentTimeMillis() - report.pageUpdatedAt in 0L..300_000L &&
-                        // Fresh HTML alone must not make an old station claim a useful
-                        // fallback when the selected source stops answering.
-                        System.currentTimeMillis() - RailTime.railMinuteToEpochMillis(
-                            originEpochDay, report.eventMinute) in 0L..300_000L &&
+                    publicChecks[name]?.pageAnswered == true &&
+                        System.currentTimeMillis() - report.pageUpdatedAt in 0L..300_000L &&
+                        // The site event may be old. Its age stays on the screen;
+                        // a recent HTTP answer is not evidence of fresh movement.
                         (ui.route.stops.any { it.code.equals(report.anchorCode, true) } ||
                             report.intermediate?.let { p ->
                                 RouteBetween.siteIntermediateLeg(ui.route, ui.staticRoute,
@@ -827,7 +852,18 @@ class LiveViewModel(
                 )
             }.getOrNull()
             lastOfficialMs = android.os.SystemClock.elapsedRealtime() - officialStarted
+            lastOfficialRequest = if (live == null)
+                OfficialRequestReceipt(OfficialRequestReceipt.Kind.REQUEST_FAILED,
+                    "The request could not complete on this device.")
+            else OfficialRequestReceipt.from(live.tried, live.notes)
             if (live == null) {
+                // A transient failure cannot delete an already rendered valid report.
+                _ui.value?.let { old ->
+                    _ui.value = buildUi(old.route, lastAnswer ?: old.answer, old.tried)
+                    _error.value = "Official request failed; keeping the previous report. " +
+                        "Position since its event time is unknown."
+                    return
+                }
                 // A failed lookup is not always a missing train: on a network that kills every live
                 // ask, repo.live can fail TRANSIENTLY for a train whose full route sits on this very
                 // device - and the owner's 16:47 paste reported exactly that: "some stations are
@@ -951,6 +987,17 @@ class LiveViewModel(
             confirmHaltRoute = halts
             confirmStaticRoute = all
         }
+    }
+
+    /** User-initiated static map retry. It is never used as a position source. */
+    fun retryIntermediateMap() {
+        val route = _ui.value?.route ?: return
+        if (RouteBetween.groupedPoints(_ui.value?.staticRoute, route).isNotEmpty()) return
+        confirmScheduleAttemptAt = 0L
+        geoAttemptAt = 0L
+        Diary.get()?.log("ROUTE", "user requested static intermediate map retry for $trainNo")
+        maybeConfirmSchedule()
+        if (officialStaticKnown) maybeRailGeo(route)
     }
 
     /** Fetch embedded, dated *static* Schedule, independently of the fast official call. No
@@ -1479,7 +1526,9 @@ class LiveViewModel(
         val claimStop = railClaim?.let { c -> route.stops.first { it.code.equals(c.code, true) } }
         val orgReport = publicChecks[PublicPageChecks.ORG]?.orgReport?.takeIf { report ->
             mirrorActiveSource == PublicPageChecks.ORG &&
-                now - report.pageUpdatedAt in 0L..300_000L &&
+                // A source outage does not delete an older validated site claim.
+                // Keep it on this run for one day, but never redate it to the failed ask.
+                now - report.pageUpdatedAt in 0L..86_400_000L &&
                 (route.stops.any { it.code.equals(report.anchorCode, true) && it.schedKm >= 0 } ||
                 report.intermediate?.let { point ->
                     RouteBetween.groupedPoints(_ui.value?.staticRoute ?: geoRoute ?: confirmStaticRoute,
@@ -1550,7 +1599,10 @@ class LiveViewModel(
             // on — no network, a timeout, a refusal, or the case this endpoint really is: it answered about
             // the train and published no arrival or departure minute at all. "No live report reached this
             // device" is the last resort, for when no source had anything more specific to say.
-            note = (if (orgReport != null) "Website reports past stops. The source badge says when NTES agrees; future stops use the timetable."
+            note = (if (orgReport != null && publicChecks[PublicPageChecks.ORG]?.pageAnswered == false)
+                    "Website request failed. Keeping the previous site report at its original event time; " +
+                        "position since then unknown."
+                else if (orgReport != null) "Website reports past stops. The source badge says when NTES agrees; future stops use the timetable."
                 else if (publicSelected) "No confirmed times from this site; timetable shown."
                 else if (mirrorSelected && !selectedMirrorForTable ||
                     erailSelected && erailAnswer == null || officialUnavailable)
@@ -1651,7 +1703,10 @@ class LiveViewModel(
         for (name in PublicPageChecks.names) {
             val result = publicChecks[name]
             sourceNames[name] = if (result == null) "none" to "checking on first load" else
-                (if (result.orgReport != null && now - result.orgReport.pageUpdatedAt in 0L..300_000L)
+                (if (name == PublicPageChecks.ORG && result.orgReport != null &&
+                    (!result.pageAnswered || now - result.orgReport.pageUpdatedAt !in 0L..300_000L))
+                    "last-known" else if (result.orgReport != null &&
+                    now - result.orgReport.pageUpdatedAt in 0L..300_000L)
                     "candidate" else if (result.stationClaim != null &&
                     now - result.stationClaim.updateAt in 0L..300_000L)
                     "candidate" else "unverified") to (result.detail + " · checked " +
@@ -1744,6 +1799,8 @@ class LiveViewModel(
             activeSource = selected,
             actualsSource = if (verified != null) selected else null,
             sourceStates = sourceNames,
+            officialRequest = lastOfficialRequest,
+            publicSourceAnswered = publicChecks.entries.associate { it.key to it.value.pageAnswered },
             lastUpdated = (mirrorRefreshedAt.takeIf { it > 0 } ?: lastFetchAt.takeIf { it > 0 })
                 ?.let { (if (verified != null) "Verified " else "Last checked ") + clockAt(it) },
             delayDetail = receipt?.second,
