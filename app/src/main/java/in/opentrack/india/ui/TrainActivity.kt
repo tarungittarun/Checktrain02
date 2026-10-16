@@ -730,6 +730,8 @@ class TrainActivity : AppCompatActivity() {
         stopAdapter.sourceNameForMarker = if (ui.activeSource == "NTES (official)") "NTES"
             else if (ui.activeSource == "last known") "Saved report"
             else ui.activeSource ?: "Source"
+        stopAdapter.legWebsiteEventMinute = ui.orgWebsiteReport
+            ?.takeIf { it.intermediate != null }?.eventMinute
         stopAdapter.setProjectedLeg(leg)
         renderSourceChips(ui)
         updateTableMarker(ui)

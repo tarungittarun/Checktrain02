@@ -251,6 +251,33 @@ class InlineRouteRenderTest {
             ctx.getColor(R.color.live), bmp.getPixel(((RouteRailGeometry.X_DP - 16f) * d).toInt(), (24 * d).toInt()))
     }
 
+    @Test fun onlySelectedWebsiteIntermediatePaintsItsOwnPublishedEventBesideMarker() {
+        val ctx = RuntimeEnvironment.getApplication()
+        val ruler = InlineLegView(ctx).apply {
+            projection = RouteBetween.LegProjection("Arsikere", "Birur", .5f, "Devanur",
+                327, "ASK", "RRB", listOf(RouteBetween.LegPoint("DRU", "Devanur", 327, .5f)),
+                RouteBetween.MarkerKind.SITE_INTERMEDIATE)
+            distanceKm = 45
+            ageSeconds = null
+        }
+        ruler.measure(View.MeasureSpec.makeMeasureSpec(360, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+        ruler.layout(0, 0, ruler.measuredWidth, ruler.measuredHeight)
+        fun sourceInk(minute: Int?): Int {
+            ruler.siteEventMinute = minute
+            val bmp = android.graphics.Bitmap.createBitmap(ruler.width, ruler.height,
+                android.graphics.Bitmap.Config.ARGB_8888)
+            ruler.paintForTest(android.graphics.Canvas(bmp))
+            val warn = ctx.getColor(R.color.warn)
+            return (0 until bmp.width).sumOf { x ->
+                (0 until bmp.height).count { y -> bmp.getPixel(x, y) == warn }
+            }
+        }
+        assertEquals("without a website event no passing clock may appear", 0, sourceInk(null))
+        assertTrue("a qualifying site's 02:16 event must appear beside the non-halt marker",
+            sourceInk(1576) > 0)
+    }
+
     @Test fun onlyARecentSourceEventPaintsTheGreenCheckOnTheLocomotive() {
         val ctx = RuntimeEnvironment.getApplication()
         val ruler = InlineLegView(ctx).apply {

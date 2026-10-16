@@ -124,6 +124,10 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         set(value) {
             if (field != value) { field = value; if (projectedLeg != null) notifyDataSetChanged() }
         }
+    var legWebsiteEventMinute: Int? = null
+        set(value) {
+            if (field != value) { field = value; if (projectedLeg != null) notifyDataSetChanged() }
+        }
     var legAgeSeconds: Long? = null
         set(value) {
             if (field?.div(60) != value?.div(60)) {
@@ -368,6 +372,8 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         holder.inlineLeg.distanceKm = nextStop?.let { (it.kmFromOrigin - s.kmFromOrigin).coerceAtLeast(0) } ?: 0
         holder.inlineLeg.ageSeconds = if (leg != null &&
             leg.markerKind != RouteBetween.MarkerKind.PROJECTED) legAgeSeconds else null
+        holder.inlineLeg.siteEventMinute = if (leg?.markerKind ==
+            RouteBetween.MarkerKind.SITE_INTERMEDIATE) legWebsiteEventMinute else null
         if (displayedLeg != null) {
             val web = leg?.markerKind == RouteBetween.MarkerKind.WEB_CACHE_CANDIDATE
             val site = leg?.markerKind == RouteBetween.MarkerKind.SITE_INTERMEDIATE
@@ -422,6 +428,9 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
                     else if (reportedHalt || siteHalt) "last reported halt (no measured distance since)"
                     else if (site) "static map of the site-reported station"
                     else if (web) "web-cache km claim" else "estimated distance") +
+                (if (site && holder.inlineLeg.siteEventMinute != null)
+                    " · website-published event " +
+                        RailTime.formatRailMinute(holder.inlineLeg.siteEventMinute!!) else "") +
                 (if (pointDescription.isEmpty()) "" else " · intermediate stations from " +
                     (mapSource ?: "static map") + ": $pointDescription")
         }

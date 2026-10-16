@@ -19,6 +19,9 @@ class InlineLegView @JvmOverloads constructor(
         set(value) { if (field != value) { field = value; requestLayout(); invalidate() } }
     var ageSeconds: Long? = null
         set(value) { field = value; invalidate() }
+    /** A website-published non-halt event, only for the site's selected intermediate. */
+    var siteEventMinute: Int? = null
+        set(value) { if (field != value) { field = value; invalidate() } }
     var distanceKm: Int = 0
         set(value) { if (field != value) { field = value; requestLayout(); invalidate() } }
     var showLabels: Boolean = false
@@ -132,6 +135,18 @@ class InlineLegView @JvmOverloads constructor(
         canvas.drawCircle(x - dp(5f), y + dp(9f), dp(2f), paint)
         canvas.drawCircle(x + dp(5f), y + dp(9f), dp(2f), paint)
 
+        // Keep the site's OWN past-card time beside its named intermediate. It is
+        // neither an NTES actual nor a calculated passing time for neighboring dots.
+        if (leg.markerKind == RouteBetween.MarkerKind.SITE_INTERMEDIATE) {
+            siteEventMinute?.let { minute ->
+                paint.textSize = sp(11f)
+                paint.color = context.getColor(R.color.warn)
+                val clock = "Web · " + `in`.opentrack.india.core.RailTime.formatRailMinute(minute)
+                val clockY = if (y + dp(32f) < height - dp(3f)) y + dp(31f)
+                    else y - dp(24f)
+                canvas.drawText(clock, x + dp(24f), clockY, paint)
+            }
+        }
         val age = ageSeconds ?: return  // Unknown event time must never earn a freshness icon.
         if (age < 60L) {
             // Check means the SOURCE EVENT was less than a minute ago, not GPS or motion.
