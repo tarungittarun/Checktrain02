@@ -54,7 +54,7 @@ class InlineLegView @JvmOverloads constructor(
         val breaks = listOf(0f) + leg.points.map { it.fraction.coerceIn(0f, 1f) } + listOf(1f)
         val heights = listOf(y0) + positions + listOf(y1)
         val fraction = leg.fraction.coerceIn(0f, 1f)
-        val segment = breaks.indices.dropLast(1).indexOfFirst { fraction <= breaks[it + 1] }
+        val segment = (0 until breaks.lastIndex).indexOfFirst { fraction <= breaks[it + 1] }
             .coerceAtLeast(0)
         val proportion = ((fraction - breaks[segment]) /
             (breaks[segment + 1] - breaks[segment]).coerceAtLeast(.001f)).coerceIn(0f, 1f)

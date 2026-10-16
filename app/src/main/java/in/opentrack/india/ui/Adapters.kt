@@ -8,6 +8,7 @@ import android.widget.LinearLayout
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
+import kotlin.math.roundToInt
 import `in`.opentrack.india.R
 import `in`.opentrack.india.core.RailTime
 import `in`.opentrack.india.domain.RouteBetween
@@ -236,8 +237,7 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             s.source == TrackModel.MinuteSource.PROJECTED -> "Estimated · not reported"
             else -> "Scheduled"
         }
-        holder.status.visibility = if (s.isAnchor || s.state == TrackModel.State.NEXT ||
-            s.state == TrackModel.State.CANCELLED || s.state == TrackModel.State.SKIPPED ||
+        holder.status.visibility = if (s.isAnchor || s.state == TrackModel.State.CANCELLED || s.state == TrackModel.State.SKIPPED ||
             stationClaim) View.VISIBLE else View.GONE
         holder.status.setTextColor(ctx.getColor(when {
             stationClaim || website || verified -> R.color.live
@@ -315,7 +315,7 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
                 val from = s.schedDep ?: s.schedArr
                 val to = next.schedArr ?: next.schedDep
                 if (kmFraction != null && from != null && to != null && to >= from)
-                    (from + (to - from) * kmFraction).toInt() else null
+                    (from + (to - from) * kmFraction).roundToInt() else null
             }
             RouteBetween.LegPoint(point.code, point.name, point.schedKm, fraction,
                 planned, point.arrivalMin == null && planned != null)

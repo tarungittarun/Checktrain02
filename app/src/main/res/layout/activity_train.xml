@@ -393,7 +393,7 @@
                     style="@style/TextMicro"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="↓ arrive · ↑ depart" />
+                    android:text="Plan ↓↑ · Source ↓↑" />
             </LinearLayout>
 
             <androidx.recyclerview.widget.RecyclerView

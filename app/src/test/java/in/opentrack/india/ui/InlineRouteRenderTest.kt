@@ -203,6 +203,34 @@ class InlineRouteRenderTest {
             height(RouteBetween.MarkerKind.SITE_LAST_STOP))
     }
 
+    @Test fun disclosedStationNamesAndDotsShareTheLocomotiveRail() {
+        val ctx = RuntimeEnvironment.getApplication()
+        val points = listOf(
+            RouteBetween.LegPoint("SAR", "Sree Saradanagar", 142, .04f, 1011, true),
+            RouteBetween.LegPoint("HNV", "Honnavalli Road", 152, .44f, 1020, true),
+            RouteBetween.LegPoint("ADH", "Adihalli", 157, .64f, 1025, true))
+        val ruler = InlineLegView(ctx).apply {
+            projection = RouteBetween.LegProjection("Tiptur", "Arsikere", 0f, null,
+                141, "TTR", "ASK", points, RouteBetween.MarkerKind.REPORTED_HALT)
+            distanceKm = 25
+            showLabels = true
+            ageSeconds = 180
+        }
+        ruler.measure(View.MeasureSpec.makeMeasureSpec(360, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+        ruler.layout(0, 0, ruler.measuredWidth, ruler.measuredHeight)
+        val bmp = android.graphics.Bitmap.createBitmap(ruler.width, ruler.height,
+            android.graphics.Bitmap.Config.ARGB_8888)
+        ruler.paintForTest(android.graphics.Canvas(bmp))
+        val d = ctx.resources.displayMetrics.density
+        val positions = LegGeometry.pointPositionsDp(points, 25)
+        assertTrue(positions[1] - positions[0] > positions[0] - 24f)
+        for (y in positions) assertEquals("intermediate dot is not on the train's rail",
+            ctx.getColor(R.color.text2), bmp.getPixel((36 * d).toInt(), (y * d).toInt()))
+        assertEquals("the locomotive has moved to a point instead of staying at its stop",
+            ctx.getColor(R.color.live), bmp.getPixel((20 * d).toInt(), (24 * d).toInt()))
+    }
+
     @Test fun onlyARecentSourceEventPaintsTheGreenCheckOnTheLocomotive() {
         val ctx = RuntimeEnvironment.getApplication()
         val ruler = InlineLegView(ctx).apply {
@@ -274,6 +302,8 @@ class InlineRouteRenderTest {
         adapter.onBindViewHolder(holder, 0)
         assertEquals(View.GONE, holder.inlineLegGroup.visibility)
         assertEquals(View.GONE, holder.details.visibility)
+        assertEquals(View.VISIBLE, holder.schedArr.visibility)
+        assertEquals(View.VISIBLE, holder.liveArr.visibility)
         assertEquals("↓ 11:10", holder.schedArr.text.toString())
         holder.row.performClick()
         adapter.onBindViewHolder(holder, 0)
