@@ -48,7 +48,20 @@ class TrainActivity : AppCompatActivity() {
     private var receiptReady = false
     private var refreshStartedAt = 0L
     private var requestedRefreshSource = "NTES (official)"
-    private val hideFeedback = Runnable { binding.refreshFeedback.visibility = View.GONE }
+    /** A completed HTTP request is not a new train event. Compare station+minute,
+     * not the site's page-update clock or the time of our own button tap. */
+    private var previousRefreshEvent: String? = null
+    private fun eventKey(ui: LiveViewModel.Ui?, source: String): String? {
+        if (ui == null) return null
+        if (source == `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG)
+            return ui.orgWebsiteReport?.let { "${it.anchorCode}:${it.eventMinute}" }
+        if (source == `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE)
+            return ui.wimtWebPoint?.let { "${it.precedingHalt}:${it.routeKm}:${it.eventAtMillis}" }
+        return ui.model.rows.firstOrNull { it.code.equals(ui.anchorCode, true) &&
+            it.source == TrackModel.MinuteSource.REPORTED }?.let {
+            "${it.code}:${it.showArr}:${it.showDep}"
+        }
+    }
     private var screenStarted = false
     /** Opt-in, screen-visible only. Uses precisely the selected-source-first manual chain. */
     private val autoRefreshTicker = object : Runnable {
@@ -130,8 +143,9 @@ class TrainActivity : AppCompatActivity() {
                 .setTitle("Sources · ${BuildStamp.ROUND}")
                 .setMessage(sourceDetails + "\n\nOn the route: the train stays at the last reported " +
                     "stop unless a source supplies a qualified distance. Small ticks use static map " +
-                    "kilometres; they are not stop reports. Red dashes mean reported delay, not " +
-                    "distance travelled. A phone app's on-board location signal is not the same as " +
+                    "kilometres; they are not stop reports. Late minutes are shown in the top card; " +
+                    "the distance ruler has the same shape for every source. A phone app's " +
+                    "on-board location signal is not the same as " +
                     "its public web page.")
                 .setPositiveButton("Close", null)
                 .show()
@@ -188,6 +202,8 @@ class TrainActivity : AppCompatActivity() {
         focusAfterRefresh = true
         refreshStartedAt = SystemClock.elapsedRealtime()
         requestedRefreshSource = lastUi?.activeSource ?: "NTES (official)"
+        previousRefreshEvent = eventKey(lastUi, requestedRefreshSource)
+        binding.refreshFeedback.visibility = View.GONE
         vm.refresh(manual = true, auto = auto)
     }
 
@@ -774,10 +790,16 @@ class TrainActivity : AppCompatActivity() {
             else -> "no new timed position from this source"
         }
         val fallback = if (switched) " · $source unavailable; now ${sourceName(active)}" else ""
-        binding.refreshFeedback.text = "↻ $source $response · $age$fallback"
+        val report = eventKey(ui, requestedRefreshSource)
+        val changed = !switched && report != null && report != previousRefreshEvent
+        val checked = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.ROOT)
+            .format(java.util.Date(now))
+        binding.refreshFeedback.text = when {
+            switched -> "Checked $checked · $source unavailable; now ${sourceName(active)}"
+            changed -> "New stop report · $source · checked $checked · $age"
+            else -> "Checked $checked · no newer stop from $source · $age"
+        }
         binding.refreshFeedback.visibility = View.VISIBLE
-        binding.refreshFeedback.removeCallbacks(hideFeedback)
-        binding.refreshFeedback.postDelayed(hideFeedback, 1_200L)
     }
 
     /** Bring the current reported halt/leg to the top without manufacturing a position. */
@@ -888,7 +910,6 @@ class TrainActivity : AppCompatActivity() {
         screenStarted = false
         binding.root.removeCallbacks(autoRefreshTicker)
         binding.stops.removeCallbacks(ageTicker)
-        binding.refreshFeedback.removeCallbacks(hideFeedback)
         super.onStop()
     }
 

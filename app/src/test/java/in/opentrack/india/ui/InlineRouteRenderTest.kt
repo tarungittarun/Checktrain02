@@ -55,7 +55,7 @@ class InlineRouteRenderTest {
         val holder = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
         adapter.onBindViewHolder(holder, 0)
         assertEquals(View.VISIBLE, holder.inlineLegGroup.visibility)
-        assertTrue(holder.inlineLegCaption.text.contains("NTES · last stop"))
+        assertTrue(holder.inlineLegCaption.text.contains("Last reported stop"))
         assertTrue(holder.inlineLeg.contentDescription.contains("no measured distance since"))
         assertEquals("12 min ago", holder.inlineLegAge.text.toString())
         assertEquals(12 * 60L, holder.inlineLeg.ageSeconds)
@@ -96,7 +96,7 @@ class InlineRouteRenderTest {
         val holder = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
         adapter.onBindViewHolder(holder, 0)
         assertEquals(View.VISIBLE, holder.inlineLegGroup.visibility)
-        assertTrue(holder.inlineLegCaption.text.contains("Website · last stop"))
+        assertTrue(holder.inlineLegCaption.text.contains("Last reported stop"))
         assertEquals("9 min ago", holder.inlineLegAge.text.toString())
         assertTrue(holder.inlineLeg.contentDescription.contains("no measured distance since"))
         assertEquals(0f, holder.inlineLeg.projection!!.fraction, .001f)
@@ -146,6 +146,14 @@ class InlineRouteRenderTest {
             compact, ruler.measuredHeight)
     }
 
+    @Test fun verticalDistanceRulerScalesByScheduledKmWithoutOutgrowingTheViewport() {
+        assertEquals(104, LegGeometry.heightDp(2, false, 0))
+        assertTrue(LegGeometry.heightDp(20, false, 0) > LegGeometry.heightDp(6, false, 0))
+        assertEquals(210, LegGeometry.heightDp(200, false, 0))
+        assertEquals(300, LegGeometry.heightDp(200, true, 100))
+        assertTrue(LegGeometry.heightDp(6, true, 3) > LegGeometry.heightDp(6, false, 3))
+    }
+
     @Test fun tappingHaltShowsUntimedPointsThenCollapsesWithoutClaimingArrival() {
         val ctx = RuntimeEnvironment.getApplication()
         val adapter = StopAdapter()
@@ -158,16 +166,16 @@ class InlineRouteRenderTest {
         adapter.submitList(listOf(row))
         val holder = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
         adapter.onBindViewHolder(holder, 0)
-        assertEquals(View.GONE, holder.intermediateGroup.visibility)
+        assertEquals(View.GONE, holder.intermediateScroll.visibility)
         holder.row.performClick()
         adapter.onBindViewHolder(holder, 0)
-        assertEquals(View.VISIBLE, holder.intermediateGroup.visibility)
+        assertEquals(View.VISIBLE, holder.intermediateScroll.visibility)
         val text = (holder.intermediateGroup.getChildAt(0) as TextView).text.toString()
         assertTrue(text.contains("Malleswaram"))
-        assertEquals("• Malleswaram · 368 km", text)
+        assertEquals("map point  ·  Malleswaram  ·  368 km", text)
         assertFalse(text.contains("Act "))
         holder.row.performClick()
         adapter.onBindViewHolder(holder, 0)
-        assertEquals(View.GONE, holder.intermediateGroup.visibility)
+        assertEquals(View.GONE, holder.intermediateScroll.visibility)
     }
 }

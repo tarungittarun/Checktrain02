@@ -239,10 +239,9 @@ Render.save("02-track-live", shot.bitmap)
         assertEquals(View.VISIBLE, reported.findViewById<View>(R.id.inlineLegGroup).visibility)
         assertTrue(icon.contentDescription.contains("static points in order: NMP"))
         assertTrue("the mini-leg lost its source/event label",
-            text(reported, R.id.inlineLegCaption).contains("last stop") ||
-                text(reported, R.id.inlineLegCaption).contains("late"))
-        if (icon.delayed) assertTrue("red delay must not imply travel distance",
-            icon.contentDescription.contains("delay, not distance travelled"))
+            text(reported, R.id.inlineLegCaption).contains("reported stop"))
+        assertTrue("distance ruler has a bounded vertical footprint",
+            icon.height >= (104 * shot.context.resources.displayMetrics.density).toInt())
         assertTrue(icon.contentDescription.contains("no measured distance since"))
         assertEquals("12 min ago", text(reported, R.id.inlineLegAge))
         assertEquals(12 * 60L, icon.ageSeconds)

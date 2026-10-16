@@ -7,15 +7,14 @@ import android.os.SystemClock
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
-import android.graphics.DashPathEffect
 import android.util.AttributeSet
 import android.view.View
 import `in`.opentrack.india.R
 import `in`.opentrack.india.domain.RouteBetween
 
-/** A proportional marker inside a table leg. A blue projected marker is NOT GPS; an amber
- * web-cache candidate is a separate, unverified source claim, also NOT GPS. Neither animates
- * travel with wall-clock time. Ticks are static map distances, never station pass events. */
+/** A single vertical distance ruler for every source. Source reliability belongs in the hero,
+ * not in a changing route shape or colour. A stop report pins the icon at the first halt;
+ * only a qualified measured distance may move it between the two halts. */
 class InlineLegView @JvmOverloads constructor(
     context: Context, attrs: AttributeSet? = null, defStyle: Int = 0,
 ) : View(context, attrs, defStyle) {
@@ -32,8 +31,9 @@ class InlineLegView @JvmOverloads constructor(
     // top of a static station name. The property is retained for older callers.
     var ageSeconds: Long? = null
         set(value) { field = value; invalidate() }
-    var delayed: Boolean = false
-        set(value) { field = value; invalidate() }
+    /** Scheduled kilometres between bounding halts, never inferred from elapsed time. */
+    var distanceKm: Int = 0
+        set(value) { if (field != value) { field = value; requestLayout(); invalidate() } }
     var showLabels: Boolean = false
         set(value) { field = value; requestLayout(); invalidate() }
 
@@ -45,51 +45,38 @@ class InlineLegView @JvmOverloads constructor(
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val count = projection?.points?.size ?: 0
-        val h = if (showLabels) (110 + count * 24).coerceIn(130, 350) else 52
+        val h = LegGeometry.heightDp(distanceKm, showLabels, count)
         setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), dp(h.toFloat()).toInt())
     }
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         val leg = projection ?: return
-        // The resting view is a compact horizontal distance ruler, so the next
-        // scheduled stop is visible without scrolling past a tall empty leg. On
-        // disclosure it becomes a vertical, labelled map. Both use the SAME
-        // measured fraction; expanding cannot move the train.
-        val vertical = showLabels
-        val x0 = if (vertical) dp(36f) else dp(80f)
-        val x1 = if (vertical) x0 else width - dp(22f)
-        val y0 = if (vertical) dp(22f) else dp(26f)
-        val y1 = if (vertical) height - dp(20f) else y0
-        paint.strokeWidth = dp(3f)
-        paint.color = context.getColor(if (delayed) R.color.late else R.color.stroke)
-        // Red dashes mark DELAY across this scheduled leg; they are not
-        // the blue solid portion, which requires a qualified km measurement.
-        paint.pathEffect = if (delayed) DashPathEffect(floatArrayOf(dp(6f), dp(5f)), 0f) else null
-        canvas.drawLine(x0, y0, x1, y1, paint)
-        paint.pathEffect = null
-        val markerColor = context.getColor(if (delayed) R.color.late else if (leg.markerKind in listOf(
-                RouteBetween.MarkerKind.PROJECTED, RouteBetween.MarkerKind.REPORTED_HALT))
-            R.color.live else R.color.warn)
+        val x = dp(36f)
+        val y0 = dp(23f)
+        val y1 = height - dp(23f)
         val fraction = leg.fraction.coerceIn(0f, 1f)
-        val x = x0 + (x1 - x0) * fraction
         val y = y0 + (y1 - y0) * fraction
+        val markerColor = context.getColor(R.color.live)
+        paint.strokeWidth = dp(3f)
+        paint.color = context.getColor(R.color.stroke)
+        canvas.drawLine(x, y0, x, y1, paint)
+        // The coloured portion requires a source-provided distance; at a reported
+        // halt it is zero, even after twenty minutes without another report.
         paint.color = markerColor
-        canvas.drawLine(x0, y0, x, y, paint)
+        canvas.drawLine(x, y0, x, y, paint)
         paint.color = context.getColor(R.color.text2)
         paint.textSize = dp(11f)
         var lastLabelY = Float.NEGATIVE_INFINITY
         for (point in leg.points) {
-            val tickX = x0 + (x1 - x0) * point.fraction
-            val tickY = y0 + (y1 - y0) * point.fraction
-            if (vertical) {
-                canvas.drawCircle(tickX, tickY, dp(3f), paint)
-                if (tickY - lastLabelY >= dp(20f) && tickY > y0 + dp(22f)) {
-                    canvas.drawText("${point.code} · ${point.mapKm} km (map)",
-                        tickX + dp(27f), tickY + dp(4f), paint)
-                    lastLabelY = tickY
-                }
-            } else canvas.drawLine(tickX, tickY - dp(5f), tickX, tickY + dp(5f), paint)
+            val tickY = y0 + (y1 - y0) * point.fraction.coerceIn(0f, 1f)
+            canvas.drawCircle(x, tickY, dp(3f), paint)
+            if (showLabels && tickY - lastLabelY >= dp(22f) && tickY > y0 + dp(19f)) {
+                // These smaller, inset map labels are NOT arrival reports or timed halt rows.
+                canvas.drawText("map · ${point.code} · ${point.mapKm} km",
+                    x + dp(26f), tickY + dp(4f), paint)
+                lastLabelY = tickY
+            }
         }
         // A soft stationary halo says "this source claim is on screen"; the marker
         // does NOT travel with wall-clock time. Only a newly qualified source event
@@ -127,5 +114,14 @@ class InlineLegView @JvmOverloads constructor(
         paint.color = context.getColor(R.color.ink_on_accent)
         canvas.drawCircle(x - dp(8f), y + dp(11f), dp(1.2f), paint)
         canvas.drawCircle(x + dp(8f), y + dp(11f), dp(1.2f), paint)
+    }
+}
+
+/** Bounded height grows with the scheduled station-to-station distance, not elapsed time.
+ * Expanding map points never changes the icon's fractional position. */
+object LegGeometry {
+    fun heightDp(distanceKm: Int, expanded: Boolean, points: Int): Int {
+        val leg = (88 + distanceKm.coerceAtLeast(0) * 4).coerceIn(104, 210)
+        return if (expanded) (leg + points.coerceAtLeast(0) * 12).coerceAtMost(300) else leg
     }
 }

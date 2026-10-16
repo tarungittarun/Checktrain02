@@ -359,8 +359,11 @@ class TrackingFlowTest {
         try {
             assertTrue("no refresh receipt after a minute with Auto on",
                 E2E.ui.wait(Until.hasObject(By.res(E2E.PKG, "refreshFeedback")), 80_000L))
-            assertTrue("auto refresh receipt has no response or source",
-                E2E.text("refreshFeedback").contains(" s · "))
+            val receipt = E2E.text("refreshFeedback")
+            assertTrue("auto refresh must say what source answered and whether its event changed: $receipt",
+                receipt.contains("Checked ") &&
+                    (receipt.contains("no newer stop") || receipt.contains("New stop report") ||
+                        receipt.contains("unavailable")))
         } finally {
             // Each flow starts in the same installed app; never contaminate another test.
             E2E.tap("autoSwitch")

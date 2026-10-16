@@ -66,19 +66,6 @@
          is in flight, and a captioned spinner while the very first look (the one the traveller is
          staring at) has not landed yet. Indeterminate on purpose - a refused source's duration is
          not knowable, and a fake percent would be a lie this app does not tell. -->
-    <!-- One-second refresh receipt. Never persists as a claimed train location. -->
-    <TextView
-        android:id="@+id/refreshFeedback"
-        style="@style/TextMicro"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginLeft="@dimen/gap"
-        android:layout_marginRight="@dimen/gap"
-        android:background="@drawable/bg_pill_accent"
-        android:padding="8dp"
-        android:textColor="@color/accent"
-        android:visibility="gone" />
-
     <ProgressBar
         android:id="@+id/checkingBar"
         style="?android:attr/progressBarStyleHorizontal"
@@ -326,6 +313,19 @@
                     android:text="@string/refresh"
                     android:textSize="13sp" />
             </LinearLayout>
+
+    <!-- A checked-at receipt remains until the next request; never a movement claim. -->
+    <TextView
+        android:id="@+id/refreshFeedback"
+        style="@style/TextMicro"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginLeft="@dimen/gap"
+        android:layout_marginRight="@dimen/gap"
+        android:background="@drawable/bg_inset"
+        android:padding="8dp"
+        android:textColor="@color/text2"
+        android:visibility="gone" />
 
             <TextView
                 android:id="@+id/mirrorState"

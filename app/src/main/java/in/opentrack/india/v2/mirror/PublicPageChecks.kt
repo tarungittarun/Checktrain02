@@ -55,7 +55,8 @@ object PublicPageChecks {
         fetch(name, number, originDay, now, source, destination, knownCodes, route, mapRoute) { url ->
             http.get(url, timeoutMillis = 4_000, retries = retriesFor(name), budgetMillis = 4_000,
                 headers = mapOf("User-Agent" to "Mozilla/5.0 (Linux; Android 13; Mobile) Chrome/120 Safari/537.36",
-                    "Accept" to if (name == RAIL_YATRI) "application/json" else "text/html"))
+                    "Accept" to if (name == RAIL_YATRI) "application/json" else "text/html",
+                    "Cache-Control" to "no-cache", "Pragma" to "no-cache"))
         }
 
     /** Transport seam: a source choice always requests its own URL. An HTTP fallback cache may

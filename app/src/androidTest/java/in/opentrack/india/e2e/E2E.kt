@@ -194,9 +194,20 @@ object E2E {
                 val shellStart = runCatching {
                     ui.executeShellCommand("am start -W -n $PKG/.ui.MainActivity")
                 }.getOrElse { "activity-manager error: ${it.message}" }
-                check(ui.wait(Until.hasObject(res("settings")), 10_000L)) {
-                    "the search activity never appeared after context and shell launches: " +
-                        shellStart.take(200)
+                if (!ui.wait(Until.hasObject(res("settings")), 10_000L)) {
+                    // On a minority of API 24 cold boots Android says the task was
+                    // brought forward, yet its window remains behind the launcher.
+                    // Start from Home and force a *process* restart, not pm clear:
+                    // cold-install data and all assertions must remain intact.
+                    ui.pressHome()
+                    ui.executeShellCommand("am force-stop $PKG")
+                    val freshStart = ui.executeShellCommand(
+                        "am start -S -W -n $PKG/.ui.MainActivity")
+                    check(ui.wait(Until.hasObject(res("settings")), 20_000L)) {
+                        "search activity absent after context, shell and clean task launch; " +
+                            "package=${ui.currentPackageName}; first=${shellStart.take(110)}; " +
+                            "retry=${freshStart.take(110)}"
+                    }
                 }
             }
         }

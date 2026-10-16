@@ -172,6 +172,7 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
     class Holder(view: View) : RecyclerView.ViewHolder(view) {
         val row: View = view.findViewById(R.id.stopRow)
         val intermediateGroup: LinearLayout = view.findViewById(R.id.intermediateGroup)
+        val intermediateScroll: android.widget.ScrollView = view.findViewById(R.id.intermediateScroll)
         val inlineLegGroup: LinearLayout = view.findViewById(R.id.inlineLegGroup)
         val inlineLeg: InlineLegView = view.findViewById(R.id.inlineLeg)
         val inlineLegCaption: TextView = view.findViewById(R.id.inlineLegCaption)
@@ -218,16 +219,18 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             else "🚆  ${it.caption}"
         }.orEmpty()
         holder.marker.contentDescription = marker?.caption ?: ""
-        holder.marker.setTextColor(ctx.getColor(if (marker?.website == true) R.color.warn else R.color.live))
+        holder.marker.setTextColor(ctx.getColor(R.color.live))
         val verified = s.source == TrackModel.MinuteSource.REPORTED
         val website = s.source == TrackModel.MinuteSource.SITE_REPORTED
         val stationClaim = reports[s.code]?.startsWith("RailYatri root claims") == true
         holder.status.text = when {
-            website -> "Website claim · unverified"
-            stationClaim -> "Station claim · time unknown"
+            website && s.showDep != null -> "Departed station · unverified"
+            website -> "Arrival claim · unverified"
+            stationClaim -> "At station claimed · time unknown"
+            verified && s.isAnchor && s.showDep != null -> "Departed station · later position unknown"
             verified && s.showDep != null -> "Departed · reported"
             verified && s.isAnchor && s.state == TrackModel.State.PASSED -> "Departed · time unknown"
-            verified && s.showArr != null -> "Arrived · departure unknown"
+            verified && s.showArr != null -> "Arrived at station · departure unknown"
             s.state == TrackModel.State.PASSED -> "Past on schedule · actual unknown"
             s.state == TrackModel.State.HERE -> "At stop on schedule · unconfirmed"
             s.state == TrackModel.State.NEXT && s.source == TrackModel.MinuteSource.PROJECTED ->
@@ -240,8 +243,7 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             s.state == TrackModel.State.CANCELLED || s.state == TrackModel.State.SKIPPED ||
             stationClaim || website || (detailOverrides[s.code] == true)) View.VISIBLE else View.GONE
         holder.status.setTextColor(ctx.getColor(when {
-            stationClaim || website -> R.color.warn
-            verified -> R.color.live
+            stationClaim || website || verified -> R.color.live
             s.source == TrackModel.MinuteSource.PROJECTED -> R.color.warn
             else -> R.color.text3
         }))
@@ -274,8 +276,7 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         // A pure-timetable row stays grey in both - no number pretends to be news.
         val color = when {
             !reported -> R.color.text2
-            s.source == TrackModel.MinuteSource.PROJECTED || website -> R.color.warn
-            late -> R.color.late
+            s.source == TrackModel.MinuteSource.PROJECTED -> R.color.warn
             else -> R.color.live
         }
         holder.liveArr.setTextColor(ctx.getColor(color))
@@ -299,31 +300,28 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         holder.stopToggle.text = if (routePoints[s.code].orEmpty().isNotEmpty())
             (if (expandedCode == s.code) "Less  ▴" else "Explore  ▾")
         else if (holder.details.visibility == View.VISIBLE) "Less  ▴" else "Details  ▾"
-        holder.dot.setBackgroundResource(if (s.isAnchor && (s.delay ?: 0) >= 3 && verified)
-            R.drawable.dot_problem else dotFor(s))
+        holder.dot.setBackgroundResource(if (s.isAnchor) R.drawable.dot_passed else dotFor(s))
         // Keep the next stop directly after the compact leg. The former 34dp
         // projected-row spacer looked like missing content on a phone.
         holder.row.setPadding(holder.row.paddingLeft,
             ctx.resources.getDimensionPixelSize(R.dimen.gap_s),
             holder.row.paddingRight, holder.row.paddingBottom)
-        holder.row.setBackgroundColor(
-            when {
-                s.state == TrackModel.State.HERE && verified && s.showArr != null && s.showDep == null ->
-                    0x30FFC107.toInt()
-                s.code.equals(highlightCode, true) && verified && (s.delay ?: 0) >= 3 ->
-                    0x26FF6F5E.toInt() // red is a reported delay, not a moving location
-                s.code.equals(highlightCode, true) ->
-                    if (verified) 0x2054A9FF else 0x30FFC107.toInt()
-                s.isAnchor -> 0x2437C978.toInt()
-                s.isBoarding || s.isAlighting -> 0x0AFFFFFF
-                else -> 0x00000000
-            }
-        )
+        // The route uses one accent for all sources. Trust and late minutes are
+        // qualified in the hero and time sheet, not a different map skin.
+        holder.row.setBackgroundColor(when {
+            s.code.equals(highlightCode, true) || s.isAnchor -> 0x2054A9FF
+            s.isBoarding || s.isAlighting -> 0x0AFFFFFF
+            else -> 0x00000000
+        })
         val points = routePoints[s.code].orEmpty()
         val leg = projectedLeg?.takeIf { it.fromCode.equals(s.code, true) }
         holder.inlineLegGroup.visibility = if (leg == null) View.GONE else View.VISIBLE
         holder.inlineLeg.projection = leg
         holder.inlineLeg.showLabels = expandedCode == s.code
+        holder.inlineLeg.distanceKm = leg?.let { projection ->
+            currentList.firstOrNull { it.code.equals(projection.toCode, true) }
+                ?.let { (it.kmFromOrigin - s.kmFromOrigin).coerceAtLeast(0) }
+        } ?: 0
         holder.inlineLeg.ageSeconds = if (leg?.markerKind != RouteBetween.MarkerKind.PROJECTED)
             legAgeSeconds else null
         if (leg != null) {
@@ -333,24 +331,18 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             val reportedHalt = leg.markerKind == RouteBetween.MarkerKind.REPORTED_HALT
             val stationClaim = leg.markerKind == RouteBetween.MarkerKind.STATION_CLAIM
             val caption = when {
-                stationClaim -> "Station claimed · not GPS"
-                reportedHalt -> "${sourceNameForMarker} · last stop"
-                siteHalt -> "Website · last stop"
-                site -> "Website · reported point"
-                web -> "Web cache · unverified km"
-                else -> "Distance estimate · not GPS"
+                stationClaim -> "Station claimed · time unknown"
+                leg.fraction > 0f -> "Between halts · motion unknown · not GPS"
+                else -> "Last reported stop · later position unknown"
             }
-            val isLate = reportedHalt && (s.delay ?: 0) >= 3
-            holder.inlineLegCaption.text = if (isLate)
-                "${sourceNameForMarker} · +${s.delay}m late" else caption
-            holder.inlineLegCaption.setTextColor(ctx.getColor(if (isLate) R.color.late else if (reportedHalt) R.color.live else R.color.warn))
+            holder.inlineLegCaption.text = caption
+            holder.inlineLegCaption.setTextColor(ctx.getColor(R.color.text2))
             holder.inlineLegAge.text = holder.inlineLeg.ageSeconds?.let { seconds ->
                 if (seconds < 60) "Just now" else TableMarker.elapsedLabel(seconds * 1_000L) + " ago"
             }.orEmpty()
             holder.inlineLegAge.visibility = if (holder.inlineLegAge.text.isEmpty()) View.GONE else View.VISIBLE
             holder.inlineLegAge.contentDescription = if (holder.inlineLegAge.text.isEmpty()) ""
                 else "Last reported event ${holder.inlineLegAge.text}"
-            holder.inlineLeg.delayed = isLate
             holder.routeToggle.text = if (expandedCode == s.code) "Hide  ▴" else
                 "${leg.points.size} points  ▾"
             holder.routeToggle.contentDescription = if (expandedCode == s.code)
@@ -365,7 +357,6 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
                     .takeIf { it >= 0 }?.let(::notifyItemChanged)
             }
             holder.inlineLeg.contentDescription = caption +
-                (if (isLate) " · red dashes show reported delay, not distance travelled" else "") +
                 " · not GPS · ${leg.from} to ${leg.to} " +
                 "${(leg.fraction * 100).toInt()} percent of scheduled leg by " +
                 (if (stationClaim) "unverified station claim (no passage time or measured distance)"
@@ -394,17 +385,21 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             else (if (holder.details.visibility == View.VISIBLE) "hide" else "show") +
                 " arrival and departure times")
         holder.intermediateGroup.removeAllViews()
-        holder.intermediateGroup.visibility = if (points.isNotEmpty() && expandedCode == s.code)
+        holder.intermediateScroll.visibility = if (points.isNotEmpty() && expandedCode == s.code)
             View.VISIBLE else View.GONE
-        if (holder.intermediateGroup.visibility == View.VISIBLE) {
+        holder.intermediateScroll.layoutParams = holder.intermediateScroll.layoutParams.apply {
+            height = if (points.size > 5) (136 * ctx.resources.displayMetrics.density).toInt()
+                else android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+        }
+        if (holder.intermediateScroll.visibility == View.VISIBLE) {
             for (point in points) {
                 holder.intermediateGroup.addView(TextView(ctx).apply {
                     // Static map points are not evidence that a train stopped or passed here.
-                    text = "• ${RowText.of(point.name)}" +
-                        (if (point.schedKm >= 0) " · ${point.schedKm} km" else " · distance unknown")
+                    text = "map point  ·  ${RowText.of(point.name)}" +
+                        (if (point.schedKm >= 0) "  ·  ${point.schedKm} km" else "  ·  km unknown")
                     setTextColor(ctx.getColor(if (point.isHalt) R.color.text1 else R.color.text2))
-                    textSize = 13f
-                    val pad = (5 * ctx.resources.displayMetrics.density).toInt()
+                    textSize = 11f
+                    val pad = (3 * ctx.resources.displayMetrics.density).toInt()
                     setPadding(0, pad, 0, pad)
                 })
             }
