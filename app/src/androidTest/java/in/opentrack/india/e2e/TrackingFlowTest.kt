@@ -432,18 +432,24 @@ class TrackingFlowTest {
                 E2E.ui.wait(Until.hasObject(By.res(E2E.PKG, "refreshFeedback")), 80_000L))
             val receipt = E2E.text("refreshFeedback")
             val checked = Regex("^Checked \\d{2}:\\d{2}:\\d{2} · ").containsMatchIn(receipt)
+            val answered = Regex("^(NTES|Website) answered at \\d{2}:\\d{2}:\\d{2} · ")
+                .containsMatchIn(receipt)
             val changed = Regex("^New stop report · .+ · checked \\d{2}:\\d{2}:\\d{2} · ")
                 .containsMatchIn(receipt)
-            val revised = Regex("^(Revised (website )?time at same (reported )?stop|Updated web distance claim at same leg).+ · checked \\d{2}:\\d{2}:\\d{2} · ")
+            val revised = Regex("^Revised time at same stop · .+ · checked \\d{2}:\\d{2}:\\d{2} · ")
                 .containsMatchIn(receipt)
-            assertTrue("auto refresh must show a check clock and source: $receipt",
-                (checked || changed || revised) && listOf("NTES", "erail", "website", "WIMT",
-                    "ConfirmTkt", "runningstatus").any { receipt.contains(it) })
-            assertTrue("auto refresh must distinguish a new event, unchanged event, or no report: $receipt",
-                receipt.contains("no newer stop") || receipt.contains("New stop report") ||
-                    receipt.contains("Revised ") || receipt.contains("Updated web distance claim") ||
-                    receipt.contains("cached response only") || receipt.contains("cached body ignored") ||
-                    receipt.contains("unavailable") || receipt.contains("no usable new report"))
+            assertTrue("auto refresh must show a check clock and named source: $receipt",
+                (checked || answered || changed || revised) && listOf("NTES", "erail", "website", "WIMT",
+                    "ConfirmTkt", "runningstatus", "Website").any { receipt.contains(it) })
+            // Requiring a distinct terminal finding catches the original bug: a
+            // successful HTTP response with an unchanged old event looked like
+            // failure, while a failed request looked like a new observation.
+            assertTrue("auto refresh must distinguish answered/unchanged, failed, and revised: $receipt",
+                listOf("same last reported stop", "same last site-reported stop",
+                    "new reported stop", "new site-reported stop", "revised time",
+                    "request failed", "answered, no validated new stop", "not reached",
+                    "no usable new report", "has no usable report", "cached HTTP body",
+                    "New stop report", "Revised time", "No newer stop").any { receipt.contains(it) })
         } finally {
             // Each flow starts in the same installed app; never contaminate another test.
             E2E.tap("autoSwitch")

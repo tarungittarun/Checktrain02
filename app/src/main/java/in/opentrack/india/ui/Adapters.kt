@@ -141,7 +141,9 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
     fun setRoutePoints(groups: Map<String, List<StopRow>>) {
         if (routePoints == groups) return
         routePoints = groups
-        if (expandedCode?.let { it !in groups } == true) expandedCode = null
+        if (expandedCode?.let { code -> code !in groups &&
+                projectedLeg?.takeIf { it.fromCode == code }?.points.isNullOrEmpty() } == true)
+            expandedCode = null
         notifyDataSetChanged()
     }
 
@@ -347,6 +349,7 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         val mapUnavailable = nextStop != null && available.isEmpty() && !staticMapAvailable
         holder.inlineLegGroup.visibility = if (displayedLeg != null) View.VISIBLE else View.GONE
         holder.inlineLeg.projection = displayedLeg
+        holder.inlineLeg.compactStatic = leg == null
         holder.inlineLeg.showLabels = disclosed
         // A pinned halt uses the locomotive IN its station row. Do not draw a
         // second locomotive 24dp down in the next leg (the apparent third dot).
@@ -445,6 +448,19 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
     private fun toggleStations(code: String, fallbackPosition: Int, holder: Holder) {
         val previous = expandedCode
         expandedCode = if (previous == code) null else code
+        // Show the result on this very tap, even if RecyclerView is deferring a
+        // change animation/rebind while the user scrolls the long train route.
+        val opened = expandedCode == code
+        holder.inlineLeg.showLabels = opened
+        holder.routeToggle.text = if (opened) "Hide ▴" else "Stations ▾"
+        holder.routeToggle.contentDescription = if (opened)
+            "Hide intermediate stations" else "Show intermediate stations"
+        holder.inlineLeg.requestLayout()
+        holder.inlineLeg.invalidate()
+        `in`.opentrack.india.core.Diary.get()?.log("ROUTE_UI") {
+            "leg $code ${if (opened) "opened" else "closed"}; inline points=" +
+                (holder.inlineLeg.projection?.points?.size ?: 0)
+        }
         if (previous != null && previous != code) currentList.indexOfFirst { it.code == previous }
             .takeIf { it >= 0 }?.let(::notifyItemChanged)
         notifyItemChanged(holder.bindingAdapterPosition.takeIf { it != RecyclerView.NO_POSITION }

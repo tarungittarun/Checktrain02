@@ -25,6 +25,9 @@ class InlineLegView @JvmOverloads constructor(
         set(value) { if (field != value) { field = value; requestLayout(); invalidate() } }
     var showTrain: Boolean = true
         set(value) { field = value; invalidate() }
+    /** Untimed map-only legs need a full touch target, not a tall empty train leg. */
+    var compactStatic: Boolean = false
+        set(value) { if (field != value) { field = value; requestLayout(); invalidate() } }
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val box = RectF()
@@ -36,6 +39,7 @@ class InlineLegView @JvmOverloads constructor(
         setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec),
             dp((if (showLabels && projection?.points?.isNotEmpty() == true)
                 LegGeometry.expandedHeightDp(projection!!.points, distanceKm)
+                else if (compactStatic) LegGeometry.compactMappedHeightDp(distanceKm)
                 else LegGeometry.heightDp(distanceKm, screenDp)).toFloat()).roundToInt())
     }
 
@@ -162,9 +166,15 @@ class InlineLegView @JvmOverloads constructor(
  * Both spacing and age are functions of source/map facts, never of elapsed train travel. */
 object LegGeometry {
     fun heightDp(distanceKm: Int, screenHeightDp: Float = 760f): Int {
-        val ceiling = (screenHeightDp * 0.19f).roundToInt().coerceIn(100, 150)
-        return (80 + distanceKm.coerceAtLeast(0) * 0.85f).roundToInt().coerceIn(80, ceiling)
+        // Keep three named halts in the first phone viewport even on a 65-km
+        // last-reported leg. Still grows with the *scheduled distance*, never time.
+        val ceiling = (screenHeightDp * 0.135f).roundToInt().coerceIn(90, 112)
+        return (72 + distanceKm.coerceAtLeast(0) * 0.55f).roundToInt().coerceIn(72, ceiling)
     }
+
+    /** Enough for an accessible whole-rail tap without pushing mapped halts off-screen. */
+    fun compactMappedHeightDp(distanceKm: Int): Int =
+        (48 + distanceKm.coerceAtLeast(0) * .1f).roundToInt().coerceIn(48, 58)
 
     fun stopGapDp(distanceKm: Int, screenHeightDp: Float = 760f): Int {
         val ceiling = (screenHeightDp * 0.035f).roundToInt().coerceIn(12, 27)

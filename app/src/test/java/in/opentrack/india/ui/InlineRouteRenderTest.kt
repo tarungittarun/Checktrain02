@@ -166,12 +166,13 @@ class InlineRouteRenderTest {
     }
 
     @Test fun verticalDistanceRulerScalesByScheduledKmWithoutOutgrowingTheViewport() {
-        assertEquals(82, LegGeometry.heightDp(2))
+        assertEquals(73, LegGeometry.heightDp(2))
         assertTrue(LegGeometry.heightDp(20) > LegGeometry.heightDp(6))
-        assertEquals(144, LegGeometry.heightDp(200))
+        assertEquals(103, LegGeometry.heightDp(200))
         assertEquals("small screens cap the leg and leave space for three halt rows",
-            100, LegGeometry.heightDp(200, 480f))
-        assertTrue(LegGeometry.heightDp(200) + 3 * 82 < 400)
+            90, LegGeometry.heightDp(200, 480f))
+        assertTrue(LegGeometry.heightDp(65) + 3 * 82 < 360)
+        assertTrue(LegGeometry.compactMappedHeightDp(65) in 48..58)
         assertTrue(LegGeometry.stopGapDp(60) > LegGeometry.stopGapDp(2))
         assertTrue(LegGeometry.stopGapDp(200, 480f) <= 17)
         assertEquals("1 min ago", LegGeometry.ageLabel(60))
@@ -316,11 +317,17 @@ class InlineRouteRenderTest {
         assertEquals(View.VISIBLE, holder.inlineLegGroup.visibility)
         assertFalse(holder.inlineLeg.showLabels)
         assertEquals("Stations ▾", holder.routeToggle.text.toString())
+        assertTrue(holder.inlineLeg.compactStatic)
+        holder.inlineLeg.measure(View.MeasureSpec.makeMeasureSpec(360, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+        assertTrue(holder.inlineLeg.measuredHeight / ctx.resources.displayMetrics.density <= 58f)
         assertEquals(View.GONE, holder.details.visibility)
         assertEquals(View.VISIBLE, holder.schedArr.visibility)
         assertEquals(View.VISIBLE, holder.liveArr.visibility)
         assertEquals("11:10", holder.schedArr.text.toString())
-        holder.row.performClick()
+        holder.inlineLeg.performClick() // full folded rail must open, not just the name
+        assertEquals("Hide ▴", holder.routeToggle.text.toString())
+        assertTrue(holder.inlineLeg.showLabels) // visible before RecyclerView's next bind
         adapter.onBindViewHolder(holder, 0)
         assertEquals(View.VISIBLE, holder.inlineLegGroup.visibility)
         assertTrue(holder.inlineLeg.showLabels)
@@ -349,20 +356,32 @@ class InlineRouteRenderTest {
         adapter.onMapUnavailable = { explanations++ }
         adapter.setProjectedLeg(RouteBetween.LegProjection("Yesvantpur", "Tumkur", 0f,
             "Yesvantpur", 144, "YPR", "TK", emptyList(), RouteBetween.MarkerKind.REPORTED_HALT))
+        adapter.haltMarker = TableMarker.Halt("YPR", "NTES YPR departure 23:42", true)
+        adapter.legAgeSeconds = 53 * 60L
         val from = TrackModel.Stop(1, "YPR", "Yesvantpur", 1420, 1422,
             1420, 1422, null, TrackModel.MinuteSource.REPORTED, null,
             TrackModel.State.PASSED, true, 144, 0, 55, false, false, false, -53)
         val to = from.copy(seq = 2, code = "TK", name = "Tumkur", kmFromOrigin = 199,
             isAnchor = false, source = TrackModel.MinuteSource.SCHEDULE)
-        adapter.submitList(listOf(from, to))
+        val third = to.copy(seq = 3, code = "TTR", name = "Tiptur", kmFromOrigin = 279)
+        adapter.submitList(listOf(from, to, third))
         val holder = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
         adapter.onBindViewHolder(holder, 0)
         assertEquals(View.VISIBLE, holder.inlineLegGroup.visibility)
         assertTrue(holder.inlineLegCaption.text.contains("map unavailable"))
         assertEquals("Map unavailable · why?", holder.routeToggle.text.toString())
+        assertTrue("freshness must be beside the pinned locomotive",
+            holder.marker.text.toString().startsWith("53 min ago · LAST REPORTED STOP"))
+        assertEquals(53 * 60L, holder.trainMarker.ageSeconds)
         holder.routeToggle.performClick()
         holder.inlineLeg.performClick()
         assertEquals(2, explanations)
+        adapter.onBindViewHolder(holder, 1)
+        holder.row.performClick() // even a plain, unmapped station gap explains itself
+        assertEquals(3, explanations)
+        adapter.onBindViewHolder(holder, 2)
+        holder.row.performClick() // last stop has no following leg; no false promise
+        assertEquals(3, explanations)
         adapter.onBindViewHolder(holder, 0)
         assertFalse(holder.inlineLeg.showLabels)
         assertEquals(0, holder.inlineLeg.projection!!.points.size)

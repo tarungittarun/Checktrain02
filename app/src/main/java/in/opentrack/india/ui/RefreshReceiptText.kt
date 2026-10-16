@@ -33,11 +33,14 @@ object RefreshReceiptText {
         }
         if (cachedBody) return "Checked $checked · $sourceLabel request timed out; " +
             "cached HTTP body is not a new reply · $context"
+        val detail = status?.second.orEmpty()
+        if (detail.contains("Request failed:", true) || detail.contains("timed out", true) ||
+            detail.contains("could not connect", true) || detail.contains("did not answer", true)) {
+            val short = detail.substringAfter("Request failed:", detail).substringBefore(';')
+                .trim().take(95)
+            return "Checked $checked · $sourceLabel request failed: $short · $context"
+        }
         if (source == PublicPageChecks.ORG) {
-            if (websiteAnswered == false && status?.second?.contains("Request failed", true) == true)
-                return "Checked $checked · website request failed: " +
-                    status.second.substringAfter("Request failed:").substringBefore(';').trim().take(95) +
-                    " · $context"
             if (websiteAnswered == true) {
                 val finding = when (change) {
                     RefreshEvidence.Change.NEW_STOP -> "new site-reported stop (unverified)"

@@ -248,3 +248,13 @@ R114 increments the updateable debug APK to versionCode 44
 (`1.0.43-r114`) with the unchanged test-only signing identity. PR #3 remains
 open until the owner confirms the update on the phone. CI/head-specific
 validation must be appended only after both runs have actually passed.
+
+The second pass on this same task also shortens the collapsed 65-km
+Yesvantpur→Tumkur ruler (while retaining scheduled-km scaling), gives other
+mapped legs a minimum 48dp full-rail tap target, and paints names/dots on the
+first tap before RecyclerView's next rebind. A diary line records which leg was
+tapped and how many independently mapped points were available. Even if an
+adopted official GET returns an HTTP-cache body after its network request
+fails, that body is rejected as a *new* NTES answer; any previously saved
+report keeps its original event clock. The E2E refresh assertion now tests
+answered-but-unchanged and failed requests as distinct terminal outcomes.

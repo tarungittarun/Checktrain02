@@ -255,6 +255,17 @@ class NtesProvider(
                 return null
             }
         }
+        if (body.fromCache) {
+            // A GET request shape adopted on this device can inherit Http's offline
+            // fallback cache. That is not a new official answer, even if the old
+            // envelope still parses perfectly. SnapshotStore may keep its old Act
+            // rows, but this request must be recorded as FAILED, never answered.
+            note = "The live feed did not answer; an older HTTP body was returned from cache " +
+                "(${body.ageMillis / 60_000} min old) and ignored."
+            Diary.get()?.log("NTES", "request failed; cached HTTP body ignored; original age=" +
+                (body.ageMillis / 1000) + "s")
+            return null
+        }
         val doc = NtesWire.unwrapJson(body.body)
         // Log the *decrypted* structure, not 1,500 characters of ciphertext. On the owner's R53
         // phone the official envelope succeeded in 0.4 s, but the old log concealed the fields

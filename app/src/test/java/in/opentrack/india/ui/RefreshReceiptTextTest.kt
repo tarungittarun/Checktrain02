@@ -48,6 +48,16 @@ class RefreshReceiptTextTest {
         assertFalse(failure.contains("Website answered"))
     }
 
+    @Test fun selectedNonOfficialConnectionFailureKeepsEvidenceWithoutCallingItUnchanged() {
+        val receipt = RefreshReceiptText.format("RailYatri", "RailYatri", "NTES · official",
+            "00:37:00", "last reported stop 55 min ago",
+            "unverified" to "Request failed: TIMEOUT · connection refused; no position.",
+            null, false, false, unchanged, true)
+        assertTrue(receipt.contains("RailYatri request failed"))
+        assertTrue(receipt.contains("showing NTES"))
+        assertFalse(receipt.contains("same last reported stop"))
+    }
+
     @Test fun answeredWithoutActualsIsNotMislabelledNetworkFailure() {
         val outcome = OfficialRequestReceipt.from(listOf("PROVIDER_NTES=miss"),
             listOf("LIVE · running status: NTES answered but supplied no observed minute."))
