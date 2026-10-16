@@ -242,7 +242,7 @@ class InlineRouteRenderTest {
                 }
             })
         assertEquals("the locomotive has moved to a point instead of staying at its stop",
-            ctx.getColor(R.color.live), bmp.getPixel((RouteRailGeometry.X_DP * d).toInt(), (24 * d).toInt()))
+            ctx.getColor(R.color.live), bmp.getPixel(((RouteRailGeometry.X_DP - 16f) * d).toInt(), (24 * d).toInt()))
     }
 
     @Test fun onlyARecentSourceEventPaintsTheGreenCheckOnTheLocomotive() {
@@ -292,7 +292,7 @@ class InlineRouteRenderTest {
         val official = paint(RouteBetween.MarkerKind.REPORTED_HALT)
         val d = ctx.resources.displayMetrics.density
         assertEquals("source-neutral train body must actually be painted",
-            ctx.getColor(R.color.live), official.getPixel((RouteRailGeometry.X_DP * d).toInt(), (24 * d).toInt()))
+            ctx.getColor(R.color.live), official.getPixel(((RouteRailGeometry.X_DP - 16f) * d).toInt(), (24 * d).toInt()))
         assertTrue("switching from NTES to the website changed the route skin",
             official.sameAs(paint(RouteBetween.MarkerKind.SITE_LAST_STOP)))
     }
