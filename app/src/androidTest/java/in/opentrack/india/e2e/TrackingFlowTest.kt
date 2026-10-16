@@ -447,7 +447,7 @@ class TrackingFlowTest {
             assertTrue("auto refresh must distinguish answered/unchanged, failed, and revised: $receipt",
                 listOf("same last reported stop", "same last site-reported stop",
                     "new reported stop", "new site-reported stop", "revised time",
-                    "request failed", "answered, no validated new stop", "not reached",
+                    "request failed", "answered, no validated new stop", "no validated site stop report", "not reached",
                     "no usable new report", "has no usable report", "cached HTTP body",
                     "New stop report", "Revised time", "No newer stop").any { receipt.contains(it) })
         } finally {

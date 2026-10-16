@@ -48,6 +48,16 @@ class RefreshReceiptTextTest {
         assertFalse(failure.contains("Website answered"))
     }
 
+    @Test fun answeredWebsiteWithoutQualifyingStopNeverClaimsSameOldSiteEvent() {
+        val text = RefreshReceiptText.format(PublicPageChecks.ORG, "website", "NTES · official",
+            "00:38:00", "last reported stop 56 min ago",
+            "unverified" to "page answered, no unambiguous same-run past card",
+            null, true, false, unchanged, true)
+        assertTrue(text.contains("Website answered at 00:38:00"))
+        assertTrue(text.contains("no validated site stop report"))
+        assertFalse(text.contains("same last site-reported stop"))
+    }
+
     @Test fun selectedNonOfficialConnectionFailureKeepsEvidenceWithoutCallingItUnchanged() {
         val receipt = RefreshReceiptText.format("RailYatri", "RailYatri", "NTES · official",
             "00:37:00", "last reported stop 55 min ago",
