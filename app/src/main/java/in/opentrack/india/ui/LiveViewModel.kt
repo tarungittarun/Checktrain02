@@ -1709,9 +1709,10 @@ class LiveViewModel(
                 it.code.equals(r.code, true)
             } } ?: -1
             if (page != null && SourceRecency.showComparison(officialIndex, siteIndex,
-                    officialStopAgeMillis() ?: 0L, now - page.pageUpdatedAt)) {
+                    officialStopAgeMillis() ?: 0L, now - page.pageUpdatedAt,
+                    now - RailTime.railMinuteToEpochMillis(originDate, page.eventMinute))) {
                 val stop = route.stops[siteIndex]
-                "Newer website claim: ${stop.name} · " +
+                "Website claims a later stop: ${stop.name} · " +
                     "${RailTime.formatRailMinute(page.eventMinute)}. Unverified; choose website to compare."
             } else null
         } else null

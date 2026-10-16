@@ -56,3 +56,42 @@ now has a consistent checked-at receipt.
 Acceptance still requires a passing current-head Android build, full E2E run,
 and the owner's on-phone installation/behavior confirmation before PR #3 merges.
 The five-minute full-workflow target is not claimed without a measured run.
+
+## R111 phone diary follow-up (12:21 local diary, 16 October)
+
+The new 12:00 screenshot is **16221**. The comparison screenshot at 12:01 is
+**20689**, a different train; its blue/red indicator is a visual reference only.
+We cannot use it as evidence that 16221 was between stops or halted. A red
+marker in another phone app has no independently verified meaning here.
+
+At 11:45:14 the official NTES endpoint answered a POST (79,933 bytes) with
+Bageshapura departure **11:42**, delay **+18 min at that departure**. At
+11:57:54 the user-triggered Refresh made another POST and got a new HTTP
+answer (79,885 bytes); the decoded official last-stop event remained
+Bageshapura **11:42**. The repeated 18-minute number is therefore not a
+skipped network request and is not the app's HTTP cache (NTES POST replies
+are uncached). A fresh *response* did not contain a fresh *stop event*.
+At 11:57:59 the separate website GET timed out; `Http` fell back to a
+cached body, and `PublicPageChecks` explicitly suppresses cached-body station
+claims. No newer alternative could be substantiated then. At 12:08:20 a
+separate fresh website GET claimed Hassan arrival **12:07** for 16221;
+12:11:19's fresh GET revised the same site-claimed arrival to **12:10**.
+That site's run date is inferred rather than printed, the claimed arrival
+changed within minutes, and its page-update clock is not an arrival. It is
+not independent verification or a replacement for NTES actuals. The app
+may offer the later *site claim* for comparison if both its stop-event time
+and page clock are recent; a page clock alone can no longer redate an old
+claim. Refresh receipts and marker ages refer to stop events, not downloads.
+
+R111 makes the official delay explicitly **at the last reported stop/time**,
+not a current +18-minute prediction. The card starts expanded, with a
+persistent More/Less handle; collapsing it keeps only delay, next stop and
+source (plus its toggle). The vertical map is capped against screen height,
+station row spacing varies with scheduled km, and disclosing map points no
+longer prints the same labels both on the ruler and in the list. The train's
+age is a local clock by its icon: a green check only for a <60-second-old
+source event, otherwise a minute/hour label. A green check is recency, not
+verified motion or GPS. No station, delay or locomotive position moves just
+because the user refreshed or a minute passed. CI and on-phone validation
+are required before this interpretation is considered complete; PR #3 stays
+open until the owner's confirmation.

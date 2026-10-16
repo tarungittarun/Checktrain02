@@ -5,7 +5,7 @@ package `in`.opentrack.india.ui
  * change or an automatic promotion to railway-confirmed actuals. */
 object SourceRecency {
     fun showComparison(officialIndex: Int, siteIndex: Int, officialAgeMs: Long,
-                       pageAgeMs: Long): Boolean =
+                       pageAgeMs: Long, siteEventAgeMs: Long): Boolean =
         officialIndex >= 0 && siteIndex > officialIndex && officialAgeMs >= 300_000L &&
-            pageAgeMs in 0L..300_000L
+            pageAgeMs in 0L..300_000L && siteEventAgeMs in 0L..300_000L
 }

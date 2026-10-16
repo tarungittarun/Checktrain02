@@ -81,6 +81,22 @@ class TrackingFlowTest {
         E2E.shot("track-open")
     }
 
+    // @flow hero-collapse
+    @Test
+    fun summaryStartsExpandedAndCollapsesToDelayNextAndSource() {
+        assertNotNull("first load did not open the journey card", E2E.find("headline"))
+        assertNotNull("expanded card lost its source evidence", E2E.find("provenance"))
+        assertTrue("collapse handle not tappable", E2E.tap("heroToggle"))
+        assertTrue("headline survived compact mode", E2E.find("headline", 300) == null)
+        assertTrue("evidence survived compact mode", E2E.find("provenance", 300) == null)
+        assertNotNull("compact card lost its delay", E2E.find("delay"))
+        assertNotNull("compact card lost the next stop", E2E.find("next"))
+        assertNotNull("compact card lost the source chooser", E2E.find("sourceSpinner"))
+        assertTrue("expand handle not tappable", E2E.tap("heroToggle"))
+        assertNotNull("expanding did not restore the headline", E2E.find("headline"))
+        assertNotNull("expanding did not restore source evidence", E2E.find("provenance"))
+    }
+
     // @flow headline-position
     @Test
     fun headlineAlwaysNamesAState() {

@@ -147,10 +147,16 @@ class InlineRouteRenderTest {
     }
 
     @Test fun verticalDistanceRulerScalesByScheduledKmWithoutOutgrowingTheViewport() {
-        assertEquals(104, LegGeometry.heightDp(2))
+        assertEquals(82, LegGeometry.heightDp(2))
         assertTrue(LegGeometry.heightDp(20) > LegGeometry.heightDp(6))
-        assertEquals(210, LegGeometry.heightDp(200))
-        assertEquals("many map points must not stretch the ruler", 210, LegGeometry.heightDp(200))
+        assertEquals(144, LegGeometry.heightDp(200))
+        assertEquals("small screens cap the leg and leave space for three halt rows",
+            100, LegGeometry.heightDp(200, 480f))
+        assertTrue(LegGeometry.heightDp(200) + 3 * 82 < 400)
+        assertTrue(LegGeometry.stopGapDp(60) > LegGeometry.stopGapDp(2))
+        assertTrue(LegGeometry.stopGapDp(200, 480f) <= 17)
+        assertEquals("1 min ago", LegGeometry.ageLabel(60))
+        assertEquals("1 h 2 min ago", LegGeometry.ageLabel(3720))
     }
 
     @Test fun sourceSwitchKeepsTheSameVerticalLegGeometry() {

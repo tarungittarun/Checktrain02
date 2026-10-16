@@ -303,9 +303,15 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         holder.dot.setBackgroundResource(dotFor(s))
         // Keep the next stop directly after the compact leg. The former 34dp
         // projected-row spacer looked like missing content on a phone.
+        val nextKm = currentList.getOrNull(position + 1)?.kmFromOrigin
+        val betweenKm = nextKm?.minus(s.kmFromOrigin)?.coerceAtLeast(0) ?: 0
+        val screenDp = ctx.resources.displayMetrics.heightPixels / ctx.resources.displayMetrics.density
+        val hasTrainLeg = projectedLeg?.fromCode.equals(s.code, true)
+        val gapPx = (LegGeometry.stopGapDp(betweenKm, screenDp) * ctx.resources.displayMetrics.density).toInt()
         holder.row.setPadding(holder.row.paddingLeft,
             ctx.resources.getDimensionPixelSize(R.dimen.gap_s),
-            holder.row.paddingRight, holder.row.paddingBottom)
+            holder.row.paddingRight,
+            ctx.resources.getDimensionPixelSize(R.dimen.gap_s) + if (hasTrainLeg || nextKm == null) 0 else gapPx)
         // The route uses one accent for all sources. Trust and late minutes are
         // qualified in the hero and time sheet, not a different map skin.
         holder.row.setBackgroundColor(when {
@@ -317,7 +323,9 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         val leg = projectedLeg?.takeIf { it.fromCode.equals(s.code, true) }
         holder.inlineLegGroup.visibility = if (leg == null) View.GONE else View.VISIBLE
         holder.inlineLeg.projection = leg
-        holder.inlineLeg.showLabels = expandedCode == s.code
+        // The disclosed point list already prints names and distances. Drawing the same
+        // labels on the ruler duplicates content and squeezes the train's age badge.
+        holder.inlineLeg.showLabels = false
         holder.inlineLeg.distanceKm = leg?.let { projection ->
             currentList.firstOrNull { it.code.equals(projection.toCode, true) }
                 ?.let { (it.kmFromOrigin - s.kmFromOrigin).coerceAtLeast(0) }
@@ -340,7 +348,8 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             holder.inlineLegAge.text = holder.inlineLeg.ageSeconds?.let { seconds ->
                 if (seconds < 60) "Just now" else TableMarker.elapsedLabel(seconds * 1_000L) + " ago"
             }.orEmpty()
-            holder.inlineLegAge.visibility = if (holder.inlineLegAge.text.isEmpty()) View.GONE else View.VISIBLE
+            // The age belongs beside the locomotive, not on a separate line near stop names.
+            holder.inlineLegAge.visibility = View.GONE
             holder.inlineLegAge.contentDescription = if (holder.inlineLegAge.text.isEmpty()) ""
                 else "Last reported event ${holder.inlineLegAge.text}"
             holder.routeToggle.text = if (expandedCode == s.code) "Hide  ▴" else
@@ -357,6 +366,8 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
                     .takeIf { it >= 0 }?.let(::notifyItemChanged)
             }
             holder.inlineLeg.contentDescription = caption +
+                (holder.inlineLeg.ageSeconds?.let { " · reported event ${LegGeometry.ageLabel(it)}" }
+                    ?: " · event time unknown") +
                 " · not GPS · ${leg.from} to ${leg.to} " +
                 "${(leg.fraction * 100).toInt()} percent of scheduled leg by " +
                 (if (stationClaim) "unverified station claim (no passage time or measured distance)"

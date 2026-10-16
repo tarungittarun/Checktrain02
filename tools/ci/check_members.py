@@ -97,6 +97,8 @@ init doFinal indices optJSONObject optBoolean opt optString has keys getJSONArra
 setPrimaryClip
 # Android Drawable bounds and Bitmap pixel-parity checks in the source-neutral route render tests.
 setBounds sameAs
+# Android Paint used for the locomotive age pill width.
+measureText
 # legacy-cipher factory (2026-10-12): SSLSocket suite lists and the delegate pattern
 enabledCipherSuites supportedCipherSuites defaultCipherSuites createSocket getOrDefault
 # mirror witness (2026-10-12): stdlib Map merge so traveller lines keep their stop and the mirror fills the rest

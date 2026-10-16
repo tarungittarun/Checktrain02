@@ -84,6 +84,24 @@ class TrainActivity : AppCompatActivity() {
     private var lastUi: LiveViewModel.Ui? = null
     private var chainBusy = false
     private var mirrorBusy = false
+    private var heroExpanded = true
+    private var sourceSummaryWanted = false
+
+    private fun applyHeroExpansion() {
+        binding.heroToggle.text = if (heroExpanded) "Less  ▴" else "More  ▾"
+        binding.heroToggle.contentDescription = if (heroExpanded)
+            "Collapse journey card to delay, next stop and source" else "Expand journey card"
+        binding.heroEyebrow.visibility = if (heroExpanded) View.VISIBLE else View.GONE
+        binding.headline.visibility = if (heroExpanded) View.VISIBLE else View.GONE
+        binding.heroEvidence.visibility = if (heroExpanded) View.VISIBLE else View.GONE
+        binding.sourceSummary.visibility = if (heroExpanded && sourceSummaryWanted) View.VISIBLE else View.GONE
+        binding.note.visibility = if (heroExpanded && lastUi?.model?.note != null) View.VISIBLE else View.GONE
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putBoolean("heroExpanded", heroExpanded)
+        super.onSaveInstanceState(outState)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -91,6 +109,12 @@ class TrainActivity : AppCompatActivity() {
         if (trainNo.length < 4) { finish(); return }
         binding = ActivityTrainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        heroExpanded = savedInstanceState?.getBoolean("heroExpanded", true) ?: true
+        binding.heroToggle.setOnClickListener {
+            heroExpanded = !heroExpanded
+            applyHeroExpansion()
+        }
+        applyHeroExpansion()
         binding.back.setText(R.string.back_to_trains)
 
         val app = application as App
@@ -373,11 +397,12 @@ class TrainActivity : AppCompatActivity() {
         } == true
         // One explanation only: the qualified site's badge + labelled table already state
         // provenance. Show this line only when its selected source has no usable point.
-        binding.sourceSummary.visibility = if (
+        sourceSummaryWanted = (
             ui.alternateSiteHint != null || publicCheck != null && ui.orgWebsiteReport == null && ui.railYatriClaim == null ||
             ui.activeSource == `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE &&
                 ui.wimtWebPoint == null || mirrorWithoutTimes
-        ) View.VISIBLE else View.GONE
+        )
+        binding.sourceSummary.visibility = if (heroExpanded && sourceSummaryWanted) View.VISIBLE else View.GONE
         val selectedStatus = ui.activeSource?.let { ui.sourceStates[it] }
         val selectedReason = ui.activeSource?.let { name ->
             selectedStatus?.let { SourceIndicator.of(name, it.first, it.second).label }
@@ -444,6 +469,8 @@ class TrainActivity : AppCompatActivity() {
         binding.provenance.text = m.provenanceLabel
         binding.age.text = m.ageLabel
         binding.delay.text = m.delayLabel
+        binding.delayLabel.text = if (ui.activeSource == "NTES (official)")
+            "Delay at last report" else "Delay"
         binding.delay.setTextColor(getColor(
             when (m.tone) {
                 TrackModel.Tone.LIVE_LATE, TrackModel.Tone.PROBLEM -> R.color.late
@@ -590,7 +617,7 @@ class TrainActivity : AppCompatActivity() {
                 binding.provenance.text = "NTES · reported stop"
             }
         }
-        binding.note.visibility = if (m.note == null) View.GONE else View.VISIBLE
+        binding.note.visibility = if (m.note == null || !heroExpanded) View.GONE else View.VISIBLE
         m.note?.let { binding.note.text = it }
 
         // Page notes stay in Info; the in-table icon and source badge already describe
@@ -603,6 +630,7 @@ class TrainActivity : AppCompatActivity() {
         stopAdapter.setProjectedLeg(leg)
         renderSourceChips(ui)
         updateTableMarker(ui)
+        applyHeroExpansion()
         stopAdapter.highlightCode = stopAdapter.haltMarker?.code ?: ui.anchorCode
         if (ui.reports.isNotEmpty()) {
             Diary.get()?.log("UISTATE") {
@@ -749,9 +777,18 @@ class TrainActivity : AppCompatActivity() {
             ui.activeSource == `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE &&
                 ui.wimtWebPoint != null && elapsed != null ->
                 binding.age.text = "Web-cache point $elapsed · unverified; not phone GPS"
-            ui.activeSource == "NTES (official)" && timedHalt != null && elapsed != null ->
-                binding.age.text = "${(timedHalt.showDep ?: timedHalt.showArr)?.let(RailTime::formatRailMinute).orEmpty()} · " +
-                    "$elapsed · position now unknown"
+            ui.activeSource == "NTES (official)" && timedHalt != null && elapsed != null -> {
+                val minute = (timedHalt.showDep ?: timedHalt.showArr)!!
+                val clock = RailTime.formatRailMinute(minute)
+                binding.age.text = "$clock · $elapsed · position now unknown"
+                // A new HTTP answer with the same last-stop time cannot redate the delay.
+                // This is the delay *then*, not a prediction of the train's delay now.
+                if (ui.model.delayLabel != "—") {
+                    binding.delay.text = "${ui.model.delayLabel} · $clock"
+                    binding.delay.contentDescription = "${ui.model.delayLabel} at the last " +
+                        "reported stop ${timedHalt.name} at $clock; current delay unknown"
+                }
+            }
         }
     }
 
@@ -796,11 +833,13 @@ class TrainActivity : AppCompatActivity() {
             else -> "no new timed position from this source"
         }
         val report = eventKey(ui, requestedRefreshSource)
+        val cachedResponse = status?.second?.contains("Cached HTTP body", ignoreCase = true) == true
         val changed = !switched && report != null && report != previousRefreshEvent
         val checked = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.ROOT)
             .format(java.util.Date(now))
         binding.refreshFeedback.text = when {
             switched -> "Checked $checked · $source unavailable; now ${sourceName(active)}"
+            cachedResponse -> "$source timed out · cached response only · $age"
             status?.first !in listOf("live", "candidate") ->
                 "Checked $checked · no usable new report from $source · $age"
             changed -> "New stop report · $source · checked $checked · $age"
