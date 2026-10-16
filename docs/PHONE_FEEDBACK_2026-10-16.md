@@ -258,3 +258,11 @@ adopted official GET returns an HTTP-cache body after its network request
 fails, that body is rejected as a *new* NTES answer; any previously saved
 report keeps its original event clock. The E2E refresh assertion now tests
 answered-but-unchanged and failed requests as distinct terminal outcomes.
+
+A manual “Retry map” now gives two separate notices: one while the independent
+static providers are being asked, and one after *both* attempts finish saying
+whether validated intermediate points became available. A successful retry
+only changes static dots, never the last sourced train event. GitHub's
+workflow-dispatch API returned 403 in this session, so the next push requests
+the same full strict device matrix using the workflow's `[e2e-full]` commit
+marker; it must still finish green on that final head before claiming success.

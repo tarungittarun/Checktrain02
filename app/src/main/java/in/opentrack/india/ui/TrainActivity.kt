@@ -212,6 +212,9 @@ class TrainActivity : AppCompatActivity() {
             true
         }
 
+        vm.mapRetryStatus.observe(this) { status ->
+            if (!status.isNullOrBlank()) Toast.makeText(this, status, Toast.LENGTH_LONG).show()
+        }
         vm.ui.observe(this) { it?.let { u ->
             lastUi = u
             bind(u)

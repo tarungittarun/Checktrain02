@@ -158,6 +158,9 @@ class LiveViewModel(
 
     private val _error = MutableLiveData<String?>()
     val error: LiveData<String?> = _error
+    private val _mapRetryStatus = MutableLiveData<String?>()
+    val mapRetryStatus: LiveData<String?> = _mapRetryStatus
+    private var mapRetryJob: Job? = null
 
     /**
      * True while a look at the live world is in flight (the first load included). The screen shows a
@@ -992,22 +995,43 @@ class LiveViewModel(
     /** User-initiated static map retry. It is never used as a position source. */
     fun retryIntermediateMap() {
         val route = _ui.value?.route ?: return
-        if (RouteBetween.groupedPoints(_ui.value?.staticRoute, route).isNotEmpty()) return
+        if (mapRetryJob?.isActive == true) {
+            _mapRetryStatus.value = "Already checking independent station maps…"
+            return
+        }
+        if (RouteBetween.groupedPoints(_ui.value?.staticRoute, route).isNotEmpty()) {
+            _mapRetryStatus.value = "Intermediate map is ready. Tap the rail to open its stations."
+            return
+        }
+        // An old cached map for a different route is not a reason to skip a
+        // deliberate retry. The dated halt schedule remains untouched.
+        if (_ui.value?.staticRoute == null) confirmStaticRoute = null
         confirmScheduleAttemptAt = 0L
         geoAttemptAt = 0L
         Diary.get()?.log("ROUTE", "user requested static intermediate map retry for $trainNo")
-        maybeConfirmSchedule()
-        if (officialStaticKnown) maybeRailGeo(route)
+        _mapRetryStatus.value = "Checking independent station maps…"
+        val confirm = maybeConfirmSchedule()
+        val geo = if (officialStaticKnown) maybeRailGeo(route) else null
+        mapRetryJob = viewModelScope.launch {
+            confirm?.join()
+            geo?.join()
+            val u = _ui.value
+            val mapped = u?.let { RouteBetween.groupedPoints(it.staticRoute, it.route) }
+            _mapRetryStatus.value = if (!mapped.isNullOrEmpty())
+                "Intermediate map ready. Tap a leg to reveal its stations."
+            else "No validated intermediate map answered; timed halts remain. Retry later."
+            Diary.get()?.log("ROUTE") { "manual map retry: ${mapped?.values?.sumOf { it.size } ?: 0} independent intermediate points" }
+        }
     }
 
     /** Fetch embedded, dated *static* Schedule, independently of the fast official call. No
      * visible running-status clock and no intermediate-passage time ever becomes an actual. */
-    private fun maybeConfirmSchedule() {
-        if (confirmStaticRoute != null) return
+    private fun maybeConfirmSchedule(): Job? {
+        if (confirmStaticRoute != null) return null
         val now = System.currentTimeMillis()
-        if (now - confirmScheduleAttemptAt < 90_000L) return
+        if (now - confirmScheduleAttemptAt < 90_000L) return null
         confirmScheduleAttemptAt = now
-        viewModelScope.launch {
+        return viewModelScope.launch {
             val day = NtesWire.dateForWire(originEpochDay)
             val result = withContext(Dispatchers.IO) {
                 val body = ConfirmTktMirror.plainGet(ConfirmTktMirror.BASE + trainNo).first
@@ -1063,12 +1087,12 @@ class LiveViewModel(
         }
     }
 
-    private fun maybeRailGeo(official: TrainRoute) {
-        if (geoRoute != null && _ui.value?.staticRoute != null) return
+    private fun maybeRailGeo(official: TrainRoute): Job? {
+        if (geoRoute != null && _ui.value?.staticRoute != null) return null
         val now = System.currentTimeMillis()
-        if (now - geoAttemptAt < 3_600_000L) return
+        if (now - geoAttemptAt < 3_600_000L) return null
         geoAttemptAt = now
-        viewModelScope.launch {
+        return viewModelScope.launch {
             val repo = repo() ?: return@launch
             if (loadGeoCache(official, repo)) {
                 _ui.value?.let { u ->
