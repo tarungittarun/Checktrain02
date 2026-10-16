@@ -405,8 +405,8 @@ class InlineRouteRenderTest {
         val holder = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
         adapter.onBindViewHolder(holder, 0)
         assertEquals(View.VISIBLE, holder.inlineLegGroup.visibility)
-        assertEquals("the per-leg map prose was replaced by the single route note", View.GONE,
-            holder.inlineLegCaption.visibility)
+        assertEquals("the caption states the reported-stop limit without map-status prose",
+            "Last stop · now unknown", holder.inlineLegCaption.text.toString())
         assertEquals("an empty map cannot offer an empty Stations disclosure", View.GONE,
             holder.routeToggle.visibility)
         assertTrue("freshness must be beside the pinned locomotive",
