@@ -214,8 +214,9 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         val marker = haltMarker?.takeIf { it.code.equals(s.code, true) }
         holder.marker.visibility = if (marker == null) View.GONE else View.VISIBLE
         holder.marker.text = marker?.let {
-            if (projectedLeg?.fromCode.equals(s.code, true)) "LAST REPORTED STOP"
-            else "🚆  ${it.caption}"
+            val age = legAgeSeconds?.let(LegGeometry::ageLabel)?.let { " · $it" }.orEmpty()
+            if (it.caption.startsWith("RailYatri station claim")) "STATION CLAIM · TIME UNKNOWN"
+            else "LAST REPORTED STOP$age"
         }.orEmpty()
         holder.marker.contentDescription = marker?.caption ?: ""
         holder.marker.setTextColor(ctx.getColor(R.color.live))
@@ -294,7 +295,8 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         holder.dot.setBackgroundResource(dotFor(s))
         holder.dot.visibility = if (marker == null) View.VISIBLE else View.GONE
         holder.trainMarker.visibility = if (marker == null) View.GONE else View.VISIBLE
-        holder.trainMarker.ageSeconds = if (marker?.code.equals(s.code, true)) legAgeSeconds else null
+        holder.trainMarker.ageSeconds = if (marker?.code.equals(s.code, true) &&
+            marker?.caption?.startsWith("RailYatri station claim") != true) legAgeSeconds else null
         holder.trainMarker.contentDescription = marker?.caption ?: ""
         // Keep the next stop directly after the compact leg. The former 34dp
         // projected-row spacer looked like missing content on a phone.

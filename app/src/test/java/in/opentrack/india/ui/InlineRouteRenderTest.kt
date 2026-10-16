@@ -374,6 +374,24 @@ class InlineRouteRenderTest {
         assertEquals(listOf(215, 220), holder.inlineLeg.projection!!.points.map { it.mapKm })
         assertTrue(holder.inlineLeg.contentDescription.contains("215 km"))
         assertTrue(holder.inlineLeg.contentDescription.contains("220 km"))
+        val d = ctx.resources.displayMetrics.density
+        val content = holder.itemView
+        content.measure(View.MeasureSpec.makeMeasureSpec((360 * d).toInt(), View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+        content.layout(0, 0, content.measuredWidth, content.measuredHeight)
+        val frame = holder.trainMarker.parent as View
+        val locomotiveX = frame.left + holder.trainMarker.left + holder.trainMarker.width / 2
+        assertEquals("the locomotive must be centred on the x=36dp station rail",
+            (36 * d).toInt(), locomotiveX)
+        assertTrue("the icon slipped below the Birur station name",
+            kotlin.math.abs(frame.top + holder.trainMarker.top + holder.trainMarker.height / 2 -
+                (holder.name.top + holder.name.height / 2)) < (25 * d).toInt())
+        val stationBitmap = android.graphics.Bitmap.createBitmap(content.width, content.height,
+            android.graphics.Bitmap.Config.ARGB_8888)
+        val stationCanvas = android.graphics.Canvas(stationBitmap)
+        stationCanvas.drawColor(ctx.getColor(R.color.surface))
+        content.draw(stationCanvas)
+        Render.save("12-birur-train-at-stop-with-two-map-points", stationBitmap)
         holder.inlineLeg.performClick() // on the rail itself closes it again
         adapter.onBindViewHolder(holder, 0)
         assertFalse(holder.inlineLeg.showLabels)

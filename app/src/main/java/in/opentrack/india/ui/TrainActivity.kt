@@ -830,7 +830,7 @@ class TrainActivity : AppCompatActivity() {
             ui.activeSource == `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG &&
                 ui.orgWebsiteReport != null && elapsed != null ->
                 binding.age.text = "${RailTime.formatRailMinute(ui.orgWebsiteReport!!.eventMinute)} · " +
-                    "$elapsed · page checked ${RailTime.formatClock(ui.orgWebsiteReport!!.pageUpdatedAt)} (not movement)"
+                    "$elapsed · page checked ${RailTime.formatClock(ui.orgWebsiteReport!!.pageUpdatedAt)} (not event time or movement)"
             ui.activeSource == `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE &&
                 ui.wimtWebPoint != null && elapsed != null ->
                 binding.age.text = "Web-cache point $elapsed · unverified; not phone GPS"
@@ -905,7 +905,7 @@ class TrainActivity : AppCompatActivity() {
             change == RefreshEvidence.Change.REVISED_AT_SAME_STOP -> {
                 val label = when (active) {
                     `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG ->
-                        "Revised website time at same stop (unverified)"
+                        "Website revised its time at this stop"
                     `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE ->
                         "Updated web distance claim at same leg (not GPS)"
                     else -> "Revised time at same reported stop"

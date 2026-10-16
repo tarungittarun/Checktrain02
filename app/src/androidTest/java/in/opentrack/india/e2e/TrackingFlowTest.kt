@@ -388,9 +388,8 @@ class TrackingFlowTest {
             repeat(5) { if (!E2E.visible("age", 300)) E2E.swipeIn("scroller", up = false) }
             val age = E2E.text("age")
             assertTrue("site page clock confused with an event clock: '$age'",
-                age.contains("page updated", true) &&
-                    (age.contains("not event time", true) ||
-                        age.contains("not a movement time", true)))
+                age.contains("page checked", true) &&
+                    age.contains("not event time", true) && age.contains("movement", true))
         } else {
             assertTrue("no Web cells but source pretends to verify station events: $summary",
                 summary.contains("NOT Act") || summary.contains("static") ||
