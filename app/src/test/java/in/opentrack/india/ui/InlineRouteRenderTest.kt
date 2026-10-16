@@ -232,6 +232,14 @@ class InlineRouteRenderTest {
         assertTrue(positions[1] - positions[0] > positions[0] - 24f)
         for (y in positions) assertEquals("intermediate dot is not on the train's rail",
             ctx.getColor(R.color.text2), bmp.getPixel((36 * d).toInt(), (y * d).toInt()))
+        val surface = ctx.getColor(R.color.surface)
+        val timeY = (positions[0] * d).toInt()
+        assertTrue("the planned arrival clock is not painted beside its dot",
+            ((bmp.width - (82 * d).toInt()) until bmp.width).any { x ->
+                ((timeY - (7 * d).toInt())..(timeY + (7 * d).toInt())).any { y ->
+                    bmp.getPixel(x, y) != surface
+                }
+            })
         assertEquals("the locomotive has moved to a point instead of staying at its stop",
             ctx.getColor(R.color.live), bmp.getPixel((20 * d).toInt(), (24 * d).toInt()))
     }
@@ -317,6 +325,8 @@ class InlineRouteRenderTest {
         assertFalse(holder.inlineLeg.showTrain)
         assertEquals(2, holder.inlineLeg.projection!!.points.size)
         assertEquals(367, holder.inlineLeg.projection!!.points[0].mapKm)
+        assertEquals("intermediate clocks must use bounding schedule and km, never live progress",
+            listOf(674, 680), holder.inlineLeg.projection!!.points.map { it.passageMinute })
         assertTrue(holder.inlineLeg.projection!!.points[0].approximate)
         assertTrue(holder.inlineLeg.contentDescription.contains("Malleswaram (MWM), approximately"))
         assertTrue(holder.inlineLeg.contentDescription.contains("no train-position claim"))

@@ -30,7 +30,7 @@ object JourneyHero {
                 (stop.schedArr ?: stop.schedDep)?.let {
                     append(" · ").append(RailTime.formatRailMinute(it))
                 }
-                append("\nSchedule only · arrival unconfirmed")
+                append("\nTimetable · not ETA")
             }
         } ?: "End of route · no next stop"
         return Official(title, next)

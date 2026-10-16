@@ -163,8 +163,8 @@ class ScreenRenderTest {
             listOf(R.id.schedArr, R.id.schedDep, R.id.liveArr, R.id.liveDep).forEach { id ->
                 assertTrue("row $i is missing a time column", text(row, id).isNotBlank())
             }
-            // Round 45: the stacked time columns NAME their kind - "Sch" above, "Act"/"Est" below - so a
-            // traveller can never mistake a timetable minute for a report.
+            // Compact vertical ↓/↑ pairs keep arrival and departure visible without opening a sheet.
+            // The header distinguishes the scheduled and reported columns.
             listOf(R.id.schedArr, R.id.schedDep).forEach { id ->
                 assertTrue("row $i scheduled minute not prefixed in ${name(shot, id)}",
                     text(row, id).startsWith(if (id == R.id.schedArr) "↓ " else "↑ "))
@@ -285,7 +285,9 @@ Render.save("02-track-live", shot.bitmap)
         assertEquals("↑ 05:58", dep)
         assertTrue("website platform was mislabelled: ${text(row, R.id.stopMeta)}",
             text(row, R.id.stopMeta).contains("site pf 2"))
-        assertTrue("website row was presented as a verified event: ${text(row, R.id.stopStatus)}",
+        assertTrue("website row lost its last-stop state: ${text(row, R.id.stopStatus)}",
+            text(row, R.id.stopStatus).contains("Departed"))
+        assertFalse("source-specific prose belongs in the top card, not every row",
             text(row, R.id.stopStatus).contains("Website"))
         assertEquals("next station must stay scheduled", "↓ —",
             text(shot.root.findViewById<RecyclerView>(R.id.stops).getChildAt(2), R.id.liveArr))

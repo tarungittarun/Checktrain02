@@ -653,7 +653,7 @@ class TrainActivity : AppCompatActivity() {
                 ui.route.stops.getOrNull(ui.route.stops.indexOf(it) + 1) }
             binding.next.text = next?.let { RowText.of(it.name) + " · " +
                 ((it.arrivalMin ?: it.departureMin)?.let(RailTime::formatRailMinute) ?: "—") +
-                "\nSchedule only · not an ETA" } ?: "Next stop unknown · timetable below"
+                "\nTimetable · not ETA" } ?: "Next stop unknown · timetable below"
         }
         // The first glance is a report, not a paragraph. Keep the complete model
         // sentence available to TalkBack / Info, but present the event, delay and

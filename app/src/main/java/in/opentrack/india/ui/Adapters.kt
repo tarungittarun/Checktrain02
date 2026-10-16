@@ -222,8 +222,8 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         val website = s.source == TrackModel.MinuteSource.SITE_REPORTED
         val stationClaim = reports[s.code]?.startsWith("RailYatri root claims") == true
         holder.status.text = when {
-            website && s.showDep != null -> "Website: departed"
-            website -> "Website: arrived"
+            website && s.showDep != null -> "Departed · later position unknown"
+            website -> "Arrived · departure unknown"
             stationClaim -> "At station claimed · time unknown"
             verified && s.isAnchor && s.showDep != null -> "Departed station · later position unknown"
             verified && s.showDep != null -> "Departed · reported"
