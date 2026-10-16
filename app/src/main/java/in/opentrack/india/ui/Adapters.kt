@@ -455,7 +455,7 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         s.source == TrackModel.MinuteSource.REPORTED ||
             s.source == TrackModel.MinuteSource.SITE_REPORTED
 
-    private fun dotFor(s: TrackModel.Stop): Int = when (s.state) {
+    internal fun dotFor(s: TrackModel.Stop): Int = when (s.state) {
         // An arrival without departure is an at-station report, not a passed
         // halt. Give it the ring used for HERE on both NTES and the website.
         TrackModel.State.HERE -> if (hasStopEvent(s))

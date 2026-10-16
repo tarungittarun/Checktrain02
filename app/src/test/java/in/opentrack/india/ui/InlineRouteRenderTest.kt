@@ -203,7 +203,7 @@ class InlineRouteRenderTest {
     @Test fun pastAndArrivedStopDotsKeepTheSameSkinAcrossSources() {
         val ctx = RuntimeEnvironment.getApplication()
         data class RowPaint(val dot: android.graphics.Bitmap, val nameColor: Int,
-                            val timeType: String)
+                            val timeType: String, val dotStyle: Int)
         fun row(source: TrackModel.MinuteSource, state: TrackModel.State,
                 departed: Boolean): RowPaint {
             val adapter = StopAdapter()
@@ -219,7 +219,7 @@ class InlineRouteRenderTest {
                 android.graphics.Bitmap.Config.ARGB_8888)
             background.draw(android.graphics.Canvas(bitmap))
             return RowPaint(bitmap, holder.name.currentTextColor,
-                holder.timeType.text.toString())
+                holder.timeType.text.toString(), adapter.dotFor(stop))
         }
         for ((state, departed) in listOf(TrackModel.State.PASSED to true,
                 TrackModel.State.HERE to false)) {
@@ -232,9 +232,13 @@ class InlineRouteRenderTest {
             assertTrue(official.timeType.startsWith("ACTUAL"))
             assertEquals("SITE CLAIM", website.timeType)
         }
-        assertTrue("an arrival must not look like a passed stop",
-            !row(TrackModel.MinuteSource.REPORTED, TrackModel.State.HERE, false).dot.sameAs(
-                row(TrackModel.MinuteSource.REPORTED, TrackModel.State.PASSED, true).dot))
+        // Robolectric's GradientDrawable raster shadow stretches these small
+        // XML circles to the same forced bounds. Check the distinct resource
+        // chosen by the real row instead of mistaking its bitmap stub for UI.
+        assertEquals("arrived-at-station ring", R.drawable.dot_here,
+            row(TrackModel.MinuteSource.REPORTED, TrackModel.State.HERE, false).dotStyle)
+        assertEquals("passed-stop dot", R.drawable.dot_passed,
+            row(TrackModel.MinuteSource.REPORTED, TrackModel.State.PASSED, true).dotStyle)
     }
 
     @Test fun tappingHaltShowsUntimedPointsThenCollapsesWithoutClaimingArrival() {
