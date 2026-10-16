@@ -194,3 +194,13 @@ using the reported marker even if the intermediate ViewModel anchor is null.
 The screen cannot legitimately advance that marker without new stop or
 measured location evidence. Phone confirmation is still required; PR #3 remains
 open and must not merge before it.
+
+R113 verification follow-up: the first full device run exposed a source-age wording
+mismatch; the fixed screen now prints the separate **page-checked** clock and says
+that it is **not event time or movement**. The replacement full device matrix
+passed at head `fc15b74` (run 38939755754). Its Android UI/render job passed,
+but the independent APK job received Maven Central HTTP 429 resolving the
+Kotlin Gradle plugin before compilation. `android.yml` now makes at most two
+brief retries for that exact upstream throttle, never for a compiler or test
+failure. Its new-head APK and full E2E gates still need to pass before a phone
+validation claim; PR #3 remains unmerged.

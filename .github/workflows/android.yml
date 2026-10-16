@@ -216,7 +216,21 @@ jobs:
       # run in `ui`, in parallel, and a red render test must not stop an APK from reaching a device.
       - name: Assemble debug APK
         shell: bash
-        run: set -o pipefail && ./gradlew --no-daemon :app:assembleDebug --stacktrace 2>&1 | tee /tmp/build.log
+        run: |
+          set -o pipefail
+          # A runner with a cold read-only cache once received HTTP 429 while
+          # resolving Kotlin's Gradle plugin. Retry ONLY the upstream throttle;
+          # compiler/test failures must fail immediately, never be hidden.
+          for attempt in 1 2 3; do
+            if ./gradlew --no-daemon :app:assembleDebug --stacktrace 2>&1 | tee /tmp/build.log; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ] || ! grep -Eq 'status code 429|Too Many Requests' /tmp/build.log; then
+              exit 1
+            fi
+            echo "::warning::Maven returned 429; retrying dependency resolution ($attempt/3)"
+            sleep $((attempt * 20))
+          done
       # No emulator here (no KVM, no system images), so the instrumented sources cannot be *run* in CI.
       # They are still compiled, because `connectedDebugAndroidTest` is the only check that can see what
       # the live feed publishes today, and a field test that does not compile is worse than none: the one
