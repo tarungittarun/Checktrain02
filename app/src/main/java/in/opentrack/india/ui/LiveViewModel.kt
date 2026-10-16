@@ -137,6 +137,8 @@ class LiveViewModel(
         val actualsSource: String? = null,
         val sourceStates: Map<String, Pair<String, String>> = emptyMap(),
         val lastUpdated: String? = null,
+        /** Last successful selected-source load; not a website page clock or train event. */
+        val selectedLoadReceiptMillis: Long? = null,
         val delayDetail: String? = null,
         /** Static-only ordered route points, never used to locate the train or generate actuals. */
         val staticRoute: TrainRoute? = null,
@@ -1843,6 +1845,16 @@ class LiveViewModel(
             sourceStates = sourceNames,
             officialRequest = lastOfficialRequest,
             publicSourceAnswered = publicChecks.entries.associate { it.key to it.value.pageAnswered },
+            selectedLoadReceiptMillis = when {
+                selected in PublicPageChecks.names -> publicChecks[selected]
+                    ?.takeIf { it.pageAnswered }?.checkedAt
+                selected == "NTES (official)" &&
+                    lastOfficialRequest?.kind == OfficialRequestReceipt.Kind.ANSWERED_WITH_ACTUALS ->
+                    lastFetchAt.takeIf { it > 0 }
+                selected == "last known" -> null
+                verified != null -> mirrorRefreshedAt.takeIf { it > 0 }
+                else -> null
+            },
             lastUpdated = (mirrorRefreshedAt.takeIf { it > 0 } ?: lastFetchAt.takeIf { it > 0 })
                 ?.let { (if (verified != null) "Verified " else "Last checked ") + clockAt(it) },
             delayDetail = receipt?.second,

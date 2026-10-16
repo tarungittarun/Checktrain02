@@ -227,18 +227,60 @@
                             android:textSize="15sp" />
                     </LinearLayout>
 
+                    <!-- This is a local screen-load clock, not a website page-update or a train event. -->
+                    <FrameLayout
+                        android:layout_width="98dp"
+                        android:layout_height="56dp"
+                        android:layout_marginStart="6dp"
+                        android:background="@drawable/bg_inset">
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:paddingStart="4dp"
+                            android:paddingEnd="4dp"
+                            android:gravity="center"
+                            android:orientation="vertical">
+                            <TextView
+                                style="@style/TextLabel"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="SCREEN LOADED"
+                                android:textSize="8sp"
+                                android:letterSpacing="0" />
+                            <TextView
+                                android:id="@+id/checkClock"
+                                style="@style/TextClock"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="2dp"
+                                android:text="--:--:--"
+                                android:textColor="@color/live"
+                                android:textSize="12sp" />
+                        </LinearLayout>
+                        <in.opentrack.india.ui.ScreenLoadGlowView
+                            android:layout_width="match_parent"
+                            android:layout_height="4dp"
+                            android:layout_gravity="bottom"
+                            android:layout_marginStart="8dp"
+                            android:layout_marginEnd="8dp"
+                            android:layout_marginBottom="3dp" />
+                    </FrameLayout>
+
                     <LinearLayout
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
-                        android:layout_marginStart="12dp"
-                        android:layout_weight="1.7"
+                        android:layout_marginStart="6dp"
+                        android:layout_weight="1.6"
+                        android:gravity="end"
                         android:orientation="vertical">
 
                         <TextView
                             style="@style/TextLabel"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="@string/col_next" />
+                            android:text="@string/col_next"
+                            android:layout_gravity="end"
+                            android:gravity="end" />
 
                         <TextView
                             android:id="@+id/next"
@@ -247,7 +289,8 @@
                             android:layout_height="wrap_content"
                             android:layout_marginTop="3dp"
                             android:ellipsize="end"
-                            android:maxLines="4" />
+                            android:maxLines="8"
+                            android:gravity="end" />
                     </LinearLayout>
                 </LinearLayout>
 
@@ -413,6 +456,19 @@
                 android:gravity="center_horizontal"
                 android:visibility="gone" />
 
+
+            <TextView
+                android:id="@+id/routeArchiveNote"
+                style="@style/TextMicro"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:layout_marginEnd="4dp"
+                android:layout_marginTop="4dp"
+                android:padding="5dp"
+                android:background="@drawable/bg_inset"
+                android:text="Older offline corridor: approximate km only, not a current route or train position. Missing legs have no verified intermediate map."
+                android:visibility="gone" />
 
     </LinearLayout>
 </LinearLayout>

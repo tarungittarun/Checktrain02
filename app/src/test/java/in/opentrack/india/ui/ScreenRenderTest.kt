@@ -129,6 +129,13 @@ class ScreenRenderTest {
         // and two casings on one screen is how an app starts to look untrustworthy.
         assertTrue("the headline should follow the table's casing: '$headline'",
             headline.contains("Dobetakapur") && !headline.contains("DOBETAKAPUR"))
+        assertEquals("screen-load clock must show seconds, not the website minute", "09:05:07",
+            shot.text(R.id.checkClock))
+        val delayBox = shot.bounds(R.id.delay)
+        val checkBox = shot.bounds(R.id.checkClock)
+        val nextBox = shot.bounds(R.id.next)
+        assertTrue("screen-load clock must sit between delay and right-aligned next stop",
+            delayBox.left < checkBox.left && checkBox.left < nextBox.left)
         assertEquals(m.trainNo, shot.text(R.id.trainNo))
         assertNotClipped(shot.root.findViewById(R.id.headline), "headline")
         // The header line is where the app used to lose a word to an ellipsis; the fix is in the layout, so

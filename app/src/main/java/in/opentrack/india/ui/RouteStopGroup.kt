@@ -24,7 +24,7 @@ class RouteStopGroup @JvmOverloads constructor(
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        val x = 36f * resources.displayMetrics.density
+        val x = RouteRailGeometry.X_DP * resources.displayMetrics.density
         canvas.drawLine(x, 0f, x, height.toFloat(), paint)
     }
 }

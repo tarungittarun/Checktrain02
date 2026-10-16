@@ -154,6 +154,10 @@ object RailTime {
         return pad2((minuteOfDay / 60) % 24) + ":" + pad2(minuteOfDay % 60)
     }
 
+    /** Local IST time at which the selected data was painted, not a source event clock. */
+    fun formatClockSeconds(millis: Long): String =
+        formatClock(millis) + ":" + pad2(Math.floorMod(millis / 1_000L, 60L).toInt())
+
     /**
      * "14 Aug 2024". Spelled month because the app shows this next to a train number, where a numeric
      * "14-08-24" invites the dd/mm vs mm/dd reading that Indian and American readers disagree about.

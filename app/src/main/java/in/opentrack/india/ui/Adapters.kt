@@ -231,6 +231,8 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         val website = s.source == TrackModel.MinuteSource.SITE_REPORTED
         val stationClaim = reports[s.code]?.startsWith("RailYatri root claims") == true
         holder.status.text = when {
+            website && s.showDep != null && s.showArr == null ->
+                "Website arrival not validated · departure shown"
             website && s.showDep != null -> "Departed · later position unknown"
             website -> "Arrived · departure unknown"
             stationClaim -> "At station claimed · time unknown"
@@ -247,7 +249,8 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             else -> "Scheduled"
         }
         holder.status.visibility = if (s.isAnchor || s.state == TrackModel.State.CANCELLED || s.state == TrackModel.State.SKIPPED ||
-            stationClaim) View.VISIBLE else View.GONE
+            stationClaim || (website && s.showDep != null && s.showArr == null))
+            View.VISIBLE else View.GONE
         holder.status.setTextColor(ctx.getColor(when {
             stationClaim || website || verified -> R.color.live
             s.source == TrackModel.MinuteSource.PROJECTED -> R.color.warn
@@ -374,14 +377,13 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             val stationClaim = leg?.markerKind == RouteBetween.MarkerKind.STATION_CLAIM
             val caption = when {
                 stationClaim -> "Station claim · time unknown"
-                mappedEmpty -> "No other mapped station · ${mapSource ?: "static map"}"
-                leg == null -> "Stations · ${mapSource ?: "static route map"} · not train position"
+                mappedEmpty -> "Stations · none mapped"
+                leg == null -> "Stations · static map"
                 mapUnavailable -> "Intermediate map unavailable · timed halts only"
                 leg.fraction > 0f -> "Between halts · motion unknown"
                 else -> "Last stop · now unknown"
             }
-            holder.inlineLegCaption.text = caption +
-                if (holder.inlineLeg.historicalMap && hasPoints) " · older corridor" else ""
+            holder.inlineLegCaption.text = caption
             holder.inlineLegCaption.setTextColor(ctx.getColor(R.color.text2))
             holder.inlineLegAge.text = holder.inlineLeg.ageSeconds?.let { seconds ->
                 if (seconds < 60) "Just now" else TableMarker.elapsedLabel(seconds * 1_000L) + " ago"
@@ -394,7 +396,6 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
                 mapUnavailable -> "Map unavailable · why?"
                 mappedEmpty -> "No intermediate stations"
                 disclosed -> "Hide ▴"
-                holder.inlineLeg.historicalMap -> "Stations · old map ▾"
                 else -> "Stations ▾"
             }
             holder.routeToggle.contentDescription = when {
@@ -471,8 +472,7 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         // change animation/rebind while the user scrolls the long train route.
         val opened = expandedCode == code
         holder.inlineLeg.showLabels = opened
-        holder.routeToggle.text = if (opened) "Hide ▴" else if (holder.inlineLeg.historicalMap)
-            "Stations · old map ▾" else "Stations ▾"
+        holder.routeToggle.text = if (opened) "Hide ▴" else "Stations ▾"
         holder.routeToggle.contentDescription = if (opened)
             "Hide intermediate stations" else "Show intermediate stations"
         holder.inlineLeg.requestLayout()

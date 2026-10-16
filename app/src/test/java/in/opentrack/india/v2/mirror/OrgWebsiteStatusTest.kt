@@ -67,6 +67,20 @@ class OrgWebsiteStatusTest {
         assertTrue(out.reason.contains("origin day inferred"))
     }
 
+    @Test fun `past stop departure does not manufacture an arrival from a scheduled clock`() {
+        val depOnly = page.replace("05:50 AM", "05:43 AM")
+            .replace("bg-white", "bg-green-50 opacity-90")
+            .replace("06:06:19 AM", "06:23:19 AM")
+            .replace("06:08 AM", "06:11 AM")
+            .replace("06:10 AM", "06:22 AM")
+        val report = OrgWebsiteStatus.parse(depOnly, "16227", day,
+            now + 17 * 60_000L, route).report!!
+        assertEquals("ANF", report.anchorCode)
+        assertNull("schedule-equal website arrival is not independently reported", report.rows["ARU"]?.actualArrivalMin)
+        assertEquals("departure has its own valid schedule pair", 1794,
+            report.rows["ARU"]?.actualDepartureMin)
+    }
+
     @Test fun `parser through station model keeps next stop static and website platform attributed`() {
         val report = OrgWebsiteStatus.parse(page, "16227", day, now, route).report!!
         val pos = TrainPosition(anchorSeq = 2, nextSeq = 3, fraction = 0f,

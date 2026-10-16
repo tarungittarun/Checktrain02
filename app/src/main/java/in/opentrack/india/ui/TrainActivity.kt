@@ -83,6 +83,8 @@ class TrainActivity : AppCompatActivity() {
     private var sourceSelectionTouched = false
     private var sourceSelectionTouchedAt = 0L
     private var lastUi: LiveViewModel.Ui? = null
+    private var lastScreenLoadKey: Pair<String?, Long?>? = null
+    private var screenLoadedAtMillis = 0L
     private var chainBusy = false
     private var mirrorBusy = false
     private var heroExpanded = true
@@ -694,6 +696,19 @@ class TrainActivity : AppCompatActivity() {
         // the selected site's qualified claim without repeating an excerpt at the halt.
         stopAdapter.reports = ui.sourceLines[ui.activeSource] ?: ui.reports
         stopAdapter.mappedLegStarts = ui.staticMappedLegStarts
+        // A source receipt can change without a new train event. Repaints for age,
+        // identity and background maps must not falsely advance the load clock.
+        val loadKey = ui.activeSource to ui.selectedLoadReceiptMillis
+        if (screenLoadedAtMillis == 0L || (ui.selectedLoadReceiptMillis != null &&
+                    loadKey != lastScreenLoadKey)) {
+            screenLoadedAtMillis = System.currentTimeMillis()
+            lastScreenLoadKey = loadKey
+        }
+        binding.checkClock.text = RailTime.formatClockSeconds(screenLoadedAtMillis)
+        binding.checkClock.contentDescription =
+            "Selected data loaded onto this screen at ${binding.checkClock.text} IST; not a train event"
+        binding.routeArchiveNote.visibility = if (ui.staticRouteSource ==
+            `in`.opentrack.india.remote.OfflineCorridorMap.SOURCE) View.VISIBLE else View.GONE
         stopAdapter.mapSource = ui.staticRouteSource
         stopAdapter.setRoutePoints(RouteBetween.groupedPoints(ui.staticRoute, ui.route))
         stopAdapter.sourceNameForMarker = if (ui.activeSource == "NTES (official)") "NTES"

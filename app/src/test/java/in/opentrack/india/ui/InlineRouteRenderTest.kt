@@ -160,7 +160,7 @@ class InlineRouteRenderTest {
         val bitmap = android.graphics.Bitmap.createBitmap(root.width, root.height,
             android.graphics.Bitmap.Config.ARGB_8888)
         root.paintForTest(android.graphics.Canvas(bitmap))
-        val x = (36 * ctx.resources.displayMetrics.density).toInt()
+        val x = (RouteRailGeometry.X_DP * ctx.resources.displayMetrics.density).toInt()
         assertEquals("route spine must reach the item boundary, not stop at the text",
             ctx.getColor(R.color.stroke), bitmap.getPixel(x, root.height - 2))
     }
@@ -232,7 +232,7 @@ class InlineRouteRenderTest {
         val positions = LegGeometry.pointPositionsDp(points, 25)
         assertTrue(positions[1] - positions[0] > positions[0] - 24f)
         for (y in positions) assertEquals("intermediate dot is not on the train's rail",
-            ctx.getColor(R.color.text2), bmp.getPixel((36 * d).toInt(), (y * d).toInt()))
+            ctx.getColor(R.color.text2), bmp.getPixel((RouteRailGeometry.X_DP * d).toInt(), (y * d).toInt()))
         val surface = ctx.getColor(R.color.surface)
         val timeY = (positions[0] * d).toInt()
         assertTrue("the planned arrival clock is not painted beside its dot",
@@ -242,7 +242,7 @@ class InlineRouteRenderTest {
                 }
             })
         assertEquals("the locomotive has moved to a point instead of staying at its stop",
-            ctx.getColor(R.color.live), bmp.getPixel((20 * d).toInt(), (24 * d).toInt()))
+            ctx.getColor(R.color.live), bmp.getPixel((RouteRailGeometry.X_DP * d).toInt(), (24 * d).toInt()))
     }
 
     @Test fun onlyARecentSourceEventPaintsTheGreenCheckOnTheLocomotive() {
@@ -263,7 +263,7 @@ class InlineRouteRenderTest {
             // Exercise the painter directly on this software canvas instead.
             ruler.paintForTest(android.graphics.Canvas(bmp))
             val d = ctx.resources.displayMetrics.density
-            return bmp.getPixel(((36 + 15 + 5) * d).toInt(), ((24 - 14) * d).toInt())
+            return bmp.getPixel(((RouteRailGeometry.X_DP + 15 + 5) * d).toInt(), ((24 - 14) * d).toInt())
         }
         assertEquals("<1 min must draw green at the icon's upper-right",
             ctx.getColor(R.color.accent), pixelAtCheck(30))
@@ -292,7 +292,7 @@ class InlineRouteRenderTest {
         val official = paint(RouteBetween.MarkerKind.REPORTED_HALT)
         val d = ctx.resources.displayMetrics.density
         assertEquals("source-neutral train body must actually be painted",
-            ctx.getColor(R.color.live), official.getPixel((20 * d).toInt(), (24 * d).toInt()))
+            ctx.getColor(R.color.live), official.getPixel((RouteRailGeometry.X_DP * d).toInt(), (24 * d).toInt()))
         assertTrue("switching from NTES to the website changed the route skin",
             official.sameAs(paint(RouteBetween.MarkerKind.SITE_LAST_STOP)))
     }
@@ -429,8 +429,19 @@ class InlineRouteRenderTest {
         content.layout(0, 0, content.measuredWidth, content.measuredHeight)
         val frame = holder.trainMarker.parent as View
         val locomotiveX = frame.left + holder.trainMarker.left + holder.trainMarker.width / 2
-        assertEquals("the locomotive must be centred on the x=36dp station rail",
-            (36 * d).toInt(), locomotiveX)
+        assertEquals("the locomotive must be centred on the x=124dp station rail",
+            (RouteRailGeometry.X_DP * d).toInt(), locomotiveX)
+        // Keep both time pairs on their OWN sides of that same rail, including at
+        // narrow widths; a coordinate assertion catches a cosmetic-only reorder.
+        val scheduleBounds = android.graphics.Rect(0, 0, holder.schedArr.width, holder.schedArr.height)
+        val reportBounds = android.graphics.Rect(0, 0, holder.liveArr.width, holder.liveArr.height)
+        val group = content as android.view.ViewGroup
+        group.offsetDescendantRectToMyCoords(holder.schedArr, scheduleBounds)
+        group.offsetDescendantRectToMyCoords(holder.liveArr, reportBounds)
+        assertTrue("scheduled arrival overlaps the rail: $scheduleBounds",
+            scheduleBounds.right < locomotiveX)
+        assertTrue("reported arrival crosses to the schedule side: $reportBounds",
+            reportBounds.left > locomotiveX)
         assertTrue("the icon slipped below the Birur station name",
             kotlin.math.abs(frame.top + holder.trainMarker.top + holder.trainMarker.height / 2 -
                 (holder.name.top + holder.name.height / 2)) < (25 * d).toInt())
@@ -459,7 +470,7 @@ class InlineRouteRenderTest {
         val collapsedY = 24f + (ruler.height / d - 48f) * pointFraction
         assertEquals("hidden intermediate point still leaves an unexplained dot",
             ctx.getColor(R.color.stroke),
-            closed.getPixel((36 * d).toInt(), (collapsedY * d).toInt()))
+            closed.getPixel((RouteRailGeometry.X_DP * d).toInt(), (collapsedY * d).toInt()))
         ruler.showLabels = true
         ruler.measure(View.MeasureSpec.makeMeasureSpec(360, View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
@@ -493,7 +504,7 @@ class InlineRouteRenderTest {
         adapter.submitList(listOf(from, to))
         val holder = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
         adapter.onBindViewHolder(holder, 0)
-        assertEquals("Stations · old map ▾", holder.routeToggle.text.toString())
+        assertEquals("Stations ▾", holder.routeToggle.text.toString())
         holder.inlineLeg.performClick()
         assertTrue(holder.inlineLeg.showLabels)
         assertEquals(listOf("HEI", "MLSA"), holder.inlineLeg.projection!!.points.map { it.code })

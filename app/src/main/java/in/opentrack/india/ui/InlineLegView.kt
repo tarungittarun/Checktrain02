@@ -53,7 +53,7 @@ class InlineLegView @JvmOverloads constructor(
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         val leg = projection ?: return
-        val x = dp(36f)
+        val x = dp(RouteRailGeometry.X_DP)
         val y0 = dp(24f)
         val y1 = height - dp(24f)
         val positions = if (showLabels) LegGeometry.pointPositionsDp(leg.points, distanceKm)
@@ -112,7 +112,7 @@ class InlineLegView @JvmOverloads constructor(
             paint.color = context.getColor(R.color.text3)
             paint.textSize = sp(11f)
             canvas.drawText(if (point.mapKm >= 0)
-                (if (historicalMap) "~${point.mapKm} km · older corridor" else "${point.mapKm} km · route map")
+                (if (historicalMap) "~${point.mapKm} km" else "${point.mapKm} km · route map")
                 else "distance unavailable",
                 left, tickY + dp(17f), paint)
         }

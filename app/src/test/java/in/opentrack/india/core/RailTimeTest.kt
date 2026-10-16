@@ -158,6 +158,9 @@ class RailTimeTest {
         // arithmetic that is easy to get half an hour wrong (and would then test nothing).
         val midnightIst = java.time.Instant.parse("2024-01-01T18:30:00Z").toEpochMilli()
         assertEquals("00:00", RailTime.formatClock(midnightIst))
+        assertEquals("00:00:00", RailTime.formatClockSeconds(midnightIst))
+        assertEquals("09:05:07", RailTime.formatClockSeconds(midnightIst +
+            (9 * 60 + 5) * 60_000L + 7_000L))
         assertEquals("09:05", RailTime.formatClock(midnightIst + (9 * 60 + 5) * 60_000L))
         assertEquals("23:59", RailTime.formatClock(midnightIst + 86_400_000L - 60_000L))
     }

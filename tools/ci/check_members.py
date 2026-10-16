@@ -97,6 +97,8 @@ init doFinal indices optJSONObject optBoolean opt optString has keys getJSONArra
 setPrimaryClip
 # Android Drawable bounds and Bitmap pixel-parity checks in the source-neutral route render tests.
 setBounds sameAs
+# Android ViewGroup translates measured clock bounds into shared route-item coordinates.
+offsetDescendantRectToMyCoords
 # Android Paint used for the locomotive age pill width.
 measureText
 # legacy-cipher factory (2026-10-12): SSLSocket suite lists and the delegate pattern
