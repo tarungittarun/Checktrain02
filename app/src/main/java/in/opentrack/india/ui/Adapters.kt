@@ -124,7 +124,7 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         set(value) {
             if (field?.div(60) != value?.div(60)) {
                 field = value
-                if (projectedLeg != null) notifyDataSetChanged()
+                if (projectedLeg != null || haltMarker != null) notifyDataSetChanged()
             } else field = value
         }
 
@@ -181,6 +181,7 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         val timeType: TextView = view.findViewById(R.id.stopTimeType)
         val stopToggle: TextView = view.findViewById(R.id.stopToggle)
         val dot: View = view.findViewById(R.id.stopDot)
+        val trainMarker: StopRailMarkerView = view.findViewById(R.id.stopTrainMarker)
         val marker: TextView = view.findViewById(R.id.haltMarker)
         val name: TextView = view.findViewById(R.id.stopName)
         val meta: TextView = view.findViewById(R.id.stopMeta)
@@ -249,12 +250,16 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         // Two concise pairs are always present: dim timetable at left, selected
         // source at right. Arrows mean arrival / departure; missing reports stay —.
         fun time(minute: Int?): String = minute?.let(RailTime::formatRailMinute) ?: "—"
-        holder.schedArr.text = "↓ ${time(s.schedArr)}"
-        holder.schedDep.text = "↑ ${time(s.schedDep)}"
+        holder.schedArr.text = time(s.schedArr)
+        holder.schedDep.text = time(s.schedDep)
+        DirectionArrowDrawable.attach(holder.schedArr, arriving = true, reported = false)
+        DirectionArrowDrawable.attach(holder.schedDep, arriving = false, reported = false)
         val reported = s.source != TrackModel.MinuteSource.SCHEDULE
         val late: Boolean = (s.delay ?: 0) >= 3
-        holder.liveArr.text = "↓ ${time(s.showArr.takeIf { reported })}"
-        holder.liveDep.text = "↑ ${time(s.showDep.takeIf { reported })}"
+        holder.liveArr.text = time(s.showArr.takeIf { reported })
+        holder.liveDep.text = time(s.showDep.takeIf { reported })
+        DirectionArrowDrawable.attach(holder.liveArr, arriving = true, reported = reported)
+        DirectionArrowDrawable.attach(holder.liveDep, arriving = false, reported = reported)
         val evidence = when (s.source) {
             TrackModel.MinuteSource.SITE_REPORTED -> "Website"
             TrackModel.MinuteSource.PROJECTED -> "Estimate"
@@ -287,6 +292,10 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         holder.stopToggle.visibility = View.GONE
         holder.stopToggle.text = if (expandedCode == s.code) "Hide ▴" else "Stations ▾"
         holder.dot.setBackgroundResource(dotFor(s))
+        holder.dot.visibility = if (marker == null) View.VISIBLE else View.GONE
+        holder.trainMarker.visibility = if (marker == null) View.GONE else View.VISIBLE
+        holder.trainMarker.ageSeconds = if (marker?.code.equals(s.code, true)) legAgeSeconds else null
+        holder.trainMarker.contentDescription = marker?.caption ?: ""
         // Keep the next stop directly after the compact leg. The former 34dp
         // projected-row spacer looked like missing content on a phone.
         val nextKm = currentList.getOrNull(position + 1)?.kmFromOrigin
@@ -330,7 +339,10 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         holder.inlineLegGroup.visibility = if (displayedLeg != null) View.VISIBLE else View.GONE
         holder.inlineLeg.projection = displayedLeg
         holder.inlineLeg.showLabels = disclosed
-        holder.inlineLeg.showTrain = leg != null
+        // A pinned halt uses the locomotive IN its station row. Do not draw a
+        // second locomotive 24dp down in the next leg (the apparent third dot).
+        holder.inlineLeg.showTrain = leg != null &&
+            !(leg.fraction == 0f && marker?.code.equals(s.code, true))
         holder.inlineLeg.distanceKm = nextStop?.let { (it.kmFromOrigin - s.kmFromOrigin).coerceAtLeast(0) } ?: 0
         holder.inlineLeg.ageSeconds = if (leg != null &&
             leg.markerKind != RouteBetween.MarkerKind.PROJECTED) legAgeSeconds else null
@@ -359,14 +371,7 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             holder.routeToggle.contentDescription = if (disclosed)
                 "Hide intermediate stations" else "Show ${available.size} intermediate stations"
             holder.routeToggle.visibility = if (available.isEmpty()) View.GONE else View.VISIBLE
-            holder.routeToggle.setOnClickListener {
-                val previous = expandedCode
-                expandedCode = if (previous == s.code) null else s.code
-                if (previous != null) currentList.indexOfFirst { it.code == previous }
-                    .takeIf { it >= 0 }?.let(::notifyItemChanged)
-                currentList.indexOfFirst { it.code == s.code }
-                    .takeIf { it >= 0 }?.let(::notifyItemChanged)
-            }
+            holder.routeToggle.setOnClickListener { toggleStations(s.code, position, holder) }
             val pointDescription = available.joinToString("; ") { point ->
                 val clock = point.passageMinute?.let {
                     (if (point.approximate) "approximately " else "scheduled ") +
@@ -389,22 +394,32 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
                     else if (web) "web-cache km claim" else "estimated distance") +
                 (if (pointDescription.isEmpty()) "" else " · intermediate stations: $pointDescription")
         }
-        holder.row.setOnClickListener {
-            if (hasPoints) {
-                val previous = expandedCode
-                expandedCode = if (previous == s.code) null else s.code
-                if (previous != null && previous != s.code) currentList.indexOfFirst { it.code == previous }
-                    .takeIf { it >= 0 }?.let(::notifyItemChanged)
-                notifyItemChanged(holder.bindingAdapterPosition.takeIf { it != RecyclerView.NO_POSITION }
-                    ?: position)
-            }
-        }
+        holder.row.setOnClickListener { if (hasPoints) toggleStations(s.code, position, holder) }
         holder.row.isClickable = hasPoints
+        // The line, dots, blank leg and caption are all one tap target, not only
+        // the station name or tiny Hide button. A second tap folds the same leg.
+        holder.inlineLegGroup.isClickable = hasPoints
+        holder.inlineLegGroup.setOnClickListener {
+            if (hasPoints) toggleStations(s.code, position, holder)
+        }
+        holder.inlineLeg.isClickable = hasPoints
+        holder.inlineLeg.setOnClickListener {
+            if (hasPoints) toggleStations(s.code, position, holder)
+        }
         holder.row.contentDescription = "${s.name}; " +
             "${holder.schedArr.contentDescription}; ${holder.schedDep.contentDescription}; " +
             "${holder.liveArr.contentDescription}; ${holder.liveDep.contentDescription}" +
             if (hasPoints) "; tap to ${if (disclosed) "hide" else "show"} " +
                 "${available.size} intermediate stations" else ""
+    }
+
+    private fun toggleStations(code: String, fallbackPosition: Int, holder: Holder) {
+        val previous = expandedCode
+        expandedCode = if (previous == code) null else code
+        if (previous != null && previous != code) currentList.indexOfFirst { it.code == previous }
+            .takeIf { it >= 0 }?.let(::notifyItemChanged)
+        notifyItemChanged(holder.bindingAdapterPosition.takeIf { it != RecyclerView.NO_POSITION }
+            ?: fallbackPosition)
     }
 
     /**

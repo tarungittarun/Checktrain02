@@ -99,7 +99,11 @@ class InlineLegView @JvmOverloads constructor(
                 val label = android.text.TextUtils.ellipsize(
                     RowText.of(point.name), android.text.TextPaint(paint), room,
                     android.text.TextUtils.TruncateAt.END).toString()
-                canvas.drawText(label, left, tickY + dp(4f), paint)
+                canvas.drawText(label, left, tickY + dp(2f), paint)
+                paint.color = context.getColor(R.color.text3)
+                paint.textSize = sp(11f)
+                canvas.drawText(if (point.mapKm >= 0) "${point.mapKm} km · route map" else "distance unavailable",
+                    left, tickY + dp(17f), paint)
             }
         }
         if (!showTrain) return // Static stations are not evidence of the train's location.

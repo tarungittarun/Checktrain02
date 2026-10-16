@@ -166,3 +166,31 @@ is a *timetable interpolation*, never a claimed train observation. Missing
 inputs stay blank. An actual scheduled halt remains a main stop row with its
 arrival/departure pair. The `Source details` sheet keeps the diagnostics behind
 a brief plain-language `About times` panel.
+
+## R113 phone review (20:11–20:34, train 12089)
+
+The owner supplied two NTES screenshots, a website comparison and a screenshot
+of the *same* train in the Where is My Train phone app. The first NTES screen
+reports Arsikere departure 19:45, but initially shows the route from Bengaluru
+rather than scrolling to the latest reported station. The website claims Birur
+arrival 20:30; this is a source-attributed last-stop report, not observed motion
+beyond Birur. The other app labels **two** ordinary points after Birur, Sivapur
+and Koranahalli. OpenTrack's two points plus a separate locomotive below the
+Birur row looked like a *third* point. Do not copy the other app's live position
+or kilometre scale as if our sources measured them.
+
+R113 puts the locomotive directly over the reported halt's rail dot, at the
+station-name level. The next leg still connects the route, but cannot draw a
+second train at its zero position. Only a separately evidenced between-stop
+claim may place a marker farther along that leg. Tapping the station, blank
+leg, rail or its caption toggles the same two map points open/closed. Every
+available point shows its independently sourced route-map km (or says the
+number is unavailable); `~` still marks planned distance interpolation, not
+an actual passage. The four time clocks retain distinct accessible source/
+arrival/departure descriptions, while ↘ arrival and ↖ departure are painted
+as thick diagonal arrows with a subdued tail and a blue-lit tip. A selection
+with a reported event schedules route focus after the RecyclerView commits,
+using the reported marker even if the intermediate ViewModel anchor is null.
+The screen cannot legitimately advance that marker without new stop or
+measured location evidence. Phone confirmation is still required; PR #3 remains
+open and must not merge before it.

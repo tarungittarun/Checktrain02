@@ -393,7 +393,7 @@
                     style="@style/TextMicro"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Schedule ↓↑ · Report ↓↑"
+                    android:text="Schedule · Report"
                     android:textColor="@color/text2" />
             </LinearLayout>
 

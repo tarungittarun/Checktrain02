@@ -163,18 +163,22 @@ class ScreenRenderTest {
             listOf(R.id.schedArr, R.id.schedDep, R.id.liveArr, R.id.liveDep).forEach { id ->
                 assertTrue("row $i is missing a time column", text(row, id).isNotBlank())
             }
-            // Compact vertical ↓/↑ pairs keep arrival and departure visible without opening a sheet.
-            // The header distinguishes the scheduled and reported columns.
+            // Diagonal arrows are painted as bold gradient drawables with a lit blue tip;
+            // the clock remains plain text. No stop tap is required to read either pair.
             listOf(R.id.schedArr, R.id.schedDep).forEach { id ->
-                assertTrue("row $i scheduled minute not prefixed in ${name(shot, id)}",
-                    text(row, id).startsWith(if (id == R.id.schedArr) "↓ " else "↑ "))
+                val arrow = row.findViewById<TextView>(id).compoundDrawables[0]
+                assertTrue("row $i lacks a painted direction cue", arrow is DirectionArrowDrawable)
+                assertEquals("row $i cue points the wrong way", id == R.id.schedArr,
+                    (arrow as DirectionArrowDrawable).arriving)
+                assertTrue("row $i schedule is not a plain clock", text(row, id).matches(
+                    Regex("""(?:—|\d{2}:\d{2}(?: \(\+\d+d\))?)""")))
             }
             // The complaint this pins: an offline screen printed the schedule twice, and the right-hand copy
             // read like a report about the train. A row nothing moved must show a dash, not a second "05:52".
             if (m.rows[i].source == TrackModel.MinuteSource.SCHEDULE) {
                 listOf(R.id.liveArr, R.id.liveDep).forEach { id ->
                     assertEquals("a timetable-only row must not look reported in ${name(shot, id)}",
-                        if (id == R.id.liveArr) "↓ —" else "↑ —", text(row, id))
+                        "—", text(row, id))
                 }
             }
             assertTrue("row $i is missing its distance/platform line", text(row, R.id.stopMeta).isNotBlank())
@@ -211,6 +215,11 @@ Render.save("02-track-live", shot.bitmap)
             text(reported, R.id.haltMarker).contains("last reported stop", ignoreCase = true))
         assertTrue("passage age disappeared from its accessible marker",
             reported.findViewById<TextView>(R.id.haltMarker).contentDescription.contains("ago"))
+        assertEquals("locomotive must replace the reported stop's dot",
+            View.VISIBLE, reported.findViewById<View>(R.id.stopTrainMarker).visibility)
+        assertEquals(View.GONE, reported.findViewById<View>(R.id.stopDot).visibility)
+        assertEquals("a future stop cannot acquire a locomotive", View.GONE,
+            list.getChildAt(2).findViewById<View>(R.id.stopTrainMarker).visibility)
         assertEquals(View.GONE, list.getChildAt(2).findViewById<View>(R.id.haltMarker).visibility)
     }
 
@@ -280,9 +289,9 @@ Render.save("02-track-live", shot.bitmap)
         assertNotNull("website row did not render", row)
         val arr = text(row, R.id.liveArr)
         val dep = text(row, R.id.liveDep)
-        assertEquals("↓ 05:55", arr)
+        assertEquals("05:55", arr)
         assertEquals("Website arrival 05:55", row.findViewById<TextView>(R.id.liveArr).contentDescription)
-        assertEquals("↑ 05:58", dep)
+        assertEquals("05:58", dep)
         val plannedY = IntArray(2)
         val reportedY = IntArray(2)
         row.findViewById<TextView>(R.id.schedArr).getLocationOnScreen(plannedY)
@@ -296,7 +305,7 @@ Render.save("02-track-live", shot.bitmap)
             text(row, R.id.stopStatus).contains("Departed"))
         assertFalse("source-specific prose belongs in the top card, not every row",
             text(row, R.id.stopStatus).contains("Website"))
-        assertEquals("next station must stay scheduled", "↓ —",
+        assertEquals("next station must stay scheduled", "—",
             text(shot.root.findViewById<RecyclerView>(R.id.stops).getChildAt(2), R.id.liveArr))
     }
 
@@ -332,7 +341,7 @@ Render.save("02-track-live", shot.bitmap)
         val offline = shot.root.findViewById<RecyclerView>(R.id.stops)!!
         val dashed = (0 until offline.childCount).count {
             val row = offline.getChildAt(it)
-            Render.read(row, R.id.liveArr) == "↓ —" && Render.read(row, R.id.liveDep) == "↑ —"
+            Render.read(row, R.id.liveArr) == "—" && Render.read(row, R.id.liveDep) == "—"
         }
         assertEquals("an offline screen must dash both live cells in every row", offline.childCount, dashed)
 Render.save("01-track-schedule", shot.bitmap)

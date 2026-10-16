@@ -76,6 +76,16 @@ class TrackingFlowTest {
         assertTrue("no route line", E2E.text("routeLabel").isNotBlank())
         assertTrue("no run date line", E2E.text("runDate").isNotBlank())
         assertTrue("no halt rows", E2E.count(stopsBy) > 0)
+        // If the first answer already contains a timed stop, the first screen
+        // must focus that reported place. Do not fabricate a marker for a
+        // timetable-only or failed live request.
+        if (E2E.text("provenance").contains("reported stop", ignoreCase = true)) {
+            val marker = E2E.find("stopTrainMarker", E2E.LOCAL_MS)
+            assertNotNull("first-load report did not focus its locomotive on a visible halt", marker)
+            val viewport = E2E.find("stops")!!.visibleBounds
+            assertTrue("locomotive is outside the route viewport: ${marker!!.visibleBounds}",
+                viewport.contains(marker.visibleBounds.centerX(), marker.visibleBounds.centerY()))
+        }
         E2E.shot("track-open")
     }
 
@@ -127,8 +137,15 @@ class TrackingFlowTest {
                 val b = row.visibleBounds
                 b.height() > 0 && b.top > viewport.top && b.bottom < viewport.bottom
             }.map { row ->
-                fun cell(id: String): String = row.findObject(By.res(E2E.PKG, id))?.text
-                    ?.trim() ?: throw AssertionError("fully visible station lost its $id cell")
+                fun cell(id: String): String {
+                    val view = row.findObject(By.res(E2E.PKG, id))
+                        ?: throw AssertionError("fully visible station lost its $id cell")
+                    val direction = if (id.endsWith("Arr")) "arrival" else "departure"
+                    assertTrue("$id lost its spoken diagonal direction",
+                        view.contentDescription.orEmpty().contains(direction, ignoreCase = true))
+                    return view.text?.trim()
+                        ?: throw AssertionError("fully visible station lost its $id clock")
+                }
                 PairOfPairs(cell("schedArr"), cell("liveArr"),
                     cell("schedDep"), cell("liveDep"))
             }
@@ -137,17 +154,15 @@ class TrackingFlowTest {
             "route=${viewport} names=${rowTexts("stopName")}", pairs.isNotEmpty())
         var missing = 0
         pairs.forEachIndexed { i, pair ->
-            assertTrue("row $i has no scheduled arrival arrow: '${pair.plannedArr}'",
-                pair.plannedArr.startsWith("↓ "))
-            assertTrue("row $i has no source arrival arrow: '${pair.reportedArr}'",
-                pair.reportedArr.startsWith("↓ "))
-            assertTrue("row $i has no scheduled departure arrow: '${pair.plannedDep}'",
-                pair.plannedDep.startsWith("↑ "))
-            assertTrue("row $i has no source departure arrow: '${pair.reportedDep}'",
-                pair.reportedDep.startsWith("↑ "))
-            if (pair.reportedArr == "↓ —") missing++ else assertTrue(
-                "row $i has no time after its arrival arrow: '${pair.reportedArr}'",
-                Regex("""^↓ \d{2}:\d{2}""").containsMatchIn(pair.reportedArr))
+            assertTrue("row $i lost the scheduled arrival minute",
+                pair.plannedArr == "—" || Regex("""^\d{2}:\d{2}""").containsMatchIn(pair.plannedArr))
+            assertTrue("row $i lost the scheduled departure minute",
+                pair.plannedDep == "—" || Regex("""^\d{2}:\d{2}""").containsMatchIn(pair.plannedDep))
+            assertTrue("row $i source departure must be a minute or dash",
+                pair.reportedDep == "—" || Regex("""^\d{2}:\d{2}""").containsMatchIn(pair.reportedDep))
+            if (pair.reportedArr == "—") missing++ else assertTrue(
+                "row $i source arrival is not a clock: '${pair.reportedArr}'",
+                Regex("""^\d{2}:\d{2}""").containsMatchIn(pair.reportedArr))
         }
         assertTrue("a missing source time must remain a dash, not a timetable copy", missing > 0)
         E2E.shot("visible-arrival-departure")
@@ -316,7 +331,7 @@ class TrackingFlowTest {
         val pageMinutes = rowTexts("liveArr")
         assertTrue("site selection disclosed no stop to compare", pageMinutes.isNotEmpty())
         assertTrue("page selection must not display NTES minutes as this page's Act",
-            pageMinutes.all { it == "↓ —" })
+            pageMinutes.all { it == "—" })
         E2E.shot("public-source-check")
     }
 
@@ -366,7 +381,7 @@ class TrackingFlowTest {
             .map { it.contentDescription.orEmpty() }
         assertTrue("org selection misattributes NTES actuals: $spoken",
             spoken.none { it.startsWith("Reported arrival") })
-        if (live.any { it != "↓ —" && it != "↑ —" }) {
+        if (live.any { it != "—" }) {
             assertTrue("Web cell without site provenance", E2E.text("provenance").contains("WEBSITE"))
             assertTrue("Web cell without spoken website source: $spoken",
                 spoken.any { it.startsWith("Website arrival") })

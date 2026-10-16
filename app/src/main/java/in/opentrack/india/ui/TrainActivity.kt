@@ -44,6 +44,7 @@ class TrainActivity : AppCompatActivity() {
     private lateinit var stopAdapter: StopAdapter
     /** A new anchor scrolls once; a manual successful refresh scrolls even at the SAME anchor. */
     private var lastAnchor: String? = null
+    private var initialReportedFocusDone = false
     private var focusAfterRefresh = false
     private var receiptReady = false
     private var refreshStartedAt = 0L
@@ -166,11 +167,12 @@ class TrainActivity : AppCompatActivity() {
                 `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG
             AlertDialog.Builder(this)
                 .setTitle("About these times")
-                .setMessage("↓ Arrival   ↑ Departure\n\n" +
+                .setMessage("↘ Arrival   ↖ Departure\n\n" +
                     "Dim times are the timetable. Bright times are reported by " +
                     (if (website) "the selected website." else "the selected source.") +
                     " A dash means no time was reported. ~ on an intermediate " +
-                    "station is a planned passing time estimated from the timetable and distances.\n\n" +
+                    "station is a planned passing time estimated from the timetable and distances. " +
+                    "Intermediate km comes from a separate route map and can differ from the main timetable.\n\n" +
                     "The train icon stays at the last reported place; its age is the " +
                     "age of that event, not the age of the page or proof of its current position.")
                 .setNeutralButton("Source details") { _, _ ->
@@ -697,10 +699,15 @@ class TrainActivity : AppCompatActivity() {
         val from = win.first.coerceIn(0, (m.rows.size - 1).coerceAtLeast(0))
         val to = win.last.coerceIn(from, (m.rows.size - 1).coerceAtLeast(0))
         stopAdapter.submitList(m.rows.subList(from, to + 1)) {
-            val anchor = ui.anchorCode
-            if (anchor != null && anchor != lastAnchor) focusCurrentLeg()
-            if (receiptReady) {
+            // A usable NTES/website station may paint before ui.anchorCode is set.
+            // Focus on the SAME station that owns the actual train glyph, not on
+            // the first timetable row. Post after RecyclerView's layout commit.
+            val anchor = stopAdapter.haltMarker?.code ?: ui.wimtWebPoint?.precedingHalt
+                ?: ui.orgWebsiteReport?.intermediate?.precedingHalt
+            val focus = anchor != null && (!initialReportedFocusDone || anchor != lastAnchor)
+            if (focus || receiptReady) binding.stops.post {
                 focusCurrentLeg()
+                if (anchor != null) initialReportedFocusDone = true
                 receiptReady = false
                 focusAfterRefresh = false
             }

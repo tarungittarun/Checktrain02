@@ -37,7 +37,7 @@ class InlineRouteRenderTest {
         assertTrue(holder.inlineLeg.contentDescription.contains("not GPS"))
         assertTrue(holder.inlineLegCaption.text.contains("Between halts"))
         assertTrue(holder.report.text.contains("13:13"))
-        assertEquals("↓ 13:12", holder.liveArr.text.toString())
+        assertEquals("13:12", holder.liveArr.text.toString())
         adapter.setProjectedLeg(null)
         adapter.onBindViewHolder(holder, 0)
         assertEquals(View.GONE, holder.inlineLegGroup.visibility)
@@ -79,7 +79,7 @@ class InlineRouteRenderTest {
         assertTrue(holder.inlineLeg.contentDescription.contains("passage time"))
         assertEquals(null, holder.inlineLeg.ageSeconds)
         assertEquals(0f, holder.inlineLeg.projection!!.fraction, .001f)
-        assertEquals("↓ —", holder.liveArr.text.toString())
+        assertEquals("—", holder.liveArr.text.toString())
     }
 
     @Test fun websiteLastStopIsPinnedAtHaltAndAgesWithoutMovingAlongLeg() {
@@ -317,7 +317,7 @@ class InlineRouteRenderTest {
         assertEquals(View.GONE, holder.details.visibility)
         assertEquals(View.VISIBLE, holder.schedArr.visibility)
         assertEquals(View.VISIBLE, holder.liveArr.visibility)
-        assertEquals("↓ 11:10", holder.schedArr.text.toString())
+        assertEquals("11:10", holder.schedArr.text.toString())
         holder.row.performClick()
         adapter.onBindViewHolder(holder, 0)
         assertEquals(View.VISIBLE, holder.inlineLegGroup.visibility)
@@ -337,5 +337,80 @@ class InlineRouteRenderTest {
         holder.row.performClick()
         adapter.onBindViewHolder(holder, 0)
         assertEquals(View.GONE, holder.inlineLegGroup.visibility)
+    }
+
+    @Test fun birurMarkerIsOnItsStationAndWholeLegTogglesExactlyTwoMappedPoints() {
+        val ctx = RuntimeEnvironment.getApplication()
+        val adapter = StopAdapter()
+        val points = listOf(
+            StopRow(2, "SPV", "Sivapur", null, null, null,
+                null, null, 0, 215, false),
+            StopRow(3, "KRNH", "Koranahalli", null, null, null,
+                null, null, 0, 220, false))
+        adapter.setRoutePoints(mapOf("RRB" to points))
+        adapter.setProjectedLeg(RouteBetween.LegProjection("Birur Jn", "Tarikere Jn", 0f,
+            "Birur Jn", 211, "RRB", "TKE", emptyList(), RouteBetween.MarkerKind.SITE_LAST_STOP))
+        adapter.haltMarker = TableMarker.Halt("RRB", "Site's last past stop · 2m ago", true)
+        adapter.legAgeSeconds = 120
+        val birur = TrackModel.Stop(1, "RRB", "Birur Jn", 1205, 1206, 1230,
+            null, null, TrackModel.MinuteSource.SITE_REPORTED, "2",
+            TrackModel.State.PASSED, true, 211, 0, 24, false, false, false, -2)
+        val tarikere = birur.copy(seq = 2, code = "TKE", name = "Tarikere Jn",
+            schedArr = 1230, schedDep = 1231, showArr = null, showDep = null,
+            source = TrackModel.MinuteSource.SCHEDULE, isAnchor = false, kmFromOrigin = 235)
+        adapter.submitList(listOf(birur, tarikere))
+        val holder = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
+        adapter.onBindViewHolder(holder, 0)
+        assertEquals(View.VISIBLE, holder.trainMarker.visibility)
+        assertEquals(View.GONE, holder.dot.visibility)
+        assertFalse("second locomotive cannot occupy the leg below Birur", holder.inlineLeg.showTrain)
+        assertEquals("the train belongs to Birur, not the next dot", "RRB",
+            adapter.haltMarker?.code)
+        assertFalse(holder.inlineLeg.showLabels)
+        holder.inlineLegGroup.performClick() // any blank part of the leg, not a button
+        adapter.onBindViewHolder(holder, 0)
+        assertTrue(holder.inlineLeg.showLabels)
+        assertEquals(listOf("SPV", "KRNH"), holder.inlineLeg.projection!!.points.map { it.code })
+        assertEquals(listOf(215, 220), holder.inlineLeg.projection!!.points.map { it.mapKm })
+        assertTrue(holder.inlineLeg.contentDescription.contains("215 km"))
+        assertTrue(holder.inlineLeg.contentDescription.contains("220 km"))
+        holder.inlineLeg.performClick() // on the rail itself closes it again
+        adapter.onBindViewHolder(holder, 0)
+        assertFalse(holder.inlineLeg.showLabels)
+        assertEquals(View.VISIBLE, holder.trainMarker.visibility)
+        val ruler = holder.inlineLeg
+        ruler.showLabels = true
+        ruler.measure(View.MeasureSpec.makeMeasureSpec(360, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+        ruler.layout(0, 0, ruler.measuredWidth, ruler.measuredHeight)
+        val bmp = android.graphics.Bitmap.createBitmap(ruler.width, ruler.height,
+            android.graphics.Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(bmp)
+        canvas.drawColor(ctx.getColor(R.color.surface))
+        ruler.paintForTest(canvas)
+        Render.save("11-birur-to-tarikere-two-points", bmp)
+    }
+
+    @Test fun arrowsHaveOppositeDiagonalTipsAndSourceLightIsStronger() {
+        val ctx = RuntimeEnvironment.getApplication()
+        val d = ctx.resources.displayMetrics.density
+        fun draw(arrive: Boolean, report: Boolean): android.graphics.Bitmap {
+            val arrow = DirectionArrowDrawable(ctx, arrive, report)
+            val bitmap = android.graphics.Bitmap.createBitmap((22*d).toInt(), (20*d).toInt(),
+                android.graphics.Bitmap.Config.ARGB_8888)
+            arrow.setBounds(0, 0, bitmap.width, bitmap.height)
+            arrow.draw(android.graphics.Canvas(bitmap))
+            return bitmap
+        }
+        val arrival = draw(true, true)
+        val departure = draw(false, true)
+        fun alpha(bitmap: android.graphics.Bitmap, x: Float, y: Float) =
+            android.graphics.Color.alpha(bitmap.getPixel((x*d).toInt(), (y*d).toInt()))
+        assertTrue("arrival must glow at lower-right, not upper-left",
+            alpha(arrival, 18f, 17f) > alpha(arrival, 3f, 17f))
+        assertTrue("departure must glow at upper-left, not lower-right",
+            alpha(departure, 3f, 3f) > alpha(departure, 18f, 3f))
+        assertTrue("reported tip must be brighter than planned tip",
+            alpha(arrival, 18f, 17f) >= alpha(draw(true, false), 18f, 17f))
     }
 }

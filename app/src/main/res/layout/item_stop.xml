@@ -30,6 +30,13 @@
                 android:layout_gravity="center_horizontal|top"
                 android:layout_marginTop="9dp"
                 android:background="@drawable/dot_later" />
+            <in.opentrack.india.ui.StopRailMarkerView
+                android:id="@+id/stopTrainMarker"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_gravity="top|center_horizontal"
+                android:layout_marginTop="2dp"
+                android:visibility="gone" />
         </FrameLayout>
 
         <LinearLayout
