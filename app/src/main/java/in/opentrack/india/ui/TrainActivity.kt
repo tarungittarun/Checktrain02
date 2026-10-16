@@ -179,7 +179,13 @@ class TrainActivity : AppCompatActivity() {
                         .setPositiveButton("Close", null).show()
                 }
                 .setPositiveButton("Close", null)
-                .show()
+                .create().also { dialog ->
+                    dialog.show()
+                    // AOSP's all-caps action looks like a warning label and was
+                    // hard to recognise as the second, optional explanation.
+                    dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setAllCaps(false)
+                    dialog.getButton(AlertDialog.BUTTON_POSITIVE).setAllCaps(false)
+                }
         }
         binding.back.setOnClickListener { finish() }
         // Long-press the provenance badge to copy a live-feed report. It lives on that chip rather than in
@@ -531,11 +537,6 @@ class TrainActivity : AppCompatActivity() {
             }
             binding.provenance.setBackgroundResource(R.drawable.bg_badge_schedule)
             binding.provenance.setTextColor(getColor(R.color.warn))
-            binding.delay.contentDescription = if (siteArrivalDelay != null && org != null)
-                "Website reported ${if (siteArrivalDelay >= 0) "+${siteArrivalDelay}" else siteArrivalDelay} " +
-                    "minutes at ${RowText.of(station?.name ?: org.anchorCode)} " +
-                    "${RailTime.formatRailMinute(org.eventMinute)}; current delay unknown"
-                else "No reported delay from selected website"
             binding.delay.setTextColor(getColor(R.color.warn))
         }
         if (ui.actualsHeadline != null) {
@@ -639,6 +640,13 @@ class TrainActivity : AppCompatActivity() {
                 }
             } else if (org != null) "— · delay not confirmed"
             else "— · no verified delay"
+            binding.delay.contentDescription = if (siteArrivalDelay != null && org != null) {
+                val signed = if (siteArrivalDelay > 0) "+${siteArrivalDelay}" else
+                    siteArrivalDelay.toString()
+                "Website reported $signed minutes at " +
+                    "${RowText.of(station?.name ?: org.anchorCode)} " +
+                    "${RailTime.formatRailMinute(org.eventMinute)}; current delay unknown"
+            } else "No reported delay from selected website"
             binding.delay.setTextColor(getColor(R.color.warn))
             val next = org?.intermediate?.let { p -> ui.route.stops.firstOrNull {
                 it.code.equals(p.followingHalt, true) } } ?: station?.let {

@@ -223,7 +223,10 @@ class InlineRouteRenderTest {
         ruler.layout(0, 0, ruler.measuredWidth, ruler.measuredHeight)
         val bmp = android.graphics.Bitmap.createBitmap(ruler.width, ruler.height,
             android.graphics.Bitmap.Config.ARGB_8888)
-        ruler.paintForTest(android.graphics.Canvas(bmp))
+        val canvas = android.graphics.Canvas(bmp)
+        canvas.drawColor(ctx.getColor(R.color.surface))
+        ruler.paintForTest(canvas)
+        Render.save("10-inline-stations-and-train", bmp)
         val d = ctx.resources.displayMetrics.density
         val positions = LegGeometry.pointPositionsDp(points, 25)
         assertTrue(positions[1] - positions[0] > positions[0] - 24f)

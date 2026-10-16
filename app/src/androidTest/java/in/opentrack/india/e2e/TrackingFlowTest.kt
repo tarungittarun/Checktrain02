@@ -258,7 +258,7 @@ class TrackingFlowTest {
         assertTrue("About times is missing", E2E.tap("sourceToggle"))
         assertNotNull("plain-language times guide never appeared",
             E2E.ui.wait(Until.findObject(By.textContains("Dim times are the timetable")), E2E.LOCAL_MS))
-        val detailsButton = E2E.ui.wait(Until.findObject(By.text("Source details")), E2E.LOCAL_MS)
+        val detailsButton = E2E.ui.wait(Until.findObject(By.text(java.util.regex.Pattern.compile("(?i)^source details$"))), E2E.LOCAL_MS)
         assertNotNull("technical details not reachable", detailsButton)
         detailsButton!!.click()
         val detail = E2E.ui.wait(Until.findObject(By.textContains("Act = reported")), E2E.LOCAL_MS)
