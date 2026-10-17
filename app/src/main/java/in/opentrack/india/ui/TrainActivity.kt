@@ -910,13 +910,14 @@ class TrainActivity : AppCompatActivity() {
         }
         when {
             ui.activeSource == `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG &&
-                ui.orgWebsiteReport != null && elapsed != null ->
+                ui.orgWebsiteReport != null && elapsed != null -> {
                 binding.age.text = "${RailTime.formatRailMinute(ui.orgWebsiteReport!!.eventMinute)} · " +
                     "$elapsed · site checked ${RailTime.formatClock(ui.orgWebsiteReport!!.pageUpdatedAt)}"
                 binding.age.contentDescription = "Website claim at " +
                     "${RailTime.formatRailMinute(ui.orgWebsiteReport!!.eventMinute)}; " +
                     "website page checked ${RailTime.formatClock(ui.orgWebsiteReport!!.pageUpdatedAt)}; " +
                     "page check is not event time or proof of movement"
+            }
             ui.activeSource == `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE &&
                 ui.wimtWebPoint != null && elapsed != null ->
                 binding.age.text = "Web-cache point $elapsed · unverified; not phone GPS"
