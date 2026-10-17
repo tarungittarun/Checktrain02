@@ -1006,3 +1006,15 @@ jobs:
           } > /tmp/body.md
           gh api -X POST "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/comments" -f body="$(cat /tmp/body.md)" \
             || echo "::warning::could not post the roll-up"
+
+  # Full sweep only: a single strict report correlates these installed-device
+  # partitions with the Android workflow's SAME-SHA APK, unit tests, render
+  # assertions, source contracts, signing, release bytes and real durations.
+  # It must run even after a red report, because red runs need the root cause most.
+  audit:
+    needs: [plan, report, e2e, e2e_full, release_smoke]
+    if: always() && needs.plan.outputs.full == 'true'
+    uses: ./.github/workflows/apk-audit.yml
+    with:
+      e2e_run_id: ${{ github.run_id }}
+    secrets: inherit

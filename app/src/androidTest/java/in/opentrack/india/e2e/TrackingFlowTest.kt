@@ -264,25 +264,39 @@ class TrackingFlowTest {
         assertTrue("the station table overflows ${width}x$height: $bounds",
             bounds.left >= 0 && bounds.right <= width &&
                 bounds.top >= 0 && bounds.bottom <= height)
-        // Compare boxes on an installed APK, not just XML or Robolectric pixels.
-        // A previous build placed both pairs in a second tier below their names.
-        val stationNodes = E2E.all(By.res(E2E.PKG, "stopName"))
-        val scheduledNodes = E2E.all(By.res(E2E.PKG, "schedArr"))
-        val sourceNodes = E2E.all(By.res(E2E.PKG, "liveArr"))
-        assertTrue("no complete onscreen station/clock band",
-            stationNodes.size >= 2 && stationNodes.size == scheduledNodes.size &&
-                stationNodes.size == sourceNodes.size)
-        val pxPerDp = E2E.ui.displayWidth / E2E.widthDp()
-        for (index in stationNodes.indices) {
-            val name = stationNodes[index].visibleBounds
-            val planned = scheduledNodes[index].visibleBounds
-            val report = sourceNodes[index].visibleBounds
-            assertTrue("stop $index timetable shifted away from its name: $name / $planned",
-                kotlin.math.abs(name.top - planned.top) <= 24 * pxPerDp)
-            assertTrue("stop $index report shifted away from its name: $name / $report",
-                kotlin.math.abs(name.top - report.top) <= 24 * pxPerDp)
-            assertTrue("stop $index clocks are on different lines: $planned / $report",
-                kotlin.math.abs(planned.top - report.top) <= 6 * pxPerDp)
+        // A partly clipped RecyclerView row exposes its name but may not expose
+        // either clock to UiAutomator. Pair by screen position, not list index:
+        // demanding three globally equal accessibility counts produced a false
+        // failure on API 24 without testing the alignment of any complete row.
+        val names = E2E.all(By.res(E2E.PKG, "stopName")).map { it.visibleBounds }
+        val scheduled = E2E.all(By.res(E2E.PKG, "schedArr")).map { it.visibleBounds }
+        val reported = E2E.all(By.res(E2E.PKG, "liveArr")).map { it.visibleBounds }
+        val scale = E2E.ui.displayWidth / E2E.widthDp()
+        val complete = names.filter { it.top >= bounds.top + 4 * scale &&
+            it.bottom <= bounds.bottom - 4 * scale }
+        assertTrue("fewer than two complete station names in the route: $names / $bounds",
+            complete.size >= 2)
+        assertTrue("no arrival clocks exposed beside $complete (schedule=$scheduled report=$reported)",
+            scheduled.isNotEmpty() && reported.isNotEmpty())
+        val usedPlanned = mutableSetOf<Int>()
+        val usedReported = mutableSetOf<Int>()
+        complete.forEachIndexed { index, name ->
+            // Choosing nearest does not excuse a clock on the wrong row: the 24dp
+            // bound below rejects the exact 50dp displacement seen on the phone.
+            val plannedIndex = scheduled.indices.minByOrNull {
+                kotlin.math.abs(scheduled[it].top - name.top) }!!
+            val reportIndex = reported.indices.minByOrNull {
+                kotlin.math.abs(reported[it].top - name.top) }!!
+            val planned = scheduled[plannedIndex]
+            val report = reported[reportIndex]
+            assertTrue("stop $index timetable detached from station: $name / $planned",
+                kotlin.math.abs(name.top - planned.top) <= 24 * scale)
+            assertTrue("stop $index report detached from station: $name / $report",
+                kotlin.math.abs(name.top - report.top) <= 24 * scale)
+            assertTrue("stop $index arrival columns not level: $planned / $report",
+                kotlin.math.abs(planned.top - report.top) <= 6 * scale)
+            assertTrue("stop $index clock reused by a second station",
+                usedPlanned.add(plannedIndex) && usedReported.add(reportIndex))
         }
         val visibleStations = rowTexts("stopName").filter { it.isNotBlank() }
         assertTrue("default compact route should fit at least three named stations " +

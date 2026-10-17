@@ -59,6 +59,8 @@ jobs:
         run: |
           python3 tools/ci/test_check_workflows.py
           python3 tools/ci/check_workflows.py
+      - name: APK audit self-tests (missing device rows and slow jobs cannot turn green)
+        run: python3 tools/ci/test_apk_audit.py
       - name: Probe self-tests (a diagnostic that silently skips its fallback is worse than none)
         # probe_live_feed is the tool that decides whether live data is reachable at all, so its own reach-
         #ability logic is under test: the alternate source must still be asked when the primary is dead, and
@@ -161,6 +163,15 @@ jobs:
           name: ui-previews-${{ matrix.part }}
           path: app/build/reports/previews/
           if-no-files-found: warn
+          retention-days: 7
+      # Always retain the machine-readable verdict, not only red reports. The
+      # APK audit counts executed/skipped tests and their exact failing methods.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: unit-results-${{ matrix.part }}
+          path: app/build/test-results/testDebugUnitTest/*.xml
+          if-no-files-found: error
           retention-days: 7
       - uses: actions/upload-artifact@v4
         if: failure()
