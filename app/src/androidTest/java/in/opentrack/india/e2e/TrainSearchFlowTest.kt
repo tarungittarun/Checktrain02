@@ -73,8 +73,19 @@ class TrainSearchFlowTest {
         val list = E2E.find("results")!!.visibleBounds
         assertTrue("Edit search should use the full width: edit=$edit list=$list",
             edit.width() * 10 >= list.width() * 9)
-        assertTrue("results heading repeats the long train-count/feed paragraph",
-            E2E.text("resultsTitle").length < 24)
+        assertTrue("result list lost its requested name",
+            E2E.text("resultsTitle") == "SEARCHED TRAINS")
+        assertTrue("result count and provenance summary not visible",
+            E2E.text("resultsSummary").contains("train") &&
+                E2E.text("resultsSummary").contains("timetable"))
+        val sort = E2E.find("resultsSort")!!.visibleBounds
+        val header = E2E.find("resultsHead")!!.visibleBounds
+        assertTrue("sort control must fit the right half: $sort / $header",
+            sort.left >= header.centerX() && sort.right <= header.right)
+        assertTrue("sort dropdown arrow is not visible", E2E.find("sortArrow") != null)
+        assertTrue("sort selector does not open", E2E.tap("resultsSort"))
+        assertTrue("sort options missing", E2E.ui.wait(Until.findObject(By.text("Duration")), E2E.LOCAL_MS) != null)
+        E2E.ui.pressBack()
         assertTrue("full source explanation lost to accessibility",
             E2E.find("resultsTitle")!!.contentDescription.isNotBlank())
         E2E.shot("compact-train-results")

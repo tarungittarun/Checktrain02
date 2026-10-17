@@ -81,6 +81,8 @@ class TrackingFlowTest {
             number.isNotBlank())
         assertTrue("no route line", E2E.text("routeLabel").isNotBlank())
         assertTrue("no run date line", E2E.text("runDate").isNotBlank())
+        assertTrue("top tracking card lost its SUMMARY BOX label",
+            E2E.text("summaryBoxLabel") == "SUMMARY BOX")
         assertTrue("no halt rows", E2E.count(stopsBy) > 0)
         // If the first answer already contains a timed stop, the first screen
         // must focus that reported place. Do not fabricate a marker for a

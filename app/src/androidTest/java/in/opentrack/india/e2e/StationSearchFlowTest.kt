@@ -153,6 +153,16 @@ class StationSearchFlowTest {
         )
         val title = E2E.text("resultsTitle")
         assertTrue("the results header is blank while showing a list", title.isNotBlank() || E2E.resultRows() == 0)
+        if (E2E.resultRows() > 0 && E2E.visible("editSearch", 500)) {
+            assertTrue("Edit search did not reopen the SEARCH BOX", E2E.tap("editSearch"))
+            assertTrue("SEARCH BOX label missing", E2E.ui.wait(
+                Until.hasObject(By.text("SEARCH BOX")), E2E.LOCAL_MS))
+            val form = E2E.find("searchCard")!!.visibleBounds
+            val summary = E2E.find("resultsSummary")!!.visibleBounds
+            assertTrue("large blank gap between edited search and count/source/date: $form / $summary",
+                summary.top - form.bottom in 0..(E2E.ui.displayWidth / 5))
+            assertTrue("result count missing from summary", E2E.text("resultsSummary").contains("train"))
+        }
         E2E.shot("both-ends")
         E2E.assertNoSystemDialog("both ends")
     }

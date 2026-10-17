@@ -3,6 +3,8 @@ package `in`.opentrack.india.ui
 import android.content.Intent
 import android.os.Bundle
 import android.view.View
+import android.view.ViewGroup
+import android.widget.LinearLayout
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import `in`.opentrack.india.data.Prefs
@@ -63,11 +65,14 @@ class MainActivity : AppCompatActivity() {
         binding.results.adapter = adapter
         binding.results.setHasFixedSize(true)
         val sorts = TrainResultsDisplay.Sort.entries
-        binding.resultsSort.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item,
-            listOf("Suggested", "Departure time", "Arrival time", "Duration"))
+        binding.resultsSort.adapter = ArrayAdapter(this, R.layout.item_sort_selected,
+            listOf("Suggested", "Departure", "Arrival", "Duration")).apply {
+            setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        }
         binding.resultsSort.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
                 sortMode = sorts.getOrElse(position) { TrainResultsDisplay.Sort.SUGGESTED }
+                binding.resultsSort.contentDescription = "Sort by ${sortMode.name.lowercase()}"
                 vm.results.value?.let(::displaySortedResults)
             }
             override fun onNothingSelected(parent: AdapterView<*>?) {}
@@ -107,6 +112,7 @@ class MainActivity : AppCompatActivity() {
             // result has a status sentence for this observer to enrich.
             vm.results.value?.let { r ->
                 binding.resultsTitle.contentDescription = composeStatus()
+                updateResultsSummary(r)
                 Diary.get()?.log("UISTATE") {
                     UiState.list(
                         r.from?.code ?: "?", r.to?.code ?: "?", r.hits.size, vm.liveNote.value, r.hits,
@@ -131,6 +137,16 @@ class MainActivity : AppCompatActivity() {
         searchCollapsed = collapsed
         binding.searchCardScroll.visibility = if (collapsed) View.GONE else View.VISIBLE
         binding.searchCompact.visibility = if (collapsed) View.VISIBLE else View.GONE
+        // A weighted ScrollView left hundreds of empty pixels when Edit search reopened
+        // above an existing list. Wrap its content instead, while bounding tall forms so
+        // Find stays scrollable and the results retain a visible viewport.
+        val editingResults = !collapsed && vm.results.value?.hits?.isNotEmpty() == true
+        (binding.searchCardScroll.layoutParams as LinearLayout.LayoutParams).apply {
+            height = if (editingResults) ViewGroup.LayoutParams.WRAP_CONTENT else 0
+            weight = if (editingResults) 0f else 2f
+            binding.searchCardScroll.layoutParams = this
+        }
+        binding.searchCardScroll.capWhenEditingResults = editingResults
     }
 
     /**
@@ -209,6 +225,7 @@ class MainActivity : AppCompatActivity() {
         binding.trainBox.visibility = if (stations) View.GONE else View.VISIBLE
         binding.trainLabel.visibility = if (stations) View.GONE else View.VISIBLE
         binding.resultsHead.visibility = View.GONE
+        binding.resultsSummary.visibility = View.GONE
         binding.modeStations.setBackgroundResource(if (stations) R.drawable.bg_segment_on else 0)
         binding.modeTrain.setBackgroundResource(if (stations) 0 else R.drawable.bg_segment_on)
         binding.modeStations.setTextColor(getColor(if (stations) R.color.text1 else R.color.text3))
@@ -314,6 +331,8 @@ class MainActivity : AppCompatActivity() {
             ?.hideSoftInputFromWindow(binding.root.windowToken, 0)
         binding.resultsHead.visibility = if (report.hits.isEmpty()) View.GONE else View.VISIBLE
         binding.resultsSortRow.visibility = binding.resultsHead.visibility
+        binding.resultsSummary.visibility = binding.resultsHead.visibility
+        updateResultsSummary(report)
         displaySortedResults(report)
         if (report.hits.isNotEmpty()) {
             val pair = listOfNotNull(report.from?.code, report.to?.code).joinToString(" → ")
@@ -336,7 +355,7 @@ class MainActivity : AppCompatActivity() {
             TrainFinder.Reason.SAME_STATION -> getString(R.string.err_same_station)
         }
         statusHead = head
-        binding.resultsTitle.text = if (report.hits.isNotEmpty()) "Trains" else head
+        binding.resultsTitle.text = if (report.hits.isNotEmpty()) "SEARCHED TRAINS" else head
         binding.resultsTitle.contentDescription = composeStatus()
         binding.statusLine.visibility = if (report.hits.isEmpty()) View.VISIBLE else View.GONE
         binding.statusLine.text = if (report.hits.isEmpty()) head else ""
@@ -350,6 +369,12 @@ class MainActivity : AppCompatActivity() {
             )
         }
         UiShot.snap(this, "list")
+    }
+
+    private fun updateResultsSummary(report: TrainFinder.Report) {
+        binding.resultsSummary.text = SearchResultSummary.line(
+            report.hits.size, vm.liveNote.value, report.hits.map { it.sourceTag })
+        binding.resultsSummary.contentDescription = binding.resultsSummary.text
     }
 
     private fun displaySortedResults(report: TrainFinder.Report) {

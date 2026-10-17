@@ -76,7 +76,7 @@
     <!-- Keep Find reachable when the keyboard and large font consume the viewport. The
          results list remains a separate weighted viewport; after a search the whole card
          scroller disappears, so result rows get the screen back. -->
-    <ScrollView
+    <in.opentrack.india.ui.BoundedSearchScroll
         android:id="@+id/searchCardScroll"
         android:layout_width="match_parent"
         android:layout_height="0dp"
@@ -92,6 +92,9 @@
         android:elevation="2dp"
         android:orientation="vertical"
         android:padding="16dp">
+    <TextView style="@style/FieldLabel" android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:layout_marginBottom="8dp"
+        android:text="SEARCH BOX" />
     <LinearLayout
         android:id="@+id/modeRow"
         android:layout_width="match_parent"
@@ -187,7 +190,7 @@
                 android:text="@string/search" android:textSize="12sp" />
         </LinearLayout>
     </LinearLayout>
-    </ScrollView>
+    </in.opentrack.india.ui.BoundedSearchScroll>
 
     <TextView
         android:id="@+id/statusLine"
@@ -197,46 +200,51 @@
         android:layout_marginTop="12dp"
         android:text="@string/installing_data_first_frame" />
 
+    <!-- Only the feed's own stamp is called a source date. This occupies the old
+         empty gap even when Edit search reopens the form above the results. -->
+    <TextView android:id="@+id/resultsSummary" style="@style/TextMeta"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="10dp" android:maxLines="2"
+        android:visibility="gone" />
+
     <LinearLayout
         android:id="@+id/resultsHead"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:baselineAligned="false"
-        android:gravity="bottom"
+        android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:paddingTop="14dp"
+        android:paddingTop="8dp"
         android:paddingBottom="6dp">
-
         <TextView
             android:id="@+id/resultsTitle"
             style="@style/TextTitle"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_weight="1" />
-
-        <TextView
-            android:id="@+id/resultsSub"
-            style="@style/TextMicro"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:text="@string/sorted_by" />
-    </LinearLayout>
-
-    <LinearLayout
-        android:id="@+id/resultsSortRow"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:visibility="gone">
-        <TextView style="@style/TextMicro"
+            android:layout_weight="1"
+            android:text="SEARCHED TRAINS" />
+        <TextView android:id="@+id/resultsSub" style="@style/TextMicro"
             android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:text="Sort by" />
-        <Spinner android:id="@+id/resultsSort"
-            android:layout_width="0dp" android:layout_height="48dp"
-            android:layout_marginStart="8dp" android:layout_weight="1"
-            android:contentDescription="Sort trains by departure, arrival or duration" />
+            android:visibility="gone" />
+        <LinearLayout android:id="@+id/resultsSortRow"
+            android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:gravity="center_vertical"
+            android:orientation="horizontal" android:visibility="gone">
+            <TextView style="@style/TextMicro" android:layout_width="wrap_content"
+                android:layout_height="wrap_content" android:text="Sort by" />
+            <FrameLayout android:layout_width="0dp" android:layout_height="48dp"
+                android:layout_marginStart="4dp" android:layout_weight="1">
+                <Spinner android:id="@+id/resultsSort"
+                    android:layout_width="match_parent" android:layout_height="match_parent"
+                    android:background="@drawable/bg_inset" android:spinnerMode="dropdown"
+                    android:contentDescription="Sort trains by departure, arrival or duration" />
+                <ImageView android:id="@+id/sortArrow"
+                    android:layout_width="16dp" android:layout_height="16dp"
+                    android:layout_gravity="end|center_vertical" android:layout_marginEnd="6dp"
+                    android:src="@drawable/ic_sort_arrow" android:contentDescription="@null"
+                    android:clickable="false" android:focusable="false" />
+            </FrameLayout>
+        </LinearLayout>
     </LinearLayout>
 
     <androidx.recyclerview.widget.RecyclerView

@@ -1,6 +1,7 @@
 package `in`.opentrack.india.ui
 
 import android.view.View
+import android.view.ViewGroup
 import android.widget.Button
 import android.widget.TextView
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -107,6 +108,53 @@ class ScreenRenderTest {
         TrackModel.build(route, pos, per, now, boardSeq = 1, alightSeq = 9, runEpochDay = 19949L, note = null)
 
     // ------------------------------------------------------------------ the tracking screen
+
+    @Test
+    fun editedSearchKeepsSummaryCloseAndSortInRightHalf() {
+        val shot = Render.render(R.layout.activity_main) { root ->
+            val scroll = root.findViewById<BoundedSearchScroll>(R.id.searchCardScroll)
+            (scroll.layoutParams as android.widget.LinearLayout.LayoutParams).apply {
+                height = ViewGroup.LayoutParams.WRAP_CONTENT
+                weight = 0f
+                scroll.layoutParams = this
+            }
+            scroll.capWhenEditingResults = true
+            root.findViewById<View>(R.id.statusLine).visibility = View.GONE
+            root.findViewById<View>(R.id.resultsSummary).visibility = View.VISIBLE
+            root.findViewById<View>(R.id.resultsHead).visibility = View.VISIBLE
+            root.findViewById<View>(R.id.resultsSortRow).visibility = View.VISIBLE
+            Render.text(root, R.id.resultsSummary,
+                "3 trains · erail + timetable · source data as of 17 Oct 2026, 19:01 IST")
+            Render.text(root, R.id.resultsTitle, "SEARCHED TRAINS")
+            val sort = root.findViewById<android.widget.Spinner>(R.id.resultsSort)
+            sort.adapter = android.widget.ArrayAdapter(root.context, R.layout.item_sort_selected,
+                listOf("Suggested", "Departure", "Arrival", "Duration"))
+        }
+        val card = shot.bounds(R.id.searchCard)
+        val summary = shot.bounds(R.id.resultsSummary)
+        val title = shot.bounds(R.id.resultsTitle)
+        val sort = shot.bounds(R.id.resultsSort)
+        assertTrue("edited form still leaves a large empty list gap: $card / $summary",
+            summary.top - card.bottom in 0..(shot.bitmap.width / 5))
+        assertTrue("result summary missing", shot.text(R.id.resultsSummary).contains("source data as of"))
+        assertTrue("sort overlaps heading or spills beyond right half: $title / $sort",
+            sort.left >= title.right && sort.right <= shot.bounds(R.id.resultsHead).right)
+        assertTrue("sort arrow not painted", shot.root.findViewById<View>(R.id.sortArrow).width > 0)
+        Render.save("r126-edited-search", shot.bitmap)
+    }
+
+    @Test
+    fun trackingSummaryAndRunDateAreDistinctReadableLabels() {
+        val shot = Render.render(R.layout.activity_train) { root ->
+            Render.text(root, R.id.runDate, "run of 17 Oct 2026")
+        }
+        val date = shot.root.findViewById<android.widget.TextView>(R.id.runDate)
+        assertNotNull("run of date lost its box", date.background)
+        assertTrue("run date not bold", date.typeface.isBold)
+        assertTrue("run date too small", date.textSize >
+            shot.root.findViewById<android.widget.TextView>(R.id.routeLabel).textSize)
+        assertEquals("SUMMARY BOX", shot.text(R.id.summaryBoxLabel))
+    }
 
     @Test
     fun livePositionPaintsHeadlineChartAndEveryRow() {

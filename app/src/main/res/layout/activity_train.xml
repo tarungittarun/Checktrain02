@@ -56,11 +56,18 @@
 
         <TextView
             android:id="@+id/runDate"
-            style="@style/TextMicro"
+            style="@style/TextBody"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginStart="10dp"
-            android:gravity="end" />
+            android:layout_marginStart="8dp"
+            android:background="@drawable/bg_inset"
+            android:fontFamily="sans-serif-medium"
+            android:textStyle="bold"
+            android:textSize="14sp"
+            android:textColor="@color/text1"
+            android:paddingStart="8dp" android:paddingEnd="8dp"
+            android:paddingTop="7dp" android:paddingBottom="7dp"
+            android:gravity="center" />
     </LinearLayout>
 
     <!-- The wait is the app working, so the wait is visible: a thin moving bar while any live look
@@ -131,6 +138,10 @@
                     android:layout_height="wrap_content"
                     android:gravity="center_vertical"
                     android:orientation="horizontal">
+                    <TextView android:id="@+id/summaryBoxLabel" style="@style/TextLabel"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:layout_marginEnd="8dp" android:text="SUMMARY BOX"
+                        android:textColor="@color/text2" />
                     <TextView
                         android:id="@+id/heroEyebrow"
                         style="@style/TextLabel"
