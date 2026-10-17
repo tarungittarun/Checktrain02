@@ -1014,6 +1014,9 @@ jobs:
   audit:
     needs: [plan, report, e2e, e2e_full, release_smoke]
     if: always() && needs.plan.outputs.full == 'true'
+    permissions:
+      actions: read
+      contents: write
     uses: ./.github/workflows/apk-audit.yml
     with:
       e2e_run_id: ${{ github.run_id }}
