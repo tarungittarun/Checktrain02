@@ -10,6 +10,7 @@ import kotlinx.coroutines.withContext
 import `in`.opentrack.india.core.BrowserFetch
 import `in`.opentrack.india.core.Diary
 import `in`.opentrack.india.data.Prefs
+import androidx.appcompat.app.AppCompatDelegate
 
 /**
  * Process-wide holder for the one heavyweight resource: the read-only timetable handle.
@@ -32,6 +33,7 @@ class App : Application() {
      */
     override fun onCreate() {
         super.onCreate()
+        AppCompatDelegate.setDefaultNightMode(Prefs(this).nightMode())
         BrowserFetch.init(this)
         val diary = Diary.install(this)
         if (Prefs(this).diaryEnabled) diary.resume(this)

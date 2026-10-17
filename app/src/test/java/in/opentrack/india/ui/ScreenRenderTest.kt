@@ -483,7 +483,9 @@ Render.save("01-track-schedule", shot.bitmap)
                 Render.settle(this, hits.size)
             }
         }
-        assertNotNull("home must expose default tracking source", shot.root.findViewById<View>(R.id.defaultTrackingSource))
+        assertNotNull("home brand must return to search", shot.root.findViewById<View>(R.id.homeBrand))
+        assertNotNull("station inputs must share a compact row", shot.root.findViewById<View>(R.id.stationInputs))
+        assertTrue("swap must have a labelled symbol", shot.text(R.id.swap).contains("⇅"))
         assertNotNull("results must expose sorting controls", shot.root.findViewById<View>(R.id.resultsSort))
         assertTrue("operating days missing below result", shot.text(R.id.hitDays).contains("S M T W T F S"))
         val painted = shot.distinct()
@@ -538,7 +540,7 @@ Render.save("01-track-schedule", shot.bitmap)
                 "train list and every timetable — is answered here.")
         }
         listOf(R.id.state, R.id.overrideUrl, R.id.columnHint, R.id.save, R.id.clear,
-            R.id.back, R.id.about).forEach { id ->
+            R.id.back, R.id.about, R.id.defaultTrackingSource, R.id.appearance).forEach { id ->
             assertNotNull("SettingsActivity binds ${name(shot, id)}, the layout does not have it",
                 shot.root.findViewById<View>(id))
         }

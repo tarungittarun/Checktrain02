@@ -49,6 +49,34 @@ class StationSearchFlowTest {
         return E2E.tapSuggestion(box, 0)
     }
 
+    // @flow compact-home-search
+    // @flow honest-date-limit
+    @Test
+    fun fourRowHomeKeepsTheSwapDateAndFindInReach() {
+        val mode = E2E.find("modeRow")!!.visibleBounds
+        val from = E2E.find("fromBox")!!.visibleBounds
+        val to = E2E.find("toBox")!!.visibleBounds
+        val swap = E2E.find("swap")!!.visibleBounds
+        val date = E2E.find("dayNow")!!.visibleBounds
+        val find = E2E.find("find")!!.visibleBounds
+        assertTrue("the station fields are no longer vertically ordered", mode.bottom <= from.top &&
+            from.bottom <= to.top && to.bottom <= date.top)
+        assertTrue("swap must occupy the right quarter, not a third row: $swap $from $to",
+            swap.left >= from.right && swap.top <= to.bottom && swap.bottom >= from.top)
+        assertTrue("Find must be beside the date controls: $date $find",
+            find.left > date.right && find.top <= date.bottom && find.bottom >= date.top)
+        assertTrue("station fields must use roughly three quarters of the input width",
+            from.width().toFloat() / (from.width() + swap.width()) in 0.68f..0.78f)
+        assertTrue("tracking default belongs only in Settings",
+            E2E.find("defaultTrackingSource", 200) == null)
+        assertTrue("logo/home control missing", E2E.find("homeBrand") != null)
+        assertTrue("minus one day not tappable", E2E.tap("dayBack"))
+        assertTrue("cannot promise older actuals with another tap", !E2E.find("dayBack")!!.isEnabled)
+        assertTrue("home logo does not return to the search form", E2E.tap("homeBrand") &&
+            E2E.visible("fromBox"))
+        E2E.shot("compact-home-search")
+    }
+
     // @flow type-ahead-station
     @Test
     fun threeLettersOfferMatchesThatFillTheField() {
@@ -198,12 +226,9 @@ class StationSearchFlowTest {
             elapsedMinutes <= 2)
         assertTrue("no −1d control", E2E.tap("dayBack"))
         assertNotEquals("−1d left the date on 'now'", start, E2E.text("whenValue"))
-        // The window itself has to be stated, or ±24 h is an invisible rule the traveller cannot use.
-        // The date buttons can be visible at the bottom edge while their explanation sits
-        // beneath the viewport on a short API 24 device. Scroll to read it like a user.
-        assertTrue("the ±24 h window is not reachable in the search card",
-            E2E.reveal("whenHint", "searchCardScroll"))
-        assertTrue("the ±24 h window is never explained on screen", E2E.text("whenHint").isNotBlank())
+        // A fifth visible line is avoided, but the window remains available to TalkBack.
+        assertTrue("the ±24 h window is not explained on the date control",
+            E2E.find("whenValue")?.contentDescription.orEmpty().contains("24"))
     }
 
     // @flow swap
@@ -217,14 +242,15 @@ class StationSearchFlowTest {
         // result BEFORE opening Edit: otherwise the late answer can collapse the
         // form between the swap tap and reading its new fields.
         val deadline = System.currentTimeMillis() + E2E.LOCAL_MS
-        var status = E2E.text("statusLine", 300)
-        while (System.currentTimeMillis() < deadline &&
-            (status.isBlank() || status.contains("Searching", true))) {
+        var settled = false
+        while (System.currentTimeMillis() < deadline) {
+            val status = E2E.text("statusLine", 250)
+            settled = E2E.visible("editSearch", 250) ||
+                (status.isNotBlank() && !status.contains("Searching", true))
+            if (settled) break
             Thread.sleep(150)
-            status = E2E.text("statusLine", 300)
         }
-        assertTrue("the pair search never settled before Swap (status='$status')",
-            status.isNotBlank() && !status.contains("Searching", true))
+        assertTrue("the pair search never settled before Swap", settled)
         if (E2E.visible("editSearch", 500)) assertTrue(E2E.tap("editSearch"))
         var before = E2E.boxText("fromBox") to E2E.boxText("toBox")
         if (before.first.isBlank() || before.second.isBlank()) {
@@ -274,6 +300,7 @@ class StationSearchFlowTest {
         val answered = E2E.ui.wait(Until.hasObject(By.res(E2E.PKG, "resultsTitle")), E2E.NETWORK_MS)
         val metas = E2E.all(By.res(E2E.PKG, "hitMeta")).mapNotNull { it.text }
         val status = E2E.text("statusLine")
+        val sourceExplanation = E2E.find("resultsTitle", 250)?.contentDescription.orEmpty()
         assertTrue(
             "the pair search ended in silence (header=$answered, rows=${metas.size}, status='$status')",
             answered || metas.isNotEmpty() || status.isNotBlank(),
@@ -281,7 +308,9 @@ class StationSearchFlowTest {
         if (metas.isNotEmpty()) {
             assertTrue(
                 "rows were shown but none names its source (2.3): first='${metas.first()}'",
-                metas.any { it.contains("erail", ignoreCase = true) } || status.contains("erail", ignoreCase = true),
+                metas.all { it.contains("erail", ignoreCase = true) ||
+                    it.contains("timetable", ignoreCase = true) } &&
+                    sourceExplanation.isNotBlank(),
             )
         }
         E2E.shot("live-pair-rows")

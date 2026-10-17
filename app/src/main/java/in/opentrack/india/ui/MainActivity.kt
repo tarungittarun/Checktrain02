@@ -1,7 +1,6 @@
 package `in`.opentrack.india.ui
 
 import android.content.Intent
-import android.graphics.Rect
 import android.os.Bundle
 import android.view.View
 import android.widget.AdapterView
@@ -40,29 +39,11 @@ class MainActivity : AppCompatActivity() {
     private var keepSearchOpen = false
     private var searchCollapsed = false
     private var sortMode = TrainResultsDisplay.Sort.SUGGESTED
-    private var largestSearchWindowPx = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
-        // Reserve the short phone's resized viewport for the active search box and its inline
-        // suggestions. The saved default remains available on Home as soon as the IME closes;
-        // otherwise the 48dp selector pushes the suggestion list behind the keyboard.
-        binding.root.viewTreeObserver.addOnGlobalLayoutListener {
-            val visible = Rect()
-            binding.root.getWindowVisibleDisplayFrame(visible)
-            // adjustResize shrinks the *decor view* on many Android releases, so the
-            // visible-frame bottom by itself may move with it. Compare against the
-            // largest measured non-IME root as well as the decor/frame difference.
-            largestSearchWindowPx = maxOf(largestSearchWindowPx, binding.root.rootView.height)
-            val hiddenPx = maxOf(largestSearchWindowPx - binding.root.rootView.height,
-                binding.root.rootView.height - visible.bottom)
-            val keyboardOpen = hiddenPx > 120 * resources.displayMetrics.density
-            val wanted = if (keyboardOpen) View.GONE else View.VISIBLE
-            if (binding.trackingSourceRow.visibility != wanted)
-                binding.trackingSourceRow.visibility = wanted
-        }
 
         val app = application as App
         vm = ViewModelProvider(
@@ -81,19 +62,6 @@ class MainActivity : AppCompatActivity() {
         binding.results.layoutManager = LinearLayoutManager(this)
         binding.results.adapter = adapter
         binding.results.setHasFixedSize(true)
-        val sourceNames = TrackingSources.options
-        binding.defaultTrackingSource.adapter = ArrayAdapter(this,
-            android.R.layout.simple_spinner_dropdown_item, sourceNames.map(TrackingSources::label))
-        binding.defaultTrackingSource.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-                val selected = sourceNames.getOrNull(position) ?: return
-                if (Prefs(app).defaultTrackingSource != selected)
-                    Prefs(app).defaultTrackingSource = selected
-            }
-            override fun onNothingSelected(parent: AdapterView<*>?) {}
-        }
-        binding.defaultTrackingSource.setSelection(sourceNames.indexOf(
-            TrackingSources.valid(Prefs(app).defaultTrackingSource)), false)
         val sorts = TrainResultsDisplay.Sort.entries
         binding.resultsSort.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item,
             listOf("Suggested", "Departure time", "Arrival time", "Duration"))
@@ -107,6 +75,12 @@ class MainActivity : AppCompatActivity() {
 
         wireBoxes()
         binding.find.setOnClickListener { runSearch() }
+        binding.homeBrand.setOnClickListener {
+            selectMode(MainViewModel.Mode.STATIONS)
+            keepSearchOpen = false
+            setSearchCollapsed(false)
+            binding.searchCardScroll.post { binding.searchCardScroll.scrollTo(0, 0) }
+        }
         binding.editSearch.setOnClickListener {
             keepSearchOpen = true
             setSearchCollapsed(false)
@@ -132,8 +106,7 @@ class MainActivity : AppCompatActivity() {
             // first-frame message while the timetable was still being extracted. Only a search
             // result has a status sentence for this observer to enrich.
             vm.results.value?.let { r ->
-                binding.statusLine.visibility = View.VISIBLE
-                binding.statusLine.text = composeStatus()
+                binding.resultsTitle.contentDescription = composeStatus()
                 Diary.get()?.log("UISTATE") {
                     UiState.list(
                         r.from?.code ?: "?", r.to?.code ?: "?", r.hits.size, vm.liveNote.value, r.hits,
@@ -147,14 +120,6 @@ class MainActivity : AppCompatActivity() {
         restoreLast()
         vm.prepare()
         if (savedInstanceState?.getBoolean("searchCollapsed") == true) setSearchCollapsed(true)
-    }
-
-    override fun onResume() {
-        super.onResume()
-        val position = TrackingSources.options.indexOf(
-            TrackingSources.valid(Prefs(application as App).defaultTrackingSource))
-        if (position >= 0 && binding.defaultTrackingSource.selectedItemPosition != position)
-            binding.defaultTrackingSource.setSelection(position, false)
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -240,9 +205,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderMode(mode: MainViewModel.Mode) {
         val stations = mode == MainViewModel.Mode.STATIONS
-        binding.fromBox.visibility = if (stations) View.VISIBLE else View.GONE
-        binding.toBox.visibility = if (stations) View.VISIBLE else View.GONE
-        binding.swap.visibility = if (stations) View.VISIBLE else View.GONE
+        binding.stationInputs.visibility = if (stations) View.VISIBLE else View.GONE
         binding.trainBox.visibility = if (stations) View.GONE else View.VISIBLE
         binding.trainLabel.visibility = if (stations) View.GONE else View.VISIBLE
         binding.resultsHead.visibility = View.GONE
@@ -254,7 +217,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun shiftDay(delta: Int) {
-        vm.setDate(vm.targetEpochDay + delta, vm.targetMinuteOfDay)
+        val day = (vm.targetEpochDay + delta).coerceIn(
+            RailTime.todayEpochDay() - 1, RailTime.todayEpochDay() + 1)
+        vm.setDate(day, vm.targetMinuteOfDay)
         renderDate()
     }
 
@@ -266,6 +231,10 @@ class MainActivity : AppCompatActivity() {
             else -> RailTime.formatDate(vm.targetEpochDay)
         }
         binding.whenValue.text = "$label · ${RailTime.formatRailMinute(vm.targetMinuteOfDay)}"
+        binding.whenValue.contentDescription = "${binding.whenValue.text}; timetable window " +
+            "minus 24 to plus 24 hours; past journey actual times are not verified"
+        binding.dayBack.isEnabled = vm.targetEpochDay > RailTime.todayEpochDay() - 1
+        binding.dayFwd.isEnabled = vm.targetEpochDay < RailTime.todayEpochDay() + 1
         binding.dayNow.setBackgroundResource(
             if (vm.targetEpochDay == RailTime.todayEpochDay()) R.drawable.bg_segment_on else 0
         )
@@ -318,7 +287,8 @@ class MainActivity : AppCompatActivity() {
                 binding.dataChip.visibility = View.VISIBLE
                 // A completed search also ends in Ready. Do not hide the very answer that
                 // renderReport just wrote (especially "no trains" and unknown-station advice).
-                binding.statusLine.visibility = if (vm.results.value == null) View.GONE else View.VISIBLE
+                binding.statusLine.visibility = if (vm.results.value?.hits?.isEmpty() == true)
+                    View.VISIBLE else View.GONE
                 binding.find.isEnabled = true
             }
             is MainViewModel.Phase.Broken -> {
@@ -348,7 +318,6 @@ class MainActivity : AppCompatActivity() {
         if (report.hits.isNotEmpty()) {
             val pair = listOfNotNull(report.from?.code, report.to?.code).joinToString(" → ")
                 .ifBlank { binding.trainBox.valueOrText() }
-            binding.searchSummary.text = "$pair · ${binding.whenValue.text} · ${report.hits.size} train(s)"
             if (!keepSearchOpen) setSearchCollapsed(true)
         } else setSearchCollapsed(false)
         val head = when (report.reason) {
@@ -367,9 +336,10 @@ class MainActivity : AppCompatActivity() {
             TrainFinder.Reason.SAME_STATION -> getString(R.string.err_same_station)
         }
         statusHead = head
-        binding.resultsTitle.text = head
-        binding.statusLine.visibility = View.VISIBLE
-        binding.statusLine.text = composeStatus()
+        binding.resultsTitle.text = if (report.hits.isNotEmpty()) "Trains" else head
+        binding.resultsTitle.contentDescription = composeStatus()
+        binding.statusLine.visibility = if (report.hits.isEmpty()) View.VISIBLE else View.GONE
+        binding.statusLine.text = if (report.hits.isEmpty()) head else ""
 
         // The frontend captures itself (the owner's ask, 2026-10-12): the list states its rows and
         // its state line into the diary, and the window photographs itself - no screenshots.

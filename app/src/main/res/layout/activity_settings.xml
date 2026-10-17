@@ -42,6 +42,26 @@
                 android:textSize="19sp" />
         </LinearLayout>
 
+        <LinearLayout style="@style/Card" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:layout_marginTop="@dimen/gap"
+            android:background="@drawable/bg_card" android:orientation="vertical">
+            <TextView style="@style/FieldLabel" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:text="Tracking default" />
+            <Spinner android:id="@+id/defaultTrackingSource" android:layout_width="match_parent"
+                android:layout_height="48dp" android:layout_marginTop="8dp"
+                android:background="@drawable/bg_inset"
+                android:contentDescription="Default tracking data source" />
+            <TextView style="@style/TextMeta" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:text="Also available on each train's tracking screen" />
+            <TextView style="@style/FieldLabel" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:layout_marginTop="16dp"
+                android:text="Appearance" />
+            <Spinner android:id="@+id/appearance" android:layout_width="match_parent"
+                android:layout_height="48dp" android:layout_marginTop="8dp"
+                android:background="@drawable/bg_inset"
+                android:contentDescription="Appearance: follow system, light or dark" />
+        </LinearLayout>
+
         <LinearLayout
             style="@style/Card"
             android:layout_width="match_parent"

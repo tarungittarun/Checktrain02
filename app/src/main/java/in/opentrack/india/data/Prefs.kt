@@ -2,6 +2,7 @@ package `in`.opentrack.india.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.appcompat.app.AppCompatDelegate
 
 /**
  * All persisted user state, in one file.
@@ -18,6 +19,17 @@ class Prefs(context: Context) {
 
     private val sp: SharedPreferences =
         context.applicationContext.getSharedPreferences("opentrack", Context.MODE_PRIVATE)
+
+    /** Stored separately from the installed Android theme so Follow system reacts to OS changes. */
+    var appearance: Int
+        get() = sp.getInt("appearance", 0).coerceIn(0, 2)
+        set(value) = sp.edit().putInt("appearance", value.coerceIn(0, 2)).apply()
+
+    fun nightMode(): Int = when (appearance) {
+        1 -> AppCompatDelegate.MODE_NIGHT_NO
+        2 -> AppCompatDelegate.MODE_NIGHT_YES
+        else -> AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
+    }
 
     var overrideUrl: String
         get() = sp.getString(KEY_OVERRIDE, "").orEmpty()

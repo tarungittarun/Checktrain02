@@ -71,7 +71,9 @@ jobs:
         # probe_live_feed is the tool that decides whether live data is reachable at all, so its own reach-
         #ability logic is under test: the alternate source must still be asked when the primary is dead, and
         # two dead sources must produce a report, never an empty confident answer.
-        run: python3 tools/ci/test_probe_live_feed.py
+        run: |
+          python3 tools/ci/test_probe_live_feed.py
+          python3 tools/ci/test_probe_history.py
       - name: Refresher self-tests (the fixture refresher must be print-only, proven not promised)
         # known_truths_refresh proposes fixture edits and never writes them; its AST is asserted to contain
         # no write-mode open, because auto-editing the file the gate trusts is the app believing itself.

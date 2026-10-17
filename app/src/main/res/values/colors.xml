@@ -1,34 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-  One dark theme, deliberately: a tracker is read at night, on a train, at 1 % battery, and a light
-  surface at 02:00 is the hostile option. The palette is a *tone* ladder rather than a grey pile -
-  background / surface / raised surface / stroke are one hue family, so a card reads as lifted instead
-  of as a rectangle pasted on black. Accent green means "the train is moving as it should"; amber means
-  "we are showing you the timetable, not a report"; red means late or cancelled. That mapping is used
-  consistently in code (TrackModel.Tone) so colour is information, not decoration.
--->
+<!-- High contrast daylight palette. All surfaces, labels, rails and status colours are
+     resource names shared with values-night; no screen paints dark-only hardcoded ink. -->
 <resources>
-    <color name="bg">#FF070C11</color>
-    <color name="surface">#FF101A22</color>
-    <color name="surface2">#FF16232E</color>
-    <color name="field">#FF0D151C</color>
-    <color name="pill">#FF1B2A36</color>
-    <color name="stroke">#FF24343F</color>
-    <color name="ripple">#33FFFFFF</color>
-
-    <color name="text1">#FFEAF2F7</color>
-    <color name="text2">#FF9FB4C2</color>
-    <color name="text3">#FF6B808E</color>
-
-    <color name="accent">#FF37C978</color>
-    <color name="accent_soft">#FF163A29</color>
-    <color name="accent_ink">#FF052012</color>
-    <color name="live">#FF54A9FF</color>
-    <color name="live_soft">#FF11293D</color>
-    <color name="warn">#FFF2B33D</color>
-    <color name="warn_soft">#FF3A2C10</color>
-    <color name="late">#FFFF6F5E</color>
-    <color name="late_soft">#FF3A1A17</color>
-    <color name="early">#FF5FD6C4</color>
-    <color name="ink_on_accent">#FF06200F</color>
+    <color name="bg">#FFF5F8FA</color>
+    <color name="surface">#FFFFFFFF</color>
+    <color name="surface2">#FFEDF3F6</color>
+    <color name="field">#FFF8FBFC</color>
+    <color name="pill">#FFE7F0F4</color>
+    <color name="stroke">#FFACBEC8</color>
+    <color name="ripple">#33082B4B</color>
+    <color name="text1">#FF14232C</color>
+    <color name="text2">#FF405762</color>
+    <color name="text3">#FF516976</color>
+    <color name="accent">#FF06723C</color>
+    <color name="accent_soft">#FFD5F4E3</color>
+    <color name="accent_ink">#FFFFFFFF</color>
+    <color name="live">#FF145EA8</color>
+    <color name="live_soft">#FFE5F1FF</color>
+    <color name="warn">#FF815000</color>
+    <color name="warn_soft">#FFFFF0CE</color>
+    <color name="late">#FFAE2929</color>
+    <color name="late_soft">#FFFFEBE8</color>
+    <color name="early">#FF087866</color>
+    <color name="ink_on_accent">#FFFFFFFF</color>
 </resources>

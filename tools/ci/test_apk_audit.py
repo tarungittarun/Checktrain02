@@ -34,7 +34,7 @@ def inputs():
         e2e.append(job(f"{group} ({row}, installed device partition)"))
     unit = {p: {"tests": t, "skipped": 0, "failed": 0, "classes": {p}}
             for p, t in zip(qa.PARTS, (31, 70, 120, 170))}
-    apk = {"sha256": "a" * 64, "size": 10_000_000, "package": ("in.opentrack.india", "54", "1.0.53-r124"),
+    apk = {"sha256": "a" * 64, "size": 10_000_000, "package": ("in.opentrack.india", "55", "1.0.54-r125"),
            "offline_asset_bytes": 1_000_000}
     return [run(1), run(2), android, e2e, unit, [], apk, [],
             {"sha256": apk["sha256"], "size": apk["size"]}, [], [], SHA, True, []]
@@ -44,7 +44,7 @@ class AuditTest(unittest.TestCase):
     def test_complete_result(self):
         report, ok = qa.summarize(*inputs())
         self.assertFalse(ok, report)
-        self.assertIn("43/43 rows passed", report)
+        self.assertIn("31/31 rows passed", report)
         self.assertIn("**STRICT VERDICT: FAIL**", report)
         self.assertIn("Live train data parity | **UNVERIFIED**", report)
 
@@ -64,7 +64,7 @@ class AuditTest(unittest.TestCase):
         report, ok = qa.summarize(*args)
         self.assertFalse(ok)
         self.assertIn("Android CI | **FAIL**", report)
-        self.assertIn("42/43 rows passed", report)
+        self.assertIn("30/31 rows passed", report)
         self.assertIn("Error in geometry", report)
 
     def test_missing_xml_or_skipped_method_cannot_pass(self):

@@ -51,12 +51,13 @@ class SettingsFlowTest {
     // @flow settings-open
     @Test
     fun everyControlIsReachableAndBackReturns() {
-        assertTrue("the Data source button does not open settings", openSettings())
+        assertTrue("the Settings button does not open settings", openSettings())
         assertTrue("the install state is blank: '${E2E.text("state")}'",
             E2E.text("state").isNotBlank())
         for (
             id in listOf(
-                "state", "overrideUrl", "columnHint", "save", "clear",
+                "state", "defaultTrackingSource", "appearance",
+                "overrideUrl", "columnHint", "save", "clear",
                 "diagToggle", "diagShare", "diagSave", "diagClear", "diagState", "about",
             )
         ) {
@@ -71,6 +72,33 @@ class SettingsFlowTest {
         // while the settings scroller was moved. One more Back must leave Settings.
         if (!E2E.visible("settings", 750)) E2E.ui.pressBack()
         assertTrue("back did not return to search", E2E.visible("settings"))
+    }
+
+    // @flow appearance-modes
+    @Test
+    fun lightDarkAndSystemSettingsRemainReadableAndPersist() {
+        assertTrue(openSettings())
+        val spinner = "appearance"
+        for (mode in listOf("Light", "Dark", "Follow system")) {
+            assertTrue("appearance selector missing", E2E.reveal(spinner, "settingsScroll"))
+            assertTrue("appearance selector not tappable", E2E.tap(spinner))
+            val option = E2E.ui.wait(Until.findObject(
+                androidx.test.uiautomator.By.text(mode)), E2E.LOCAL_MS)
+            assertTrue("missing $mode appearance option", option != null)
+            option!!.click()
+            // A night-mode change recreates the Activity. Assert the *new* Settings
+            // window owns the same chosen value; selection alone is not persistence.
+            assertTrue("$mode mode failed to repaint Settings", E2E.reveal(spinner, "settingsScroll"))
+            assertTrue("$mode not selected on rebuilt screen: '${E2E.text(spinner)}'",
+                E2E.text(spinner).contains(mode, true))
+            assertTrue("$mode hid the source preference", E2E.visible("defaultTrackingSource"))
+            E2E.shot("settings-appearance-${mode.replace(' ', '-')}")
+        }
+        E2E.ui.pressBack()
+        assertTrue("theme change did not restore Home", E2E.visible("settings"))
+        assertTrue("Settings could not reopen with saved appearance", openSettings())
+        assertTrue("follow-system choice was not persisted",
+            E2E.text(spinner).contains("Follow system", true))
     }
 
     /**

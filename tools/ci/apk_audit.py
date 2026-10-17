@@ -24,7 +24,7 @@ from verify_acceptance_apk import cert_sha256
 PARTS = ("ui-render", "ui-logic", "rules", "sources")
 PROFILES = ("api34", "min24", "density")
 EXPECTED_ROWS = {f"{p}-{row}" for p in PROFILES for row in
-                 ("station0", "station1", "station2", "train", *(f"track{i}" for i in range(8)),
+                 ("station0", "station1", "station2", "train", *(f"track{i}" for i in range(4)),
                   "settings-ui", "settings-net")} | {"release"}
 BUDGET = 180
 

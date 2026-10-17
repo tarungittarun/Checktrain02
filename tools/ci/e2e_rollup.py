@@ -47,7 +47,7 @@ def main() -> int:
     if not rows:
         print("::error::no e2e row reported anything - the matrix did not run")
         return 1
-    groups = ("station0", "station1", "station2", "train", *(f"track{i}" for i in range(8)), "settings")
+    groups = ("station0", "station1", "station2", "train", *(f"track{i}" for i in range(4)), "settings")
     # The modern settings row is split so cold/UI and live-feed/offline checks
     # run on separate emulators; older/density profiles still use one settings row.
     expected = {f"api34-{group}" for group in groups if group != "settings"}

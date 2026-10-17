@@ -62,10 +62,29 @@ class TrainSearchFlowTest {
         E2E.assertNoSystemDialog("train mode")
     }
 
+    // @flow compact-results
+    @Test
+    fun resultsDropVerboseBannerAndOfferFullWidthEdit() {
+        assertTrue(E2E.typeInBox("trainBox", "12627") && awaitTrainSuggestion())
+        assertTrue(E2E.tapSuggestion("trainBox", 0))
+        assertTrue("known train produced no result",
+            E2E.ui.wait(Until.hasObject(By.res(E2E.PKG, "hitGo")), E2E.NETWORK_MS))
+        val edit = E2E.find("editSearch")!!.visibleBounds
+        val list = E2E.find("results")!!.visibleBounds
+        assertTrue("Edit search should use the full width: edit=$edit list=$list",
+            edit.width() * 10 >= list.width() * 9)
+        assertTrue("results heading repeats the long train-count/feed paragraph",
+            E2E.text("resultsTitle").length < 24)
+        assertTrue("full source explanation lost to accessibility",
+            E2E.find("resultsTitle")!!.contentDescription.isNotBlank())
+        E2E.shot("compact-train-results")
+    }
+
     // @flow wrong-date
     @Test
     fun noRunOnThatDateSaysSo() {
-        // Shift to a date three days out and back: whatever the window answers, it must answer in words,
+        // Tomorrow is the maximum future selection until archive actuals have been validated;
+        // whatever the window answers, it must answer in words,
         // because "no trains" and "not in the offline data for that day" are different actions.
         E2E.tap("dayFwd")
         E2E.tap("dayFwd")
@@ -76,6 +95,7 @@ class TrainSearchFlowTest {
             "an empty date range was met with silence (results header present=$title)",
             title || E2E.text("statusLine").isNotBlank() || E2E.resultRows() > 0,
         )
+        if (E2E.visible("editSearch", 500)) E2E.tap("editSearch")
         E2E.tap("dayNow")
     }
 

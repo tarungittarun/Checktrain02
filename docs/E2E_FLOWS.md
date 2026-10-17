@@ -20,6 +20,8 @@ railway happens to be reporting today says so, and its test asserts the invarian
 | --- | --- | --- | --- | --- |
 | `cold-start` | search | First launch after `pm clear` reports the offline timetable being installed with a real percentage, then a usable search screen — never a blank frame, never an ANR | `ColdStartFlowTest#coldStartInstallsThenAnswers` | cold, all |
 | `data-chip` | search | The data chip states what is installed (counts or "not installed"), which is what makes "no results" interpretable | `ColdStartFlowTest#dataChipStatesWhatIsInstalled` | all |
+| `compact-home-search` | search | Four-row form: mode; board-at; get-off-at with swap at right; date/Find side by side; logo returns to Home; tracking default is not on Home | `StationSearchFlowTest#fourRowHomeKeepsTheSwapDateAndFindInReach` | all |
+| `honest-date-limit` | search | Until 20 independently verified dated actual journeys exist, no archive calendar is offered; the date control stops at yesterday | `StationSearchFlowTest#fourRowHomeKeepsTheSwapDateAndFindInReach` | all |
 | `type-ahead-station` | search | Three letters in Board-at or Get-off-at open a list of matches; tapping one puts the *name* in the field and the code in the "Selected" chip | `StationSearchFlowTest#threeLettersOfferMatchesThatFillTheField` | all |
 | `type-ahead-train` | search | Three digits in the train box offer trains; tapping one fills the number | `TrainSearchFlowTest#trainBoxSuggestsAndFills` | all |
 | `type-ahead-min-length` | search | Two characters open nothing, on purpose: "B" matches 400 stations | `StationSearchFlowTest#twoLettersAreSilentByDesign` | all |
@@ -28,12 +30,13 @@ railway happens to be reporting today says so, and its test asserts the invarian
 | `empty-query-feedback` | search | Find with a blank field states exactly what is missing | `StationSearchFlowTest#findWithBlankFieldsSaysWhatsMissing` | all |
 | `unknown-station` | search | A string that matches no station is refused with the code advice, not silence | `StationSearchFlowTest#unknownStationNamesTheFix` | all |
 | `same-station` | search | Boarding and alighting at the same station is refused explicitly | `StationSearchFlowTest#sameStationBothEndsIsRefused` | all |
-| `day-shift` | search | −1d / now / +1d move the travelling date, and the shift survives a re-search (the ±24 h window is the feature) | `StationSearchFlowTest#dayButtonsMoveTheDate` | all |
+| `day-shift` | search | −1d / now / +1d move the travelling date, and the selected timetable window is labelled for accessibility; older journeys are not presented as verified actuals | `StationSearchFlowTest#dayButtonsMoveTheDate` | all |
 | `swap` | search | Swap exchanges the two ends, including their resolved codes, and the result set follows | `StationSearchFlowTest#swapMovesTheResolvedCodes` | all |
 | `train-mode-search` | search | "Train no. / name" mode searches the offline master by number or name | `TrainSearchFlowTest#trainModeFindsByNumber` | all |
+| `compact-results` | search | A successful train-number search hides the long list/feed paragraph, preserves a source explanation for accessibility and offers a full-width Edit search control | `TrainSearchFlowTest#resultsDropVerboseBannerAndOfferFullWidthEdit` | all |
 | `wrong-date` | search | A date with nothing running in the window says so and suggests ±1 day | `TrainSearchFlowTest#noRunOnThatDateSaysSo` | all |
 | `bogus-train-number` | search | Five digits that exist nowhere produce the no-train sentence, not an empty list | `TrainSearchFlowTest#nonexistentTrainNumberIsExplicit` | all |
-| `settings-entry` | search | The Data source button opens the settings screen | `SettingsFlowTest#everyControlIsReachableAndBackReturns` | all |
+| `settings-entry` | search | The Settings button opens the settings screen | `SettingsFlowTest#everyControlIsReachableAndBackReturns` | all |
 | `track-open` | tracking | A result's Track button opens that train, that date | `TrackingFlowTest#openingAResultShowsThatTrain` | all |
 | `live-pair-list` | search | The pair list names its source — rows carry `via erail`, or the screen states the feed died; unnamed rows are the founding bug's door and fail the row | `StationSearchFlowTest#pairRowsNameTheirSource` | all |
 | `details-live-identity` | tracking | The details screen asks erail what this number runs TODAY and relabels the route line — confirmed, or both readings shown on mismatch, or the untouched timetable label when nothing answered | `TrackingFlowTest#routeLabelGainsTheLiveIdentityConfirmation` | all |
@@ -54,6 +57,7 @@ railway happens to be reporting today says so, and its test asserts the invarian
 | `back-nav` | tracking → search | Back returns to the search screen with the previous query intact | `TrackingFlowTest#backKeepsTheSearchQuery` | all |
 | `density-change` | tracking | The stop timeline remains within the screen at the tested density (no overflow) | `TrackingFlowTest#tableHasGeometryAtThisDensity` | large, density |
 | `settings-open` | settings | The screen shows the install state, endpoint field and column map | `SettingsFlowTest#everyControlIsReachableAndBackReturns` | all |
+| `appearance-modes` | settings | Light, dark and follow-system selections visibly repaint Settings, keep the source control reachable and persist after reopening | `SettingsFlowTest#lightDarkAndSystemSettingsRemainReadableAndPersist` | all |
 | `diag-log-collector` | settings | The diagnostic log is inert until the user turns it on, says so on screen once they do, and is emptied by Clear without losing the switch | `SettingsFlowTest#diagnosticCollectorIsInertThenLiveThenEmpty` | all |
 | `endpoint-save-reload` | settings | A typed endpoint survives Save and reopening | `SettingsFlowTest#endpointPersistsAcrossReopen` | all |
 | `endpoint-rejects-non-http` | settings | A non-URL endpoint is rejected in Settings with visible correction instead of being saved silently | `SettingsFlowTest#junkEndpointSaysSo` | all |

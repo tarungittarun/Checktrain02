@@ -69,7 +69,7 @@ class TrainHitAdapter(private val onClick: (TrainHit) -> Unit) :
             }
             // The provenance suffix rides the meta line: a row must say whether its time is the
             // timetable's or a live source's (v2 slice 1 - "offline never looks live").
-            hit.sourceTag?.let { append(" · ").append(it) }
+            append(" · ").append(hit.sourceTag ?: "timetable")
         }
         holder.days.text = TrainResultsDisplay.frequency(hit.runDays)
         holder.days.contentDescription = if (hit.runDays == null) "Operating days unavailable"

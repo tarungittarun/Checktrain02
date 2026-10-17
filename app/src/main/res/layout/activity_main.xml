@@ -22,16 +22,23 @@
         android:gravity="center_vertical"
         android:orientation="horizontal">
 
-        <TextView
+        <LinearLayout
+            android:id="@+id/homeBrand"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_height="48dp"
             android:layout_weight="1"
-            android:fontFamily="sans-serif-medium"
-            android:letterSpacing="-0.02"
-            android:textColor="@color/text1"
-            android:textSize="22sp"
-            tools:ignore="HardcodedText"
-            android:text="@string/app_name" />
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:clickable="true"
+            android:focusable="true"
+            android:contentDescription="TrackTrain · Home">
+            <ImageView android:layout_width="36dp" android:layout_height="36dp"
+                android:src="@drawable/ic_launcher" android:contentDescription="@null" />
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_marginStart="8dp" android:text="@string/app_name"
+                android:textColor="@color/text1" android:textSize="22sp"
+                android:fontFamily="sans-serif-medium" />
+        </LinearLayout>
 
         <Button
             android:id="@+id/settings"
@@ -49,28 +56,6 @@
         android:layout_marginTop="8dp" />
 
     <LinearLayout
-        android:id="@+id/trackingSourceRow"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:gravity="center_vertical"
-        android:orientation="horizontal">
-        <TextView
-            style="@style/TextMicro"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Data source · tracking default" />
-        <Spinner
-            android:id="@+id/defaultTrackingSource"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
-            android:layout_marginStart="8dp"
-            android:layout_weight="1"
-            android:background="@drawable/bg_inset"
-            android:contentDescription="Default tracking data source" />
-    </LinearLayout>
-
-    <LinearLayout
         android:id="@+id/searchCompact"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -79,20 +64,11 @@
         android:orientation="horizontal"
         android:visibility="gone">
 
-        <TextView
-            android:id="@+id/searchSummary"
-            style="@style/TextBody"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:maxLines="2" />
-
         <Button
             android:id="@+id/editSearch"
             style="@style/BtnGhost"
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
             android:minHeight="48dp"
             android:text="@string/edit_search" />
     </LinearLayout>
@@ -142,42 +118,25 @@
             android:background="@null"
             android:text="@string/mode_train" />
     </LinearLayout>
-        <TextView
-            style="@style/TextLabel"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="14dp"
-            android:text="@string/lbl_from" />
-
-        <in.opentrack.india.ui.SuggestBox
-            android:id="@+id/fromBox"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp" />
-
-        <Button
-            android:id="@+id/swap"
-            style="@style/BtnGhost"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="end"
-            android:layout_marginTop="8dp"
-            android:minHeight="48dp"
-            android:text="@string/swap"
-            android:textSize="12sp" />
-
-        <TextView
-            style="@style/TextLabel"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:text="@string/lbl_to" />
-
-        <in.opentrack.india.ui.SuggestBox
-            android:id="@+id/toBox"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp" />
+        <!-- Two station rows occupy the left three quarters. Swap is a single
+             thumb-sized control at their right, not a third vertical row. -->
+        <LinearLayout android:id="@+id/stationInputs"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="horizontal" android:gravity="center_vertical">
+            <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="3" android:orientation="vertical">
+                <in.opentrack.india.ui.SuggestBox android:id="@+id/fromBox"
+                    android:layout_width="match_parent" android:layout_height="wrap_content" />
+                <in.opentrack.india.ui.SuggestBox android:id="@+id/toBox"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp" />
+            </LinearLayout>
+            <Button android:id="@+id/swap" style="@style/BtnGhost"
+                android:layout_width="0dp" android:layout_height="56dp"
+                android:layout_weight="1" android:layout_marginStart="8dp"
+                android:text="⇅" android:textSize="26sp"
+                android:contentDescription="Swap boarding and arrival stations" />
+        </LinearLayout>
 
         <TextView
             android:id="@+id/trainLabel"
@@ -195,77 +154,38 @@
             android:layout_marginTop="4dp"
             android:visibility="gone" />
 
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:layout_marginTop="16dp"
-            android:background="@color/stroke" />
-
-        <!-- The day buttons can consume the full width on API 24 / large type.
-             Give the selected date its own row, never a zero-width weighted remainder. -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="14dp"
-            android:orientation="vertical">
-
-            <TextView
-                android:id="@+id/whenValue"
-                style="@style/TextTitle"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
-                android:background="@drawable/bg_segment"
-                android:orientation="horizontal">
-
-                <Button
-                    android:id="@+id/dayBack"
-                    style="@style/Segment"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:background="@null"
-                    android:text="@string/day_back" />
-
-                <Button
-                    android:id="@+id/dayNow"
-                    style="@style/Segment"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:background="@null"
-                    android:text="@string/day_now" />
-
-                <Button
-                    android:id="@+id/dayFwd"
-                    style="@style/Segment"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:background="@null"
-                    android:text="@string/day_fwd" />
+        <!-- No ten-day historical calendar until independently dated actuals exist.
+             These compact controls only select the existing timetable ±24h window. -->
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="10dp" android:orientation="horizontal"
+            android:gravity="center_vertical">
+            <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="3" android:orientation="vertical">
+                <TextView android:id="@+id/whenValue" style="@style/TextMeta"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:singleLine="true" />
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:background="@drawable/bg_segment">
+                    <Button android:id="@+id/dayBack" style="@style/Segment"
+                        android:layout_width="0dp" android:layout_height="48dp" android:layout_weight="1"
+                        android:paddingStart="0dp" android:paddingEnd="0dp" android:background="@null"
+                        android:text="@string/day_back" />
+                    <Button android:id="@+id/dayNow" style="@style/Segment"
+                        android:layout_width="0dp" android:layout_height="48dp" android:layout_weight="1"
+                        android:paddingStart="0dp" android:paddingEnd="0dp" android:background="@null"
+                        android:text="@string/day_now" />
+                    <Button android:id="@+id/dayFwd" style="@style/Segment"
+                        android:layout_width="0dp" android:layout_height="48dp" android:layout_weight="1"
+                        android:paddingStart="0dp" android:paddingEnd="0dp" android:background="@null"
+                        android:text="@string/day_fwd" />
+                </LinearLayout>
             </LinearLayout>
+            <Button android:id="@+id/find" style="@style/BtnPrimary"
+                android:layout_width="0dp" android:layout_height="54dp"
+                android:layout_weight="1" android:layout_marginStart="8dp"
+                android:paddingStart="2dp" android:paddingEnd="2dp"
+                android:text="@string/search" android:textSize="12sp" />
         </LinearLayout>
-
-        <TextView
-            android:id="@+id/whenHint"
-            style="@style/TextMicro"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:text="@string/window_hint" />
-
-        <Button
-            android:id="@+id/find"
-            style="@style/BtnPrimary"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="14dp"
-            android:text="@string/search" />
     </LinearLayout>
     </ScrollView>
 

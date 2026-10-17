@@ -64,7 +64,7 @@ inputs:
     required: false
     default: ""
   group:
-    description: "parallel device partition: station0/1/2, train, track0..7, settings-ui/net, settings, or release"
+    description: "parallel device partition: station0/1/2, train, track0..3, settings-ui/net, settings, or release"
     required: false
     default: ""
   boot_timeout:
@@ -500,10 +500,10 @@ runs:
               CLASS_FILTER="in.opentrack.india.e2e.StationSearchFlowTest" \
                 EXTRA_ARGS="-e numShards 3 -e shardIndex $idx" RUN_TIMEOUT=240 run_suite "$GROUP" ;;
             train) CLASS_FILTER="in.opentrack.india.e2e.TrainSearchFlowTest" run_suite train ;;
-            track0|track1|track2|track3|track4|track5|track6|track7)
+            track0|track1|track2|track3)
               idx=${GROUP#track}
               CLASS_FILTER="in.opentrack.india.e2e.TrackingFlowTest" \
-                EXTRA_ARGS="-e numShards 8 -e shardIndex $idx" RUN_TIMEOUT=300 run_suite "$GROUP"
+                EXTRA_ARGS="-e numShards 4 -e shardIndex $idx" RUN_TIMEOUT=300 run_suite "$GROUP"
               # Assert the new packaged offline corpus + actual rail disclosure on a
               # device, independently of whether NTES answers this emulator today.
               if [ "$idx" = 0 ]; then

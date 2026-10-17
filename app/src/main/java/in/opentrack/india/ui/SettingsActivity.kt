@@ -14,6 +14,11 @@ import `in`.opentrack.india.databinding.ActivitySettingsBinding
 import kotlinx.coroutines.launch
 import `in`.opentrack.india.BuildConfig
 import `in`.opentrack.india.data.RefDb
+import `in`.opentrack.india.ui.TrackingSources
+import android.widget.AdapterView
+import android.widget.ArrayAdapter
+import android.view.View
+import androidx.appcompat.app.AppCompatDelegate
 
 /**
  * Screen 3 of 3 — the controls that keep this app alive when something upstream changes.
@@ -69,6 +74,30 @@ class SettingsActivity : AppCompatActivity() {
         binding = ActivitySettingsBinding.inflate(layoutInflater)
         setContentView(binding.root)
         prefs = Prefs(this)
+        val sources = TrackingSources.options
+        binding.defaultTrackingSource.adapter = ArrayAdapter(this,
+            android.R.layout.simple_spinner_dropdown_item, sources.map(TrackingSources::label))
+        binding.defaultTrackingSource.setSelection(sources.indexOf(
+            TrackingSources.valid(prefs.defaultTrackingSource)), false)
+        binding.defaultTrackingSource.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                sources.getOrNull(position)?.let { prefs.defaultTrackingSource = it }
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+        val modes = listOf("Follow system", "Light", "Dark")
+        binding.appearance.adapter = ArrayAdapter(this,
+            android.R.layout.simple_spinner_dropdown_item, modes)
+        binding.appearance.setSelection(prefs.appearance, false)
+        binding.appearance.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                if (position != prefs.appearance && position in 0..2) {
+                    prefs.appearance = position
+                    AppCompatDelegate.setDefaultNightMode(prefs.nightMode())
+                }
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
 
         binding.overrideUrl.setText(prefs.overrideUrl)
         binding.columnHint.setText(prefs.columnHint)
