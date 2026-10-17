@@ -134,7 +134,7 @@ class ScreenRenderTest {
         val score = shot.root.findViewById<View>(R.id.checkClock)
         assertTrue("response score must not have a box", score.background == null)
         assertTrue("response score is a text display, not a perpetual paint animation",
-            score is TextView && score.parent !is ScreenLoadGlowView)
+            score is TextView && score.parent is android.widget.LinearLayout)
         assertTrue("ripple must overlay ONLY the status table viewport",
             shot.root.findViewById<View>(R.id.statusRipple).parent ===
                 shot.root.findViewById<View>(R.id.routeViewport))
