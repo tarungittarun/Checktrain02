@@ -87,8 +87,8 @@ class SettingsFlowTest {
         website!!.click()
         assertTrue("selected default not labelled for TalkBack",
             E2E.find("defaultTrackingSource")?.contentDescription.orEmpty().contains("Website"))
-        E2E.ui.pressBack()
-        assertTrue("did not return Home", E2E.visible("settings"))
+        assertTrue("Settings Home button cannot be reached", E2E.reveal("back", "settingsScroll", up = false))
+        assertTrue("Settings Home button did not return Home", E2E.tap("back") && E2E.visible("settings"))
         assertTrue("Settings did not reopen", openSettings())
         assertTrue("default source did not persist",
             E2E.find("defaultTrackingSource")?.contentDescription.orEmpty().contains("Website"))
@@ -119,8 +119,9 @@ class SettingsFlowTest {
             assertTrue("$mode hid the source preference", E2E.visible("defaultTrackingSource"))
             E2E.shot("settings-appearance-${mode.replace(' ', '-')}")
         }
-        E2E.ui.pressBack()
-        assertTrue("theme change did not restore Home", E2E.visible("settings"))
+        assertTrue("Settings Home button cannot be reached after theme change",
+            E2E.reveal("back", "settingsScroll", up = false))
+        assertTrue("theme change did not restore Home", E2E.tap("back") && E2E.visible("settings"))
         assertTrue("Settings could not reopen with saved appearance", openSettings())
         assertTrue("follow-system choice was not persisted",
             E2E.find(spinner)?.contentDescription.orEmpty().contains("Follow system", true))
@@ -199,6 +200,8 @@ class SettingsFlowTest {
         assertTrue("save could not be tapped", saveSettings())
         // Invalid input must keep this screen open with visible feedback, not silently persist
         // a broken live source. The old test pressed Back before reading this screen's state.
+        assertTrue("the invalid-endpoint explanation is not reachable",
+            E2E.reveal("state", "settingsScroll", up = false))
         val state = E2E.text("state")
         assertTrue("invalid endpoint did not explain what to fix ('$state')",
             state.contains("http", ignoreCase = true) && state.contains("Nothing was saved"))

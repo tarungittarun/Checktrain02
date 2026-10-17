@@ -80,10 +80,10 @@ object E2E {
         return true
     }
 
-    fun reveal(name: String, container: String, swipes: Int = 6): Boolean {
+    fun reveal(name: String, container: String, swipes: Int = 6, up: Boolean = true): Boolean {
         if (visible(name, 300)) return true
         repeat(swipes) {
-            if (!swipeIn(container) || !visible(container, 300)) return false
+            if (!swipeIn(container, up) || !visible(container, 300)) return false
             if (visible(name, 300)) return true
         }
         return false

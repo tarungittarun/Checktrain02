@@ -437,6 +437,17 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - name: api34-track3
+            desc: "api34 / track3: independent device partition"
+            group: track3
+            optional: false
+            api: 34
+            img: google_apis
+            abi: x86_64
+            device: pixel_6
+            location: granted
+            offline: true
+            monkey: 0
           - name: api34-station0
             desc: "api34 / station0: independent device partition"
             group: station0
@@ -506,17 +517,6 @@ jobs:
           - name: api34-track2
             desc: "api34 / track2: independent device partition"
             group: track2
-            optional: false
-            api: 34
-            img: google_apis
-            abi: x86_64
-            device: pixel_6
-            location: granted
-            offline: true
-            monkey: 0
-          - name: api34-track3
-            desc: "api34 / track3: independent device partition"
-            group: track3
             optional: false
             api: 34
             img: google_apis
@@ -612,6 +612,31 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - name: density-track3
+            desc: "density / track3: independent device partition"
+            group: track3
+            optional: false
+            api: 34
+            img: google_apis
+            abi: x86_64
+            device: pixel_c
+            location: denied
+            offline: false
+            wm_size: 1080x2160
+            wm_density: 440
+            font_scale: 1.15
+            monkey: 0
+          - name: min24-track3
+            desc: "min24 / track3: independent device partition"
+            group: track3
+            optional: false
+            api: 24
+            img: google_apis
+            abi: x86
+            device: nexus_5
+            location: denied
+            offline: false
+            monkey: 0
           - name: min24-station0
             desc: "min24 / station0: independent device partition"
             group: station0
@@ -681,17 +706,6 @@ jobs:
           - name: min24-track2
             desc: "min24 / track2: independent device partition"
             group: track2
-            optional: false
-            api: 24
-            img: google_apis
-            abi: x86
-            device: nexus_5
-            location: denied
-            offline: false
-            monkey: 0
-          - name: min24-track3
-            desc: "min24 / track3: independent device partition"
-            group: track3
             optional: false
             api: 24
             img: google_apis
@@ -809,20 +823,6 @@ jobs:
           - name: density-track2
             desc: "density / track2: independent device partition"
             group: track2
-            optional: false
-            api: 34
-            img: google_apis
-            abi: x86_64
-            device: pixel_c
-            location: denied
-            offline: false
-            wm_size: 1080x2160
-            wm_density: 440
-            font_scale: 1.15
-            monkey: 0
-          - name: density-track3
-            desc: "density / track3: independent device partition"
-            group: track3
             optional: false
             api: 34
             img: google_apis
