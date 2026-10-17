@@ -60,6 +60,15 @@ class TravellerAcceptanceTest {
     @Test fun manualRefreshKeepsTicketAndShowsAnAnswer() {
         openTicketTrain()
         val route = E2E.text("routeLabel")
+        // The initial source check can still be in flight after the timetable
+        // appears. A second tap during that check is intentionally ignored by
+        // the app; time the MANUAL request only after the first one completes.
+        val initialDeadline = System.currentTimeMillis() + E2E.NETWORK_MS
+        while (System.currentTimeMillis() < initialDeadline && E2E.visible("checkingBar", 250)) {
+            Thread.sleep(250)
+        }
+        assertTrue("Initial source check never stopped; manual refresh cannot begin",
+            !E2E.visible("checkingBar", 250))
         assertTrue("No refresh control a traveller can reach", E2E.reveal("refresh", "scroller") && E2E.tap("refresh"))
         val until = System.currentTimeMillis() + E2E.NETWORK_MS
         var receipt = ""
@@ -92,6 +101,10 @@ class TravellerAcceptanceTest {
         assertTrue("Could not pick destination", E2E.tapSuggestion("toBox"))
         assertTrue("Same-station trip was not explicitly refused: '${E2E.text("statusLine")}'",
             listOf("same", "different").any { E2E.text("statusLine").contains(it, ignoreCase = true) })
+        // ListAdapter diffs asynchronously: a previous search can still be in
+        // the accessibility snapshot for a frame after the refusal is painted.
+        assertTrue("Impossible trip kept stale train results after 3 seconds",
+            E2E.ui.wait(Until.gone(E2E.res("hitNo")), 3_000L))
         assertEquals("Impossible trip still displays train results", 0, E2E.resultRows())
         E2E.shot("traveller-invalid-trip")
     }
