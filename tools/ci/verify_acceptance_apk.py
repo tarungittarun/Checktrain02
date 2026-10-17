@@ -63,7 +63,11 @@ def verify(release, artifact, expected_sha):
     assert code and name and pkg.groups()[1:] == (code.group(1), name.group(1)), "APK version differs from this SHA"
     perms = set(re.findall(r"uses-permission: name='([^']+)'", output(aapt, "dump", "permissions", str(release))))
     allowed = set(re.findall(r'<uses-permission android:name="([^"]+)"', Path("app/src/main/AndroidManifest.xml").read_text()))
-    assert perms == allowed, f"unexpected/missing permissions: {perms ^ allowed}"
+    # AndroidX Core contributes its own package-scoped, signature-protected receiver
+    # permission during manifest merger. It is NOT a new dangerous Android permission.
+    generated = "in.opentrack.india.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+    assert not (perms - allowed - {generated}) and not (allowed - perms), \
+        f"unexpected/missing permissions: {perms - allowed - {generated}} / {allowed - perms}"
     print(f"PASS: release bytes == Android artifact; valid signature, stable key, version={pkg.groups()[1:]}, permissions={sorted(perms)}")
     return hashlib.sha256(downloaded).hexdigest()
 
