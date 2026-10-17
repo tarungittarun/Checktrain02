@@ -6,7 +6,12 @@ import android.text.style.UnderlineSpan
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
 class TrainResultsDisplayTest {
     private fun hit(no: String, day: Long, dep: Int, arr: Int): TrainHit = TrainHit(
         no, "Test", null, day, dep, arr, "SBC", "TK", 1, 2, 90, 0x7f)

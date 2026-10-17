@@ -11,8 +11,8 @@ class ResponseScoreTest {
         val precise = ResponseScore.text(751, stamp, hasSeconds = true)
         assertEquals("Took: 1 sec\nAt: " + `in`.opentrack.india.core.RailTime.formatClock(stamp), minute)
         assertEquals("Took: 1 sec\nAt: " + `in`.opentrack.india.core.RailTime.formatClockSeconds(stamp), precise)
-        assertEquals(1, minute.substringAfter('\n').count { it == ':' })
-        assertEquals(2, precise.substringAfter('\n').count { it == ':' })
+        assertEquals(1, minute.substringAfter("At: ").count { it == ':' })
+        assertEquals(2, precise.substringAfter("At: ").count { it == ':' })
         assertEquals(751L, ResponseScore.durationMillis("answered · checked in 751 ms"))
         assertEquals(null, ResponseScore.durationMillis("no response"))
     }

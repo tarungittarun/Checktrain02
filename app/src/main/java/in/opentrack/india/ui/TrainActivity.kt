@@ -1005,8 +1005,8 @@ class TrainActivity : AppCompatActivity() {
         val view = binding.checkClock
         val token = ++scoreGeneration
         view.animate().cancel()
-        view.text = "$reason\nPlease change source"
-        view.contentDescription = "$reason. Please change source using the source selector."
+        view.text = "$reason\nPlz change source"
+        view.contentDescription = "$reason. Plz change source using the source selector."
         flash(view, token, 3_000L)
     }
 

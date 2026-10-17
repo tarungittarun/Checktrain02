@@ -1,6 +1,7 @@
 package `in`.opentrack.india.ui
 
 import android.content.Intent
+import android.graphics.Rect
 import android.os.Bundle
 import android.view.View
 import android.widget.AdapterView
@@ -44,6 +45,18 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        // Reserve the short phone's resized viewport for the active search box and its inline
+        // suggestions. The saved default remains available on Home as soon as the IME closes;
+        // otherwise the 48dp selector pushes the suggestion list behind the keyboard.
+        binding.root.viewTreeObserver.addOnGlobalLayoutListener {
+            val visible = Rect()
+            binding.root.getWindowVisibleDisplayFrame(visible)
+            val hiddenPx = binding.root.rootView.height - visible.bottom
+            val keyboardOpen = hiddenPx > 120 * resources.displayMetrics.density
+            val wanted = if (keyboardOpen) View.GONE else View.VISIBLE
+            if (binding.trackingSourceRow.visibility != wanted)
+                binding.trackingSourceRow.visibility = wanted
+        }
 
         val app = application as App
         vm = ViewModelProvider(
