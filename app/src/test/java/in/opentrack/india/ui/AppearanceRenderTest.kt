@@ -61,9 +61,9 @@ class AppearanceRenderTest {
         }
     }
 
-    @Test @Config(sdk = [34], qualifiers = "notnight-w360dp-h760dp-xhdpi")
+    @Test @Config(sdk = [34], qualifiers = "notw360dp-h760dp-night-xhdpi")
     fun lightScreensReadable() = check(false)
 
-    @Test @Config(sdk = [34], qualifiers = "night-w360dp-h760dp-xhdpi")
+    @Test @Config(sdk = [34], qualifiers = "w360dp-h760dp-night-xhdpi")
     fun darkScreensReadable() = check(true)
 }
