@@ -49,16 +49,13 @@ class InlineLegView @JvmOverloads constructor(
                 else LegGeometry.heightDp(distanceKm, screenDp)).toFloat()).roundToInt())
     }
 
-    // An unattached renderer can be skipped by Robolectric. Exercise the same
-    // painter directly in the bitmap test, without changing production draw logic.
-    internal fun paintForTest(canvas: Canvas) = onDraw(canvas)
-
-    override fun onDraw(canvas: Canvas) {
-        super.onDraw(canvas)
-        val leg = projection ?: return
-        val x = dp(RouteRailGeometry.X_DP)
+    /** The same pixel used by the painter; the refresh ripple must not guess a
+     * different position, especially on a distance-expanded intermediate leg. */
+    fun trainCenter(): Pair<Float, Float>? {
+        val leg = projection ?: return null
+        if (!showTrain || height <= 0) return null
         val y0 = dp(24f)
-        val y1 = height - dp(24f)
+        val y1 = height - dp(40f)
         val positions = if (showLabels) LegGeometry.pointPositionsDp(leg.points, distanceKm)
             .map(::dp) else emptyList()
         val breaks = listOf(0f) + leg.points.map { it.fraction.coerceIn(0f, 1f) } + listOf(1f)
@@ -71,6 +68,22 @@ class InlineLegView @JvmOverloads constructor(
         val y = if (showLabels && positions.isNotEmpty())
             heights[segment] + (heights[segment + 1] - heights[segment]) * proportion
             else y0 + (y1 - y0) * fraction
+        return dp(RouteRailGeometry.X_DP) to y
+    }
+
+    // An unattached renderer can be skipped by Robolectric. Exercise the same
+    // painter directly in the bitmap test, without changing production draw logic.
+    internal fun paintForTest(canvas: Canvas) = onDraw(canvas)
+
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+        val leg = projection ?: return
+        val x = dp(RouteRailGeometry.X_DP)
+        val y0 = dp(24f)
+        val y1 = height - dp(40f)
+        val positions = if (showLabels) LegGeometry.pointPositionsDp(leg.points, distanceKm)
+            .map(::dp) else emptyList()
+        val y = trainCenter()?.second ?: y0
         val blue = context.getColor(R.color.live)
         val ink = context.getColor(R.color.bg)
         paint.style = Paint.Style.STROKE
@@ -154,8 +167,7 @@ class InlineLegView @JvmOverloads constructor(
                 paint.textSize = sp(11f)
                 paint.color = context.getColor(R.color.warn)
                 val clock = "Web · " + `in`.opentrack.india.core.RailTime.formatRailMinute(minute)
-                val clockY = if (y + dp(32f) < height - dp(3f)) y + dp(31f)
-                    else y - dp(24f)
+                val clockY = y + dp(31f)
                 canvas.drawText(clock, x + dp(24f), clockY, paint)
             }
         }
@@ -180,19 +192,14 @@ class InlineLegView @JvmOverloads constructor(
             }
             canvas.drawPath(check, paint)
             paint.style = Paint.Style.FILL
-        } else {
-            // Keep the event age LEFT of the locomotive, in the timetable-side
-            // gutter. Never put it among the actual minutes or station names.
-            val label = LegGeometry.ageLabel(age)
-            paint.textSize = sp(11f)
-            val right = x - dp(23f)
-            val left = (right - paint.measureText(label) - dp(14f)).coerceAtLeast(dp(2f))
-            box.set(left, y - dp(11f), right, y + dp(11f))
-            paint.color = context.getColor(R.color.surface2)
-            canvas.drawRoundRect(box, dp(11f), dp(11f), paint)
-            paint.color = context.getColor(R.color.text1)
-            canvas.drawText(label, left + dp(7f), y + dp(4f), paint)
         }
+        // Freshness is always BELOW the logo; a green check can accompany <1m.
+        val label = LegGeometry.compactAgeLabel(age)
+        paint.textSize = sp(10f)
+        paint.textAlign = Paint.Align.CENTER
+        paint.color = context.getColor(R.color.text1)
+        canvas.drawText(label, x, y + dp(31f), paint)
+        paint.textAlign = Paint.Align.LEFT
     }
 }
 
@@ -232,7 +239,14 @@ object LegGeometry {
         val positions = pointPositionsDp(points, distanceKm)
         val remaining = (1f - (points.lastOrNull()?.fraction ?: 0f)).coerceIn(0f, 1f)
         return ((positions.lastOrNull() ?: 24f) + 36f +
-            distanceKm.coerceIn(0, 100) * 1.4f * remaining + 24f).roundToInt()
+            distanceKm.coerceIn(0, 100) * 1.4f * remaining + 40f).roundToInt()
+    }
+
+    fun compactAgeLabel(ageSeconds: Long): String = when {
+        ageSeconds < 60 -> "<1m"
+        ageSeconds < 3600 -> "${ageSeconds / 60}m ago"
+        ageSeconds < 86400 -> "${ageSeconds / 3600}h ago"
+        else -> "${ageSeconds / 86400}d ago"
     }
 
     fun ageLabel(ageSeconds: Long): String = when {

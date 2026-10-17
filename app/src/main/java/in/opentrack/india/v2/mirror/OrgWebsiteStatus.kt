@@ -28,6 +28,8 @@ object OrgWebsiteStatus {
         val intermediate: Intermediate? = null,
         /** The latest card's departure may advance with the page clock. Do not show as Act. */
         val provisionalDeparture: Int? = null,
+        /** True only when the source's own update label actually contained seconds. */
+        val pageClockHasSeconds: Boolean = false,
     )
     data class Outcome(val report: Report?, val reason: String)
 
@@ -222,7 +224,10 @@ object OrgWebsiteStatus {
             anchorDep = false
         }
         val report = Report(rows, anchorCode, anchorDep, eventMinute, stamp,
-            true, intermediate, provisional)
+            true, intermediate, provisional,
+            updated.find(body)?.groupValues?.get(1)?.let {
+                Regex("\\d{1,2}:\\d{2}:\\d{2}").containsMatchIn(it)
+            } == true)
         return Outcome(report,
             "${rows.size} website-published past station rows; origin day inferred from timetable, not stated by site; clocks are site claims, not independently verified observations")
     }

@@ -231,7 +231,8 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         holder.marker.contentDescription = marker?.caption ?: ""
         val ageLabel = marker?.takeUnless { it.caption.startsWith("RailYatri station claim") }
             ?.let { legAgeSeconds?.let(LegGeometry::ageLabel) }
-        holder.markerAge.text = ageLabel ?: ""
+        holder.markerAge.text = legAgeSeconds?.takeIf { ageLabel != null }
+            ?.let(LegGeometry::compactAgeLabel) ?: ""
         holder.markerAge.visibility = if (ageLabel == null) View.GONE else View.VISIBLE
         holder.markerAge.contentDescription = ageLabel?.let { "Last reported event $it" } ?: ""
         holder.marker.setTextColor(ctx.getColor(R.color.live))

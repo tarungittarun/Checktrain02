@@ -85,7 +85,7 @@ class TrainActivity : AppCompatActivity() {
     private var sourceSelectionTouchedAt = 0L
     private var lastUi: LiveViewModel.Ui? = null
     private var lastScreenLoadKey: Pair<String?, Long?>? = null
-    private var screenLoadedAtMillis = 0L
+    private var scoreGeneration = 0
     private var pendingAutoRefresh = false
     private var chainBusy = false
     private var mirrorBusy = false
@@ -242,6 +242,11 @@ class TrainActivity : AppCompatActivity() {
                 // A fast live receipt may already have cleared focusAfterRefresh. The
                 // latency receipt belongs to this button press either way.
                 showRefreshFeedback()
+                val elapsed = SystemClock.elapsedRealtime() - refreshStartedAt
+                // Also show a receipt when an HTTP check failed and retained old data.
+                showResponseScore(elapsed, lastUi?.selectedSourceUpdateMillis,
+                    lastUi?.activeSource ?: requestedRefreshSource,
+                    lastUi?.selectedSourceUpdateHasSeconds == true)
                 refreshStartedAt = 0L
             }
             if (wasBusy && !chainBusy && focusAfterRefresh) binding.stops.post {
@@ -283,6 +288,7 @@ class TrainActivity : AppCompatActivity() {
         requestedRefreshSource = lastUi?.activeSource ?: "NTES (official)"
         previousRefreshEvent = eventKey(lastUi, requestedRefreshSource)
         binding.refreshFeedback.visibility = View.GONE
+        binding.stops.post { pulseAtVisibleTrain() }
         vm.refresh(manual = true, auto = auto)
     }
 
@@ -712,17 +718,17 @@ class TrainActivity : AppCompatActivity() {
         // the selected site's qualified claim without repeating an excerpt at the halt.
         stopAdapter.reports = ui.sourceLines[ui.activeSource] ?: ui.reports
         stopAdapter.mappedLegStarts = ui.staticMappedLegStarts
-        // A source receipt can change without a new train event. Repaints for age,
-        // identity and background maps must not falsely advance the load clock.
+        // A new response can repeat the same stop. Only show its receipt once;
+        // neither the score nor the pulse changes a train's reported position.
         val loadKey = ui.activeSource to ui.selectedLoadReceiptMillis
-        if (screenLoadedAtMillis == 0L || (ui.selectedLoadReceiptMillis != null &&
-                    loadKey != lastScreenLoadKey)) {
-            screenLoadedAtMillis = System.currentTimeMillis()
-            lastScreenLoadKey = loadKey
+        val newReceipt = ui.selectedLoadReceiptMillis != null && loadKey != lastScreenLoadKey
+        if (newReceipt) lastScreenLoadKey = loadKey
+        if (newReceipt && refreshStartedAt == 0L) {
+            ResponseScore.durationMillis(ui.sourceStates[ui.activeSource]?.second)?.let { ms ->
+                showResponseScore(ms, ui.selectedSourceUpdateMillis,
+                    ui.activeSource ?: "Source", ui.selectedSourceUpdateHasSeconds)
+            }
         }
-        binding.checkClock.text = RailTime.formatClockSeconds(screenLoadedAtMillis)
-        binding.checkClock.contentDescription =
-            "Selected data loaded onto this screen at ${binding.checkClock.text} IST; not a train event"
         binding.routeArchiveNote.visibility = if (ui.staticRouteSource ==
             `in`.opentrack.india.remote.OfflineCorridorMap.SOURCE) View.VISIBLE else View.GONE
         stopAdapter.mapSource = ui.staticRouteSource
@@ -752,6 +758,9 @@ class TrainActivity : AppCompatActivity() {
         val from = win.first.coerceIn(0, (m.rows.size - 1).coerceAtLeast(0))
         val to = win.last.coerceIn(from, (m.rows.size - 1).coerceAtLeast(0))
         stopAdapter.submitList(m.rows.subList(from, to + 1)) {
+            if (newReceipt && refreshStartedAt == 0L) binding.stops.post {
+                pulseAtVisibleTrain()
+            }
             // A usable NTES/website station may paint before ui.anchorCode is set.
             // Focus on the SAME station that owns the actual train glyph, not on
             // the first timetable row. Post after RecyclerView's layout commit.
@@ -958,6 +967,56 @@ class TrainActivity : AppCompatActivity() {
         binding.refreshFeedback.visibility = View.VISIBLE
     }
 
+    private fun showResponseScore(elapsedMs: Long, updateAt: Long?, source: String,
+                                  hasSeconds: Boolean) {
+        // The update clock can be absent. A retained earlier report is not restamped
+        // by a failed request, and even a valid page clock is not a movement event.
+        val view = binding.checkClock
+        val token = ++scoreGeneration
+        view.animate().cancel()
+        view.text = ResponseScore.text(elapsedMs, updateAt, hasSeconds)
+        view.contentDescription = "$source response took $elapsedMs milliseconds; " +
+            (updateAt?.let { "source data updated ${if (hasSeconds) RailTime.formatClockSeconds(it) else RailTime.formatClock(it)} IST" }
+                ?: "source update time unavailable") + "; not a train position or event"
+        view.scaleX = .7f
+        view.scaleY = .7f
+        view.alpha = 1f
+        view.visibility = View.VISIBLE
+        view.animate().scaleX(1.5f).scaleY(1.5f).alpha(0f)
+            .setDuration(1_000L).withEndAction {
+                if (scoreGeneration == token) view.visibility = View.GONE
+            }.start()
+    }
+
+    /** Locate the drawable's actual centre within the visible route viewport.
+     * Do not pulse an offscreen or map-only icon as if it were newly measured. */
+    private fun pulseAtVisibleTrain() {
+        val list = binding.stops
+        val overlay = binding.statusRipple
+        val base = IntArray(2).also(overlay::getLocationOnScreen)
+        for (index in 0 until list.childCount) {
+            val row = list.getChildAt(index)
+            val marker = row.findViewById<View>(R.id.stopTrainMarker)
+            val leg = row.findViewById<InlineLegView>(R.id.inlineLeg)
+            val target: Pair<Float, Float>? = when {
+                marker != null && marker.visibility == View.VISIBLE ->
+                    marker.width / 2f to marker.height / 2f
+                leg != null && leg.visibility == View.VISIBLE -> leg.trainCenter()
+                else -> null
+            }
+            val view = if (marker?.visibility == View.VISIBLE) marker else leg
+            if (target != null && view != null) {
+                val position = IntArray(2).also(view::getLocationOnScreen)
+                val x = position[0] + target.first - base[0]
+                val y = position[1] + target.second - base[1]
+                if (x in 0f..overlay.width.toFloat() && y in 0f..overlay.height.toFloat()) {
+                    overlay.pulse(x, y)
+                    return
+                }
+            }
+        }
+    }
+
     /** Bring the current reported halt/leg to the top without manufacturing a position. */
     private fun focusCurrentLeg() {
         val ui = lastUi ?: return
@@ -1067,6 +1126,9 @@ class TrainActivity : AppCompatActivity() {
         pendingAutoRefresh = false
         binding.root.removeCallbacks(autoRefreshTicker)
         binding.stops.removeCallbacks(ageTicker)
+        binding.statusRipple.cancelPulse()
+        binding.checkClock.animate().cancel()
+        binding.checkClock.visibility = View.GONE
         super.onStop()
     }
 

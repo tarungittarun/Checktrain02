@@ -139,6 +139,10 @@ class LiveViewModel(
         val lastUpdated: String? = null,
         /** Last successful selected-source load; not a website page clock or train event. */
         val selectedLoadReceiptMillis: Long? = null,
+        /** The source's own publication clock, NEVER the HTTP receipt or a train event.
+         * Null if the selected source supplies none. Precision is conservative (minutes). */
+        val selectedSourceUpdateMillis: Long? = null,
+        val selectedSourceUpdateHasSeconds: Boolean = false,
         val delayDetail: String? = null,
         /** Static-only ordered route points, never used to locate the train or generate actuals. */
         val staticRoute: TrainRoute? = null,
@@ -1858,6 +1862,20 @@ class LiveViewModel(
                 selected == "last known" -> null
                 verified != null -> mirrorRefreshedAt.takeIf { it > 0 }
                 else -> null
+            },
+            selectedSourceUpdateMillis = when (selected) {
+                "NTES (official)" -> if (lastOfficialRequest?.kind ==
+                    OfficialRequestReceipt.Kind.ANSWERED_WITH_ACTUALS)
+                    answer.position.feedStampMillis else null
+                PublicPageChecks.ORG -> orgReport?.pageUpdatedAt
+                PublicPageChecks.RAIL_YATRI -> railClaim?.updateAt
+                WimtCandidate.SOURCE -> webPoint?.cacheAtMillis
+                else -> null // mirror refresh clock is ours, not its publication clock
+            },
+            selectedSourceUpdateHasSeconds = when (selected) {
+                PublicPageChecks.ORG -> orgReport?.pageClockHasSeconds == true
+                WimtCandidate.SOURCE -> webPoint != null // ISO web cache stamp includes seconds
+                else -> false // NTES parser does not retain the raw precision
             },
             lastUpdated = (mirrorRefreshedAt.takeIf { it > 0 } ?: lastFetchAt.takeIf { it > 0 })
                 ?.let { (if (verified != null) "Verified " else "Last checked ") + clockAt(it) },

@@ -5,6 +5,7 @@
   the remaining viewport and its scroll, so a long route never becomes a giant nested view.
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/bg"
@@ -227,26 +228,23 @@
                             android:textSize="15sp" />
                     </LinearLayout>
 
-                    <!-- Local screen-paint time; the full label lives in TalkBack / Info. -->
-                    <FrameLayout
-                        android:layout_width="80dp"
+                    <!-- One-second response score, not a persistent clock or a train-event time.
+                         No box and no caption; detail remains in Source Info / receipts. -->
+                    <androidx.appcompat.widget.AppCompatTextView
+                        android:id="@+id/checkClock"
+                        style="@style/TextMicro"
+                        android:layout_width="96dp"
                         android:layout_height="36dp"
                         android:layout_marginStart="6dp"
-                        android:background="@drawable/bg_inset">
-                        <in.opentrack.india.ui.ScreenLoadGlowView
-                            android:layout_width="match_parent"
-                            android:layout_height="match_parent" />
-                        <TextView
-                            android:id="@+id/checkClock"
-                            style="@style/TextClock"
-                            android:layout_width="match_parent"
-                            android:layout_height="match_parent"
-                            android:gravity="center"
-                            android:singleLine="true"
-                            android:text="--:--:--"
-                            android:textColor="@color/live"
-                            android:textSize="12sp" />
-                    </FrameLayout>
+                        android:gravity="center"
+                        android:singleLine="true"
+                        android:textColor="@color/live"
+                        android:textSize="11sp"
+                        app:autoSizeTextType="uniform"
+                        app:autoSizeMinTextSize="8sp"
+                        app:autoSizeMaxTextSize="11sp"
+                        app:autoSizeStepGranularity="1sp"
+                        android:visibility="gone" />
 
                     <LinearLayout
                         android:layout_width="0dp"
@@ -416,7 +414,7 @@
                     style="@style/TextMicro"
                     android:layout_width="@dimen/col_sched"
                     android:layout_height="wrap_content"
-                    android:gravity="end"
+                    android:gravity="start"
                     android:singleLine="true"
                     android:text="TIMETABLE" android:textColor="@color/text2" />
                 <View android:layout_width="@dimen/route_station_spacer"
@@ -436,12 +434,26 @@
                     android:text="ACTUAL" android:textColor="@color/live" />
             </LinearLayout>
 
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/stops"
+            <!-- Ripple is clipped by this viewport; it cannot spill into the source card,
+                 the fixed column headings, or the rest of the screen. -->
+            <FrameLayout
+                android:id="@+id/routeViewport"
                 android:layout_width="match_parent"
                 android:layout_height="0dp"
                 android:layout_weight="1"
-                android:background="@drawable/bg_inset" />
+                android:background="@drawable/bg_inset">
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/stops"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent" />
+                <in.opentrack.india.ui.StatusRippleView
+                    android:id="@+id/statusRipple"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:clickable="false"
+                    android:focusable="false"
+                    android:importantForAccessibility="no" />
+            </FrameLayout>
 
             <TextView
                 android:id="@+id/rowsNote"

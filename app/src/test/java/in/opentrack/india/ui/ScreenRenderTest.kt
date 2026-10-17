@@ -129,14 +129,15 @@ class ScreenRenderTest {
         // and two casings on one screen is how an app starts to look untrustworthy.
         assertTrue("the headline should follow the table's casing: '$headline'",
             headline.contains("Dobetakapur") && !headline.contains("DOBETAKAPUR"))
-        assertEquals("screen-load clock must show seconds, not the website minute", "09:05:07",
-            shot.text(R.id.checkClock))
-        assertEquals("do not print a second caption inside the compact clock", 0,
-            shot.context.resources.getIdentifier("checkClockLabel", "id", shot.context.packageName))
-        val clockWave = shot.root.findViewById<View>(R.id.checkClock).parent as android.view.ViewGroup
-        assertTrue("light wave must cover the box, not draw a narrow underline",
-            clockWave.getChildAt(0) is ScreenLoadGlowView &&
-                clockWave.getChildAt(0).height == clockWave.height)
+        assertEquals("response receipt shows duration and only the available source minute",
+            "1 sec 09:05", shot.text(R.id.checkClock))
+        val score = shot.root.findViewById<View>(R.id.checkClock)
+        assertTrue("response score must not have a box", score.background == null)
+        assertTrue("response score is a text display, not a perpetual paint animation",
+            score is TextView && score.parent !is ScreenLoadGlowView)
+        assertTrue("ripple must overlay ONLY the status table viewport",
+            shot.root.findViewById<View>(R.id.statusRipple).parent ===
+                shot.root.findViewById<View>(R.id.routeViewport))
         val delayBox = shot.bounds(R.id.delay)
         val checkBox = shot.bounds(R.id.checkClock)
         val nextBox = shot.bounds(R.id.next)
@@ -176,8 +177,11 @@ class ScreenRenderTest {
         assertTrue("header must be outside the scrolling stop list",
             shot.root.findViewById<View>(R.id.routeColumnHeader).parent !== list)
         fun right(id: Int) = shot.bounds(id).right
-        assertTrue("timetable heading must align with scheduled clock",
-            kotlin.math.abs(right(R.id.routeHeadTimetable) - right(R.id.scheduleTimes)) <= 2)
+        assertTrue("timetable heading must align with the left edge of scheduled clocks",
+            kotlin.math.abs(shot.bounds(R.id.routeHeadTimetable).left -
+                shot.bounds(R.id.schedArr).left) <= 2)
+        assertTrue("timetable clock must sit LEFT of the rail, not float next to it",
+            shot.bounds(R.id.schedArr).right < shot.bounds(R.id.stopTrainMarker).left)
         assertTrue("station heading must align with station names",
             kotlin.math.abs(shot.bounds(R.id.routeHeadStations).left -
                 shot.bounds(R.id.stationIdentity).left) <= 2)
@@ -275,8 +279,18 @@ Render.save("02-track-live", shot.bitmap)
             text(reported, R.id.haltMarker).contains("last reported stop", ignoreCase = true))
         assertTrue("passage age disappeared from its accessible marker",
             reported.findViewById<TextView>(R.id.haltMarker).contentDescription.contains("ago"))
-        assertEquals("the stop's age must appear to the left of its locomotive",
-            "2 min ago", text(reported, R.id.stopMarkerAge))
+        assertEquals("the stop's age must sit below its locomotive",
+            "2m ago", text(reported, R.id.stopMarkerAge))
+        val stopGroup = reported as android.view.ViewGroup
+        fun localRect(id: Int) = android.graphics.Rect().also { rect ->
+            val cell = reported.findViewById<View>(id)
+            rect.set(0, 0, cell.width, cell.height)
+            stopGroup.offsetDescendantRectToMyCoords(cell, rect)
+        }
+        val markerBounds = localRect(R.id.stopTrainMarker)
+        val ageBounds = localRect(R.id.stopMarkerAge)
+        assertTrue("age overlaps the train logo", ageBounds.top >= markerBounds.bottom -
+            3 * shot.context.resources.displayMetrics.density)
         assertEquals("locomotive must replace the reported stop's dot",
             View.VISIBLE, reported.findViewById<View>(R.id.stopTrainMarker).visibility)
         assertEquals(View.GONE, reported.findViewById<View>(R.id.stopDot).visibility)

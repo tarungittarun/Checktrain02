@@ -21,24 +21,18 @@
         <LinearLayout android:id="@+id/scheduleTimes"
             android:layout_width="@dimen/col_sched" android:layout_height="wrap_content"
             android:layout_marginTop="6dp"
-            android:gravity="end" android:orientation="vertical">
+            android:gravity="start" android:orientation="vertical">
             <TextView android:id="@+id/schedArr" style="@style/TextClockDim"
                 android:minHeight="32dp" android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:contentDescription="Scheduled arrival" />
             <TextView android:id="@+id/schedDep" style="@style/TextClockDim"
                 android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:layout_marginTop="3dp" android:contentDescription="Scheduled departure" />
-            <!-- The report age stays on the LEFT of the locomotive, never in the
-                 station-name or actual-time column. It never replaces schedule clocks. -->
-            <TextView android:id="@+id/stopMarkerAge" style="@style/TextMicro"
-                android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:layout_marginTop="2dp" android:gravity="end"
-                android:textColor="@color/live" android:visibility="gone" />
         </LinearLayout>
         <!-- The rail is x=114dp: the marker frame begins at x=90 and ends at x=138. -->
         <FrameLayout
             android:layout_width="48dp"
-            android:layout_height="48dp"
+            android:layout_height="72dp"
             android:layout_marginStart="-18dp"
             android:layout_marginEnd="-4dp">
             <View
@@ -54,6 +48,14 @@
                 android:layout_height="48dp"
                 android:layout_gravity="top|center_horizontal"
                 android:layout_marginTop="2dp"
+                android:visibility="gone" />
+            <!-- Event age sits BELOW the locomotive; scheduled/actual cells remain untouched. -->
+            <TextView android:id="@+id/stopMarkerAge" style="@style/TextMicro"
+                android:layout_width="48dp" android:layout_height="18dp"
+                android:layout_gravity="top|center_horizontal"
+                android:layout_marginTop="52dp"
+                android:gravity="center" android:singleLine="true"
+                android:textSize="9sp" android:textColor="@color/live"
                 android:visibility="gone" />
         </FrameLayout>
         <LinearLayout android:id="@+id/stationIdentity"

@@ -67,6 +67,17 @@ class OrgWebsiteStatusTest {
         assertTrue(out.reason.contains("origin day inferred"))
     }
 
+    @Test fun `website update precision is preserved without inventing seconds`() {
+        val precise = OrgWebsiteStatus.parse(page, "16227", day, now, route).report!!
+        val coarse = OrgWebsiteStatus.parse(page.replace("06:06:19 AM", "06:06 AM"),
+            "16227", day, now, route).report!!
+        assertTrue(precise.pageClockHasSeconds)
+        assertFalse(coarse.pageClockHasSeconds)
+        assertEquals(19_000L, precise.pageUpdatedAt - coarse.pageUpdatedAt)
+        assertEquals("an update-clock change did not move the train", precise.eventMinute,
+            coarse.eventMinute)
+    }
+
     @Test fun `past stop departure does not manufacture an arrival from a scheduled clock`() {
         val depOnly = page.replace("05:50 AM", "05:43 AM")
             .replace("bg-white", "bg-green-50 opacity-90")
