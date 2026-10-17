@@ -15,4 +15,4 @@ Owner inputs: screenshots of 12089 at Yesvantpur and the route-search/Data sourc
 ## Verification status
 
 - Before this change: R123 E2E 39030697741 ran 833s, 31/31 device partitions green, strict DEX correspondence, phone parity and 180s job target red. Android 39030697742 ran 358s and published the R123 APK. No R124 Android build, optimised E2E or APK has passed yet.
-- Static balance/resources/member checks and 63 Python CI self-tests passed locally. Android JVM compilation/render and device run still required. PR #3 must remain open until owner confirms on phone.
+- Static balance/resources/member checks and 63 Python CI self-tests passed locally. [Android current-head replacement 39035771929](https://github.com/tarungittarun/Checktrain02/actions/runs/39035771929) passed build, 34 render tests, JVM partitions and APK traveller checks for `900aa66`. Earlier R124 compilation/render failures were fixed and are not counted as green. The requested opt-in E2E device run and the phone confirmation remain outstanding. PR #3 must remain open until owner confirms on phone.
