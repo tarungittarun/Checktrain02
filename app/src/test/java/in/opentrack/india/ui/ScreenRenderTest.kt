@@ -437,11 +437,12 @@ Render.save("01-track-schedule", shot.bitmap)
     fun narrowLargeTypeDateDoesNotLoseItsWidthToDayButtons() {
         val shot = Render.render(R.layout.activity_main, widthDp = 320f,
             heightDp = 640f, textScale = 1.3f) { root ->
-            Render.text(root, R.id.whenValue, "Sat 17 Oct · 12:30")
+            Render.text(root, R.id.whenValue, "Today · 12:30")
         }
         val date = shot.root.findViewById<TextView>(R.id.whenValue)
         assertTrue("travel date has zero/insufficient width next to day buttons: ${date.width}",
-            date.width >= Render.dp(shot.context, 200f).toInt())
+            date.width >= Render.dp(shot.context, 160f).toInt())
+        Render.assertNothingCut(date, "compact date at 320dp / 1.3x font")
         assertTrue("travel date must render actual characters", (date.layout?.lineCount ?: 0) > 0)
         for (id in listOf(R.id.dayBack, R.id.dayNow, R.id.dayFwd)) {
             assertTrue("day control $id collapsed on a narrow phone",
@@ -468,6 +469,8 @@ Render.save("01-track-schedule", shot.bitmap)
             // the picture. `ShippedDataTest` reads those counts out of the packaged DB; a fixture that made
             // its own up was how one preview ended up contradicting its neighbours.
             root.findViewById<View>(R.id.statusLine)?.visibility = View.GONE
+            root.findViewById<View>(R.id.searchCardScroll)?.visibility = View.GONE
+            root.findViewById<View>(R.id.searchCompact)?.visibility = View.VISIBLE
             Render.text(root, R.id.dataChip, DATA_VERSION)
             Render.text(root, R.id.resultsTitle, "5 trains between these stations")
             Render.text(root, R.id.resultsSub, "sorted by departure · 4 ms on device")

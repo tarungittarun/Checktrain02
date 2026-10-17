@@ -185,6 +185,8 @@ class LargeScreenRenderTest {
             root.findViewById<SuggestBox>(R.id.toBox)?.hint = "Get off at — station name or code"
             root.findViewById<SuggestBox>(R.id.trainBox)?.hint = "5-digit number or a name fragment"
             root.findViewById<View>(R.id.statusLine)?.visibility = View.GONE
+            root.findViewById<View>(R.id.searchCardScroll)?.visibility = View.GONE
+            root.findViewById<View>(R.id.searchCompact)?.visibility = View.VISIBLE
             Render.text(root, R.id.dataChip, DATA_VERSION)
             Render.text(root, R.id.resultsTitle, "3 trains between these stations")
             Render.text(root, R.id.resultsSub, "sorted by departure · 5 ms on device")
