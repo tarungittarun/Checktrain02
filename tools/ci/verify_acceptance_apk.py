@@ -19,6 +19,15 @@ def output(*args):
     return proc.stdout
 
 
+def cert_sha256(raw):
+    """Android build tools use `Signer #1` or `V2 Signer` depending on scheme/version."""
+    match = re.search(
+        r"(?im)^(?:V\d+(?:\.\d+)? Signer|Signer\s+#\d+)\s*:\s*certificate SHA-256 digest:\s*([a-f0-9:]+)",
+        raw,
+    )
+    return match.group(1).replace(":", "").lower() if match else None
+
+
 def verify(release, artifact, expected_sha):
     assert len(expected_sha) == 40 and re.fullmatch(r"[0-9a-f]{40}", expected_sha), "invalid source SHA"
     assert release.is_file() and artifact.is_file(), "release and same-run build APK both required"
@@ -39,9 +48,8 @@ def verify(release, artifact, expected_sha):
     # INDEPENDENT and mandatory; include the raw output if Android changes its display format.
     raw = output(signer, "verify", "--verbose", "--print-certs", str(release))
     print("apksigner output:\n" + raw, flush=True)
-    match = re.search(r"(?im)Signer\s+#1\s+certificate\s+SHA-256\s+digest\s*:\s*([a-f0-9:]+)", raw)
-    assert match, "apksigner succeeded but certificate SHA-256 was not parsed; key continuity unverified"
-    cert = match.group(1).replace(":", "").lower()
+    cert = cert_sha256(raw)
+    assert cert, "apksigner succeeded but certificate SHA-256 was not parsed; key continuity unverified"
     key = output("keytool", "-list", "-v", "-keystore", "tools/ci/test-only-debug.p12",
                  "-storetype", "PKCS12", "-storepass", "android")
     expected = re.search(r"SHA256:\s*([a-fA-F0-9:]+)", key)

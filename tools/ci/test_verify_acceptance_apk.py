@@ -11,6 +11,15 @@ import verify_acceptance_apk as verifier
 class PreflightTest(unittest.TestCase):
     SHA = "a" * 40
 
+    def test_real_v2_certificate_format_and_legacy_v1_format(self):
+        fingerprint = "c278749bdf33487caae760d3545ef82c2ce837a5c46c8e82df08599c1140b8a3"
+        raw = "Verifies\nVerified using v2 scheme: true\nNumber of signers: 1\n" + \
+              f"V2 Signer: certificate SHA-256 digest: {fingerprint}\n"
+        self.assertEqual(fingerprint, verifier.cert_sha256(raw))
+        self.assertEqual(fingerprint, verifier.cert_sha256(
+            f"Signer #1: certificate SHA-256 digest: {fingerprint}"))
+        self.assertIsNone(verifier.cert_sha256("Verified using v2 scheme: true"))
+
     def test_missing_release_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             p = Path(tmp) / "missing.apk"

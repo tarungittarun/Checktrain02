@@ -19,6 +19,8 @@ import sys
 import xml.etree.ElementTree as ET
 import zipfile
 
+from verify_acceptance_apk import cert_sha256
+
 PARTS = ("ui-render", "ui-logic", "rules", "sources")
 PROFILES = ("api34", "min24", "density")
 EXPECTED_ROWS = {f"{p}-{row}" for p in PROFILES for row in
@@ -140,14 +142,14 @@ def apk_inspection(apk: Path, repo: Path) -> tuple[dict, list[str]]:
             if pkg.groups() != ("in.opentrack.india", expected_code.group(1), expected_name.group(1)):
                 bad.append(f"APK identity {pkg.groups()} differs from source version and package")
         raw = command(str(signers[-1]), "verify", "--verbose", "--print-certs", str(apk))
-        signer = re.search(r"(?im)Signer\s+#1\s+certificate\s+SHA-256\s+digest\s*:\s*([a-f0-9:]+)", raw)
-        if not signer:
+        cert = cert_sha256(raw)
+        if not cert:
             # apksigner exited zero: it verified the cryptographic signature. The
             # certificate parser did not, so key continuity is UNKNOWN, not 'unsigned'.
             bad.append("apksigner verified the signature, but the certificate digest was not parsed; "
                        f"update-key continuity unverified. Raw: {raw[-500:].strip()!r}")
         else:
-            outcome["cert_sha256"] = signer.group(1).replace(":", "").lower()
+            outcome["cert_sha256"] = cert
             key = command("keytool", "-list", "-v", "-keystore",
                           str(repo / "tools/ci/test-only-debug.p12"), "-storetype", "PKCS12",
                           "-storepass", "android")
