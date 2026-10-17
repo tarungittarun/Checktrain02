@@ -584,9 +584,10 @@ class InlineRouteRenderTest {
             scheduleBounds.right < locomotiveX)
         assertTrue("reported arrival crosses to the schedule side: $reportBounds",
             reportBounds.left > locomotiveX)
-        assertTrue("the icon slipped below the Birur station name",
-            kotlin.math.abs(frame.top + holder.trainMarker.top + holder.trainMarker.height / 2 -
-                (holder.name.top + holder.name.height / 2)) < (25 * d).toInt())
+        val markerCenterY = frame.top + holder.trainMarker.top + holder.trainMarker.height / 2
+        val nameCenterY = holder.name.top + holder.name.height / 2
+        assertTrue("the icon slipped below the Birur station name: marker=$markerCenterY name=$nameCenterY",
+            kotlin.math.abs(markerCenterY - nameCenterY) < (25 * d).toInt())
         val stationBitmap = android.graphics.Bitmap.createBitmap(content.width, content.height,
             android.graphics.Bitmap.Config.ARGB_8888)
         val stationCanvas = android.graphics.Canvas(stationBitmap)

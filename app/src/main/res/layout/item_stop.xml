@@ -59,8 +59,11 @@
                 android:textSize="9sp" android:textColor="@color/live"
                 android:visibility="gone" />
         </FrameLayout>
+        <!-- Align the name to the rail icon and first arrival clock even when the
+             redundant halt caption is hidden; avoid a jump on reported stops. -->
         <LinearLayout android:id="@+id/stationIdentity"
             android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
             android:layout_weight="1" android:orientation="vertical">
             <TextView android:id="@+id/haltMarker" style="@style/TextMicro"
                 android:layout_width="match_parent" android:layout_height="wrap_content"
