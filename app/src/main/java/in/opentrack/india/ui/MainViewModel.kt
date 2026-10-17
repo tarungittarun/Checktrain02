@@ -65,6 +65,7 @@ class MainViewModel(private val app: App) : ViewModel() {
     @Volatile private var searchSerial = 0L
     private var searchJob: Job? = null
     private var pairJob: Job? = null
+    private var installedDataVersion: String? = null
 
     private fun invalidateSearch(): Long {
         searchJob?.cancel()
@@ -103,8 +104,10 @@ class MainViewModel(private val app: App) : ViewModel() {
         if (_phase.value is Phase.Ready || _phase.value is Phase.Searching) return
         viewModelScope.launch {
             val repo = ready { done, total -> _phase.postValue(Phase.Preparing(done, total)) }.await()
+            val version = repo?.dataVersion()
+            installedDataVersion = version
             _phase.postValue(
-                if (repo != null) Phase.Ready(repo.dataVersion())
+                if (version != null) Phase.Ready(version)
                 else Phase.Broken(
                     "The built-in timetable could not be installed on this device. " +
                         "Reinstall the app, or import a timetable file from Settings."
@@ -117,8 +120,8 @@ class MainViewModel(private val app: App) : ViewModel() {
         invalidateSearch()
         this.mode = mode
         _results.value = null
-        if (_phase.value is Phase.Searching) app.repository()?.let {
-            _phase.value = Phase.Ready(it.dataVersion())
+        if (_phase.value is Phase.Searching) installedDataVersion?.let {
+            _phase.value = Phase.Ready(it)
         }
     }
 
@@ -126,8 +129,8 @@ class MainViewModel(private val app: App) : ViewModel() {
         invalidateSearch()
         targetEpochDay = epochDay
         targetMinuteOfDay = minuteOfDay
-        if (_phase.value is Phase.Searching) app.repository()?.let {
-            _phase.value = Phase.Ready(it.dataVersion())
+        if (_phase.value is Phase.Searching) installedDataVersion?.let {
+            _phase.value = Phase.Ready(it)
         }
     }
 
@@ -155,7 +158,9 @@ class MainViewModel(private val app: App) : ViewModel() {
             }
             if (!PairSearchGate.current(serial, searchSerial)) return@launch
             _results.value = report
-            _phase.value = Phase.Ready(repo.dataVersion())
+            val version = repo.dataVersion()
+            installedDataVersion = version
+            _phase.value = Phase.Ready(version)
             // Do not fetch a live pair for an impossible trip. TrainFinder already
             // refused it with zero rows; an unrelated pair reply must never replace
             // that refusal with train rows. Ask with RESOLVED codes, not fuzzy input.
