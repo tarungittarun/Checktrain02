@@ -125,6 +125,19 @@ class SuggestFlowTest {
     }
 
     @Test
+    fun tappingTheSuggestionLabelActuallySelectsAndClosesThePanel() {
+        val activity = Robolectric.buildActivity(MainActivity::class.java).setup().get()
+        val from = box(activity, R.id.fromBox)
+        type(from, "yesvant")
+        val label = panel(from)!!.getChildAt(0).findViewById<TextView>(R.id.sugPrimary)
+        assertTrue("the accessibility-labelled suggestion is not clickable", label.isClickable)
+        assertTrue("tapping its label did not activate the suggestion", label.performClick())
+        assertNotNull("label tap left the station unresolved", from.resolvedCode)
+        assertEquals("label tap left the suggestion overlay visible", View.GONE,
+            from.findViewById<View>(R.id.suggestScroll).visibility)
+    }
+
+    @Test
     fun aQueryThatMatchesNothingSaysSoInTheBox() {
         val activity = Robolectric.buildActivity(MainActivity::class.java).setup().get()
         val from = box(activity, R.id.fromBox)

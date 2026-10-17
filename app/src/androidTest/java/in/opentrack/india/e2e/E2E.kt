@@ -350,7 +350,11 @@ object E2E {
         val row = rows.getOrNull(index) ?: return false
         row.click()
         ui.waitForIdle()
-        return true
+        // A click returning without an exception does not prove selection. The
+        // chosen code is the visible evidence; an unopened panel is not sufficient
+        // (losing input focus can also close a panel).
+        return ui.wait(Until.hasObject(res("suggestChip")), 1_500L) ||
+            visible("hitGo", 300)
     }
 
     fun resultRows(): Int = all(By.res(PKG, "hitNo")).size

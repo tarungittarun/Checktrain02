@@ -194,7 +194,15 @@ class SuggestBox @JvmOverloads constructor(
             (v.findViewById<TextView>(R.id.sugCode)).text = sug.badge
             (v.findViewById<TextView>(R.id.sugPrimary)).text = sug.primary
             (v.findViewById<TextView>(R.id.sugSecondary)).text = sug.secondary
-            v.setOnClickListener { pick(sug) }
+            // A screen reader/UiAutomator can target the labelled child directly,
+            // rather than sending a touch to the row. Make each visible part of
+            // the same suggestion choose that SAME value; never silently leave
+            // the panel open while reporting that a train was selected.
+            val choose = View.OnClickListener { pick(sug) }
+            v.setOnClickListener(choose)
+            v.findViewById<TextView>(R.id.sugPrimary).setOnClickListener(choose)
+            v.findViewById<TextView>(R.id.sugCode).setOnClickListener(choose)
+            v.findViewById<TextView>(R.id.sugSecondary).setOnClickListener(choose)
             panel.addView(v)
         }
         showPanel(true)
