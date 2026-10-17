@@ -432,12 +432,14 @@ class TrackingFlowTest {
         if (live.any { it != "—" }) {
             assertTrue("Web cell without site provenance", E2E.text("provenance").contains("WEBSITE"))
             assertTrue("Web cell without spoken website source: $spoken",
-                spoken.any { it.startsWith("Website arrival") })
+                spoken.any { it.startsWith("Website claim arrival") })
             repeat(5) { if (!E2E.visible("age", 300)) E2E.swipeIn("scroller", up = false) }
             val age = E2E.text("age")
-            assertTrue("site page clock confused with an event clock: '$age'",
-                age.contains("page checked", true) &&
-                    age.contains("not event time", true) && age.contains("movement", true))
+            val explanation = E2E.find("age")?.contentDescription.orEmpty()
+            assertTrue("site page clock confused with an event clock: '$age' / '$explanation'",
+                age.contains("site checked", true) &&
+                    explanation.contains("not event time", true) &&
+                    explanation.contains("movement", true))
         } else {
             assertTrue("no Web cells but source pretends to verify station events: $summary",
                 summary.contains("NOT Act") || summary.contains("static") ||

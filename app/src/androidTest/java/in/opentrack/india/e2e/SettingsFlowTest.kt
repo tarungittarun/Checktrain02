@@ -74,6 +74,31 @@ class SettingsFlowTest {
         assertTrue("back did not return to search", E2E.visible("settings"))
     }
 
+    // @flow tracking-default-settings
+    @Test
+    fun trackingSourceDefaultMovesToSettingsAndPersists() {
+        assertTrue(openSettings())
+        assertTrue("default source is not reachable in Settings",
+            E2E.reveal("defaultTrackingSource", "settingsScroll"))
+        assertTrue("source picker cannot open", E2E.tap("defaultTrackingSource"))
+        val website = E2E.ui.wait(Until.findObject(
+            androidx.test.uiautomator.By.text("Website · unverified")), E2E.LOCAL_MS)
+        assertTrue("the site option is missing", website != null)
+        website!!.click()
+        assertTrue("selected default not labelled for TalkBack",
+            E2E.find("defaultTrackingSource")?.contentDescription.orEmpty().contains("Website"))
+        E2E.ui.pressBack()
+        assertTrue("did not return Home", E2E.visible("settings"))
+        assertTrue("Settings did not reopen", openSettings())
+        assertTrue("default source did not persist",
+            E2E.find("defaultTrackingSource")?.contentDescription.orEmpty().contains("Website"))
+        assertTrue(E2E.tap("defaultTrackingSource"))
+        val official = E2E.ui.wait(Until.findObject(
+            androidx.test.uiautomator.By.text("NTES · official")), E2E.LOCAL_MS)
+        assertTrue("could not restore official default", official != null)
+        official!!.click()
+    }
+
     // @flow appearance-modes
     @Test
     fun lightDarkAndSystemSettingsRemainReadableAndPersist() {
@@ -90,7 +115,7 @@ class SettingsFlowTest {
             // window owns the same chosen value; selection alone is not persistence.
             assertTrue("$mode mode failed to repaint Settings", E2E.reveal(spinner, "settingsScroll"))
             assertTrue("$mode not selected on rebuilt screen: '${E2E.text(spinner)}'",
-                E2E.text(spinner).contains(mode, true))
+                E2E.find(spinner)?.contentDescription.orEmpty().contains(mode, true))
             assertTrue("$mode hid the source preference", E2E.visible("defaultTrackingSource"))
             E2E.shot("settings-appearance-${mode.replace(' ', '-')}")
         }
@@ -98,7 +123,7 @@ class SettingsFlowTest {
         assertTrue("theme change did not restore Home", E2E.visible("settings"))
         assertTrue("Settings could not reopen with saved appearance", openSettings())
         assertTrue("follow-system choice was not persisted",
-            E2E.text(spinner).contains("Follow system", true))
+            E2E.find(spinner)?.contentDescription.orEmpty().contains("Follow system", true))
     }
 
     /**
@@ -187,7 +212,8 @@ class SettingsFlowTest {
     @Test
     fun clearingCacheIsVisibleOnTheTrackScreen() {
         assertTrue(openSettings())
-        assertTrue("no clear control", E2E.tap("clear"))
+        assertTrue("no clear control", E2E.reveal("clear", "settingsScroll") &&
+            E2E.tap("clear"))
         val deadline = System.currentTimeMillis() + E2E.LOCAL_MS
         while (!E2E.text("state").contains("cache cleared", true) && System.currentTimeMillis() < deadline) {
             Thread.sleep(150)
@@ -225,7 +251,10 @@ class SettingsFlowTest {
     }
 
     // Settings fields are plain EditTexts, not SuggestBoxes, so they need their own accessors.
-    private fun fieldOf(id: String) = E2E.find(id, E2E.LOCAL_MS)
+    private fun fieldOf(id: String): androidx.test.uiautomator.UiObject2? {
+        if (!E2E.visible(id, 300) && !E2E.reveal(id, "settingsScroll")) return null
+        return E2E.find(id, E2E.LOCAL_MS)
+    }
 
     private fun typeInBoxField(id: String, value: String): Boolean {
         // A node can be replaced while Settings refreshes its install-state line.

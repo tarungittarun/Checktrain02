@@ -79,9 +79,15 @@ class SettingsActivity : AppCompatActivity() {
             android.R.layout.simple_spinner_dropdown_item, sources.map(TrackingSources::label))
         binding.defaultTrackingSource.setSelection(sources.indexOf(
             TrackingSources.valid(prefs.defaultTrackingSource)), false)
+        binding.defaultTrackingSource.contentDescription = "Default tracking source · " +
+            TrackingSources.label(TrackingSources.valid(prefs.defaultTrackingSource))
         binding.defaultTrackingSource.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-                sources.getOrNull(position)?.let { prefs.defaultTrackingSource = it }
+                sources.getOrNull(position)?.let {
+                    prefs.defaultTrackingSource = it
+                    binding.defaultTrackingSource.contentDescription =
+                        "Default tracking source · ${TrackingSources.label(it)}"
+                }
             }
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
@@ -89,10 +95,12 @@ class SettingsActivity : AppCompatActivity() {
         binding.appearance.adapter = ArrayAdapter(this,
             android.R.layout.simple_spinner_dropdown_item, modes)
         binding.appearance.setSelection(prefs.appearance, false)
+        binding.appearance.contentDescription = "Appearance · ${modes[prefs.appearance]}"
         binding.appearance.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
                 if (position != prefs.appearance && position in 0..2) {
                     prefs.appearance = position
+                    binding.appearance.contentDescription = "Appearance · ${modes[position]}"
                     AppCompatDelegate.setDefaultNightMode(prefs.nightMode())
                 }
             }

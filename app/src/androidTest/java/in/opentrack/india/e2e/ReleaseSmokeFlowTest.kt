@@ -28,7 +28,7 @@ class ReleaseSmokeFlowTest {
         E2E.awaitSearchScreen()
         // A string used only from Java (never from a layout) is the one resource shrinker class of mistake
         // this can catch: the label is simply missing at runtime.
-        assertTrue("the ±24 h window is not stated on the shipping build", E2E.text("whenHint").isNotBlank())
+        assertTrue("the ±24 h window is not stated on the shipping build", E2E.find("whenValue")?.contentDescription.orEmpty().contains("24 hours"))
         assertTrue("the search button has no label on the shipping build", E2E.text("find").isNotBlank())
         assertTrue(
             "type-ahead is dead in the release build (a shrinking or R8 difference, not a data one)",

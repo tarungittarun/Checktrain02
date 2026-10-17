@@ -57,6 +57,7 @@ railway happens to be reporting today says so, and its test asserts the invarian
 | `back-nav` | tracking → search | Back returns to the search screen with the previous query intact | `TrackingFlowTest#backKeepsTheSearchQuery` | all |
 | `density-change` | tracking | The stop timeline remains within the screen at the tested density (no overflow) | `TrackingFlowTest#tableHasGeometryAtThisDensity` | large, density |
 | `settings-open` | settings | The screen shows the install state, endpoint field and column map | `SettingsFlowTest#everyControlIsReachableAndBackReturns` | all |
+| `tracking-default-settings` | settings | Selecting a default tracking source is possible only in Settings, has an accessible selected label and persists when reopened; the test restores NTES | `SettingsFlowTest#trackingSourceDefaultMovesToSettingsAndPersists` | all |
 | `appearance-modes` | settings | Light, dark and follow-system selections visibly repaint Settings, keep the source control reachable and persist after reopening | `SettingsFlowTest#lightDarkAndSystemSettingsRemainReadableAndPersist` | all |
 | `diag-log-collector` | settings | The diagnostic log is inert until the user turns it on, says so on screen once they do, and is emptied by Clear without losing the switch | `SettingsFlowTest#diagnosticCollectorIsInertThenLiveThenEmpty` | all |
 | `endpoint-save-reload` | settings | A typed endpoint survives Save and reopening | `SettingsFlowTest#endpointPersistsAcrossReopen` | all |
