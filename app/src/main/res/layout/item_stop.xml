@@ -19,7 +19,7 @@
         android:paddingEnd="12dp"
         android:paddingBottom="7dp">
         <LinearLayout android:id="@+id/scheduleTimes"
-            android:layout_width="118dp" android:layout_height="wrap_content"
+            android:layout_width="@dimen/col_sched" android:layout_height="wrap_content"
             android:layout_marginTop="6dp"
             android:gravity="end" android:orientation="vertical">
             <TextView android:id="@+id/schedArr" style="@style/TextClockDim"
@@ -28,8 +28,14 @@
             <TextView android:id="@+id/schedDep" style="@style/TextClockDim"
                 android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:layout_marginTop="3dp" android:contentDescription="Scheduled departure" />
+            <!-- The report age stays on the LEFT of the locomotive, never in the
+                 station-name or actual-time column. It never replaces schedule clocks. -->
+            <TextView android:id="@+id/stopMarkerAge" style="@style/TextMicro"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="2dp" android:gravity="end"
+                android:textColor="@color/live" android:visibility="gone" />
         </LinearLayout>
-        <!-- Schedule can use x=118, but the rail remains x=124: frame x=100..148. -->
+        <!-- The rail is x=114dp: the marker frame begins at x=90 and ends at x=138. -->
         <FrameLayout
             android:layout_width="48dp"
             android:layout_height="48dp"
@@ -71,7 +77,7 @@
                 android:visibility="gone" />
         </LinearLayout>
         <LinearLayout android:id="@+id/reportTimes"
-            android:layout_width="72dp" android:layout_height="wrap_content"
+            android:layout_width="@dimen/route_actual" android:layout_height="wrap_content"
             android:layout_marginTop="6dp" android:gravity="end"
             android:orientation="vertical">
             <TextView android:id="@+id/liveArr" style="@style/TextClock"
@@ -107,7 +113,7 @@
         android:visibility="gone">
         <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
             android:gravity="center_vertical" android:orientation="horizontal"
-            android:paddingStart="150dp" android:paddingEnd="12dp">
+            android:paddingStart="140dp" android:paddingEnd="12dp">
             <TextView
                 android:id="@+id/inlineLegCaption"
                 style="@style/TextMeta"

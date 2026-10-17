@@ -282,6 +282,45 @@ class InlineRouteRenderTest {
             })
     }
 
+    @Test fun compactSiteIntermediateNamesTheReportedPointAndPlacesAgeLeftOfTheTrain() {
+        val ctx = RuntimeEnvironment.getApplication()
+        val ruler = InlineLegView(ctx).apply {
+            distanceKm = 24
+            projection = RouteBetween.LegProjection("VNR", "DRU", .45f, "Ballekere Halt", 198,
+                "VNR", "DRU", listOf(RouteBetween.LegPoint("BLKR", "Ballekere Halt", 198, .45f)),
+                RouteBetween.MarkerKind.SITE_INTERMEDIATE)
+            siteEventMinute = 851
+            showLabels = false // the named report cannot require a Stations tap
+        }
+        ruler.measure(View.MeasureSpec.makeMeasureSpec(360, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+        ruler.layout(0, 0, ruler.measuredWidth, ruler.measuredHeight)
+        fun paint(age: Long?, site: Boolean): android.graphics.Bitmap {
+            ruler.ageSeconds = age
+            ruler.siteEventMinute = null
+            ruler.projection = ruler.projection!!.copy(markerKind = if (site)
+                RouteBetween.MarkerKind.SITE_INTERMEDIATE else RouteBetween.MarkerKind.WEB_CACHE_CANDIDATE)
+            return android.graphics.Bitmap.createBitmap(ruler.width, ruler.height,
+                android.graphics.Bitmap.Config.ARGB_8888).also {
+                ruler.paintForTest(android.graphics.Canvas(it))
+            }
+        }
+        val plain = paint(null, false)
+        val named = paint(null, true)
+        val aged = paint(4 * 60, true)
+        val rail = (RouteRailGeometry.X_DP * ctx.resources.displayMetrics.density).toInt()
+        assertTrue("a folded map must still identify the source-named intermediate next to the train",
+            (rail + 25 until named.width).any { x ->
+                (0 until named.height).any { y -> named.getPixel(x, y) != plain.getPixel(x, y) }
+            })
+        assertTrue("the event's minutes-ago badge must paint LEFT of the locomotive",
+            (0 until rail - 24).any { x ->
+                (0 until aged.height).any { y -> aged.getPixel(x, y) != named.getPixel(x, y) }
+            })
+        assertFalse("the selected site report must not automatically open all intermediate points",
+            ruler.showLabels)
+    }
+
     @Test fun onlyARecentSourceEventPaintsTheGreenCheckOnTheLocomotive() {
         val ctx = RuntimeEnvironment.getApplication()
         val ruler = InlineLegView(ctx).apply {
@@ -409,8 +448,11 @@ class InlineRouteRenderTest {
             "Last stop · now unknown", holder.inlineLegCaption.text.toString())
         assertEquals("an empty map cannot offer an empty Stations disclosure", View.GONE,
             holder.routeToggle.visibility)
-        assertTrue("freshness must be beside the pinned locomotive",
-            holder.marker.text.toString().startsWith("53 min ago · LAST REPORTED STOP"))
+        assertEquals("the station caption stays by the locomotive", "LAST REPORTED STOP",
+            holder.marker.text.toString())
+        assertEquals("event age belongs in the left timetable gutter", "53 min ago",
+            holder.markerAge.text.toString())
+        assertEquals(View.VISIBLE, holder.markerAge.visibility)
         assertEquals(53 * 60L, holder.trainMarker.ageSeconds)
         holder.inlineLeg.performClick()
         assertEquals("the source-supported train leg still explains its unavailable map on tap",
@@ -468,7 +510,7 @@ class InlineRouteRenderTest {
         content.layout(0, 0, content.measuredWidth, content.measuredHeight)
         val frame = holder.trainMarker.parent as View
         val locomotiveX = frame.left + holder.trainMarker.left + holder.trainMarker.width / 2
-        assertEquals("the locomotive must be centred on the x=124dp station rail",
+        assertEquals("the locomotive must be centred on the station rail",
             (RouteRailGeometry.X_DP * d).toInt(), locomotiveX)
         // Keep both time pairs on their OWN sides of that same rail, including at
         // narrow widths; a coordinate assertion catches a cosmetic-only reorder.

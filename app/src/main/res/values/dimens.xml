@@ -10,7 +10,11 @@
     <dimen name="gap_xs">4dp</dimen>
     <dimen name="radius">16dp</dimen>
     <dimen name="rail_w">22dp</dimen>
-    <dimen name="col_sched">102dp</dimen>
+    <dimen name="col_sched">108dp</dimen>
+    <!-- Shared by the fixed headings and stop rows. The 48dp marker frame
+         overlaps the schedule by 18dp and the station by 4dp. -->
+    <dimen name="route_station_spacer">26dp</dimen>
+    <dimen name="route_actual">72dp</dimen>
     <dimen name="col_live">102dp</dimen>
     <dimen name="col_km">44dp</dimen>
     <dimen name="row_gap_running">34dp</dimen>

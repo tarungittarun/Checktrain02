@@ -170,6 +170,19 @@ class ScreenRenderTest {
                 shot.context.resources.displayMetrics.density).toInt())
         assertEquals("every stop must be in the list", 9, Render.rowCount(shot.root))
         val list = shot.root.findViewById<RecyclerView>(R.id.stops)!!
+        assertEquals("TIMETABLE", shot.text(R.id.routeHeadTimetable))
+        assertEquals("STATIONS", shot.text(R.id.routeHeadStations))
+        assertEquals("ACTUAL", shot.text(R.id.routeHeadActual))
+        assertTrue("header must be outside the scrolling stop list",
+            shot.root.findViewById<View>(R.id.routeColumnHeader).parent !== list)
+        fun right(id: Int) = shot.bounds(id).right
+        assertTrue("timetable heading must align with scheduled clock",
+            kotlin.math.abs(right(R.id.routeHeadTimetable) - right(R.id.scheduleTimes)) <= 2)
+        assertTrue("station heading must align with station names",
+            kotlin.math.abs(shot.bounds(R.id.routeHeadStations).left -
+                shot.bounds(R.id.stationIdentity).left) <= 2)
+        assertTrue("actual heading must align with right-hand clocks",
+            kotlin.math.abs(right(R.id.routeHeadActual) - right(R.id.reportTimes)) <= 2)
         for (i in 0 until list.childCount) {
             val row = list.getChildAt(i)
             assertTrue("row $i has no station name", text(row, R.id.stopName).isNotBlank())
@@ -251,7 +264,10 @@ Render.save("02-track-live", shot.bitmap)
         val shot = Render.render(R.layout.activity_train) { root ->
             Render.track(root, m, p, 432)
             val list = root.findViewById<RecyclerView>(R.id.stops)
-            (list.adapter as StopAdapter).haltMarker = marker
+            (list.adapter as StopAdapter).apply {
+                haltMarker = marker
+                legAgeSeconds = 120
+            }
         }
         val list = shot.root.findViewById<RecyclerView>(R.id.stops)
         val reported = list.getChildAt(1)
@@ -259,6 +275,8 @@ Render.save("02-track-live", shot.bitmap)
             text(reported, R.id.haltMarker).contains("last reported stop", ignoreCase = true))
         assertTrue("passage age disappeared from its accessible marker",
             reported.findViewById<TextView>(R.id.haltMarker).contentDescription.contains("ago"))
+        assertEquals("the stop's age must appear to the left of its locomotive",
+            "2 min ago", text(reported, R.id.stopMarkerAge))
         assertEquals("locomotive must replace the reported stop's dot",
             View.VISIBLE, reported.findViewById<View>(R.id.stopTrainMarker).visibility)
         assertEquals(View.GONE, reported.findViewById<View>(R.id.stopDot).visibility)

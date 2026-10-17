@@ -504,6 +504,10 @@ class TrackingFlowTest {
     // @flow long-list-scroll
     @Test
     fun longRouteScrollsWithoutBlankRows() {
+        // The three headings must stay outside the RecyclerView while the stops move.
+        assertEquals("TIMETABLE", E2E.text("routeHeadTimetable"))
+        assertEquals("STATIONS", E2E.text("routeHeadStations"))
+        assertEquals("ACTUAL", E2E.text("routeHeadActual"))
         // The full route is the default; there is no segment/full toggle to open first.
         assertTrue("the table has no rendered halt", E2E.count(stopsBy) >= 1)
         val bar = E2E.find("stops") ?: error("station table is not visible")

@@ -193,6 +193,7 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         val dot: View = view.findViewById(R.id.stopDot)
         val trainMarker: StopRailMarkerView = view.findViewById(R.id.stopTrainMarker)
         val marker: TextView = view.findViewById(R.id.haltMarker)
+        val markerAge: TextView = view.findViewById(R.id.stopMarkerAge)
         val name: TextView = view.findViewById(R.id.stopName)
         val meta: TextView = view.findViewById(R.id.stopMeta)
         val status: TextView = view.findViewById(R.id.stopStatus)
@@ -224,12 +225,15 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         val marker = haltMarker?.takeIf { it.code.equals(s.code, true) }
         holder.marker.visibility = if (marker == null) View.GONE else View.VISIBLE
         holder.marker.text = marker?.let {
-            val age = legAgeSeconds?.let(LegGeometry::ageLabel)?.let { " · $it" }.orEmpty()
             if (it.caption.startsWith("RailYatri station claim")) "STATION CLAIM · TIME UNKNOWN"
-            else if (age.isNotEmpty()) "${age.removePrefix(" · ")} · LAST REPORTED STOP"
-            else "LAST REPORTED STOP · EVENT TIME UNKNOWN"
+            else "LAST REPORTED STOP"
         }.orEmpty()
         holder.marker.contentDescription = marker?.caption ?: ""
+        val ageLabel = marker?.takeUnless { it.caption.startsWith("RailYatri station claim") }
+            ?.let { legAgeSeconds?.let(LegGeometry::ageLabel) }
+        holder.markerAge.text = ageLabel ?: ""
+        holder.markerAge.visibility = if (ageLabel == null) View.GONE else View.VISIBLE
+        holder.markerAge.contentDescription = ageLabel?.let { "Last reported event $it" } ?: ""
         holder.marker.setTextColor(ctx.getColor(R.color.live))
         val verified = s.source == TrackModel.MinuteSource.REPORTED
         val website = s.source == TrackModel.MinuteSource.SITE_REPORTED
@@ -389,6 +393,8 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             val caption = when {
                 stationClaim -> "Station claim · time unknown"
                 leg == null -> ""
+                site -> "Website last reported ${RowText.of(leg.nearestPoint ?: "intermediate station")} · later position unknown"
+                web -> "Web-cache distance candidate · motion unknown"
                 leg.fraction > 0f -> "Between halts · motion unknown"
                 else -> "Last stop · now unknown"
             }

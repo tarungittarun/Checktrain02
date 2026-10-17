@@ -120,6 +120,18 @@ class InlineLegView @JvmOverloads constructor(
                 left, tickY + dp(17f), paint)
         }
         if (!showTrain) return // Static stations are not evidence of the train's location.
+        // A source-named intermediate is not a generic map dot: show its name
+        // beside the locomotive even when all OTHER mapped points are folded.
+        // This is the last site-reported event, not an inferred current position.
+        if (!showLabels && leg.markerKind == RouteBetween.MarkerKind.SITE_INTERMEDIATE) {
+            paint.color = context.getColor(R.color.warn)
+            paint.textSize = sp(12f)
+            val name = android.text.TextUtils.ellipsize(
+                "Web · " + RowText.of(leg.nearestPoint ?: "intermediate"),
+                android.text.TextPaint(paint), (width - x - dp(30f)).coerceAtLeast(dp(36f)),
+                android.text.TextUtils.TruncateAt.END).toString()
+            canvas.drawText(name, x + dp(23f), (y - dp(23f)).coerceAtLeast(dp(12f)), paint)
+        }
         // A quiet, fixed-size locomotive: no pulsing/moving halo that could imply
         // fresh telemetry. Badge and rail have the same shape for every source.
         paint.color = blue
@@ -169,10 +181,12 @@ class InlineLegView @JvmOverloads constructor(
             canvas.drawPath(check, paint)
             paint.style = Paint.Style.FILL
         } else {
+            // Keep the event age LEFT of the locomotive, in the timetable-side
+            // gutter. Never put it among the actual minutes or station names.
             val label = LegGeometry.ageLabel(age)
             paint.textSize = sp(11f)
-            val left = x + dp(23f)
-            val right = left + paint.measureText(label) + dp(14f)
+            val right = x - dp(23f)
+            val left = (right - paint.measureText(label) - dp(14f)).coerceAtLeast(dp(2f))
             box.set(left, y - dp(11f), right, y + dp(11f))
             paint.color = context.getColor(R.color.surface2)
             canvas.drawRoundRect(box, dp(11f), dp(11f), paint)

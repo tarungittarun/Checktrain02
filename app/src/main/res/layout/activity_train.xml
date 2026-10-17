@@ -398,28 +398,42 @@
         android:orientation="vertical"
         android:paddingLeft="@dimen/gap"
         android:paddingRight="@dimen/gap">
+            <!-- Pinned outside RecyclerView: the headings do not scroll away with
+                 the stops. These widths mirror item_stop.xml and leave the rail
+                 between the timetable and station-name columns. -->
             <LinearLayout
+                android:id="@+id/routeColumnHeader"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:gravity="center_vertical"
-                android:orientation="horizontal"
-                android:paddingStart="12dp"
+                android:layout_marginTop="4dp"
+                android:paddingTop="8dp"
+                android:paddingBottom="8dp"
                 android:paddingEnd="12dp"
-                android:paddingBottom="8dp">
-                <TextView
-                    style="@style/TextLabel"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="ROUTE  /  STOPS"
-                    android:textColor="@color/text2" />
-                <TextView
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:background="@drawable/bg_inset">
+                <TextView android:id="@+id/routeHeadTimetable"
                     style="@style/TextMicro"
-                    android:layout_width="wrap_content"
+                    android:layout_width="@dimen/col_sched"
                     android:layout_height="wrap_content"
-                    android:text="Schedule · Report"
-                    android:textColor="@color/text2" />
+                    android:gravity="end"
+                    android:singleLine="true"
+                    android:text="TIMETABLE" android:textColor="@color/text2" />
+                <View android:layout_width="@dimen/route_station_spacer"
+                    android:layout_height="1dp" />
+                <TextView android:id="@+id/routeHeadStations"
+                    style="@style/TextMicro"
+                    android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:singleLine="true"
+                    android:text="STATIONS" android:textColor="@color/text1" />
+                <TextView android:id="@+id/routeHeadActual"
+                    style="@style/TextMicro"
+                    android:layout_width="@dimen/route_actual"
+                    android:layout_height="wrap_content"
+                    android:gravity="end"
+                    android:singleLine="true"
+                    android:text="ACTUAL" android:textColor="@color/live" />
             </LinearLayout>
 
             <androidx.recyclerview.widget.RecyclerView
