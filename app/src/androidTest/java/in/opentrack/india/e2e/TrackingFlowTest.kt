@@ -330,7 +330,8 @@ class TrackingFlowTest {
     // @flow source-disclosure
     @Test
     fun sourceBlockExplainsTheAnswer() {
-        assertTrue("About times is missing", E2E.tap("sourceToggle"))
+        assertTrue("About times cannot be reached in the source card",
+            E2E.reveal("sourceToggle", "scroller") && E2E.tap("sourceToggle"))
         assertNotNull("plain-language times guide never appeared",
             E2E.ui.wait(Until.findObject(By.textContains("Dim times are the timetable")), E2E.LOCAL_MS))
         val detailsButton = E2E.ui.wait(Until.findObject(By.text(java.util.regex.Pattern.compile("(?i)^source details$"))), E2E.LOCAL_MS)
@@ -352,7 +353,8 @@ class TrackingFlowTest {
         // Exercise the built APK through the same dropdown a traveller uses, on the radio-off
         // device row. Whether the public page answers or fails, the result must be visible and
         // must NEVER become Act or a measured marker just because a page had a quick clock.
-        assertTrue("no source picker", E2E.tap("sourceSpinner"))
+        assertTrue("source picker cannot be reached in the source card",
+            E2E.reveal("sourceSpinner", "scroller") && E2E.tap("sourceSpinner"))
         val ixigo = E2E.ui.wait(Until.findObject(By.textContains("ixigo page")), E2E.LOCAL_MS)
         assertNotNull("ixigo not selectable in the source dropdown", ixigo)
         ixigo!!.click()
@@ -376,7 +378,8 @@ class TrackingFlowTest {
 
     @Test
     fun orgWebsiteSelectionKeepsSourceSpecificMinutesDistinctFromNtes() {
-        assertTrue("no source picker", E2E.tap("sourceSpinner"))
+        assertTrue("source picker cannot be reached in the source card",
+            E2E.reveal("sourceSpinner", "scroller") && E2E.tap("sourceSpinner"))
         val website = E2E.ui.wait(Until.findObject(By.textContains("whereismytrain.org.in (website)")), E2E.LOCAL_MS)
         assertNotNull("org website not selectable", website)
         website!!.click()
@@ -467,6 +470,9 @@ class TrackingFlowTest {
         assertTrue("cannot reach optional Auto", E2E.reveal("autoSwitch", "scroller"))
         assertTrue("cannot enable optional Auto", E2E.tap("autoSwitch"))
         try {
+            // On a compact font-scaled viewport the receipt is after the switch.
+            // Scroll to the card bottom before waiting, as a traveller would.
+            repeat(5) { E2E.swipeIn("scroller") }
             assertTrue("no refresh receipt after a minute with Auto on",
                 E2E.ui.wait(Until.hasObject(By.res(E2E.PKG, "refreshFeedback")), 80_000L))
             val receipt = E2E.text("refreshFeedback")

@@ -394,6 +394,23 @@ Render.save("01-track-schedule", shot.bitmap)
     // ------------------------------------------------------------------ the search screen
 
     @Test
+    @Config(sdk = [24], qualifiers = "w320dp-h640dp-mdpi")
+    fun narrowLargeTypeDateDoesNotLoseItsWidthToDayButtons() {
+        val shot = Render.render(R.layout.activity_main, widthDp = 320f,
+            heightDp = 640f, textScale = 1.3f) { root ->
+            Render.text(root, R.id.whenValue, "Sat 17 Oct · 12:30")
+        }
+        val date = shot.root.findViewById<TextView>(R.id.whenValue)
+        assertTrue("travel date has zero/insufficient width next to day buttons: ${date.width}",
+            date.width >= Render.dp(shot.context, 200f).toInt())
+        assertTrue("travel date must render actual characters", (date.layout?.lineCount ?: 0) > 0)
+        for (id in listOf(R.id.dayBack, R.id.dayNow, R.id.dayFwd)) {
+            assertTrue("day control $id collapsed on a narrow phone",
+                shot.root.findViewById<View>(id).width >= Render.dp(shot.context, 48f).toInt())
+        }
+    }
+
+    @Test
     fun searchScreenShowsFieldsDayPickerAndResultRows() {
         val hits = listOf(
             hit("16999", "KSR BENGALURU - SHIVAMOGGA TOWN EXP", 330, 604, 274, 0x7F),

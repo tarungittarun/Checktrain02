@@ -175,6 +175,8 @@ class StationSearchFlowTest {
     // @flow day-shift
     @Test
     fun dayButtonsMoveTheDate() {
+        assertTrue("travelling date cannot be reached in the search card",
+            E2E.reveal("whenValue", "searchCardScroll"))
         val start = E2E.text("whenValue")
         assertTrue("the travelling date is not shown at all", start.isNotBlank())
         assertTrue("no +1d control", E2E.tap("dayFwd"))

@@ -649,7 +649,10 @@ class LiveViewModel(
             manual -> "refresh tapped by the user"
             else -> "first train load"
         })
-        _checking.postValue(true)
+        // refresh() is entered on Main (Activity/ticker). Deliver the busy edge
+        // synchronously: postValue(true) can coalesce with a fast postValue(false),
+        // so the screen never sees wasBusy and never issues an Auto receipt.
+        _checking.value = true
         if (manual) {
             // The traveller pressed the button. A background experiment that is holding a socket to find out
             // why the last press failed is now the reason this press is slow, so it is told to stop; the
@@ -685,7 +688,7 @@ class LiveViewModel(
                         }
                     }
                 } finally {
-                    _checking.postValue(false)
+                    _checking.value = false
                 }
             }
             return
@@ -712,7 +715,7 @@ class LiveViewModel(
                     Diary.get()?.log("SOURCE", "official stop unchanged for 5+ min; checking website comparison, not switching source")
                     probeSource(PublicPageChecks.ORG, select = false)?.join()
                 }
-            } finally { _checking.postValue(false) }
+            } finally { _checking.value = false }
         }
     }
 

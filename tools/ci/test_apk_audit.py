@@ -34,7 +34,7 @@ def inputs():
         e2e.append(job(f"{group} ({row}, installed device partition)"))
     unit = {p: {"tests": t, "skipped": 0, "failed": 0, "classes": {p}}
             for p, t in zip(qa.PARTS, (31, 70, 120, 170))}
-    apk = {"sha256": "a" * 64, "size": 10_000_000, "package": ("in.opentrack.india", "49", "1.0.48-r119"),
+    apk = {"sha256": "a" * 64, "size": 10_000_000, "package": ("in.opentrack.india", "50", "1.0.49-r120"),
            "offline_asset_bytes": 1_000_000}
     return [run(1), run(2), android, e2e, unit, [], apk, [],
             {"sha256": apk["sha256"], "size": apk["size"]}, [], [], SHA, True, []]

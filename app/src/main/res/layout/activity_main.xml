@@ -179,53 +179,54 @@
             android:layout_marginTop="16dp"
             android:background="@color/stroke" />
 
+        <!-- The day buttons can consume the full width on API 24 / large type.
+             Give the selected date its own row, never a zero-width weighted remainder. -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="14dp"
-            android:baselineAligned="false"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/whenValue"
+                style="@style/TextTitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
 
             <LinearLayout
-                android:layout_width="wrap_content"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
                 android:background="@drawable/bg_segment"
                 android:orientation="horizontal">
 
                 <Button
                     android:id="@+id/dayBack"
                     style="@style/Segment"
-                    android:layout_width="wrap_content"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
+                    android:layout_weight="1"
                     android:background="@null"
                     android:text="@string/day_back" />
 
                 <Button
                     android:id="@+id/dayNow"
                     style="@style/Segment"
-                    android:layout_width="wrap_content"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
+                    android:layout_weight="1"
                     android:background="@null"
                     android:text="@string/day_now" />
 
                 <Button
                     android:id="@+id/dayFwd"
                     style="@style/Segment"
-                    android:layout_width="wrap_content"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
+                    android:layout_weight="1"
                     android:background="@null"
                     android:text="@string/day_fwd" />
             </LinearLayout>
-
-            <TextView
-                android:id="@+id/whenValue"
-                style="@style/TextTitle"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="12dp"
-                android:layout_weight="1"
-                android:gravity="end" />
         </LinearLayout>
 
         <TextView
