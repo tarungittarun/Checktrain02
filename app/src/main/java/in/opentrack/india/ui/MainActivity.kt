@@ -40,6 +40,7 @@ class MainActivity : AppCompatActivity() {
     private var keepSearchOpen = false
     private var searchCollapsed = false
     private var sortMode = TrainResultsDisplay.Sort.SUGGESTED
+    private var largestSearchWindowPx = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -51,7 +52,12 @@ class MainActivity : AppCompatActivity() {
         binding.root.viewTreeObserver.addOnGlobalLayoutListener {
             val visible = Rect()
             binding.root.getWindowVisibleDisplayFrame(visible)
-            val hiddenPx = binding.root.rootView.height - visible.bottom
+            // adjustResize shrinks the *decor view* on many Android releases, so the
+            // visible-frame bottom by itself may move with it. Compare against the
+            // largest measured non-IME root as well as the decor/frame difference.
+            largestSearchWindowPx = maxOf(largestSearchWindowPx, binding.root.rootView.height)
+            val hiddenPx = maxOf(largestSearchWindowPx - binding.root.rootView.height,
+                binding.root.rootView.height - visible.bottom)
             val keyboardOpen = hiddenPx > 120 * resources.displayMetrics.density
             val wanted = if (keyboardOpen) View.GONE else View.VISIBLE
             if (binding.trackingSourceRow.visibility != wanted)
