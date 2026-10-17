@@ -282,7 +282,7 @@ class InlineRouteRenderTest {
             })
     }
 
-    @Test fun compactSiteIntermediateNamesTheReportedPointAndPlacesAgeLeftOfTheTrain() {
+    @Test fun compactSiteIntermediateNamesTheReportedPointAndPlacesAgeBelowTheTrain() {
         val ctx = RuntimeEnvironment.getApplication()
         val ruler = InlineLegView(ctx).apply {
             distanceKm = 24
@@ -313,8 +313,17 @@ class InlineRouteRenderTest {
             (rail + 25 until named.width).any { x ->
                 (0 until named.height).any { y -> named.getPixel(x, y) != plain.getPixel(x, y) }
             })
-        assertTrue("the event's minutes-ago badge must paint LEFT of the locomotive",
-            (0 until rail - 24).any { x ->
+        val density = ctx.resources.displayMetrics.density
+        val trainY = ruler.trainCenter()!!.second
+        val ageTop = (trainY + 20 * density).toInt().coerceAtLeast(0)
+        val ageBottom = (trainY + 38 * density).toInt().coerceAtMost(aged.height)
+        assertTrue("the event age must be legible BELOW the logo without a Stations tap",
+            ((rail - 24 * density).toInt().coerceAtLeast(0) until
+                (rail + 24 * density).toInt().coerceAtMost(aged.width)).any { x ->
+                (ageTop until ageBottom).any { y -> aged.getPixel(x, y) != named.getPixel(x, y) }
+            })
+        assertFalse("event age must no longer occupy the left timetable gutter",
+            (0 until (rail - 24 * density).toInt()).any { x ->
                 (0 until aged.height).any { y -> aged.getPixel(x, y) != named.getPixel(x, y) }
             })
         assertFalse("the selected site report must not automatically open all intermediate points",
@@ -450,8 +459,10 @@ class InlineRouteRenderTest {
             holder.routeToggle.visibility)
         assertEquals("the station caption stays by the locomotive", "LAST REPORTED STOP",
             holder.marker.text.toString())
-        assertEquals("event age belongs in the left timetable gutter", "53 min ago",
+        assertEquals("event age belongs below the locomotive", "53m ago",
             holder.markerAge.text.toString())
+        assertEquals("full event age remains accessible", "Last reported event 53 min ago",
+            holder.markerAge.contentDescription.toString())
         assertEquals(View.VISIBLE, holder.markerAge.visibility)
         assertEquals(53 * 60L, holder.trainMarker.ageSeconds)
         holder.inlineLeg.performClick()
