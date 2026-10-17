@@ -20,10 +20,13 @@ import `in`.opentrack.india.v2.source.ErailTransport
 import `in`.opentrack.india.v2.source.PairAnswer
 import `in`.opentrack.india.v2.source.PairQuery
 import `in`.opentrack.india.v2.source.PairSource
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import `in`.opentrack.india.model.StationHit
 
 /**
@@ -55,6 +58,19 @@ class MainViewModel(private val app: App) : ViewModel() {
 
     /** TTL cache for live pair listings (v2). A read from here is "cached", never "live". */
     private val pairCache = PairCache()
+
+    // A slow pair response belongs only to the query that asked for it. Cancelling saves
+    // the next request's bandwidth; the serial also guards callbacks that finish despite
+    // cancellation (and the asynchronous LiveData delivery boundary).
+    @Volatile private var searchSerial = 0L
+    private var searchJob: Job? = null
+    private var pairJob: Job? = null
+
+    private fun invalidateSearch(): Long {
+        searchJob?.cancel()
+        pairJob?.cancel()
+        return ++searchSerial
+    }
 
     var mode = Mode.STATIONS
         private set
@@ -98,13 +114,21 @@ class MainViewModel(private val app: App) : ViewModel() {
     }
 
     fun setMode(mode: Mode) {
+        invalidateSearch()
         this.mode = mode
         _results.value = null
+        if (_phase.value is Phase.Searching) app.repository()?.let {
+            _phase.value = Phase.Ready(it.dataVersion())
+        }
     }
 
     fun setDate(epochDay: Long, minuteOfDay: Int) {
+        invalidateSearch()
         targetEpochDay = epochDay
         targetMinuteOfDay = minuteOfDay
+        if (_phase.value is Phase.Searching) app.repository()?.let {
+            _phase.value = Phase.Ready(it.dataVersion())
+        }
     }
 
     fun setTrainQuery(text: String) {
@@ -112,24 +136,31 @@ class MainViewModel(private val app: App) : ViewModel() {
     }
 
     fun search(fromText: String, toText: String) {
-        if (_phase.value !is Phase.Ready) return
+        if (_phase.value !is Phase.Ready && _phase.value !is Phase.Searching) return
+        val serial = invalidateSearch()
+        val requestedMode = mode
+        val requestedDay = targetEpochDay
+        val requestedMinute = targetMinuteOfDay
         _phase.value = Phase.Searching
         _liveNote.value = null // a new search starts with no live claim at all
-        viewModelScope.launch {
+        searchJob = viewModelScope.launch {
             val repo = app.repository() ?: run {
-                _phase.value = Phase.Broken("Timetable is not installed yet.")
+                if (PairSearchGate.current(serial, searchSerial))
+                    _phase.value = Phase.Broken("Timetable is not installed yet.")
                 return@launch
             }
-            val report = when (mode) {
-                Mode.STATIONS -> repo.search(fromText, toText, targetEpochDay, targetMinuteOfDay)
+            val report = when (requestedMode) {
+                Mode.STATIONS -> repo.search(fromText, toText, requestedDay, requestedMinute)
                 Mode.TRAIN -> trainReport(repo, toText)
             }
+            if (!PairSearchGate.current(serial, searchSerial)) return@launch
             _results.value = report
             _phase.value = Phase.Ready(repo.dataVersion())
-            // v2 slice 1: the asset answer is on screen; the live answer, if the network allows,
-            // upgrades it in place - never blocks it (5.6: render first, upgrade after).
-            if (mode == Mode.STATIONS && fromText.length >= 2 && toText.length >= 2) {
-                fetchLivePair(fromText, toText, report)
+            // Do not fetch a live pair for an impossible trip. TrainFinder already
+            // refused it with zero rows; an unrelated pair reply must never replace
+            // that refusal with train rows. Ask with RESOLVED codes, not fuzzy input.
+            if (requestedMode == Mode.STATIONS && PairSearchGate.eligible(report)) {
+                pairJob = fetchLivePair(report.from!!.code, report.to!!.code, report, serial)
             }
         }
     }
@@ -143,31 +174,34 @@ class MainViewModel(private val app: App) : ViewModel() {
      * Cache first (a fresh cached listing renders instantly, honestly aged by the note), then at most
      * ONE network attempt, typed failure, no retries.
      */
-    private fun fetchLivePair(fromCode: String, toCode: String, assetReport: TrainFinder.Report) {
-        viewModelScope.launch(Dispatchers.IO) {
-            val now = System.currentTimeMillis()
-            val cached = pairCache.get(fromCode, toCode, now)
-            if (cached != null) {
-                applyLive(assetReport, PairAnswer.Listing(cached.listing), now, fromCache = true)
-                return@launch
-            }
-            val source = PairSource("erail", ErailTransport(), ErailPairParser())
-            val answer = try {
-                source.search(PairQuery(fromCode.uppercase(), toCode.uppercase(), budgetMs = 12_000))
-            } catch (e: Exception) {
-                // 5.4: no silent catch - the failure becomes the sentence the passenger reads.
-                PairAnswer.CouldNotLook("unexpected ${e.javaClass.simpleName}")
-            }
-            if (answer is PairAnswer.Listing) {
-                pairCache.put(answer.listing, System.currentTimeMillis())
-            }
-            applyLive(assetReport, answer, System.currentTimeMillis())
+    private fun fetchLivePair(fromCode: String, toCode: String, assetReport: TrainFinder.Report,
+                              serial: Long): Job = viewModelScope.launch(Dispatchers.IO) {
+        val now = System.currentTimeMillis()
+        val cached = pairCache.get(fromCode, toCode, now)
+        if (cached != null) {
+            applyLive(assetReport, PairAnswer.Listing(cached.listing), now, serial, fromCache = true)
+            return@launch
         }
+        val source = PairSource("erail", ErailTransport(), ErailPairParser())
+        val answer = try {
+            source.search(PairQuery(fromCode.uppercase(), toCode.uppercase(), budgetMs = 12_000))
+        } catch (e: CancellationException) {
+            throw e // do not turn an obsolete request into a displayed fallback
+        } catch (e: Exception) {
+            // 5.4: no silent catch - the failure becomes the sentence the passenger reads.
+            PairAnswer.CouldNotLook("unexpected ${e.javaClass.simpleName}")
+        }
+        if (!PairSearchGate.current(serial, searchSerial)) return@launch
+        if (answer is PairAnswer.Listing) {
+            pairCache.put(answer.listing, System.currentTimeMillis())
+        }
+        applyLive(assetReport, answer, System.currentTimeMillis(), serial)
     }
 
     /** Merge the live answer into the asset report and post it, rows labelled, state line attached. */
     private suspend fun applyLive(assetReport: TrainFinder.Report, answer: PairAnswer, nowMillis: Long,
-                                  fromCache: Boolean = false) {
+                                  serial: Long, fromCache: Boolean = false) {
+        if (!PairSearchGate.current(serial, searchSerial)) return
         val assetRows = assetReport.hits.map { h ->
             AssetRow(
                 h.trainNo, h.trainName, h.fromCode, h.toCode,
@@ -219,8 +253,14 @@ class MainViewModel(private val app: App) : ViewModel() {
             val ageMin = ((nowMillis - fetchedAt) / 60_000L).coerceAtLeast(0L)
             line += if (ageMin <= 0L) " · served from cache" else " · cached, fetched $ageMin min ago"
         }
-        _results.postValue(assetReport.copy(hits = hits))
-        _liveNote.postValue(line)
+        withContext(Dispatchers.Main.immediate) {
+            // postValue can race a new query even after a worker checked its serial.
+            // Publish on Main only after checking again, atomically with the UI state.
+            if (PairSearchGate.current(serial, searchSerial)) {
+                _results.value = assetReport.copy(hits = hits)
+                _liveNote.value = line
+            }
+        }
     }
 
     /**

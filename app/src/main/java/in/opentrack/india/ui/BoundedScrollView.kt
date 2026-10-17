@@ -5,16 +5,31 @@ import android.util.AttributeSet
 import android.view.View
 import android.widget.ScrollView
 
-/** The journey summary wraps its content instead of reserving half the screen. On a
- * small/large-text device cap it so the route still has a usable viewport. */
+/** The top source card must remain scrollable without stealing the route viewport.
+ * A large font makes three halt rows taller, so a fixed percentage of the screen
+ * cannot promise that those rows stay visible. This budget reserves their space. */
+internal object RouteViewportBudget {
+    fun sourceCapPx(availablePx: Int, screenPx: Int, density: Float, fontScale: Float): Int {
+        val available = availablePx.takeIf { it > 0 } ?: screenPx
+        // Three 80dp main halts grow with text; reserve their enlarged body plus
+        // the route heading/archives. The summary is still at least 180dp and
+        // scrolls independently when expanded or when the source has a long note.
+        val reserve = (360f * density * fontScale.coerceIn(1f, 1.4f)).toInt()
+        val minimumSummary = (180f * density).toInt()
+        return minOf(available, (screenPx * .53f).toInt(),
+            (available - reserve).coerceAtLeast(minimumSummary)).coerceAtLeast(0)
+    }
+}
+
 class BoundedScrollView @JvmOverloads constructor(
     context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0,
 ) : ScrollView(context, attrs, defStyleAttr) {
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        val available = View.MeasureSpec.getSize(heightMeasureSpec)
-        val screen = resources.displayMetrics.heightPixels
-        val cap = (screen * 0.53f).toInt()
-        super.onMeasure(widthMeasureSpec, View.MeasureSpec.makeMeasureSpec(
-            minOf(available.takeIf { it > 0 } ?: cap, cap), View.MeasureSpec.AT_MOST))
+        val cap = RouteViewportBudget.sourceCapPx(
+            View.MeasureSpec.getSize(heightMeasureSpec), resources.displayMetrics.heightPixels,
+            resources.displayMetrics.density, resources.configuration.fontScale,
+        )
+        super.onMeasure(widthMeasureSpec,
+            View.MeasureSpec.makeMeasureSpec(cap, View.MeasureSpec.AT_MOST))
     }
 }

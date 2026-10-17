@@ -11,7 +11,7 @@
     android:layout_height="wrap_content"
     android:background="@color/field"
     android:gravity="center_vertical"
-    android:minHeight="44dp"
+    android:minHeight="48dp"
     android:paddingStart="12dp"
     android:paddingTop="10dp"
     android:paddingEnd="12dp"

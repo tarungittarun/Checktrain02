@@ -165,7 +165,7 @@ class ScreenRenderTest {
             sourceInfo.height > 0)
         assertEquals("Info button wraps on a 360dp screen", 1, sourceInfo.lineCount)
         assertNotClipped(sourceInfo, "source Info button")
-        assertEquals("Refresh should be compact", 40,
+        assertEquals("Refresh needs a 48dp touch target", 48,
             (shot.root.findViewById<View>(R.id.refresh).height /
                 shot.context.resources.displayMetrics.density).toInt())
         assertEquals("every stop must be in the list", 9, Render.rowCount(shot.root))

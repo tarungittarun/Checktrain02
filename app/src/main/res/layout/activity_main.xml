@@ -71,7 +71,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="8dp"
-            android:minHeight="40dp"
+            android:minHeight="48dp"
             android:text="@string/edit_search" />
     </LinearLayout>
 
@@ -140,7 +140,7 @@
             android:layout_height="wrap_content"
             android:layout_gravity="end"
             android:layout_marginTop="8dp"
-            android:minHeight="36dp"
+            android:minHeight="48dp"
             android:text="@string/swap"
             android:textSize="12sp" />
 

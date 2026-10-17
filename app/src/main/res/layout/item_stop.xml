@@ -125,7 +125,7 @@
                 android:id="@+id/routeToggle"
                 style="@style/TextMeta"
                 android:layout_width="wrap_content"
-                android:layout_height="44dp"
+                android:layout_height="48dp"
                 android:layout_marginStart="5dp"
                 android:gravity="center_vertical"
                 android:paddingStart="4dp"
