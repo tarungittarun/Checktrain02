@@ -59,10 +59,12 @@ jobs:
         run: |
           python3 tools/ci/test_check_workflows.py
           python3 tools/ci/check_workflows.py
-      - name: APK audit and published-APK preflight self-tests
+      - name: APK audit and published-APK acceptance self-tests
         run: |
           python3 tools/ci/test_apk_audit.py
           python3 tools/ci/test_verify_acceptance_apk.py
+          python3 tools/ci/test_acceptance_plan.py
+          python3 tools/ci/acceptance_plan.py --check
           bash -n tools/ci/run_apk_acceptance.sh
       - name: Probe self-tests (a diagnostic that silently skips its fallback is worse than none)
         # probe_live_feed is the tool that decides whether live data is reachable at all, so its own reach-
@@ -512,9 +514,9 @@ jobs:
     # unless the whole-file hash of Android artifact, download and installed base.apk agrees.
     needs: [build, publish, field-tests]
     if: github.ref_type == 'branch'
-    name: traveller / published APK / ${{ matrix.profile }}
+    name: traveller / published APK / ${{ matrix.profile }} / ${{ matrix.group }}
     runs-on: ubuntu-latest
-    timeout-minutes: 16
+    timeout-minutes: 8
     permissions:
       actions: read
       contents: write # post the exact failing user journey to this commit
@@ -522,6 +524,9 @@ jobs:
       fail-fast: false
       matrix:
         profile: [online, offline]
+        # Three independent partitions per profile: no method is lost; the
+        # acceptance_plan self-check fails when a new @Test lacks an assignment.
+        group: [journey, trust, refresh]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -535,6 +540,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PROFILE: ${{ matrix.profile }}
+          GROUP: ${{ matrix.group }}
         run: |
           mkdir -p acceptance-evidence
           set -o pipefail
@@ -542,7 +548,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: traveller-evidence-${{ matrix.profile }}
+          name: traveller-evidence-${{ matrix.profile }}-${{ matrix.group }}
           path: acceptance-evidence/
           if-no-files-found: error
           retention-days: 14
@@ -551,8 +557,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PROFILE: ${{ matrix.profile }}
+          GROUP: ${{ matrix.group }}
         run: |
-          { echo "### Published APK traveller acceptance · $PROFILE · FAIL";
+          { echo "### Published APK traveller acceptance · $PROFILE / $GROUP · FAIL";
             echo '```'; tail -70 acceptance-evidence/session.log 2>/dev/null || echo 'no session log'; echo '```';
           } > /tmp/acceptance-failure.md
           cat /tmp/acceptance-failure.md >> "$GITHUB_STEP_SUMMARY"
