@@ -107,19 +107,33 @@ class InlineLegView @JvmOverloads constructor(
                 y0 + (y1 - y0) * point.fraction.coerceIn(0f, 1f)
             paint.color = context.getColor(R.color.text2)
             canvas.drawCircle(x, tickY, dp(4f), paint)
-            val clock = point.passageMinute?.let {
+            // Map timetable and interpolated ~ minutes belong on the LEFT, never
+            // in ACTUAL. The right column is a website claim only for a documented
+            // stop; otherwise a dash, even when the map has a planned passage.
+            val planned = point.passageMinute?.let {
                 (if (point.approximate) "~" else "") +
                     `in`.opentrack.india.core.RailTime.formatRailMinute(it)
-            }.orEmpty()
+            } ?: "—"
             paint.textSize = sp(12f)
-            val clockWidth = paint.measureText(clock)
-            paint.textAlign = Paint.Align.RIGHT
-            if (clock.isNotEmpty()) canvas.drawText(clock, width - dp(12f), tickY + dp(4f), paint)
             paint.textAlign = Paint.Align.LEFT
+            paint.color = context.getColor(R.color.text2)
+            canvas.drawText(planned, dp(12f), tickY + dp(4f), paint)
+            paint.textAlign = Paint.Align.RIGHT
+            val arrived = point.siteArrivalMin?.let {
+                "↘" + `in`.opentrack.india.core.RailTime.formatRailMinute(it)
+            } ?: "—"
+            paint.color = if (point.siteArrivalMin == null) context.getColor(R.color.text2)
+                else context.getColor(R.color.warn)
+            canvas.drawText(arrived, width - dp(20f), tickY + dp(4f), paint)
+            point.siteDepartureMin?.let { minute ->
+                canvas.drawText("↙" + `in`.opentrack.india.core.RailTime.formatRailMinute(minute),
+                    width - dp(20f), tickY + dp(18f), paint)
+            }
+            paint.textAlign = Paint.Align.LEFT
+            paint.color = context.getColor(R.color.text2)
             paint.textSize = sp(13f)
             val left = x + dp(26f)
-            val right = width - dp(12f) -
-                (if (clock.isEmpty()) 0f else clockWidth + dp(10f))
+            val right = width - dp(96f)
             val room = (right - left).coerceAtLeast(dp(40f))
             val label = android.text.TextUtils.ellipsize(
                 RowText.of(point.name), android.text.TextPaint(paint), room,

@@ -166,7 +166,7 @@ object OrgWebsiteStatus {
             if (stop.seq <= previousSeq) continue
             val arrSection = part.substringAfter("<!-- Arrival -->", "").substringBefore("<!-- Departure -->")
             val depSection = part.substringAfter("<!-- Departure -->", "").take(900)
-            fun published(section: String, scheduled: Int?): Pair<Int, Int>? {
+            fun published(section: String, scheduled: Int?, originDeparture: Boolean = false): Pair<Int, Int>? {
                 // A non-halt has no separately published timetable minute in our map.
                 // Require the page's second clock to lie between its two official halt
                 // schedules. It remains a WEBSITE schedule, not corroboration.
@@ -184,11 +184,15 @@ object OrgWebsiteStatus {
                     printedSchedule > (to?.arrivalMin ?: to?.departureMin ?: return null) + 3))
                     return null
                 val value = RailTime.alignClock(minute(clocks[0]), printedSchedule) ?: return null
-                if (value == printedSchedule || value !in originDep..railNow) return null
+                // Only the separately past-marked ORIGIN departure can be a
+                // schedule-equal site claim. Other schedule echoes are not Act.
+                if ((value == printedSchedule && !originDeparture) ||
+                    value !in originDep..railNow) return null
                 return value to printedSchedule
             }
             val arrival = published(arrSection, stop.arrivalMin)
-            val departure = published(depSection, stop.departureMin)
+            val departure = published(depSection, stop.departureMin,
+                originDeparture = pastCard && code.equals(route.srcCode, true))
             val arr = arrival?.first
             // A blue highlight can mark a special halt OR a current/upcoming card.
             // Without its own past, schedule-paired arrival it is still a forecast.

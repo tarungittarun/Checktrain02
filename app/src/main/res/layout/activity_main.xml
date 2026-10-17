@@ -49,6 +49,28 @@
         android:layout_marginTop="8dp" />
 
     <LinearLayout
+        android:id="@+id/trackingSourceRow"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+        <TextView
+            style="@style/TextMicro"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Data source · tracking default" />
+        <Spinner
+            android:id="@+id/defaultTrackingSource"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_marginStart="8dp"
+            android:layout_weight="1"
+            android:background="@drawable/bg_inset"
+            android:contentDescription="Default tracking data source" />
+    </LinearLayout>
+
+    <LinearLayout
         android:id="@+id/searchCompact"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -279,6 +301,22 @@
             android:layout_height="wrap_content"
             android:layout_marginStart="8dp"
             android:text="@string/sorted_by" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/resultsSortRow"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:visibility="gone">
+        <TextView style="@style/TextMicro"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="Sort by" />
+        <Spinner android:id="@+id/resultsSort"
+            android:layout_width="0dp" android:layout_height="48dp"
+            android:layout_marginStart="8dp" android:layout_weight="1"
+            android:contentDescription="Sort trains by departure, arrival or duration" />
     </LinearLayout>
 
     <androidx.recyclerview.widget.RecyclerView

@@ -130,7 +130,7 @@ class ScreenRenderTest {
         assertTrue("the headline should follow the table's casing: '$headline'",
             headline.contains("Dobetakapur") && !headline.contains("DOBETAKAPUR"))
         assertEquals("response receipt shows duration and only the available source minute",
-            "1 sec 09:05", shot.text(R.id.checkClock))
+            "Took: 1 sec\nAt: 09:05", shot.text(R.id.checkClock))
         val score = shot.root.findViewById<View>(R.id.checkClock)
         assertTrue("response score must not have a box", score.background == null)
         assertTrue("response score is a text display, not a perpetual paint animation",
@@ -180,6 +180,13 @@ class ScreenRenderTest {
         assertTrue("timetable heading must align with the left edge of scheduled clocks",
             kotlin.math.abs(shot.bounds(R.id.routeHeadTimetable).left -
                 shot.bounds(R.id.schedArr).left) <= 2)
+        val dp = shot.context.resources.displayMetrics.density
+        assertTrue("timetable must have visible border inset",
+            shot.bounds(R.id.routeHeadTimetable).left -
+                shot.bounds(R.id.routeColumnHeader).left >= 7 * dp)
+        assertTrue("actuals must have visible border inset",
+            shot.bounds(R.id.routeColumnHeader).right -
+                shot.bounds(R.id.routeHeadActual).right >= 19 * dp)
         assertTrue("timetable clock must sit LEFT of the rail, not float next to it",
             shot.bounds(R.id.schedArr).right < shot.bounds(R.id.stopTrainMarker).left)
         assertTrue("station heading must align with station names",
@@ -476,6 +483,9 @@ Render.save("01-track-schedule", shot.bitmap)
                 Render.settle(this, hits.size)
             }
         }
+        assertNotNull("home must expose default tracking source", shot.root.findViewById<View>(R.id.defaultTrackingSource))
+        assertNotNull("results must expose sorting controls", shot.root.findViewById<View>(R.id.resultsSort))
+        assertTrue("operating days missing below result", shot.text(R.id.hitDays).contains("S M T W T F S"))
         val painted = shot.distinct()
         assertTrue("screen painted only $painted colours", painted > 12)
         listOf(R.id.fromBox, R.id.toBox, R.id.trainBox, R.id.find, R.id.swap, R.id.dayNow, R.id.dayBack,
@@ -494,14 +504,14 @@ Render.save("01-track-schedule", shot.bitmap)
             // correct output.
             assertTrue("result $i has no train number: '${text(row, R.id.hitNo)}'",
                 Regex("""\d{5,6}""").containsMatchIn(text(row, R.id.hitNo)))
-            listOf(R.id.hitName, R.id.hitMeta, R.id.hitDep, R.id.hitArr, R.id.hitTag).forEach { id ->
+            listOf(R.id.hitName, R.id.hitMeta, R.id.hitDays, R.id.hitDep, R.id.hitArr, R.id.hitTag).forEach { id ->
                 assertTrue("result $i missing ${name(shot, id)}", text(row, id).isNotBlank())
             }
             // Present-and-correct is not enough for the name: it also has to have *fit*. A result row is where
             // a traveller chooses the train, and "KSR Bengaluru – Shivamogga Town…" is a name with the part
             // that distinguishes it cut off. Checked at the narrowest supported width; `LargeScreenRenderTest`
             // makes the same claim at 411 dp, where the row has different neighbours.
-            listOf(R.id.hitNo, R.id.hitName, R.id.hitMeta).forEach { id ->
+            listOf(R.id.hitNo, R.id.hitName, R.id.hitMeta, R.id.hitDays).forEach { id ->
                 Render.assertNothingCut(row.findViewById(id), "result $i · ${name(shot, id)} = '${text(row, id)}'")
             }
         }

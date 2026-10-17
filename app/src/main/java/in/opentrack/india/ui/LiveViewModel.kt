@@ -235,7 +235,9 @@ class LiveViewModel(
     private var mirrorSourceLines: Map<String, Map<String, String>> = emptyMap()
     /** Per-witness STRUCTURED minutes (code -> act arr/dep) - what the table's Act/Est columns carry. */
     private var mirrorStops: Map<String, List<RunningStatusMirror.Stop>> = emptyMap()
-    private var mirrorActiveSource: String? = null
+    // Preference is a view choice, not a claim that the source has answered. First
+    // load still surveys NTES and the website; the selected table stays source-honest.
+    private var mirrorActiveSource: String? = TrackingSources.valid(`in`.opentrack.india.data.Prefs(app).defaultTrackingSource)
     private var mirrorRefreshedAt = 0L
     private var cacheTrainNo: String? = null
 
@@ -517,7 +519,8 @@ class LiveViewModel(
             }
         }
         if (cachedStops.isNotEmpty()) mirrorStops = mapOf("last known" to cachedStops)
-        mirrorActiveSource = "last known"
+        // A cache is selectable but cannot steal the user's saved default.
+        if (mirrorActiveSource == null) mirrorActiveSource = "last known"
         mirrorAnchorCode = obj.optString("anchor").ifBlank { null }
         mirrorHeadline = obj.optString("headline").ifBlank { null }
         mirrorNext = obj.optString("next").ifBlank { null }

@@ -78,6 +78,18 @@ class OrgWebsiteStatusTest {
             coarse.eventMinute)
     }
 
+    @Test fun `past marked origin can claim a schedule equal departure but white cannot`() {
+        val origin = card("MYS", "bg-green-50 opacity-90", "—", "—",
+            "07:40 PM", "07:40 PM")
+        val green = page.replaceFirst("<!-- Station Details Card -->", origin + "\n<!-- Station Details Card -->")
+        val accepted = OrgWebsiteStatus.parse(green, "16227", day, now, route).report!!
+        assertEquals("a past origin card is an attributed website claim, not NTES",
+            1180, accepted.rows["MYS"]?.actualDepartureMin)
+        val white = green.replace(origin, origin.replace("bg-green-50 opacity-90", "bg-white"))
+        assertNull("a future/white schedule-equal echo is not a reported departure",
+            OrgWebsiteStatus.parse(white, "16227", day, now, route).report?.rows?.get("MYS"))
+    }
+
     @Test fun `past stop departure does not manufacture an arrival from a scheduled clock`() {
         val depOnly = page.replace("05:50 AM", "05:43 AM")
             .replace("bg-white", "bg-green-50 opacity-90")

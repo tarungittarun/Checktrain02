@@ -75,6 +75,13 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp" />
+        <TextView
+            android:id="@+id/hitDays"
+            style="@style/TextMicro"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="3dp"
+            android:contentDescription="Operating days Sunday through Saturday" />
     </LinearLayout>
 
     <LinearLayout

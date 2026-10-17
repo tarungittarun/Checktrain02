@@ -16,7 +16,8 @@
         android:minHeight="80dp"
         android:orientation="horizontal"
         android:paddingTop="7dp"
-        android:paddingEnd="12dp"
+        android:paddingStart="8dp"
+        android:paddingEnd="20dp"
         android:paddingBottom="7dp">
         <LinearLayout android:id="@+id/scheduleTimes"
             android:layout_width="@dimen/col_sched" android:layout_height="wrap_content"
@@ -29,7 +30,7 @@
                 android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:layout_marginTop="3dp" android:contentDescription="Scheduled departure" />
         </LinearLayout>
-        <!-- The rail is x=114dp: the marker frame begins at x=90 and ends at x=138. -->
+        <!-- The rail is x=122dp: the marker frame begins at x=98 and ends at x=146. -->
         <FrameLayout
             android:layout_width="48dp"
             android:layout_height="72dp"
@@ -115,7 +116,7 @@
         android:visibility="gone">
         <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
             android:gravity="center_vertical" android:orientation="horizontal"
-            android:paddingStart="140dp" android:paddingEnd="12dp">
+            android:paddingStart="148dp" android:paddingEnd="20dp">
             <TextView
                 android:id="@+id/inlineLegCaption"
                 style="@style/TextMeta"

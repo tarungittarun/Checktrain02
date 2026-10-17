@@ -86,6 +86,7 @@ class TrainActivity : AppCompatActivity() {
     private var lastUi: LiveViewModel.Ui? = null
     private var lastScreenLoadKey: Pair<String?, Long?>? = null
     private var scoreGeneration = 0
+    private var lastFlashErrorKey: String? = null
     private var pendingAutoRefresh = false
     private var chainBusy = false
     private var mirrorBusy = false
@@ -96,7 +97,7 @@ class TrainActivity : AppCompatActivity() {
         binding.heroToggle.text = if (heroExpanded) "Less  ▴" else "More  ▾"
         binding.heroToggle.contentDescription = if (heroExpanded)
             "Collapse journey card to delay, next stop and source" else "Expand journey card"
-        binding.heroEyebrow.visibility = if (heroExpanded) View.VISIBLE else View.GONE
+        binding.heroEyebrow.visibility = if (heroExpanded) View.VISIBLE else View.INVISIBLE
         binding.headline.visibility = if (heroExpanded) View.VISIBLE else View.GONE
         binding.heroEvidence.visibility = if (heroExpanded) View.VISIBLE else View.GONE
         binding.sourceSummary.visibility = if (heroExpanded && sourceSummaryWanted) View.VISIBLE else View.GONE
@@ -171,16 +172,9 @@ class TrainActivity : AppCompatActivity() {
             if (enabled && screenStarted) binding.root.postDelayed(autoRefreshTicker, 60_000L)
         }
         vm.liveReceipt.observe(this) {
-            if (focusAfterRefresh) {
-                receiptReady = true
-                binding.stops.post {
-                    if (receiptReady) {
-                        focusCurrentLeg()
-                        receiptReady = false
-                        focusAfterRefresh = false
-                    }
-                }
-            }
+            // The receipt can arrive BEFORE DiffUtil has installed the newly reported
+            // leg. Focus in submitList's commit callback, never on the previous rows.
+            if (focusAfterRefresh) receiptReady = true
         }
         binding.sourceToggle.setOnClickListener {
             val website = lastUi?.activeSource ==
@@ -244,12 +238,18 @@ class TrainActivity : AppCompatActivity() {
                 showRefreshFeedback()
                 val elapsed = SystemClock.elapsedRealtime() - refreshStartedAt
                 // Also show a receipt when an HTTP check failed and retained old data.
-                showResponseScore(elapsed, lastUi?.selectedSourceUpdateMillis,
+                val failure = RefreshFlash.connectionError(requestedRefreshSource,
+                    lastUi?.sourceStates?.get(requestedRefreshSource), lastUi?.officialRequest,
+                    lastUi?.publicSourceAnswered?.get(requestedRefreshSource))
+                if (failure != null) showConnectionError(failure)
+                else showResponseScore(elapsed, lastUi?.selectedSourceUpdateMillis,
                     lastUi?.activeSource ?: requestedRefreshSource,
                     lastUi?.selectedSourceUpdateHasSeconds == true)
                 refreshStartedAt = 0L
             }
             if (wasBusy && !chainBusy && focusAfterRefresh) binding.stops.post {
+                // A failed check may have no new list commit. A successful check has
+                // its own commit callback; both paths centre the glyph, not just the row.
                 focusCurrentLeg()
                 focusAfterRefresh = false
             }
@@ -412,6 +412,8 @@ class TrainActivity : AppCompatActivity() {
                     // different entry; a background probe may have repainted it.
                     if (name == lastUi?.activeSource) return
                     sourceSelectionTouched = false
+                    `in`.opentrack.india.data.Prefs(application as App).defaultTrackingSource =
+                        TrackingSources.valid(name)
                     if (spinnerStates[name]?.first !in listOf("live", "last-known", "candidate")) {
                         // API 24's Toast layout must use the framework inflater: the
                         // Activity's AppCompat factory crashes on its system TextView
@@ -717,13 +719,30 @@ class TrainActivity : AppCompatActivity() {
         // Page notes stay in Info; the in-table icon and source badge already describe
         // the selected site's qualified claim without repeating an excerpt at the halt.
         stopAdapter.reports = ui.sourceLines[ui.activeSource] ?: ui.reports
+        stopAdapter.websiteIntermediateReports = if (ui.activeSource ==
+            `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG)
+            ui.orgWebsiteReport?.rows.orEmpty() else emptyMap()
         stopAdapter.mappedLegStarts = ui.staticMappedLegStarts
         // A new response can repeat the same stop. Only show its receipt once;
         // neither the score nor the pulse changes a train's reported position.
         val loadKey = ui.activeSource to ui.selectedLoadReceiptMillis
         val newReceipt = ui.selectedLoadReceiptMillis != null && loadKey != lastScreenLoadKey
         if (newReceipt) lastScreenLoadKey = loadKey
-        if (newReceipt && refreshStartedAt == 0L) {
+        if (refreshStartedAt == 0L) {
+            val failure = RefreshFlash.connectionError(ui.activeSource.orEmpty(),
+                ui.sourceStates[ui.activeSource], ui.officialRequest,
+                ui.publicSourceAnswered[ui.activeSource])
+            val key = if (failure == null) null else
+                "${ui.activeSource}:${ui.sourceStates[ui.activeSource]?.second}:$failure"
+            if (key != null && key != lastFlashErrorKey) {
+                lastFlashErrorKey = key
+                showConnectionError(failure!!)
+            }
+        }
+        if (newReceipt && refreshStartedAt == 0L &&
+            RefreshFlash.connectionError(ui.activeSource.orEmpty(),
+                ui.sourceStates[ui.activeSource], ui.officialRequest,
+                ui.publicSourceAnswered[ui.activeSource]) == null) {
             ResponseScore.durationMillis(ui.sourceStates[ui.activeSource]?.second)?.let { ms ->
                 showResponseScore(ms, ui.selectedSourceUpdateMillis,
                     ui.activeSource ?: "Source", ui.selectedSourceUpdateHasSeconds)
@@ -767,7 +786,8 @@ class TrainActivity : AppCompatActivity() {
             val anchor = stopAdapter.haltMarker?.code ?: ui.wimtWebPoint?.precedingHalt
                 ?: ui.orgWebsiteReport?.intermediate?.precedingHalt
             val focus = anchor != null && (!initialReportedFocusDone || anchor != lastAnchor)
-            if (focus || receiptReady) binding.stops.post {
+            if (focus || receiptReady || focusAfterRefresh || newReceipt) binding.stops.post {
+                if (lastUi !== ui) return@post
                 focusCurrentLeg()
                 if (anchor != null) initialReportedFocusDone = true
                 receiptReady = false
@@ -978,12 +998,25 @@ class TrainActivity : AppCompatActivity() {
         view.contentDescription = "$source response took $elapsedMs milliseconds; " +
             (updateAt?.let { "source data updated ${if (hasSeconds) RailTime.formatClockSeconds(it) else RailTime.formatClock(it)} IST" }
                 ?: "source update time unavailable") + "; not a train position or event"
-        view.scaleX = .7f
-        view.scaleY = .7f
+        flash(view, token, 1_000L)
+    }
+
+    private fun showConnectionError(reason: String) {
+        val view = binding.checkClock
+        val token = ++scoreGeneration
+        view.animate().cancel()
+        view.text = "$reason\nPlease change source"
+        view.contentDescription = "$reason. Please change source using the source selector."
+        flash(view, token, 3_000L)
+    }
+
+    private fun flash(view: TextView, token: Int, duration: Long) {
+        view.scaleX = .9f
+        view.scaleY = .9f
         view.alpha = 1f
         view.visibility = View.VISIBLE
-        view.animate().scaleX(1.5f).scaleY(1.5f).alpha(0f)
-            .setDuration(1_000L).withEndAction {
+        view.animate().scaleX(1.15f).scaleY(1.15f).alpha(0f)
+            .setDuration(duration).withEndAction {
                 if (scoreGeneration == token) view.visibility = View.GONE
             }.start()
     }
@@ -1017,7 +1050,8 @@ class TrainActivity : AppCompatActivity() {
         }
     }
 
-    /** Bring the current reported halt/leg to the top without manufacturing a position. */
+    /** Focus the ACTUAL drawable, including one deep inside an expanded leg.
+     * Row-start scrolling left the new intermediate icon offscreen after refresh. */
     private fun focusCurrentLeg() {
         val ui = lastUi ?: return
         val anchor = stopAdapter.haltMarker?.code ?: ui.wimtWebPoint?.precedingHalt
@@ -1025,8 +1059,29 @@ class TrainActivity : AppCompatActivity() {
         val idx = stopAdapter.currentList.indexOfFirst { it.code.equals(anchor, true) }
         if (idx < 0) return
         lastAnchor = anchor
-        (binding.stops.layoutManager as LinearLayoutManager).scrollToPositionWithOffset(
-            idx, resources.getDimensionPixelSize(R.dimen.gap_s))
+        val list = binding.stops
+        val manager = list.layoutManager as LinearLayoutManager
+        manager.scrollToPositionWithOffset(idx, resources.getDimensionPixelSize(R.dimen.gap_s))
+        list.post {
+            val row = manager.findViewByPosition(idx) as? android.view.ViewGroup ?: return@post
+            val marker = row.findViewById<View>(R.id.stopTrainMarker)
+            val leg = row.findViewById<InlineLegView>(R.id.inlineLeg)
+            val targetView: View
+            val centerY: Float
+            if (marker != null && marker.visibility == View.VISIBLE) {
+                targetView = marker
+                centerY = marker.height / 2f
+            } else if (leg != null && leg.visibility == View.VISIBLE && leg.trainCenter() != null) {
+                targetView = leg
+                centerY = leg.trainCenter()!!.second
+            } else return@post // an untimed map is not a train location
+            val bounds = android.graphics.Rect(0, 0, targetView.width, targetView.height)
+            row.offsetDescendantRectToMyCoords(targetView, bounds)
+            val iconY = bounds.top + centerY
+            manager.scrollToPositionWithOffset(idx,
+                TrainFocus.rowOffset(list.height, iconY))
+            list.post { pulseAtVisibleTrain() }
+        }
     }
 
     /** Everything the screen knows about the feed, as text — see the long-press handler above. */

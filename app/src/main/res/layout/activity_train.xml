@@ -233,16 +233,16 @@
                     <androidx.appcompat.widget.AppCompatTextView
                         android:id="@+id/checkClock"
                         style="@style/TextMicro"
-                        android:layout_width="96dp"
-                        android:layout_height="36dp"
+                        android:layout_width="138dp"
+                        android:layout_height="72dp"
                         android:layout_marginStart="6dp"
                         android:gravity="center"
-                        android:singleLine="true"
+                        android:maxLines="2"
                         android:textColor="@color/live"
-                        android:textSize="11sp"
+                        android:textSize="22sp"
                         app:autoSizeTextType="uniform"
-                        app:autoSizeMinTextSize="8sp"
-                        app:autoSizeMaxTextSize="11sp"
+                        app:autoSizeMinTextSize="18sp"
+                        app:autoSizeMaxTextSize="22sp"
                         app:autoSizeStepGranularity="1sp"
                         android:visibility="gone" />
 
@@ -406,7 +406,8 @@
                 android:layout_marginTop="4dp"
                 android:paddingTop="8dp"
                 android:paddingBottom="8dp"
-                android:paddingEnd="12dp"
+                android:paddingStart="8dp"
+                android:paddingEnd="20dp"
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
                 android:background="@drawable/bg_inset">

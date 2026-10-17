@@ -17,6 +17,7 @@ import `in`.opentrack.india.domain.TitleCase
 import `in`.opentrack.india.domain.TrackModel
 import `in`.opentrack.india.model.StopRow
 import `in`.opentrack.india.model.StationHit
+import `in`.opentrack.india.model.LiveStopFields
 import `in`.opentrack.india.model.TrainHit
 import `in`.opentrack.india.model.TrainSummary
 
@@ -41,6 +42,7 @@ class TrainHitAdapter(private val onClick: (TrainHit) -> Unit) :
         val no: TextView = view.findViewById(R.id.hitNo)
         val name: TextView = view.findViewById(R.id.hitName)
         val meta: TextView = view.findViewById(R.id.hitMeta)
+        val days: TextView = view.findViewById(R.id.hitDays)
         val tag: TextView = view.findViewById(R.id.hitTag)
         val go: TextView = view.findViewById(R.id.hitGo)
     }
@@ -68,10 +70,10 @@ class TrainHitAdapter(private val onClick: (TrainHit) -> Unit) :
             // The provenance suffix rides the meta line: a row must say whether its time is the
             // timetable's or a live source's (v2 slice 1 - "offline never looks live").
             hit.sourceTag?.let { append(" · ").append(it) }
-            // Only spell the running days out when they are not every day: "daily" under a daily train
-            // is noise, and "Mon/Tue/Thu" is the note that saves somebody a wasted journey.
-            hit.runDays?.let { if (it != 0x7F) append(" · ").append(RowText.dayNames(it)) }
         }
+        holder.days.text = TrainResultsDisplay.frequency(hit.runDays)
+        holder.days.contentDescription = if (hit.runDays == null) "Operating days unavailable"
+            else "Runs " + RowText.dayNames(hit.runDays) + "; Sunday through Saturday, underlined days operate"
         val delta = hit.boardEpochMinute - nowMinute
         holder.tag.text = TrackModel.formatGap(delta.toInt())
         holder.tag.setBackgroundResource(
@@ -120,6 +122,8 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
     private var expandedCode: String? = null
     private var routePoints: Map<String, List<StopRow>> = emptyMap()
     private var projectedLeg: RouteBetween.LegProjection? = null
+    /** Only the selected website's validated past cards, never a background comparison. */
+    var websiteIntermediateReports: Map<String, LiveStopFields> = emptyMap()
     var sourceNameForMarker: String = "NTES"
         set(value) {
             if (field != value) { field = value; if (projectedLeg != null) notifyDataSetChanged() }
@@ -281,7 +285,7 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         DirectionArrowDrawable.attach(holder.liveArr, arriving = true, reported = reported)
         DirectionArrowDrawable.attach(holder.liveDep, arriving = false, reported = reported)
         val evidence = when (s.source) {
-            TrackModel.MinuteSource.SITE_REPORTED -> "Website"
+            TrackModel.MinuteSource.SITE_REPORTED -> "Website claim"
             TrackModel.MinuteSource.PROJECTED -> "Estimate"
             TrackModel.MinuteSource.REPORTED -> "Reported"
             else -> "Not reported"
@@ -294,7 +298,8 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         // A pure-timetable row stays grey in both - no number pretends to be news.
         val color = when {
             !reported -> R.color.text2
-            s.source == TrackModel.MinuteSource.PROJECTED -> R.color.warn
+            s.source == TrackModel.MinuteSource.PROJECTED ||
+                s.source == TrackModel.MinuteSource.SITE_REPORTED -> R.color.warn
             else -> R.color.live
         }
         holder.liveArr.setTextColor(ctx.getColor(color))
@@ -355,8 +360,15 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
                 if (kmFraction != null && from != null && to != null && to >= from)
                     (from + (to - from) * kmFraction).roundToInt() else null
             }
+            val web = websiteIntermediateReports[point.code]
+            // A timetable's halt flag, or a validated arrival+later departure,
+            // establishes a stop. An arrival-only pass-through never becomes Act.
+            val stopped = point.isHalt || (web?.actualArrivalMin != null &&
+                web.actualDepartureMin != null && web.actualDepartureMin > web.actualArrivalMin)
             RouteBetween.LegPoint(point.code, point.name, point.schedKm, fraction,
-                planned, point.arrivalMin == null && planned != null)
+                planned, point.arrivalMin == null && planned != null, stopped,
+                web?.actualArrivalMin.takeIf { stopped },
+                web?.actualDepartureMin.takeIf { stopped })
         }
         // A mapped leg has a visible, full-width rail even while its station names
         // are folded. Previously only the stop row was tappable until expansion.
@@ -426,7 +438,9 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
                     (if (point.approximate) "approximately " else "scheduled ") +
                         RailTime.formatRailMinute(it)
                 } ?: "passage time unavailable"
-                "${RowText.of(point.name)} (${point.code}), $clock" +
+                val actual = point.siteArrivalMin?.let { ", website arrival claim " +
+                    RailTime.formatRailMinute(it) } ?: ", no validated stop arrival"
+                "${RowText.of(point.name)} (${point.code}), $clock$actual" +
                     (if (point.mapKm >= 0) ", ${point.mapKm} km" else ", distance unavailable")
             }
             holder.inlineLeg.contentDescription = if (leg == null)

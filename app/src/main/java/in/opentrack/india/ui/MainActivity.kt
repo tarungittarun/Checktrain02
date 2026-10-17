@@ -3,6 +3,9 @@ package `in`.opentrack.india.ui
 import android.content.Intent
 import android.os.Bundle
 import android.view.View
+import android.widget.AdapterView
+import android.widget.ArrayAdapter
+import `in`.opentrack.india.data.Prefs
 import android.view.inputmethod.EditorInfo
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.ViewModelProvider
@@ -35,6 +38,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var adapter: TrainHitAdapter
     private var keepSearchOpen = false
     private var searchCollapsed = false
+    private var sortMode = TrainResultsDisplay.Sort.SUGGESTED
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -58,6 +62,29 @@ class MainActivity : AppCompatActivity() {
         binding.results.layoutManager = LinearLayoutManager(this)
         binding.results.adapter = adapter
         binding.results.setHasFixedSize(true)
+        val sourceNames = TrackingSources.options
+        binding.defaultTrackingSource.adapter = ArrayAdapter(this,
+            android.R.layout.simple_spinner_dropdown_item, sourceNames.map(TrackingSources::label))
+        binding.defaultTrackingSource.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                val selected = sourceNames.getOrNull(position) ?: return
+                if (Prefs(app).defaultTrackingSource != selected)
+                    Prefs(app).defaultTrackingSource = selected
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+        binding.defaultTrackingSource.setSelection(sourceNames.indexOf(
+            TrackingSources.valid(Prefs(app).defaultTrackingSource)), false)
+        val sorts = TrainResultsDisplay.Sort.entries
+        binding.resultsSort.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item,
+            listOf("Suggested", "Departure time", "Arrival time", "Duration"))
+        binding.resultsSort.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                sortMode = sorts.getOrElse(position) { TrainResultsDisplay.Sort.SUGGESTED }
+                vm.results.value?.let(::displaySortedResults)
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
 
         wireBoxes()
         binding.find.setOnClickListener { runSearch() }
@@ -101,6 +128,14 @@ class MainActivity : AppCompatActivity() {
         restoreLast()
         vm.prepare()
         if (savedInstanceState?.getBoolean("searchCollapsed") == true) setSearchCollapsed(true)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        val position = TrackingSources.options.indexOf(
+            TrackingSources.valid(Prefs(application as App).defaultTrackingSource))
+        if (position >= 0 && binding.defaultTrackingSource.selectedItemPosition != position)
+            binding.defaultTrackingSource.setSelection(position, false)
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -279,11 +314,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderReport(report: TrainFinder.Report) {
         binding.resultsHead.visibility = if (report.hits.isEmpty()) View.GONE else View.VISIBLE
-        binding.resultsSub.text = if (report.queryMillis > 0) {
-            "${getString(R.string.sorted_by)} · ${report.queryMillis} ms on device"
-        } else getString(R.string.sorted_by)
-        adapter.nowMinute = vm.targetEpochMinute
-        adapter.submitList(report.hits)
+        binding.resultsSortRow.visibility = binding.resultsHead.visibility
+        displaySortedResults(report)
         if (report.hits.isNotEmpty()) {
             val pair = listOfNotNull(report.from?.code, report.to?.code).joinToString(" → ")
                 .ifBlank { binding.trainBox.valueOrText() }
@@ -319,6 +351,19 @@ class MainActivity : AppCompatActivity() {
             )
         }
         UiShot.snap(this, "list")
+    }
+
+    private fun displaySortedResults(report: TrainFinder.Report) {
+        val sortLabel = when (sortMode) {
+            TrainResultsDisplay.Sort.SUGGESTED -> getString(R.string.sorted_by)
+            TrainResultsDisplay.Sort.DEPARTURE -> "sorted by departure"
+            TrainResultsDisplay.Sort.ARRIVAL -> "sorted by arrival"
+            TrainResultsDisplay.Sort.DURATION -> "sorted by duration"
+        }
+        binding.resultsSub.text = sortLabel +
+            (if (report.queryMillis > 0) " · ${report.queryMillis} ms on device" else "")
+        adapter.nowMinute = vm.targetEpochMinute
+        adapter.submitList(TrainResultsDisplay.sorted(report.hits, sortMode))
     }
 
     /**

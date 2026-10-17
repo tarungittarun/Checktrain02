@@ -10,7 +10,7 @@ object ResponseScore {
             ?.groupValues?.get(1)?.toLongOrNull()
 
     fun text(elapsedMs: Long, sourceUpdateMillis: Long?, hasSeconds: Boolean = false): String =
-        "${(elapsedMs.coerceAtLeast(0) + 999) / 1000} sec " +
+        "Took: ${(elapsedMs.coerceAtLeast(0) + 999) / 1000} sec\nAt: " +
             (sourceUpdateMillis?.let {
                 if (hasSeconds) RailTime.formatClockSeconds(it) else RailTime.formatClock(it)
             } ?: "—")

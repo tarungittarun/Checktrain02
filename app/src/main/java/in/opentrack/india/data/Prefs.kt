@@ -74,6 +74,11 @@ class Prefs(context: Context) {
         get() = sp.getBoolean(KEY_CROWD, true)
         set(v) = sp.edit().putBoolean(KEY_CROWD, v).apply()
 
+    /** Default for the tracking screen; the train screen may change it as well. */
+    var defaultTrackingSource: String
+        get() = sp.getString(KEY_TRACK_SOURCE, "NTES (official)").orEmpty()
+        set(v) = sp.edit().putString(KEY_TRACK_SOURCE, v).apply()
+
     var useLocation: Boolean
         get() = sp.getBoolean(KEY_USE_LOCATION, false)
         set(v) = sp.edit().putBoolean(KEY_USE_LOCATION, v).apply()
@@ -99,6 +104,7 @@ class Prefs(context: Context) {
         private const val KEY_LAST_TRAIN = "lastTrain"
         private const val KEY_ONBOARDED = "onboarded"
         private const val KEY_USE_LOCATION = "useLocation"
+        private const val KEY_TRACK_SOURCE = "defaultTrackingSource"
         private const val KEY_RECENT = "recent"
         private const val KEY_CROWD = "crowdReports"
         private const val KEY_MIRROR_CACHE = "mirrorCache"

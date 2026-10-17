@@ -241,14 +241,64 @@ class InlineRouteRenderTest {
             ctx.getColor(R.color.text2), bmp.getPixel((RouteRailGeometry.X_DP * d).toInt(), (y * d).toInt()))
         val surface = ctx.getColor(R.color.surface)
         val timeY = (positions[0] * d).toInt()
-        assertTrue("the planned arrival clock is not painted beside its dot",
-            ((bmp.width - (82 * d).toInt()) until bmp.width).any { x ->
-                ((timeY - (7 * d).toInt())..(timeY + (7 * d).toInt())).any { y ->
-                    bmp.getPixel(x, y) != surface
+        // Only the planned clock may change when the static timetable changes:
+        // never paint an interpolated ~ minute in the ACTUAL column.
+        ruler.projection = ruler.projection!!.copy(points = points.map {
+            it.copy(passageMinute = null)
+        })
+        val noSchedule = android.graphics.Bitmap.createBitmap(ruler.width, ruler.height,
+            android.graphics.Bitmap.Config.ARGB_8888)
+        val other = android.graphics.Canvas(noSchedule)
+        other.drawColor(surface)
+        ruler.paintForTest(other)
+        assertTrue("a planned intermediate clock must paint LEFT of the rail",
+            (0 until (RouteRailGeometry.X_DP - 27f).times(d).toInt()).any { x ->
+                ((timeY - (8 * d).toInt())..(timeY + (8 * d).toInt())).any { y ->
+                    bmp.getPixel(x, y) != noSchedule.getPixel(x, y)
+                }
+            })
+        assertFalse("planned clock leaked into the ACTUAL column",
+            ((bmp.width - (85 * d).toInt()) until bmp.width).any { x ->
+                ((timeY - (8 * d).toInt())..(timeY + (8 * d).toInt())).any { y ->
+                    bmp.getPixel(x, y) != noSchedule.getPixel(x, y)
                 }
             })
         assertEquals("the locomotive has moved to a point instead of staying at its stop",
             ctx.getColor(R.color.live), bmp.getPixel(((RouteRailGeometry.X_DP - 16f) * d).toInt(), (24 * d).toInt()))
+    }
+
+    @Test fun intermediateActualNeedsASelectedWebsiteStopNotAPlannedPassage() {
+        val ctx = RuntimeEnvironment.getApplication()
+        val adapter = StopAdapter()
+        val stop = StopRow(2, "HALT", "Halt", null, null, null,
+            901, 902, 0, 20, true)
+        val passing = StopRow(3, "PASS", "Passing", null, null, null,
+            904, null, 0, 25, false)
+        adapter.setRoutePoints(mapOf("AAA" to listOf(stop, passing)))
+        adapter.websiteIntermediateReports = mapOf(
+            "HALT" to `in`.opentrack.india.model.LiveStopFields(
+                actualArrivalMin = 906, actualDepartureMin = 908),
+            "PASS" to `in`.opentrack.india.model.LiveStopFields(actualArrivalMin = 909))
+        val from = TrackModel.Stop(1, "AAA", "From", 890, 895,
+            895, null, null, TrackModel.MinuteSource.REPORTED, null,
+            TrackModel.State.PASSED, true, 10, 0, 20, false, false, false, -2)
+        val to = from.copy(seq = 2, code = "BBB", name = "To", kmFromOrigin = 30,
+            schedArr = 915, schedDep = 916, showArr = null, showDep = null,
+            isAnchor = false, source = TrackModel.MinuteSource.SCHEDULE)
+        adapter.submitList(listOf(from, to))
+        val holder = adapter.onCreateViewHolder(android.widget.FrameLayout(ctx), 0)
+        adapter.onBindViewHolder(holder, 0)
+        holder.inlineLegGroup.performClick()
+        adapter.onBindViewHolder(holder, 0)
+        val points = holder.inlineLeg.projection!!.points
+        assertEquals(901, points[0].passageMinute)
+        assertEquals(906, points[0].siteArrivalMin)
+        assertEquals(908, points[0].siteDepartureMin)
+        assertEquals("the non-stop has no documented stop event", null, points[1].siteArrivalMin)
+        assertTrue(holder.inlineLeg.contentDescription.contains("website arrival claim 15:06"))
+        adapter.websiteIntermediateReports = emptyMap()
+        adapter.onBindViewHolder(holder, 0)
+        assertTrue(holder.inlineLeg.projection!!.points.all { it.siteArrivalMin == null })
     }
 
     @Test fun onlySelectedWebsiteIntermediatePaintsItsOwnPublishedEventBesideMarker() {

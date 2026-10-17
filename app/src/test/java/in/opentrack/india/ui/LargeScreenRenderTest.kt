@@ -204,7 +204,7 @@ class LargeScreenRenderTest {
             val row = list.getChildAt(i)
             listOf(R.id.hitNo, R.id.hitName, R.id.hitMeta, R.id.hitDep, R.id.hitArr, R.id.hitTag, R.id.hitGo)
                 .forEach { Render.assertNothingCut(row.findViewById(it), "result $i · ${name(shot, it)}") }
-            listOf(R.id.hitNo, R.id.hitName, R.id.hitMeta).forEach {
+            listOf(R.id.hitNo, R.id.hitName, R.id.hitMeta, R.id.hitDays).forEach {
                 assertTrue("result $i has a blank ${name(shot, it)}", Render.read(row, it).isNotBlank())
             }
         }
