@@ -24,8 +24,8 @@ from verify_acceptance_apk import cert_sha256
 PARTS = ("ui-render", "ui-logic", "rules", "sources")
 PROFILES = ("api34", "min24", "density")
 EXPECTED_ROWS = {f"{p}-{row}" for p in PROFILES for row in
-                 ("station0", "station1", "station2", "train", "track0", "track1",
-                  "track2", "track3", "settings-ui", "settings-net")} | {"release"}
+                 ("station0", "station1", "station2", "train", *(f"track{i}" for i in range(8)),
+                  "settings-ui", "settings-net")} | {"release"}
 BUDGET = 180
 
 
@@ -240,7 +240,7 @@ def summarize(android: dict, e2e: dict, android_jobs: list[dict], e2e_jobs: list
     failed_rows = [f"{r}: {details(j)}" for r, j in rows.items()
                    if j.get("conclusion") != "success"]
     gate("Installed UI/UX, offline, device/density & release smoke",
-         not missing and not failed_rows and len(rows) == 31 and
+         not missing and not failed_rows and len(rows) == len(EXPECTED_ROWS) and
          ej.get("report", {}).get("conclusion") == "success",
          f"{sum(j.get('conclusion') == 'success' for j in rows.values())}/{len(rows)} rows passed · "
          f"{len(missing)} missing · API 24, API 34, density, release",

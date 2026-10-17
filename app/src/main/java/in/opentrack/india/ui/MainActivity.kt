@@ -312,7 +312,9 @@ class MainActivity : AppCompatActivity() {
             is MainViewModel.Phase.Ready -> {
                 // Fill and reveal the installed-data chip before hiding the preparation message.
                 // There must be no frame where both answers are empty on a fast first launch.
-                binding.dataChip.text = phase.dataVersion
+                binding.dataChip.text = if (phase.dataVersion.contains("UNVERIFIED"))
+                    "Timetable · check before travel" else phase.dataVersion
+                binding.dataChip.contentDescription = phase.dataVersion
                 binding.dataChip.visibility = View.VISIBLE
                 // A completed search also ends in Ready. Do not hide the very answer that
                 // renderReport just wrote (especially "no trains" and unknown-station advice).

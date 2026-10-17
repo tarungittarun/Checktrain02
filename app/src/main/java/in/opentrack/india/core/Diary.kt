@@ -413,7 +413,7 @@ class Diary(private val file: File) {
 
     /** Everything collected so far, as one text block: what Share hands to the OS. */
     fun text(limitBytes: Int = SHARE_BYTES): String {
-        val header = "# OpenTrack India diagnostic log\n# build-reported entries below; collected only while " +
+        val header = "# TrackTrain diagnostic log\n# build-reported entries below; collected only while " +
             "the switch on the Data source screen was on.\n"
         val all = synchronized(ring) { ring.joinToString("\n") }
         val body = if (all.length <= limitBytes) all else all.takeLast(limitBytes)

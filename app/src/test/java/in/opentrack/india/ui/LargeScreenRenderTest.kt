@@ -221,7 +221,7 @@ class LargeScreenRenderTest {
     fun settingsScreenPaintsWithoutCuttingALabelAtTheLargestFont() {
         val shot = Render.render(R.layout.activity_settings, widthDp = WIDTH, textScale = FONT) { root ->
             Render.text(root, R.id.state, "Built-in timetable installed · offline search ready")
-            Render.text(root, R.id.about, "OpenTrack India 1.0 · timetable: $DATA_VERSION\n\n" +
+            Render.text(root, R.id.about, "TrackTrain 1.0 · timetable: $DATA_VERSION\n\n" +
                 "No accounts, no API keys, no ads, no analytics. Live status is fetched directly from a " +
                 "public Indian Railways enquiry endpoint; everything else — station search, the ±24 h " +
                 "train list and every timetable — is answered here.")

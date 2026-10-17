@@ -45,7 +45,7 @@ class DiaryTest {
         assertTrue("the file never received the queued line: '$text'", text.contains("post-tls12"))
         assertTrue(text.contains("IOException: closed"))
         val shared = diary.text()
-        assertTrue(shared.startsWith("# OpenTrack India diagnostic log"))
+        assertTrue(shared.startsWith("# TrackTrain diagnostic log"))
         assertTrue(shared.contains("[HTTP]"))
         diary.disable()
         assertFalse(diary.enabled)

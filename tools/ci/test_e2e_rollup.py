@@ -16,7 +16,7 @@ import e2e_rollup
 
 class RollupVerdictTest(unittest.TestCase):
     def run_rollup(self, one_status: str = "station0=passed", full: bool = False):
-        groups = ("station0", "station1", "station2", "train", "track0", "track1", "track2", "track3")
+        groups = ("station0", "station1", "station2", "train", *(f"track{i}" for i in range(8)))
         names = [f"api34-{g}" for g in groups] + ["api34-settings-ui", "api34-settings-net"]
         if full:
             names += [f"{device}-{g}" for device in ("min24", "density")
@@ -51,7 +51,7 @@ class RollupVerdictTest(unittest.TestCase):
         result, output = self.run_rollup(full=True)
         self.assertEqual(0, result, output)
         self.assertIn("1/1 passes green", output)
-        self.assertIn("31/31 rows booted", output)
+        self.assertIn("43/43 rows booted", output)
         self.assertNotIn("failed: no instrumented pass", output)
 
     def test_failed_pass_fails_the_rollup(self):

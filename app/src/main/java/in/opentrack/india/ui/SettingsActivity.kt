@@ -104,7 +104,7 @@ class SettingsActivity : AppCompatActivity() {
                 (application as App).repository()?.dataVersion()
             }.getOrNull() ?: "not installed"
             binding.about.text = buildString {
-                append("OpenTrack India ").append(BuildConfig.VERSION_NAME)
+                append("TrackTrain ").append(BuildConfig.VERSION_NAME)
                 append(" · timetable: ").append(version).append("\n\n")
                 append("No accounts, no API keys, no ads, no analytics. Live status is fetched ")
                 append("directly from a public Indian Railways enquiry endpoint; everything else — ")
@@ -147,7 +147,7 @@ class SettingsActivity : AppCompatActivity() {
             } else {
                 val send = Intent(Intent.ACTION_SEND).apply {
                     type = "text/plain"
-                    putExtra(Intent.EXTRA_SUBJECT, "OpenTrack India diagnostic log")
+                    putExtra(Intent.EXTRA_SUBJECT, "TrackTrain diagnostic log")
                     putExtra(Intent.EXTRA_TEXT, body)
                 }
                 runCatching { startActivity(Intent.createChooser(send, "Share diagnostic log")) }

@@ -491,11 +491,11 @@ class TrainActivity : AppCompatActivity() {
         }
         binding.headline.text = m.headline
         binding.heroEyebrow.text = when {
-            ui.wimtWebPoint != null -> "WEB POSITION CLAIM · MOTION UNKNOWN"
-            ui.orgWebsiteReport != null -> "WEBSITE CLAIM · MOTION UNKNOWN"
-            ui.railYatriClaim != null -> "STATION CLAIM · MOTION UNKNOWN"
-            m.rows.any { it.source == TrackModel.MinuteSource.REPORTED } -> "LAST STOP · MOTION UNKNOWN"
-            else -> "TIMETABLE · NOT LIVE"
+            ui.wimtWebPoint != null -> "WEB CACHE · CANDIDATE"
+            ui.orgWebsiteReport != null -> "WEBSITE REPORT"
+            ui.railYatriClaim != null -> "RAILYATRI CLAIM"
+            m.rows.any { it.source == TrackModel.MinuteSource.REPORTED } -> "NTES REPORT"
+            else -> "TIMETABLE ONLY"
         }
         binding.heroEyebrow.setTextColor(getColor(if (ui.wimtWebPoint != null ||
             ui.orgWebsiteReport != null || ui.railYatriClaim != null) R.color.warn else R.color.live))
@@ -912,7 +912,11 @@ class TrainActivity : AppCompatActivity() {
             ui.activeSource == `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG &&
                 ui.orgWebsiteReport != null && elapsed != null ->
                 binding.age.text = "${RailTime.formatRailMinute(ui.orgWebsiteReport!!.eventMinute)} · " +
-                    "$elapsed · page checked ${RailTime.formatClock(ui.orgWebsiteReport!!.pageUpdatedAt)} (not event time or movement)"
+                    "$elapsed · site checked ${RailTime.formatClock(ui.orgWebsiteReport!!.pageUpdatedAt)}"
+                binding.age.contentDescription = "Website claim at " +
+                    "${RailTime.formatRailMinute(ui.orgWebsiteReport!!.eventMinute)}; " +
+                    "website page checked ${RailTime.formatClock(ui.orgWebsiteReport!!.pageUpdatedAt)}; " +
+                    "page check is not event time or proof of movement"
             ui.activeSource == `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE &&
                 ui.wimtWebPoint != null && elapsed != null ->
                 binding.age.text = "Web-cache point $elapsed · unverified; not phone GPS"
@@ -1097,7 +1101,7 @@ class TrainActivity : AppCompatActivity() {
         val projected = m.rows.count { it.source == TrackModel.MinuteSource.PROJECTED }
         val timetable = m.rows.count { it.source == TrackModel.MinuteSource.SCHEDULE }
         val text = buildString {
-            append("OpenTrack India live-feed report\n")
+            append("TrackTrain live-feed report\n")
             // Written first on purpose. A report is only evidence about the build that produced it, and one
             // round of debugging was lost to a paste from a stale install that looked identical otherwise.
             val pi = runCatching { packageManager.getPackageInfo(packageName, 0) }.getOrNull()

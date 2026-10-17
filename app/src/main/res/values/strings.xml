@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">OpenTrack India</string>
+    <string name="app_name">TrackTrain</string>
 
     <string name="mode_stations">Stations</string>
     <string name="mode_train">Train no. / name</string>
@@ -63,7 +63,7 @@
     <string name="back">Back</string>
 
     <string name="settings_override_title">Live data endpoint</string>
-    <string name="settings_override_hint">Blank = built-in public endpoint. You may point this at any URL that returns the OpenTrack snapshot JSON.</string>
+    <string name="settings_override_hint">Advanced, optional: use only if you run a compatible JSON feed. Leave blank for the built-in public source. This does not change the tracking source selected on Home.</string>
     <string name="settings_columns_title">Live feed column map</string>
     <string name="settings_columns_hint">Only needed if the public feed changes its field order, e.g. 1:code,2:name,3:sa,4:sd,5:aa,6:ad</string>
     <string name="save">Save</string>

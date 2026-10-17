@@ -30,6 +30,16 @@ class TrainResultsDisplayTest {
             TrainResultsDisplay.Sort.DURATION).map { it.trainNo })
     }
 
+    @Test fun livePairKeepsOnlyKnownOfflineWeeklyCalendar() {
+        val old = hit("20651", 20200, 900, 1100).copy(runDays = 0b0101010)
+        val updated = old.copy(runDays = null, boardMinute = 905, sourceTag = "via erail")
+        val liveOnly = hit("12089", 20200, 1000, 1200).copy(runDays = null)
+        val result = TrainResultsDisplay.withAssetDays(listOf(updated, liveOnly), listOf(old))
+        assertEquals(0b0101010, result.first().runDays)
+        assertEquals(905, result.first().boardMinute)
+        assertEquals(null, result.last().runDays)
+    }
+
     @Test fun sundayToSaturdayUnderlineMatchesTheRailwayBits() {
         val text = TrainResultsDisplay.frequency(1 or (1 shl 6)) as Spanned
         assertEquals("Runs · S M T W T F S", text.toString())

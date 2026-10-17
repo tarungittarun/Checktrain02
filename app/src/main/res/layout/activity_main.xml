@@ -31,7 +31,7 @@
             android:textColor="@color/text1"
             android:textSize="22sp"
             tools:ignore="HardcodedText"
-            android:text="OpenTrack India" />
+            android:text="@string/app_name" />
 
         <Button
             android:id="@+id/settings"

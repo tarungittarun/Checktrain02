@@ -227,11 +227,10 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             }
         }
         val marker = haltMarker?.takeIf { it.code.equals(s.code, true) }
-        holder.marker.visibility = if (marker == null) View.GONE else View.VISIBLE
-        holder.marker.text = marker?.let {
-            if (it.caption.startsWith("RailYatri station claim")) "STATION CLAIM · TIME UNKNOWN"
-            else "LAST REPORTED STOP"
-        }.orEmpty()
+        // The train icon and age already identify the last report. Keep its
+        // evidence available to accessibility without a redundant banner.
+        holder.marker.visibility = View.GONE
+        holder.marker.text = ""
         holder.marker.contentDescription = marker?.caption ?: ""
         val ageLabel = marker?.takeUnless { it.caption.startsWith("RailYatri station claim") }
             ?.let { legAgeSeconds?.let(LegGeometry::ageLabel) }
@@ -261,8 +260,9 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             s.source == TrackModel.MinuteSource.PROJECTED -> "Estimated · not reported"
             else -> "Scheduled"
         }
-        holder.status.visibility = if (s.isAnchor || s.state == TrackModel.State.CANCELLED || s.state == TrackModel.State.SKIPPED ||
-            stationClaim || (website && s.showDep != null && s.showArr == null))
+        // Reported clocks have provenance in their content descriptions. Do not
+        // repeat unhelpful prose below every halt; preserve exceptional warnings.
+        holder.status.visibility = if (s.state == TrackModel.State.CANCELLED || s.state == TrackModel.State.SKIPPED || stationClaim)
             View.VISIBLE else View.GONE
         holder.status.setTextColor(ctx.getColor(when {
             stationClaim || website || verified -> R.color.live
@@ -403,14 +403,9 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             val siteHalt = leg?.markerKind == RouteBetween.MarkerKind.SITE_LAST_STOP
             val reportedHalt = leg?.markerKind == RouteBetween.MarkerKind.REPORTED_HALT
             val stationClaim = leg?.markerKind == RouteBetween.MarkerKind.STATION_CLAIM
-            val caption = when {
-                stationClaim -> "Station claim · time unknown"
-                leg == null -> ""
-                site -> "Website last reported ${RowText.of(leg.nearestPoint ?: "intermediate station")} · later position unknown"
-                web -> "Web-cache distance candidate · motion unknown"
-                leg.fraction > 0f -> "Between halts · motion unknown"
-                else -> "Last stop · now unknown"
-            }
+            // A drawn marker, source selector and station clocks carry the facts;
+            // this duplicate "last stop / motion unknown" caption hid the route.
+            val caption = ""
             holder.inlineLegCaption.text = caption
             holder.inlineLegCaption.visibility = if (caption.isEmpty()) View.GONE else View.VISIBLE
             holder.inlineLegCaption.setTextColor(ctx.getColor(R.color.text2))

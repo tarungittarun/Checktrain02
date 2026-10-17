@@ -22,9 +22,10 @@ name: e2e
 on:
   push:
     branches: [main, 'arena/**']
-  # pull_request deliberately REMOVED (ADR-001): same reasoning as android.yml - it doubled every
-  # push's emulator spend, and emulator rows are the expensive ones. [e2e-full] in a commit message
-  # or a dispatch checkbox asks for the full matrix; nothing depends on a PR event existing.
+  # Push events create only a skipped shell unless the commit explicitly contains
+  # [e2e-request]. No emulators or builds run on ordinary pushes. A workflow_dispatch
+  # is also an explicit request. Preserve push as a one-shot path where API dispatch
+  # is unavailable to this integration; never infer permission from a normal push.
   workflow_dispatch:
     inputs:
       full:
@@ -72,7 +73,7 @@ jobs:
   probe:
     # Nine-minute live-source reconnaissance is useful on main, explicit sweeps and source changes,
     # not on every UI/test-only push. It runs in parallel and does not gate device evidence.
-    if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || contains(github.event.head_commit.message, '[probe]')
+    if: contains(github.event.head_commit.message, '[probe]')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -127,6 +128,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
   plan:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[e2e-request]')
     runs-on: ubuntu-latest
     outputs:
       full: ${{ steps.scope.outputs.full }}
@@ -180,16 +182,14 @@ jobs:
           DISPATCH_MONKEY: ${{ inputs.monkey_events }}
           DISPATCH_BOOT: ${{ inputs.boot_timeout }}
         run: |
-          # One required modern-device smoke on branch pushes. API 24 and the two specialized rows
-          # run only on main or an explicit sweep; they still run before shipping, not after. So: one
-          # core row on an ordinary push, the whole matrix on a dispatch or tagged commit
-          # ([e2e-full]). The pull_request case is gone with the trigger (ADR-001).
+          # The plan only runs after an explicit request. A request-tagged push
+          # runs the complete API 24, API 34, density and release matrix.
           full=false
           case "${{ github.event_name }}" in
             workflow_dispatch) [ "$DISPATCH_FULL" = "true" ] && full=true ;;
             push) [ "${{ github.ref }}" = "refs/heads/main" ] && full=true ;;
           esac
-          case "$HEAD_MSG" in *'[e2e-full]'*) full=true ;; esac
+          case "$HEAD_MSG" in *'[e2e-full]'*|*'[e2e-request]'*) full=true ;; esac
           focus="$DISPATCH_FOCUS"
           case "$HEAD_MSG" in *'[e2e-focus: '*)
             focus=$(printf '%s\n' "$HEAD_MSG" | sed -n 's/.*\[e2e-focus: \([^]]*\)\].*/\1/p' | head -1) ;;
@@ -237,6 +237,7 @@ jobs:
           python3 tools/ci/check_literals.py
           python3 tools/ci/test_e2e_selectors.py
           python3 tools/ci/test_e2e_rollup.py
+          python3 tools/ci/test_e2e_matrix.py
           # The two rules that cost a push each, checked before the runner gets a say:
           # a key written twice in one mapping block, and an action input with both `required`
           # and `default`. Both make the whole file invalid - no job starts, no annotation to read.
@@ -524,6 +525,50 @@ jobs:
             location: granted
             offline: true
             monkey: 0
+          - name: api34-track4
+            desc: "api34 / track4: independent device partition"
+            group: track4
+            optional: false
+            api: 34
+            img: google_apis
+            abi: x86_64
+            device: pixel_6
+            location: granted
+            offline: true
+            monkey: 0
+          - name: api34-track5
+            desc: "api34 / track5: independent device partition"
+            group: track5
+            optional: false
+            api: 34
+            img: google_apis
+            abi: x86_64
+            device: pixel_6
+            location: granted
+            offline: true
+            monkey: 0
+          - name: api34-track6
+            desc: "api34 / track6: independent device partition"
+            group: track6
+            optional: false
+            api: 34
+            img: google_apis
+            abi: x86_64
+            device: pixel_6
+            location: granted
+            offline: true
+            monkey: 0
+          - name: api34-track7
+            desc: "api34 / track7: independent device partition"
+            group: track7
+            optional: false
+            api: 34
+            img: google_apis
+            abi: x86_64
+            device: pixel_6
+            location: granted
+            offline: true
+            monkey: 0
           - name: api34-settings-ui
             desc: "api34 / settings-ui: independent device partition"
             group: settings-ui
@@ -699,6 +744,50 @@ jobs:
             location: denied
             offline: false
             monkey: 0
+          - name: min24-track4
+            desc: "min24 / track4: independent device partition"
+            group: track4
+            optional: false
+            api: 24
+            img: google_apis
+            abi: x86
+            device: nexus_5
+            location: denied
+            offline: false
+            monkey: 0
+          - name: min24-track5
+            desc: "min24 / track5: independent device partition"
+            group: track5
+            optional: false
+            api: 24
+            img: google_apis
+            abi: x86
+            device: nexus_5
+            location: denied
+            offline: false
+            monkey: 0
+          - name: min24-track6
+            desc: "min24 / track6: independent device partition"
+            group: track6
+            optional: false
+            api: 24
+            img: google_apis
+            abi: x86
+            device: nexus_5
+            location: denied
+            offline: false
+            monkey: 0
+          - name: min24-track7
+            desc: "min24 / track7: independent device partition"
+            group: track7
+            optional: false
+            api: 24
+            img: google_apis
+            abi: x86
+            device: nexus_5
+            location: denied
+            offline: false
+            monkey: 0
           - name: min24-settings-ui
             desc: "min24 / settings-ui: independent device partition"
             group: settings-ui
@@ -833,6 +922,62 @@ jobs:
             wm_density: 440
             font_scale: 1.15
             monkey: 0
+          - name: density-track4
+            desc: "density / track4: independent device partition"
+            group: track4
+            optional: false
+            api: 34
+            img: google_apis
+            abi: x86_64
+            device: pixel_c
+            location: denied
+            offline: false
+            wm_size: 1080x2160
+            wm_density: 440
+            font_scale: 1.15
+            monkey: 0
+          - name: density-track5
+            desc: "density / track5: independent device partition"
+            group: track5
+            optional: false
+            api: 34
+            img: google_apis
+            abi: x86_64
+            device: pixel_c
+            location: denied
+            offline: false
+            wm_size: 1080x2160
+            wm_density: 440
+            font_scale: 1.15
+            monkey: 0
+          - name: density-track6
+            desc: "density / track6: independent device partition"
+            group: track6
+            optional: false
+            api: 34
+            img: google_apis
+            abi: x86_64
+            device: pixel_c
+            location: denied
+            offline: false
+            wm_size: 1080x2160
+            wm_density: 440
+            font_scale: 1.15
+            monkey: 0
+          - name: density-track7
+            desc: "density / track7: independent device partition"
+            group: track7
+            optional: false
+            api: 34
+            img: google_apis
+            abi: x86_64
+            device: pixel_c
+            location: denied
+            offline: false
+            wm_size: 1080x2160
+            wm_density: 440
+            font_scale: 1.15
+            monkey: 0
           - name: density-settings-ui
             desc: "density / settings-ui: independent device partition"
             group: settings-ui
@@ -938,7 +1083,7 @@ jobs:
     # `always()` because `e2e_full` is legitimately skipped on an ordinary push, and a skipped dependency
     # would otherwise skip this job - which is the job that tells you what was and was not tested.
     needs: [e2e, e2e_full, release_smoke, plan]
-    if: always()
+    if: always() && needs.plan.result == 'success'
     permissions:
       contents: write
     runs-on: ubuntu-latest

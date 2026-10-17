@@ -35,7 +35,7 @@ class InlineRouteRenderTest {
         adapter.onBindViewHolder(holder, 0)
         assertEquals(View.VISIBLE, holder.inlineLegGroup.visibility)
         assertTrue(holder.inlineLeg.contentDescription.contains("not GPS"))
-        assertTrue(holder.inlineLegCaption.text.contains("Between halts"))
+        assertEquals(View.GONE, holder.inlineLegCaption.visibility)
         assertTrue(holder.report.text.contains("13:13"))
         assertEquals("13:12", holder.liveArr.text.toString())
         adapter.setProjectedLeg(null)
@@ -57,7 +57,7 @@ class InlineRouteRenderTest {
         val holder = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
         adapter.onBindViewHolder(holder, 0)
         assertEquals(View.VISIBLE, holder.inlineLegGroup.visibility)
-        assertTrue(holder.inlineLegCaption.text.contains("Last stop"))
+        assertEquals(View.GONE, holder.inlineLegCaption.visibility)
         assertTrue(holder.inlineLeg.contentDescription.contains("no measured distance since"))
         assertEquals("12 min ago", holder.inlineLegAge.text.toString())
         assertEquals(12 * 60L, holder.inlineLeg.ageSeconds)
@@ -75,7 +75,7 @@ class InlineRouteRenderTest {
         adapter.submitList(listOf(row))
         val holder = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
         adapter.onBindViewHolder(holder, 0)
-        assertTrue(holder.inlineLegCaption.text.contains("Station claim"))
+        assertEquals(View.GONE, holder.inlineLegCaption.visibility)
         assertTrue(holder.inlineLeg.contentDescription.contains("passage time"))
         assertEquals(null, holder.inlineLeg.ageSeconds)
         assertEquals(0f, holder.inlineLeg.projection!!.fraction, .001f)
@@ -98,7 +98,7 @@ class InlineRouteRenderTest {
         val holder = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
         adapter.onBindViewHolder(holder, 0)
         assertEquals(View.VISIBLE, holder.inlineLegGroup.visibility)
-        assertTrue(holder.inlineLegCaption.text.contains("Last stop"))
+        assertEquals(View.GONE, holder.inlineLegCaption.visibility)
         assertEquals("9 min ago", holder.inlineLegAge.text.toString())
         assertTrue(holder.inlineLeg.contentDescription.contains("no measured distance since"))
         assertEquals(0f, holder.inlineLeg.projection!!.fraction, .001f)
@@ -503,12 +503,12 @@ class InlineRouteRenderTest {
         val holder = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
         adapter.onBindViewHolder(holder, 0)
         assertEquals(View.VISIBLE, holder.inlineLegGroup.visibility)
-        assertEquals("the caption states the reported-stop limit without map-status prose",
-            "Last stop · now unknown", holder.inlineLegCaption.text.toString())
+        assertEquals("duplicate leg caption should be hidden", View.GONE,
+            holder.inlineLegCaption.visibility)
         assertEquals("an empty map cannot offer an empty Stations disclosure", View.GONE,
             holder.routeToggle.visibility)
-        assertEquals("the station caption stays by the locomotive", "LAST REPORTED STOP",
-            holder.marker.text.toString())
+        assertEquals("duplicate stop banner should be hidden", View.GONE,
+            holder.marker.visibility)
         assertEquals("event age belongs below the locomotive", "53m ago",
             holder.markerAge.text.toString())
         assertEquals("full event age remains accessible", "Last reported event 53 min ago",

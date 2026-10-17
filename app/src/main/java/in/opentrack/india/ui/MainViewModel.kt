@@ -248,6 +248,10 @@ class MainViewModel(private val app: App) : ViewModel() {
         val (hits, hidden) = PairMerge.toTrainHits(merged.rows, targetEpochMinute) { board ->
             pickOrigin(targetEpochMinute, board)
         }
+        // A dated pair listing can correct times/identity, not the weekly operating
+        // calendar. Preserve the offline mask for a matching train number; do not
+        // infer seven running days from one dated live appearance.
+        val hitsWithDays = TrainResultsDisplay.withAssetDays(hits, assetReport.hits)
         var line = merged.stateLine
         if (hidden > 0) line += " · $hidden train(s) listed without a readable time"
         if (appliedRenumbers.isNotEmpty()) line += " · " + PairMerge.renumberNote(appliedRenumbers)
@@ -262,7 +266,7 @@ class MainViewModel(private val app: App) : ViewModel() {
             // postValue can race a new query even after a worker checked its serial.
             // Publish on Main only after checking again, atomically with the UI state.
             if (PairSearchGate.current(serial, searchSerial)) {
-                _results.value = assetReport.copy(hits = hits)
+                _results.value = assetReport.copy(hits = hitsWithDays)
                 _liveNote.value = line
             }
         }

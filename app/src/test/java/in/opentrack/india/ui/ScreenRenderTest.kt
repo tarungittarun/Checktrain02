@@ -282,8 +282,8 @@ Render.save("02-track-live", shot.bitmap)
         }
         val list = shot.root.findViewById<RecyclerView>(R.id.stops)
         val reported = list.getChildAt(1)
-        assertTrue("reported-stop label did not render beside the station name",
-            text(reported, R.id.haltMarker).contains("last reported stop", ignoreCase = true))
+        assertEquals("duplicate reported-stop banner should stay hidden", View.GONE,
+            reported.findViewById<View>(R.id.haltMarker).visibility)
         assertTrue("passage age disappeared from its accessible marker",
             reported.findViewById<TextView>(R.id.haltMarker).contentDescription.contains("ago"))
         assertEquals("the stop's age must sit below its locomotive",
@@ -330,8 +330,8 @@ Render.save("02-track-live", shot.bitmap)
         val icon = reported.findViewById<InlineLegView>(R.id.inlineLeg)
         assertEquals(View.VISIBLE, reported.findViewById<View>(R.id.inlineLegGroup).visibility)
         assertTrue(icon.contentDescription.contains("Static Point (NMP)"))
-        assertTrue("the mini-leg lost its source/event label",
-            text(reported, R.id.inlineLegCaption).contains("Last stop"))
+        assertEquals("duplicate leg caption should stay hidden", View.GONE,
+            reported.findViewById<View>(R.id.inlineLegCaption).visibility)
         assertTrue("distance ruler has a bounded vertical footprint",
             icon.height >= (80 * shot.context.resources.displayMetrics.density).toInt())
         assertTrue(icon.contentDescription.contains("no measured distance since"))
@@ -532,7 +532,7 @@ Render.save("01-track-schedule", shot.bitmap)
             // SettingsActivity's own two strings, word for word (its `state` line has never contained a
             // count, and the "schema 7" this fixture used to print is not a number the app shows anywhere).
             Render.text(root, R.id.state, "Built-in timetable installed · offline search ready")
-            Render.text(root, R.id.about, "OpenTrack India 1.0 · timetable: $DATA_VERSION\n\n" +
+            Render.text(root, R.id.about, "TrackTrain 1.0 · timetable: $DATA_VERSION\n\n" +
                 "No accounts, no API keys, no ads, no analytics. Live status is fetched directly from a " +
                 "public Indian Railways enquiry endpoint; everything else — station search, the ±24 h " +
                 "train list and every timetable — is answered here.")

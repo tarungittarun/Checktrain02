@@ -18,6 +18,12 @@ object TrainResultsDisplay {
             .thenBy { it.boardEpochMinute }.thenBy { it.trainNo })
     }
 
+    /** An erail listing can revise identity and times, not a weekly calendar. */
+    fun withAssetDays(hits: List<TrainHit>, asset: List<TrainHit>): List<TrainHit> {
+        val days = asset.associate { it.trainNo to it.runDays }
+        return hits.map { h -> if (days.containsKey(h.trainNo)) h.copy(runDays = days[h.trainNo]) else h }
+    }
+
     /** Timetable mask: Sunday is bit 0; Monday bit 6 through Saturday bit 1. */
     fun active(mask: Int, sundayFirstIndex: Int): Boolean {
         require(sundayFirstIndex in 0..6)

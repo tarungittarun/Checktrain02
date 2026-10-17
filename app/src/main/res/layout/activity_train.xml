@@ -137,7 +137,7 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="TIMETABLE · NOT LIVE"
+                        android:text="TIMETABLE ONLY"
                         android:textColor="@color/live" />
                     <TextView
                         android:id="@+id/heroToggle"

@@ -62,6 +62,7 @@ jobs:
       - name: APK audit and published-APK acceptance self-tests
         run: |
           python3 tools/ci/test_apk_audit.py
+          python3 tools/ci/test_e2e_matrix.py
           python3 tools/ci/test_verify_acceptance_apk.py
           python3 tools/ci/test_acceptance_plan.py
           python3 tools/ci/acceptance_plan.py --check
