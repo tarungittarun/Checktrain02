@@ -149,10 +149,12 @@ jobs:
         shell: bash
         run: |
           # Best effort: a GitHub token that cannot cancel is NOT a reason to
-          # skip testing. Never cancel a same-SHA focus/dispatch or another branch.
+          # skip testing. Never cancel a same-SHA focus/dispatch, a newer run
+          # whose plan started first, or another branch. A SHA comparison alone
+          # let the delayed 1618e1e plan cancel the newer c092d1b sweep.
           set +e
           ids=$(gh api -X GET "repos/$GITHUB_REPOSITORY/actions/workflows/e2e.yml/runs?branch=$GITHUB_REF_NAME&per_page=100" \
-            --jq ".workflow_runs[] | select(.head_sha != \"$GITHUB_SHA\") | select(.status == \"queued\" or .status == \"in_progress\" or .status == \"waiting\" or .status == \"pending\") | .id" 2>/tmp/cancel-list-error)
+            --jq ".workflow_runs[] | select(.run_number < $GITHUB_RUN_NUMBER) | select(.head_sha != \"$GITHUB_SHA\") | select(.status == \"queued\" or .status == \"in_progress\" or .status == \"waiting\" or .status == \"pending\") | .id" 2>/tmp/cancel-list-error)
           if [ $? -ne 0 ]; then
             echo "::warning::could not list obsolete E2E runs: $(head -c 180 /tmp/cancel-list-error)"
             exit 0
