@@ -101,8 +101,8 @@ setBounds sameAs
 offsetDescendantRectToMyCoords
 # Android Paint used for the locomotive age pill width.
 measureText
-# Android View's built-in one-shot property animator and drawable background.
-animate background
+# Android View's built-in animator/background and TextView's Typeface accessor.
+animate background typeface
 # Android SpannableString underlines only the days that operate.
 setSpan getSpans getSpanStart replaceFirst
 # legacy-cipher factory (2026-10-12): SSLSocket suite lists and the delegate pattern
