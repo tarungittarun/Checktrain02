@@ -345,16 +345,20 @@ object E2E {
 
     /** Taps the nth suggestion row inside a box's own panel, so the two boxes cannot cross wires. */
     fun tapSuggestion(box: String, index: Int = 0): Boolean {
-        val panel = ui.findObject(res(box))?.findObject(res("suggestPanel")) ?: return false
-        val rows = panel.findObjects(By.res(PKG, "sugPrimary"))
-        val row = rows.getOrNull(index) ?: return false
-        row.click()
-        ui.waitForIdle()
-        // A click returning without an exception does not prove selection. The
-        // chosen code is the visible evidence; an unopened panel is not sufficient
-        // (losing input focus can also close a panel).
-        return ui.wait(Until.hasObject(res("suggestChip")), 1_500L) ||
-            visible("hitGo", 300)
+        // Debounced results and accessibility nodes can be replaced after the initial
+        // find, especially on a large-font emulator. Reacquire the *same box's* row
+        // if the first tap misses; never count a closed panel as a selection.
+        fun selected(): Boolean = ui.findObject(res(box))?.findObject(res("suggestChip")) != null
+        repeat(2) {
+            val panel = ui.findObject(res(box))?.findObject(res("suggestPanel"))
+                ?: return selected() || visible("hitGo", 500)
+            val row = panel.findObjects(By.res(PKG, "sugPrimary")).getOrNull(index)
+                ?: return selected() || visible("hitGo", 500)
+            runCatching { row.click(); ui.waitForIdle() }
+            if (ui.wait(Until.hasObject(res("suggestChip")), 2_500L) && selected() ||
+                visible("hitGo", 500)) return true
+        }
+        return false
     }
 
     fun resultRows(): Int = all(By.res(PKG, "hitNo")).size

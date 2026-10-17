@@ -39,7 +39,9 @@ class TrackingFlowTest {
         )
         // Picking a train already starts the search. A second Find tapped immediately here
         // used to launch duplicate work on every @Before (once per tracking assertion).
-        assertTrue("the train suggestion could not be selected", E2E.tapSuggestion("trainBox", 0))
+        val selected = E2E.tapSuggestion("trainBox", 0)
+        if (!selected) E2E.shot("train-suggestion-not-selected")
+        assertTrue("the train suggestion could not be selected: ${E2E.debugSearch("trainBox")}", selected)
         val resultVisible = E2E.ui.wait(Until.hasObject(By.res(E2E.PKG, "hitGo")), E2E.NETWORK_MS)
         if (!resultVisible) E2E.shot("tracking-open-no-results")
         assertTrue(
