@@ -1,0 +1,494 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The tracking screen, in the order the questions arrive: where is it, how far has it come, is it late,
+  then the stop-by-stop table that proves it. The top card scrolls separately; the stop table owns
+  the remaining viewport and its scroll, so a long route never becomes a giant nested view.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/bg"
+    android:orientation="vertical">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:baselineAligned="false"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingLeft="@dimen/gap"
+        android:paddingTop="12dp"
+        android:paddingRight="@dimen/gap"
+        android:paddingBottom="12dp">
+
+        <Button
+            android:id="@+id/back"
+            style="@style/BtnGhost"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:minHeight="48dp"
+            android:text="@string/back" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="12dp"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/trainNo"
+                style="@style/TextCode"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textSize="15sp" />
+
+            <TextView
+                android:id="@+id/routeLabel"
+                style="@style/TextMicro"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:ellipsize="end"
+                android:maxLines="2" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/runDate"
+            style="@style/TextBody"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:background="@drawable/bg_inset"
+            android:fontFamily="sans-serif-medium"
+            android:textStyle="bold"
+            android:textSize="14sp"
+            android:textColor="@color/text1"
+            android:paddingStart="8dp" android:paddingEnd="8dp"
+            android:paddingTop="7dp" android:paddingBottom="7dp"
+            android:gravity="center" />
+    </LinearLayout>
+
+    <!-- The wait is the app working, so the wait is visible: a thin moving bar while any live look
+         is in flight, and a captioned spinner while the very first look (the one the traveller is
+         staring at) has not landed yet. Indeterminate on purpose - a refused source's duration is
+         not knowable, and a fake percent would be a lie this app does not tell. -->
+    <ProgressBar
+        android:id="@+id/checkingBar"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginLeft="@dimen/gap"
+        android:layout_marginRight="@dimen/gap"
+        android:indeterminate="true"
+        android:visibility="gone" />
+
+    <LinearLayout
+        android:id="@+id/firstLoad"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:visibility="gone">
+
+        <ProgressBar
+            android:layout_width="48dp"
+            android:layout_height="48dp" />
+
+        <TextView
+            style="@style/TextMicro"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="@string/first_load" />
+    </LinearLayout>
+
+    <!-- Give the long source/status card and the stop table separate scrollable viewports.
+         A wrap-content card can consume the entire screen at 440 dpi / large font and leave
+         the weighted station list at zero height, hiding even a real reported train marker. -->
+    <in.opentrack.india.ui.BoundedScrollView
+        android:id="@+id/scroller"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:clipToPadding="false"
+        android:paddingBottom="@dimen/gap"
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingLeft="@dimen/gap"
+            android:paddingRight="@dimen/gap">
+
+            <!-- where it is -->
+            <LinearLayout
+                style="@style/Card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bg_card"
+                android:orientation="vertical">
+
+                <!-- The handle shares the eyebrow's row, rather than making the expanded
+                     card 44dp taller just to hold a chevron. It stays in collapsed mode. -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+                    <TextView android:id="@+id/summaryBoxLabel" style="@style/TextLabel"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:layout_marginEnd="8dp" android:text="SUMMARY BOX"
+                        android:textColor="@color/text2" />
+                    <TextView
+                        android:id="@+id/heroEyebrow"
+                        style="@style/TextLabel"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="TIMETABLE ONLY"
+                        android:textColor="@color/live" />
+                    <TextView
+                        android:id="@+id/heroToggle"
+                        style="@style/TextMeta"
+                        android:layout_width="wrap_content"
+                        android:layout_height="48dp"
+                        android:gravity="end|center_vertical"
+                        android:paddingStart="12dp"
+                        android:paddingEnd="8dp"
+                        android:text="Less  ▴"
+                        android:textColor="@color/live" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/headline"
+                    style="@style/TextHeadline"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+
+                <!-- A failed selected source must be visible in the first glance,
+                     not below a capped source card's scroll viewport. -->
+                <TextView
+                    android:id="@+id/sourceSummary"
+                    style="@style/TextMicro"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:textColor="@color/warn"
+                    android:visibility="gone" />
+
+                <!-- The distance-proportional icon lives in the corresponding table leg,
+                     not twice in the header. The badge below still identifies its source. -->
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:id="@+id/heroEvidence"
+                    android:layout_marginTop="6dp"
+                    android:baselineAligned="false"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:id="@+id/provenance"
+                        style="@style/Pill"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:background="@drawable/bg_badge_schedule"
+                        android:textColor="@color/warn" />
+
+                    <TextView
+                        android:id="@+id/age"
+                        style="@style/TextMicro"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:layout_weight="1" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:baselineAligned="false"
+                    android:orientation="horizontal">
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:id="@+id/delayLabel"
+                            style="@style/TextLabel"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/col_delay" />
+
+                        <TextView
+                            android:id="@+id/delay"
+                            android:fontFamily="sans-serif-medium"
+                            android:includeFontPadding="false"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="3dp"
+                            android:textColor="@color/text1"
+                            android:textSize="15sp" />
+                    </LinearLayout>
+
+                    <!-- One-second response score, not a persistent clock or a train-event time.
+                         No box and no caption; detail remains in Source Info / receipts. -->
+                    <androidx.appcompat.widget.AppCompatTextView
+                        android:id="@+id/checkClock"
+                        style="@style/TextMicro"
+                        android:layout_width="138dp"
+                        android:layout_height="72dp"
+                        android:layout_marginStart="6dp"
+                        android:gravity="center"
+                        android:maxLines="2"
+                        android:textColor="@color/live"
+                        android:textSize="22sp"
+                        app:autoSizeTextType="uniform"
+                        app:autoSizeMinTextSize="18sp"
+                        app:autoSizeMaxTextSize="22sp"
+                        app:autoSizeStepGranularity="1sp"
+                        android:visibility="gone" />
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="6dp"
+                        android:layout_weight="1.6"
+                        android:gravity="end"
+                        android:orientation="vertical">
+
+                        <TextView
+                            style="@style/TextLabel"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/col_next"
+                            android:layout_gravity="end"
+                            android:gravity="end" />
+
+                        <TextView
+                            android:id="@+id/next"
+                            style="@style/TextBody"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="3dp"
+                            android:ellipsize="end"
+                            android:maxLines="8"
+                            android:gravity="end" />
+                    </LinearLayout>
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        style="@style/TextMicro"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/source_label" />
+
+                    <Spinner
+                        android:id="@+id/sourceSpinner"
+                        android:layout_width="0dp"
+                        android:layout_height="48dp"
+                        android:layout_marginStart="8dp"
+                        android:layout_weight="1"
+                        android:background="@drawable/bg_inset"
+                        android:contentDescription="Choose a timetable or report source"
+                        android:paddingStart="10dp"
+                        android:paddingEnd="6dp"
+                        android:popupBackground="@drawable/bg_inset"
+                        android:spinnerMode="dropdown" />
+
+                    <Button
+                        android:id="@+id/sourceToggle"
+                        style="@style/BtnGhost"
+                        android:layout_width="94dp"
+                        android:layout_height="48dp"
+                        android:layout_marginStart="6dp"
+                        android:minWidth="94dp"
+                        android:minHeight="48dp"
+                        android:paddingStart="4dp"
+                        android:paddingEnd="4dp"
+                        android:singleLine="true"
+                        android:text="@string/source_info"
+                        android:textSize="11sp"
+                        android:contentDescription="Explain scheduled and reported times and their sources" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/lastUpdated"
+                    style="@style/TextMicro"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:visibility="gone" />
+
+                <TextView
+                    android:id="@+id/note"
+                    style="@style/TextMicro"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:background="@drawable/bg_badge_schedule"
+                    android:padding="8dp"
+                    android:textColor="@color/warn"
+                    android:visibility="gone" />
+            </LinearLayout>
+
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:gravity="end"
+                android:orientation="horizontal">
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/autoSwitch"
+                    android:layout_width="wrap_content"
+                    android:layout_height="48dp"
+                    android:layout_marginEnd="12dp"
+                    android:gravity="center_vertical"
+                    android:text="@string/auto_refresh_minute"
+                    android:textColor="@color/text2"
+                    android:textSize="12sp"
+                    android:contentDescription="@string/auto_refresh_minute" />
+                <Button
+                    android:id="@+id/refresh"
+                    style="@style/BtnGhost"
+                    android:layout_width="112dp"
+                    android:layout_height="48dp"
+                    android:minHeight="48dp"
+                    android:text="@string/refresh"
+                    android:textSize="13sp" />
+            </LinearLayout>
+
+    <!-- A checked-at receipt remains until the next request; never a movement claim. -->
+    <TextView
+        android:id="@+id/refreshFeedback"
+        style="@style/TextMicro"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:background="@drawable/bg_inset"
+        android:padding="7dp"
+        android:accessibilityLiveRegion="polite"
+        android:textColor="@color/text2"
+        android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/mirrorState"
+                style="@style/TextMicro"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:gravity="center_horizontal"
+                android:textColor="@color/accent"
+                android:visibility="gone" />
+
+        </LinearLayout>
+    </in.opentrack.india.ui.BoundedScrollView>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:paddingLeft="@dimen/gap"
+        android:paddingRight="@dimen/gap">
+            <!-- Pinned outside RecyclerView: the headings do not scroll away with
+                 the stops. These widths mirror item_stop.xml and leave the rail
+                 between the timetable and station-name columns. -->
+            <LinearLayout
+                android:id="@+id/routeColumnHeader"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:paddingTop="8dp"
+                android:paddingBottom="8dp"
+                android:paddingStart="8dp"
+                android:paddingEnd="20dp"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:background="@drawable/bg_inset">
+                <TextView android:id="@+id/routeHeadTimetable"
+                    style="@style/TextMicro"
+                    android:layout_width="@dimen/col_sched"
+                    android:layout_height="wrap_content"
+                    android:gravity="start"
+                    android:singleLine="true"
+                    android:text="TIMETABLE" android:textColor="@color/text2" />
+                <View android:layout_width="@dimen/route_station_spacer"
+                    android:layout_height="1dp" />
+                <TextView android:id="@+id/routeHeadStations"
+                    style="@style/TextMicro"
+                    android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:singleLine="true"
+                    android:text="STATIONS" android:textColor="@color/text1" />
+                <TextView android:id="@+id/routeHeadActual"
+                    style="@style/TextMicro"
+                    android:layout_width="@dimen/route_actual"
+                    android:layout_height="wrap_content"
+                    android:gravity="end"
+                    android:singleLine="true"
+                    android:text="ACTUAL" android:textColor="@color/live" />
+            </LinearLayout>
+
+            <!-- Ripple is clipped by this viewport; it cannot spill into the source card,
+                 the fixed column headings, or the rest of the screen. -->
+            <FrameLayout
+                android:id="@+id/routeViewport"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:background="@drawable/bg_inset">
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/stops"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent" />
+                <in.opentrack.india.ui.StatusRippleView
+                    android:id="@+id/statusRipple"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:clickable="false"
+                    android:focusable="false"
+                    android:importantForAccessibility="no" />
+            </FrameLayout>
+
+            <TextView
+                android:id="@+id/rowsNote"
+                style="@style/TextMicro"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:gravity="center_horizontal"
+                android:visibility="gone" />
+
+
+            <TextView
+                android:id="@+id/routeArchiveNote"
+                style="@style/TextMicro"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:layout_marginEnd="4dp"
+                android:layout_marginTop="4dp"
+                android:padding="5dp"
+                android:background="@drawable/bg_inset"
+                android:text="Older offline corridor: approximate km only, not a current route or train position. Missing legs have no verified intermediate map."
+                android:visibility="gone" />
+
+    </LinearLayout>
+</LinearLayout>
