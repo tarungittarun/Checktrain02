@@ -237,6 +237,7 @@ def summarize(android: dict, e2e: dict, android_jobs: list[dict], e2e_jobs: list
     # a train position; a source probe is separate from a passing parser fixture.
     findings.append(("Live train data parity", "UNVERIFIED",
                      "No authenticated Where Is My Train phone-app feed; website/cache ≠ phone telemetry"))
+    failures.append("**Live train data parity:** no verified phone-app feed; do not certify minute-by-minute movement from a website timestamp")
     durations = []
     for workflow, run, group in (("android", android, android_jobs), ("e2e", e2e, e2e_jobs)):
         wall = seconds(run.get("created_at"), run.get("updated_at") if run.get("status") == "completed"

@@ -41,9 +41,9 @@ def inputs():
 class AuditTest(unittest.TestCase):
     def test_complete_result(self):
         report, ok = qa.summarize(*inputs())
-        self.assertTrue(ok, report)
+        self.assertFalse(ok, report)
         self.assertIn("31/31 rows passed", report)
-        self.assertIn("**STRICT VERDICT: PASS**", report)
+        self.assertIn("**STRICT VERDICT: FAIL**", report)
         self.assertIn("Live train data parity | **UNVERIFIED**", report)
 
     def test_breached_budget_is_red_without_weakening_device_evidence(self):
