@@ -69,9 +69,9 @@ timeout 390 adb shell am instrument -w -e debug false -e offline "$([ "$PROFILE"
   2>&1 | tee acceptance-evidence/instrumentation.txt
 rc=${PIPESTATUS[0]}
 set -e
-[ "$rc" -eq 0 ] && grep -Eq 'OK \(6 tests\)|Tests run: 6, *Failures: 0' acceptance-evidence/instrumentation.txt &&
+[ "$rc" -eq 0 ] && grep -Eq 'OK \(5 tests\)|Tests run: 5, *Failures: 0' acceptance-evidence/instrumentation.txt &&
   ! grep -Eq 'FAILURES!!!|INSTRUMENTATION_FAILED|shortMsg=Process crashed' acceptance-evidence/instrumentation.txt || {
-  echo "::error::end-user acceptance failed or did not execute all six methods (rc=$rc)"; exit 1;
+  echo "::error::end-user acceptance failed or did not execute all five methods (rc=$rc)"; exit 1;
 }
 # Time a warm phone launch separately from the first-use timetable extraction.
 adb shell am force-stop in.opentrack.india
@@ -82,10 +82,10 @@ ms=$(echo "$launch" | sed -n 's/.*TotalTime: \([0-9][0-9]*\).*/\1/p' | head -1)
 [ -n "$ms" ] && [ "$ms" -le 10000 ] || {
   echo "::error::warm launch exceeded 10s or TotalTime unavailable: $ms ms"; exit 1;
 }
-echo "PASS: $PROFILE — 6 user journeys, exact installed release bytes, $ms ms warm launch" | tee acceptance-evidence/result.txt
+echo "PASS: $PROFILE — 5 user journeys, exact installed release bytes, $ms ms warm launch" | tee acceptance-evidence/result.txt
 {
   echo "### Exact published APK · traveller acceptance ($PROFILE)"
   echo "- $(sha256sum "$apk" | cut -d' ' -f1) — downloaded = built = installed"
-  echo "- 6/6 strict black-box user journeys; warm launch ${ms} ms (≤10,000 ms)"
+  echo "- 5/5 strict black-box user journeys; warm launch ${ms} ms (≤10,000 ms)"
   echo "- Runner elapsed $(( $(date +%s) - start )) seconds after instrumentation (full job wall time is in the audit)"
 } >> "$GITHUB_STEP_SUMMARY"

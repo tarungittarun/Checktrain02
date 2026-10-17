@@ -64,7 +64,10 @@ class TravellerAcceptanceTest {
         val until = System.currentTimeMillis() + E2E.NETWORK_MS
         var receipt = ""
         while (System.currentTimeMillis() < until) {
-            receipt = E2E.text("refreshFeedback", 250) + " " + E2E.text("sourceSummary", 250)
+            // A source response can return the scrollable card to its top. A person
+            // scrolls to read the receipt; an offscreen accessibility node is blank.
+            E2E.reveal("refreshFeedback", "scroller", swipes = 3)
+            receipt = E2E.text("refreshFeedback", 250).trim()
             if (receipt.isNotBlank() && !receipt.contains("Checking", true) &&
                 !receipt.contains("Refreshing", true) && !receipt.contains("Loading", true)) break
             Thread.sleep(250)
@@ -82,7 +85,9 @@ class TravellerAcceptanceTest {
         assertTrue("Board-at search is unavailable", E2E.typeInBox("fromBox", "yes"))
         assertTrue("Known station has no suggestion", E2E.ui.wait(Until.hasObject(E2E.res("sugPrimary")), E2E.LOCAL_MS))
         assertTrue("Could not pick boarding station", E2E.tapSuggestion("fromBox"))
-        assertTrue("Get-off-at search is unavailable", E2E.typeInBox("toBox", "yes"))
+        // Selecting one end may compact the form; the traveller uses Edit search.
+        if (E2E.visible("editSearch", 500)) assertTrue(E2E.tap("editSearch"))
+        assertTrue("Get-off-at search is unavailable after Edit search", E2E.typeInBox("toBox", "yes"))
         assertTrue("Same station has no suggestion", E2E.ui.wait(Until.hasObject(E2E.res("sugPrimary")), E2E.LOCAL_MS))
         assertTrue("Could not pick destination", E2E.tapSuggestion("toBox"))
         assertTrue("Same-station trip was not explicitly refused: '${E2E.text("statusLine")}'",
@@ -107,8 +112,8 @@ class TravellerAcceptanceTest {
         for (id in listOf("settings", "modeTrain", "modeStations")) {
             val control = E2E.find(id) ?: throw AssertionError("Missing visible $id control")
             val bounds = control.visibleBounds
-            assertTrue("$id touch target too narrow: ${bounds.width() / dp}dp", bounds.width() / dp >= 44f)
-            assertTrue("$id touch target too short: ${bounds.height() / dp}dp", bounds.height() / dp >= 44f)
+            assertTrue("$id touch target too narrow: ${bounds.width() / dp}dp", bounds.width() / dp >= 48f)
+            assertTrue("$id touch target too short: ${bounds.height() / dp}dp", bounds.height() / dp >= 48f)
             assertTrue("$id has no accessible spoken label",
                 control.contentDescription.orEmpty().isNotBlank() || control.text.orEmpty().isNotBlank())
         }
