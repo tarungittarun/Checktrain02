@@ -40,9 +40,13 @@ class TrackingFlowTest {
         // Picking a train already starts the search. A second Find tapped immediately here
         // used to launch duplicate work on every @Before (once per tracking assertion).
         assertTrue("the train suggestion could not be selected", E2E.tapSuggestion("trainBox", 0))
+        val resultVisible = E2E.ui.wait(Until.hasObject(By.res(E2E.PKG, "hitGo")), E2E.NETWORK_MS)
+        if (!resultVisible) E2E.shot("tracking-open-no-results")
         assertTrue(
-            "no result row to open for a train that is in the timetable",
-            E2E.ui.wait(Until.hasObject(By.res(E2E.PKG, "hitGo")), E2E.NETWORK_MS),
+            "no visible result row for the selected train; ${E2E.debugSearch("trainBox")}; " +
+                "status='${E2E.text("statusLine", 250)}' title='${E2E.text("resultsTitle", 250)}' " +
+                "summary='${E2E.text("searchSummary", 250)}'",
+            resultVisible,
         )
         assertTrue("the Track button did not open the tracking screen", E2E.openTrackFromFirstResult())
         assertNotNull("no headline on the tracking screen", E2E.find("headline", E2E.NETWORK_MS))

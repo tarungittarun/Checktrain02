@@ -332,6 +332,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderReport(report: TrainFinder.Report) {
+        // Picking a suggestion launches the search before SuggestBox hides the IME. If
+        // that hide races the returned result, the still-focused editor can summon the
+        // keyboard again and leave a real result row outside the accessible viewport.
+        // Put focus on the screen, not an editor, when the report is ready.
+        binding.root.isFocusableInTouchMode = true
+        binding.root.requestFocus()
+        (getSystemService(INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager)
+            ?.hideSoftInputFromWindow(binding.root.windowToken, 0)
         binding.resultsHead.visibility = if (report.hits.isEmpty()) View.GONE else View.VISIBLE
         binding.resultsSortRow.visibility = binding.resultsHead.visibility
         displaySortedResults(report)
