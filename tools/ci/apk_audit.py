@@ -140,16 +140,19 @@ def apk_inspection(apk: Path, repo: Path) -> tuple[dict, list[str]]:
             if pkg.groups() != ("in.opentrack.india", expected_code.group(1), expected_name.group(1)):
                 bad.append(f"APK identity {pkg.groups()} differs from source version and package")
         raw = command(str(signers[-1]), "verify", "--verbose", "--print-certs", str(apk))
-        signer = re.search(r"Signer #1 certificate SHA-256 digest: ([0-9a-fA-F]+)", raw)
+        signer = re.search(r"(?im)Signer\s+#1\s+certificate\s+SHA-256\s+digest\s*:\s*([a-f0-9:]+)", raw)
         if not signer:
-            bad.append("APK signature could not be verified")
+            # apksigner exited zero: it verified the cryptographic signature. The
+            # certificate parser did not, so key continuity is UNKNOWN, not 'unsigned'.
+            bad.append("apksigner verified the signature, but the certificate digest was not parsed; "
+                       f"update-key continuity unverified. Raw: {raw[-500:].strip()!r}")
         else:
-            outcome["cert_sha256"] = signer.group(1).lower()
+            outcome["cert_sha256"] = signer.group(1).replace(":", "").lower()
             key = command("keytool", "-list", "-v", "-keystore",
                           str(repo / "tools/ci/test-only-debug.p12"), "-storetype", "PKCS12",
                           "-storepass", "android")
             fp = re.search(r"SHA256:\s*([\dA-Fa-f:]+)", key)
-            if not fp or signer.group(1).lower() != fp.group(1).replace(":", "").lower():
+            if not fp or outcome["cert_sha256"] != fp.group(1).replace(":", "").lower():
                 bad.append("APK signature differs from stable update key")
         perms = set(re.findall(r"uses-permission: name='(android.permission.[^']+)'",
                                command(str(tools[-1]), "dump", "permissions", str(apk))))
@@ -194,6 +197,13 @@ def summarize(android: dict, e2e: dict, android_jobs: list[dict], e2e_jobs: list
         j = aj.get(job)
         gate(label, bool(j and j.get("conclusion") == "success"),
              details(j) if j else "job absent", details(j) if j else f"missing Android job {job}")
+    acceptance = {profile: aj.get(f"traveller / published APK / {profile}")
+                  for profile in ("online", "offline")}
+    gate("End-user acceptance on exact published APK",
+         all(j and j.get("conclusion") == "success" for j in acceptance.values()),
+         "; ".join(f"{p}: {details(j) if j else 'job absent'}" for p, j in acceptance.items()),
+         "; ".join(f"{p}: {details(j) if j else 'job absent'}" for p, j in acceptance.items()
+                   if not j or j.get("conclusion") != "success"))
     total = sum(v["tests"] for v in unit.values())
     skipped = sum(v["skipped"] for v in unit.values())
     tested = ", ".join(f"{p} {unit[p]['tests']}" for p in PARTS)
@@ -215,9 +225,9 @@ def summarize(android: dict, e2e: dict, android_jobs: list[dict], e2e_jobs: list
     gate("Rolling download equals audited APK", not release_bad and release.get("sha256") == apk.get("sha256"),
          f"release SHA-256 {str(release.get('sha256','?'))[:16]} · "
          f"{release.get('size','?')} bytes", "; ".join(release_bad) or "downloaded bytes differ")
-    gate("Device APK binary correspondence", same_dex is True,
+    gate("Independently built E2E APK correspondence", same_dex is True,
          "compiled DEX hashes " + ("match" if same_dex else "unverified/different"),
-         "E2E installed a different/unavailable APK; results cannot certify the published binary")
+         "E2E matrix used a different/unavailable build; only a successful exact-published-APK acceptance job can certify the download")
     rows = {re.search(r"^e2e(?:_full)? \(([^,]+),", name).group(1): j
             for name, j in ej.items() if re.search(r"^e2e(?:_full)? \(([^,]+),", name)}
     # Release smoke is a separate job, not an `e2e (...)` matrix entry.

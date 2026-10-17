@@ -25,7 +25,8 @@ def job(name: str, result: str = "success", duration: int = 40) -> dict:
 
 
 def inputs():
-    android = [job(n) for n in ("debug APK", "field-tests", "checks", "publish", "screens")]
+    android = [job(n) for n in ("debug APK", "field-tests", "checks", "publish", "screens",
+                               "traveller / published APK / online", "traveller / published APK / offline")]
     e2e = [job(n) for n in ("plan", "build", "instrument", "release_build", "report", "release_smoke")]
     for row in sorted(qa.EXPECTED_ROWS - {"release"}):
         group = "e2e" if row.startswith("api34") else "e2e_full"
@@ -83,7 +84,20 @@ class AuditTest(unittest.TestCase):
         args[12] = False
         report, ok = qa.summarize(*args)
         self.assertFalse(ok)
-        self.assertIn("Device APK binary correspondence | **FAIL**", report)
+        self.assertIn("Independently built E2E APK correspondence | **FAIL**", report)
+
+    def test_missing_or_failed_traveller_row_cannot_pass(self):
+        args = inputs()
+        args[2] = [j for j in args[2] if j["name"] != "traveller / published APK / offline"]
+        report, ok = qa.summarize(*args)
+        self.assertFalse(ok)
+        self.assertIn("End-user acceptance on exact published APK | **FAIL**", report)
+        self.assertIn("offline: job absent", report)
+        args = inputs()
+        args[2][-1]["conclusion"] = "failure"
+        report, ok = qa.summarize(*args)
+        self.assertFalse(ok)
+        self.assertIn("End-user acceptance on exact published APK | **FAIL**", report)
 
 
 if __name__ == "__main__":
