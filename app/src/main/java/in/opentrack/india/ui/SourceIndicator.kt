@@ -35,7 +35,7 @@ object SourceIndicator {
     /** A short elapsed seconds figure, not the age of the website's last stop or page clock. */
     fun seconds(detail: String): String? = Regex("checked in (\\d+) ms").find(detail)
         ?.groupValues?.get(1)?.toLongOrNull()
-        ?.let { String.format(Locale.ROOT, "%.2f s", it / 1000.0) }
+        ?.let { String.format(Locale.ROOT, "%.1f s", it / 1000.0) }
 
     fun priority(tone: Tone): Int = when (tone) {
         Tone.READY -> 0

@@ -401,8 +401,9 @@ Render.save("02-track-live", shot.bitmap)
         assertTrue(icon.contentDescription.contains("Static Point (NMP)"))
         assertEquals("duplicate leg caption should stay hidden", View.GONE,
             reported.findViewById<View>(R.id.inlineLegCaption).visibility)
-        assertTrue("distance ruler has a bounded vertical footprint",
-            icon.height >= (80 * shot.context.resources.displayMetrics.density).toInt())
+        assertTrue("distance ruler must shrink without crushing the readable marker: ${icon.height}px",
+            icon.height >= (54 * shot.context.resources.displayMetrics.density).toInt() &&
+                icon.height <= (84 * shot.context.resources.displayMetrics.density).toInt())
         assertTrue(icon.contentDescription.contains("no measured distance since"))
         assertEquals("12 min ago", text(reported, R.id.inlineLegAge))
         assertEquals(12 * 60L, icon.ageSeconds)

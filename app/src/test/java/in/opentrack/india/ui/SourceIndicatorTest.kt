@@ -6,6 +6,13 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class SourceIndicatorTest {
+    @Test fun travellerChoicesNeverPresentUnverifiedProbesAsThePhoneApp() {
+        assertEquals(listOf(TrackingSources.OFFICIAL, PublicPageChecks.ORG), TrackingSources.options)
+        assertEquals("Where Is My Train · website (unverified)",
+            TrackingSources.label(PublicPageChecks.ORG))
+        assertEquals(TrackingSources.OFFICIAL, TrackingSources.valid(WimtCandidate.SOURCE))
+    }
+
     @Test fun aQuickHttpPageDoesNotBecomeGreen() {
         assertEquals(SourceIndicator.Tone.UNAVAILABLE,
             SourceIndicator.of(PublicPageChecks.IXIGO, "unverified",
@@ -20,7 +27,7 @@ class SourceIndicatorTest {
         val failure = SourceIndicator.of("runningstatus.in", "none", "HTTP 403 · checked in 3810 ms")
         assertEquals(SourceIndicator.Tone.UNAVAILABLE, failure.tone)
         assertEquals("site blocks request", failure.label)
-        assertEquals("3.81 s", SourceIndicator.seconds("HTTP 403 · checked in 3810 ms"))
+        assertEquals("3.8 s", SourceIndicator.seconds("HTTP 403 · checked in 3810 ms"))
         assertEquals(null, SourceIndicator.seconds("not checked yet"))
         assertEquals(0, SourceIndicator.priority(SourceIndicator.Tone.READY))
         assertEquals(4, SourceIndicator.priority(SourceIndicator.Tone.UNAVAILABLE))
