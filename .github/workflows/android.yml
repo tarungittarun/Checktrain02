@@ -152,7 +152,7 @@ jobs:
               for file in app/src/test/java/in/opentrack/india/ui/*Test.kt; do
                 cls=${file##*/}; cls=${cls%.kt}
                 case "$cls" in
-                  InlineRouteRenderTest|ScreenRenderTest|LargeScreenRenderTest|AppearanceRenderTest) slice=ui-render ;;
+                  InlineRouteRenderTest|ScreenRenderTest|LargeScreenRenderTest|AppearanceRenderTest|VisualContrastTest) slice=ui-render ;;
                   *) slice=ui-logic ;;
                 esac
                 if [ "$PART" = "$slice" ]; then

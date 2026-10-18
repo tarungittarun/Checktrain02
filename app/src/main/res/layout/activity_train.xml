@@ -144,10 +144,11 @@
 
             <!-- where it is -->
             <LinearLayout
+                android:id="@+id/trackingSummaryCard"
                 style="@style/Card"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:background="@drawable/bg_card"
+                android:background="@drawable/bg_summary_card"
                 android:orientation="vertical">
 
                 <!-- The handle shares the eyebrow's row, rather than making the expanded
@@ -160,7 +161,7 @@
                     <TextView android:id="@+id/summaryBoxLabel" style="@style/TextLabel"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:layout_marginEnd="8dp" android:text="SUMMARY BOX"
-                        android:textColor="@color/text2" />
+                        android:textColor="@color/summary_ink" />
                     <TextView
                         android:id="@+id/heroEyebrow"
                         style="@style/TextLabel"
@@ -494,8 +495,8 @@
         android:layout_gravity="bottom|end"
         android:layout_marginEnd="24dp"
         android:layout_marginBottom="120dp"
-        android:elevation="10dp"
-        android:background="@drawable/ripple_btn_ghost"
+        android:elevation="12dp"
+        android:background="@drawable/ripple_refresh_fab"
         android:clickable="true"
         android:focusable="true"
         android:contentDescription="Refresh. Drag to move within the lower half of the screen">
@@ -505,7 +506,7 @@
             android:layout_height="28dp"
             android:layout_gravity="center"
             android:src="@drawable/ic_refresh"
-            android:tint="@color/live"
+            android:tint="@color/refresh_ink"
             android:contentDescription="@null" />
     </FrameLayout>
 </FrameLayout>

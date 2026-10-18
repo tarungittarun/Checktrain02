@@ -659,6 +659,11 @@ Render.save("01-track-schedule", shot.bitmap)
         val shown = shot.root.findViewById<RecyclerView>(R.id.results)?.childCount ?: -1
         assertEquals("all three runs should be on screen", 3, shown)
         val list = shot.root.findViewById<RecyclerView>(R.id.results)!!
+        for (i in 0 until list.childCount - 1) {
+            val gap = list.getChildAt(i + 1).top - list.getChildAt(i).bottom
+            assertTrue("train results should have a visible, thin 6dp gap: $gap px",
+                gap in Render.dp(shot.context, 5f).toInt()..Render.dp(shot.context, 8f).toInt())
+        }
         for (i in 0 until list.childCount) {
             val row = list.getChildAt(i)
             // `containsMatchIn`, not `matches`: the row prints the number *and* its category ("16999 · SF

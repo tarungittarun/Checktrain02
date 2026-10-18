@@ -18,6 +18,13 @@
     <color name="accent_ink">#FF052012</color>
     <color name="live">#FF54A9FF</color>
     <color name="live_soft">#FF11293D</color>
+    <!-- Elevated blue control and card against near-black, with white/high-contrast ink. -->
+    <color name="refresh_surface">#FF1464A6</color>
+    <color name="refresh_border">#FF7BBEFF</color>
+    <color name="refresh_ink">#FFFFFFFF</color>
+    <color name="summary_surface">#FF173750</color>
+    <color name="summary_border">#FF5192C5</color>
+    <color name="summary_ink">#FFD7EEFF</color>
     <color name="warn">#FFF2B33D</color>
     <color name="warn_soft">#FF3A2C10</color>
     <color name="late">#FFFF6F5E</color>

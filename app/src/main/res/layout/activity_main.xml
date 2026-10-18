@@ -207,7 +207,11 @@
          empty gap even when Edit search reopens the form above the results. -->
     <TextView android:id="@+id/resultsSummary" style="@style/TextMeta"
         android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:layout_marginTop="10dp" android:maxLines="2"
+        android:layout_marginTop="8dp" android:maxLines="3"
+        android:background="@drawable/bg_summary_card"
+        android:textColor="@color/summary_ink"
+        android:paddingStart="12dp" android:paddingEnd="12dp"
+        android:paddingTop="8dp" android:paddingBottom="8dp"
         android:visibility="gone" />
 
     <LinearLayout

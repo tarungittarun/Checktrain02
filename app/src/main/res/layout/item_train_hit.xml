@@ -11,6 +11,7 @@
     android:baselineAligned="false"
     android:gravity="center_vertical"
     android:minHeight="76dp"
+    android:layout_marginBottom="6dp"
     android:orientation="horizontal"
     android:paddingLeft="12dp"
     android:paddingTop="12dp"
