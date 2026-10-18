@@ -18,11 +18,11 @@ import org.robolectric.annotation.GraphicsMode
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class VisualContrastTest {
     @Test
-    @Config(qualifiers = "w360dp-h760dp-xhdpi-notnight")
+    @Config(qualifiers = "w360dp-h760dp-notnight-xhdpi")
     fun lightPaletteKeepsRefreshAndBothSummariesVisible() = assertPalette("light")
 
     @Test
-    @Config(qualifiers = "w360dp-h760dp-xhdpi-night")
+    @Config(qualifiers = "w360dp-h760dp-night-xhdpi")
     fun darkPaletteKeepsRefreshAndBothSummariesVisible() = assertPalette("dark")
 
     private fun assertPalette(mode: String) {
