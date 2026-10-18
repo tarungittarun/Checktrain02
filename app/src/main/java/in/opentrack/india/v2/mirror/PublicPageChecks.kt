@@ -25,7 +25,20 @@ object PublicPageChecks {
         val orgReport: OrgWebsiteStatus.Report? = null,
         /** Page excerpts for comparison only. Never feed these into Act or position. */
         val lines: Map<String, String> = emptyMap(),
+        /** The website's printed publication label; never a station-event timestamp. */
+        val pageUpdateLabel: String? = null,
     )
+
+    /** Explain a missing destination in a returned website timeline without treating its
+     * publication clock (or any comparison excerpt) as a train arrival/position. */
+    fun websiteGap(result: Result?, destination: String): String? {
+        if (result?.pageAnswered != true || result.orgReport != null ||
+            result.lines.isEmpty() || result.lines.keys.any { it.equals(destination, true) }) return null
+        val lastDisplayed = result.lines.keys.last()
+        val update = result.pageUpdateLabel?.let { "Page updated $it; " }.orEmpty()
+        return "${update}website has no $destination arrival row. Last displayed: $lastDisplayed " +
+            "(comparison only); position unknown. This is not the phone app."
+    }
 
     fun url(name: String, number: String, originDay: Long, now: Long): String? {
         if (!number.matches(Regex("[0-9]{5}"))) return null
@@ -183,6 +196,7 @@ object PublicPageChecks {
             (if (org?.report != null) "; source-marked past rows are website claims, NOT independently verified Act/GPS."
                 else "; NOT Act or measured position.") +
             (if (name == ORG) " not Google's WIMT phone app." else ""), now, true,
-            orgReport = org?.report, lines = lines)
+            orgReport = org?.report, lines = lines,
+            pageUpdateLabel = if (name == ORG) updated else null)
     }
 }

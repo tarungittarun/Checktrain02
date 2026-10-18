@@ -157,6 +157,8 @@ class LiveViewModel(
         val orgWebsiteReport: `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.Report? = null,
         /** A newer unverified comparison, not a silent switch away from NTES. */
         val alternateSiteHint: String? = null,
+        /** Website did answer, but its comparison timeline omits the destination arrival. */
+        val websiteGap: String? = null,
         /** This request's HTTP outcome, distinct from the last valid train observation. */
         val officialRequest: OfficialRequestReceipt? = null,
         val publicSourceAnswered: Map<String, Boolean> = emptyMap(),
@@ -1901,6 +1903,9 @@ class LiveViewModel(
             railYatriClaim = railClaim,
             orgWebsiteReport = orgReport,
             alternateSiteHint = alternateSiteHint,
+            websiteGap = if (selected == "NTES (official)" || selected == PublicPageChecks.ORG)
+                PublicPageChecks.websiteGap(publicChecks[PublicPageChecks.ORG], route.dstCode)
+            else null,
         )
     }
 

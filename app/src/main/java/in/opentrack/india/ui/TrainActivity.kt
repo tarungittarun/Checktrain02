@@ -504,7 +504,8 @@ class TrainActivity : AppCompatActivity() {
         // One explanation only: the qualified site's badge + labelled table already state
         // provenance. Show this line only when its selected source has no usable point.
         sourceSummaryWanted = (
-            ui.alternateSiteHint != null || publicCheck != null && ui.orgWebsiteReport == null && ui.railYatriClaim == null ||
+            ui.websiteGap != null || ui.alternateSiteHint != null ||
+                publicCheck != null && ui.orgWebsiteReport == null && ui.railYatriClaim == null ||
             ui.activeSource == `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE &&
                 ui.wimtWebPoint == null || mirrorWithoutTimes
         )
@@ -524,6 +525,7 @@ class TrainActivity : AppCompatActivity() {
             else null)
         binding.sourceSummary.text = when {
             ui.alternateSiteHint != null -> ui.alternateSiteHint
+            ui.websiteGap != null -> ui.websiteGap
             ui.orgWebsiteReport != null -> "Site's past-stop claims; not confirmed railway actuals."
             ui.wimtWebPoint != null -> "Site distance claim; not phone GPS."
             selectedPending -> "Checking ${sourceName(ui.activeSource.orEmpty())}…"

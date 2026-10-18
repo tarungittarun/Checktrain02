@@ -64,6 +64,32 @@ class PublicPageChecksTest {
         assertTrue(orgResult.detail.contains("page update label 04:19"))
     }
 
+    @Test fun `20689 stale website timeline cannot become the phone apps SMET arrival`() {
+        val run = SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).apply {
+            timeZone = TimeZone.getTimeZone("UTC")
+        }.parse("2026-10-18")!!.time / 86_400_000L
+        val at = SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z", Locale.ROOT)
+            .parse("2026-10-18 13:55:00 +0530")!!.time
+        val page = """<h1>20689 Running Status</h1><p>Last Updated: 01:27:33 PM</p>
+            Journey Timeline <!-- Station Details Card -->
+            <h3>Bhadravati (BDVT)</h3> ARRIVAL 01:11 PM 12:50 PM DEPARTURE 01:17 PM 12:52 PM"""
+        val result = PublicPageChecks.parse(PublicPageChecks.ORG, page, "20689", run, at,
+            knownCodes = setOf("BDVT", "SMET"))
+        assertTrue(result.pageAnswered)
+        assertEquals(null, result.orgReport)
+        assertEquals("01:27:33 PM", result.pageUpdateLabel)
+        val gap = PublicPageChecks.websiteGap(result, "SMET")!!
+        assertTrue(gap.contains("no SMET arrival row"))
+        assertTrue(gap.contains("Last displayed: BDVT"))
+        assertTrue(gap.contains("position unknown"))
+        assertTrue(gap.contains("not the phone app"))
+        assertFalse(gap.contains("SMET arrived"))
+        assertEquals(null, PublicPageChecks.websiteGap(result.copy(pageAnswered = false), "SMET"))
+        assertEquals(null, PublicPageChecks.websiteGap(result.copy(lines = emptyMap()), "SMET"))
+        assertEquals(null, PublicPageChecks.websiteGap(result.copy(lines = result.lines +
+            ("SMET" to "Page shows SMET: ARRIVAL 01:27 PM")), "SMET"))
+    }
+
     @Test fun `each dropdown choice requests its own endpoint and cache never counts as fresh`() {
         val urls = mutableListOf<String>()
         for (name in PublicPageChecks.names) {
