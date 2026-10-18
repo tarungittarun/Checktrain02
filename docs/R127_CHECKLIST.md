@@ -16,8 +16,8 @@ This is a change checklist, not a claim of live railway correctness. Keep PR #3 
 
 | Gate | Result |
 | --- | --- |
-| Android build + render/unit tests | First attempt `39103040010`: APK compiled/published and six published-APK traveller partitions passed, but render partition failed four strict geometry/readability checks (route identity clipped by the new brand; ruler floor still asserted 80dp). Two-line header and bounded-ruler test corrected; replacement pending. |
-| Current-head full E2E device rows | Pending |
+| Android build + render/unit tests | `39103040010`: four strict render failures (clipped identity and old ruler floor). `39103507120`: layout checks passed; only the JPEG exporter failed on a 1-pixel final tile. Export dimension now clamped to one pixel without changing screen assertions. Current-head replacement pending. |
+| Current-head full E2E device rows | `39103507165`: 22/25 E2E partitions passed; all six published-APK acceptance partitions in Android passed. Three settings-ui rows failed the obsolete `Website` capitalisation assertion after the picker was correctly renamed `Where Is My Train · website`. Assertion now expects the actual labelled choice; current-head replacement pending. |
 | Strict APK correspondence and per-job wall audit | Pending; do not relax if red |
 | APK byte count, SHA-256 and version | Pending |
 | On-phone live data parity | Not verified by an emulator |

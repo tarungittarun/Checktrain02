@@ -86,12 +86,12 @@ class SettingsFlowTest {
         assertTrue("the site option is missing", website != null)
         website!!.click()
         assertTrue("selected default not labelled for TalkBack",
-            E2E.find("defaultTrackingSource")?.contentDescription.orEmpty().contains("Website"))
+            E2E.find("defaultTrackingSource")?.contentDescription.orEmpty().contains("Where Is My Train · website"))
         assertTrue("Settings Home button cannot be reached", E2E.reveal("back", "settingsScroll", up = false))
         assertTrue("Settings Home button did not return Home", E2E.tap("back") && E2E.visible("settings"))
         assertTrue("Settings did not reopen", openSettings())
         assertTrue("default source did not persist",
-            E2E.find("defaultTrackingSource")?.contentDescription.orEmpty().contains("Website"))
+            E2E.find("defaultTrackingSource")?.contentDescription.orEmpty().contains("Where Is My Train · website"))
         assertTrue(E2E.tap("defaultTrackingSource"))
         val official = E2E.ui.wait(Until.findObject(
             androidx.test.uiautomator.By.text("NTES · official")), E2E.LOCAL_MS)

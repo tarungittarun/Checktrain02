@@ -343,7 +343,8 @@ object Render {
             val h = minOf(tileH, bmp.height - from)
             val slice = Bitmap.createBitmap(bmp, 0, from, bmp.width, h)
             val small = Bitmap.createScaledBitmap(
-                slice, slice.width * scale / 100, slice.height * scale / 100, true
+                slice, (slice.width * scale / 100).coerceAtLeast(1),
+                (slice.height * scale / 100).coerceAtLeast(1), true
             )
             val out = ByteArrayOutputStream(1 shl 15)
             small.compress(Bitmap.CompressFormat.JPEG, quality, out)
