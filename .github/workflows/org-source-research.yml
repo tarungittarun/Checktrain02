@@ -24,7 +24,7 @@ jobs:
           python-version: '3.11'
       - name: Compare page clocks, stop cards, dates and embedded network hooks
         env:
-          TRAIN_NUMBER: ${{ inputs.train_number || '16205' }}
+          TRAIN_NUMBER: ${{ inputs.train_number || '20689' }}
           GH_TOKEN: ${{ github.token }}
         run: |
           python3 tools/ci/probe_org_website.py "$TRAIN_NUMBER" | tee org-site-trial.txt
