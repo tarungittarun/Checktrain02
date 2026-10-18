@@ -1,5 +1,8 @@
 package `in`.opentrack.india.ui
 
+import android.animation.ObjectAnimator
+import android.animation.ValueAnimator
+import android.view.animation.LinearInterpolator
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -79,6 +82,7 @@ class TrainActivity : AppCompatActivity() {
             binding.stops.postDelayed(this, 30_000L)
         }
     }
+    private var refreshSpin: ObjectAnimator? = null
     private var sourceDetails = "No sources checked yet."
     private var spinnerStates: Map<String, Pair<String, String>> = emptyMap()
     private var sourceSelectionTouched = false
@@ -121,7 +125,6 @@ class TrainActivity : AppCompatActivity() {
             applyHeroExpansion()
         }
         applyHeroExpansion()
-        binding.back.setText(R.string.back_to_trains)
 
         val app = application as App
         val from = intent.getStringExtra(EXTRA_FROM).orEmpty()
@@ -176,7 +179,9 @@ class TrainActivity : AppCompatActivity() {
             // leg. Focus in submitList's commit callback, never on the previous rows.
             if (focusAfterRefresh) receiptReady = true
         }
-        binding.sourceToggle.setOnClickListener {
+        // With the About button removed, long-press the full-width picker for
+        // the same schedule/report guidance and the technical source report.
+        binding.sourceSpinner.setOnLongClickListener {
             val website = lastUi?.activeSource ==
                 `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG
             AlertDialog.Builder(this)
@@ -202,6 +207,7 @@ class TrainActivity : AppCompatActivity() {
                     dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setAllCaps(false)
                     dialog.getButton(AlertDialog.BUTTON_POSITIVE).setAllCaps(false)
                 }
+            true
         }
         binding.back.setOnClickListener { finish() }
         // Long-press the provenance badge to copy a live-feed report. It lives on that chip rather than in
@@ -297,6 +303,20 @@ class TrainActivity : AppCompatActivity() {
         val busy = chainBusy || mirrorBusy
         binding.checkingBar.visibility = if (busy) View.VISIBLE else View.GONE
         binding.firstLoad.visibility = if (busy && lastUi == null) View.VISIBLE else View.GONE
+        if (chainBusy && refreshStartedAt > 0L) {
+            if (refreshSpin == null) {
+                refreshSpin = ObjectAnimator.ofFloat(binding.refresh, View.ROTATION, 0f, 360f).apply {
+                    duration = 900L
+                    repeatCount = ValueAnimator.INFINITE
+                    interpolator = LinearInterpolator()
+                    start()
+                }
+            }
+        } else {
+            refreshSpin?.cancel()
+            refreshSpin = null
+            binding.refresh.rotation = 0f
+        }
     }
 
     // LEGACY-FREEZE (5.2b): the live pair list (v2) can know a fresher identity for this number than
@@ -348,7 +368,7 @@ class TrainActivity : AppCompatActivity() {
         if (!touchFresh) sourceSelectionTouched = false
         val choosing = (binding.sourceSpinner.tag as? List<*>)
             ?.filterIsInstance<String>()?.takeIf { touchFresh && it.isNotEmpty() }
-        val names = choosing ?: ui.sourceLines.keys.withIndex().sortedWith(
+        val names = choosing ?: ui.sourceLines.keys.filter(TrackingSources.options::contains).withIndex().sortedWith(
             compareBy<IndexedValue<String>> {
                 val (state, detail) = spinnerStates[it.value] ?: ("none" to "checking on first load")
                 SourceIndicator.priority(SourceIndicator.of(it.value, state, detail).tone)
@@ -356,6 +376,7 @@ class TrainActivity : AppCompatActivity() {
                 .thenBy { it.index }
         ).map { it.value }
         binding.sourceSpinner.visibility = if (names.isEmpty()) View.GONE else View.VISIBLE
+        binding.sourceSpinner.contentDescription = "Choose NTES or Where Is My Train website. Long press for time and source details."
         if (names.isEmpty()) return
         // State updates recolor the existing adapter. Rebuilding the Spinner for every
         // background answer can fire a selection callback for its default first item,
@@ -372,8 +393,8 @@ class TrainActivity : AppCompatActivity() {
                         val (state, detail) = spinnerStates[names[position]] ?: ("none" to "checking on first load")
                         val indicator = SourceIndicator.of(names[position], state, detail)
                         val shortName = if (names[position] ==
-                            `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG) "Website"
-                            else sourceName(names[position])
+                            `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG)
+                            "Where Is My Train · website" else "NTES · official"
                         text = "● $shortName  ▾"
                         textSize = 14f
                         maxLines = 1
@@ -392,7 +413,7 @@ class TrainActivity : AppCompatActivity() {
                         setPadding((12 * density).toInt(), (12 * density).toInt(),
                             (12 * density).toInt(), (12 * density).toInt())
                         textSize = 14f
-                        text = "● ${sourceName(name)} · ${indicator.label}" +
+                        text = "● ${TrackingSources.label(name)} · ${indicator.label}" +
                             (SourceIndicator.seconds(detail)?.let { " · $it" } ?: "")
                         setTextColor(getColor(sourceColor(indicator.tone)))
                     }
@@ -1187,6 +1208,9 @@ class TrainActivity : AppCompatActivity() {
         binding.root.removeCallbacks(autoRefreshTicker)
         binding.stops.removeCallbacks(ageTicker)
         binding.statusRipple.cancelPulse()
+        refreshSpin?.cancel()
+        refreshSpin = null
+        binding.refresh.rotation = 0f
         binding.checkClock.animate().cancel()
         binding.checkClock.visibility = View.GONE
         super.onStop()

@@ -42,11 +42,15 @@ class InlineLegView @JvmOverloads constructor(
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val screenDp = resources.displayMetrics.heightPixels / resources.displayMetrics.density
-        setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec),
-            dp((if (showLabels && projection?.points?.isNotEmpty() == true)
-                LegGeometry.expandedHeightDp(projection!!.points, distanceKm)
-                else if (compactStatic) LegGeometry.compactMappedHeightDp(distanceKm)
-                else LegGeometry.heightDp(distanceKm, screenDp)).toFloat()).roundToInt())
+        val baseHeight = if (showLabels && projection?.points?.isNotEmpty() == true)
+            LegGeometry.expandedHeightDp(projection!!.points, distanceKm)
+            else if (compactStatic) LegGeometry.compactMappedHeightDp(distanceKm)
+            else LegGeometry.heightDp(distanceKm, screenDp)
+        // The named website event needs room for At / As on and age below the train,
+        // even if its scheduled leg is only a few kilometres long.
+        val height = if (projection?.markerKind == RouteBetween.MarkerKind.SITE_INTERMEDIATE)
+            baseHeight.coerceAtLeast(76) else baseHeight
+        setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), dp(height.toFloat()).roundToInt())
     }
 
     /** The same pixel used by the painter; the refresh ripple must not guess a
@@ -55,7 +59,7 @@ class InlineLegView @JvmOverloads constructor(
         val leg = projection ?: return null
         if (!showTrain || height <= 0) return null
         val y0 = dp(24f)
-        val y1 = height - dp(40f)
+        val y1 = height - dp(26f)
         val positions = if (showLabels) LegGeometry.pointPositionsDp(leg.points, distanceKm)
             .map(::dp) else emptyList()
         val breaks = listOf(0f) + leg.points.map { it.fraction.coerceIn(0f, 1f) } + listOf(1f)
@@ -80,7 +84,7 @@ class InlineLegView @JvmOverloads constructor(
         val leg = projection ?: return
         val x = dp(RouteRailGeometry.X_DP)
         val y0 = dp(24f)
-        val y1 = height - dp(40f)
+        val y1 = height - dp(26f)
         val positions = if (showLabels) LegGeometry.pointPositionsDp(leg.points, distanceKm)
             .map(::dp) else emptyList()
         val y = trainCenter()?.second ?: y0
@@ -150,11 +154,11 @@ class InlineLegView @JvmOverloads constructor(
         // A source-named intermediate is not a generic map dot: show its name
         // beside the locomotive even when all OTHER mapped points are folded.
         // This is the last site-reported event, not an inferred current position.
-        if (!showLabels && leg.markerKind == RouteBetween.MarkerKind.SITE_INTERMEDIATE) {
+        if (leg.markerKind == RouteBetween.MarkerKind.SITE_INTERMEDIATE) {
             paint.color = context.getColor(R.color.warn)
             paint.textSize = sp(12f)
             val name = android.text.TextUtils.ellipsize(
-                "Web · " + RowText.of(leg.nearestPoint ?: "intermediate"),
+                "At " + RowText.of(leg.nearestPoint ?: "intermediate"),
                 android.text.TextPaint(paint), (width - x - dp(30f)).coerceAtLeast(dp(36f)),
                 android.text.TextUtils.TruncateAt.END).toString()
             canvas.drawText(name, x + dp(23f), (y - dp(23f)).coerceAtLeast(dp(12f)), paint)
@@ -180,7 +184,7 @@ class InlineLegView @JvmOverloads constructor(
             siteEventMinute?.let { minute ->
                 paint.textSize = sp(11f)
                 paint.color = context.getColor(R.color.warn)
-                val clock = "Web · " + `in`.opentrack.india.core.RailTime.formatRailMinute(minute)
+                val clock = "As on " + `in`.opentrack.india.core.RailTime.formatRailMinute(minute)
                 val clockY = y + dp(31f)
                 canvas.drawText(clock, x + dp(24f), clockY, paint)
             }
@@ -223,28 +227,28 @@ object LegGeometry {
     fun heightDp(distanceKm: Int, screenHeightDp: Float = 760f): Int {
         // Keep three named halts in the first phone viewport even on a 65-km
         // last-reported leg. Still grows with the *scheduled distance*, never time.
-        val ceiling = (screenHeightDp * 0.135f).roundToInt().coerceIn(90, 112)
-        return (72 + distanceKm.coerceAtLeast(0) * 0.55f).roundToInt().coerceIn(72, ceiling)
+        val ceiling = (screenHeightDp * 0.102f).roundToInt().coerceIn(68, 84)
+        return (54 + distanceKm.coerceAtLeast(0) * 0.42f).roundToInt().coerceIn(54, ceiling)
     }
 
     /** Enough for an accessible whole-rail tap without pushing mapped halts off-screen. */
     fun compactMappedHeightDp(distanceKm: Int): Int =
-        (28 + distanceKm.coerceAtLeast(0) * .55f).roundToInt().coerceIn(30, 78)
+        (23 + distanceKm.coerceAtLeast(0) * .46f).roundToInt().coerceIn(26, 68)
 
     fun stopGapDp(distanceKm: Int, screenHeightDp: Float = 760f): Int {
-        val ceiling = (screenHeightDp * 0.07f).roundToInt().coerceIn(22, 56)
-        return (8 + distanceKm.coerceAtLeast(0) * 0.8f)
-            .roundToInt().coerceIn(10, ceiling)
+        val ceiling = (screenHeightDp * 0.053f).roundToInt().coerceIn(20, 42)
+        return (6 + distanceKm.coerceAtLeast(0) * 0.6f)
+            .roundToInt().coerceIn(8, ceiling)
     }
 
     /** Every disclosed dot has a readable minimum gap; the remaining pixels are
      * distributed by the source map's kilometre fractions. No elapsed-time movement. */
     fun pointPositionsDp(points: List<RouteBetween.LegPoint>, distanceKm: Int): List<Float> {
         val ratios = (listOf(0f) + points.map { it.fraction.coerceIn(0f, 1f) } + listOf(1f))
-        val bonus = distanceKm.coerceIn(0, 100) * 1.4f
-        var y = 24f
+        val bonus = distanceKm.coerceIn(0, 100) * 1.2f
+        var y = 23f
         return points.mapIndexed { i, _ ->
-            y += 36f + bonus * (ratios[i + 1] - ratios[i]).coerceAtLeast(0f)
+            y += 34f + bonus * (ratios[i + 1] - ratios[i]).coerceAtLeast(0f)
             y
         }
     }
@@ -252,8 +256,8 @@ object LegGeometry {
     fun expandedHeightDp(points: List<RouteBetween.LegPoint>, distanceKm: Int): Int {
         val positions = pointPositionsDp(points, distanceKm)
         val remaining = (1f - (points.lastOrNull()?.fraction ?: 0f)).coerceIn(0f, 1f)
-        return ((positions.lastOrNull() ?: 24f) + 36f +
-            distanceKm.coerceIn(0, 100) * 1.4f * remaining + 40f).roundToInt()
+        return ((positions.lastOrNull() ?: 23f) + 34f +
+            distanceKm.coerceIn(0, 100) * 1.2f * remaining + 36f).roundToInt()
     }
 
     fun compactAgeLabel(ageSeconds: Long): String = when {

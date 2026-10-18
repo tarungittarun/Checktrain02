@@ -129,6 +129,15 @@ class ScreenRenderTest {
             val sort = root.findViewById<android.widget.Spinner>(R.id.resultsSort)
             sort.adapter = android.widget.ArrayAdapter(root.context, R.layout.item_sort_selected,
                 listOf("Suggested", "Departure", "Arrival", "Duration"))
+            val hits = listOf(
+                hit("16999", "KSR BENGALURU - SHIVAMOGGA TOWN EXP", 330, 604, 274, 0x7F),
+                hit("16536", "PALEM G EXP", 396, 690, 311, 0x55),
+                hit("06268", "SBC SMET Passenger SPECIAL", 486, 810, 274, 0x2A))
+            root.findViewById<RecyclerView>(R.id.results).apply {
+                layoutManager = LinearLayoutManager(context)
+                adapter = TrainHitAdapter { }.apply { submitList(hits) }
+                Render.settle(this, hits.size)
+            }
         }
         val card = shot.bounds(R.id.searchCard)
         val summary = shot.bounds(R.id.resultsSummary)
@@ -137,10 +146,17 @@ class ScreenRenderTest {
         assertTrue("edited form still leaves a large empty list gap: $card / $summary",
             summary.top - card.bottom in 0..(shot.bitmap.width / 5))
         assertTrue("result summary missing", shot.text(R.id.resultsSummary).contains("source data as of"))
+        val list = shot.bounds(R.id.results)
+        assertTrue("populated result list should start close to the edited search, not below a weighted blank: $card / $list",
+            list.top - card.bottom in 0..(shot.bitmap.width / 3))
+        assertTrue("list must retain room for real rows after reopening search: $list",
+            list.height() >= Render.dp(shot.context, 100f))
+        assertEquals("fixture lost populated rows", 3,
+            shot.root.findViewById<RecyclerView>(R.id.results).adapter!!.itemCount)
         assertTrue("sort overlaps heading or spills beyond right half: $title / $sort",
             sort.left >= title.right && sort.right <= shot.bounds(R.id.resultsHead).right)
         assertTrue("sort arrow not painted", shot.root.findViewById<View>(R.id.sortArrow).width > 0)
-        Render.save("r126-edited-search", shot.bitmap)
+        Render.save("r127-populated-home-search", shot.bitmap)
     }
 
     @Test
@@ -178,7 +194,7 @@ class ScreenRenderTest {
         assertTrue("the headline should follow the table's casing: '$headline'",
             headline.contains("Dobetakapur") && !headline.contains("DOBETAKAPUR"))
         assertEquals("response receipt shows duration and only the available source minute",
-            "Took: 1 sec\nAt: 09:05", shot.text(R.id.checkClock))
+            "Took: 1.0 sec\nAt: 09:05", shot.text(R.id.checkClock))
         val score = shot.root.findViewById<View>(R.id.checkClock)
         assertTrue("response score must not have a box", score.background == null)
         assertTrue("response score is a text display, not a perpetual paint animation",
@@ -209,11 +225,16 @@ class ScreenRenderTest {
             shot.context.resources.getIdentifier("betweenStations", "id", shot.context.packageName))
         assertTrue("source dropdown must be visible",
             shot.root.findViewById<View>(R.id.sourceSpinner).height > 0)
-        val sourceInfo = shot.root.findViewById<Button>(R.id.sourceToggle)
-        assertTrue("source information remains reachable without shrinking the table",
-            sourceInfo.height > 0)
-        assertEquals("Info button wraps on a 360dp screen", 1, sourceInfo.lineCount)
-        assertNotClipped(sourceInfo, "source Info button")
+        val sourcePicker = shot.root.findViewById<View>(R.id.sourceSpinner)
+        assertEquals("About time button must be removed", 0,
+            shot.context.resources.getIdentifier("sourceToggle", "id", shot.context.packageName))
+        assertTrue("source picker should reach the right edge of its card",
+            shot.bounds(R.id.sourceSpinner).right >= shot.bounds(R.id.scroller).right - 35 *
+                shot.context.resources.displayMetrics.density)
+        assertTrue("refresh must be an icon, not a text button",
+            shot.root.findViewById<View>(R.id.refresh) is android.widget.ImageButton)
+        assertTrue("picker must remain long-pressable for source guidance",
+            sourcePicker.height > 0)
         assertEquals("Refresh needs a 48dp touch target", 48,
             (shot.root.findViewById<View>(R.id.refresh).height /
                 shot.context.resources.displayMetrics.density).toInt())

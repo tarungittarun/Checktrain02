@@ -63,6 +63,7 @@ class MainActivity : AppCompatActivity() {
         }
         binding.results.layoutManager = LinearLayoutManager(this)
         binding.results.adapter = adapter
+        binding.results.itemAnimator = null // a live-list upgrade should not jump the edited list
         binding.results.setHasFixedSize(true)
         val sorts = TrainResultsDisplay.Sort.entries
         binding.resultsSort.adapter = ArrayAdapter(this, R.layout.item_sort_selected,
@@ -81,9 +82,19 @@ class MainActivity : AppCompatActivity() {
         wireBoxes()
         binding.find.setOnClickListener { runSearch() }
         binding.homeBrand.setOnClickListener {
-            selectMode(MainViewModel.Mode.STATIONS)
-            keepSearchOpen = false
+            // Re-selecting Stations used to clear the ViewModel report while leaving
+            // old adapter rows visible. The search then took the empty-state 2/3
+            // weight, pushing those orphaned rows to the bottom of the screen.
+            // Returning Home in the SAME mode must not discard a valid result.
+            if (vm.mode != MainViewModel.Mode.STATIONS) selectMode(MainViewModel.Mode.STATIONS)
+            val hasResults = vm.results.value?.hits?.isNotEmpty() == true
+            keepSearchOpen = hasResults
             setSearchCollapsed(false)
+            if (hasResults) {
+                (binding.results.layoutManager as? LinearLayoutManager)
+                    ?.scrollToPositionWithOffset(0, 0)
+                binding.results.post { binding.results.scrollToPosition(0) }
+            }
             binding.searchCardScroll.post { binding.searchCardScroll.scrollTo(0, 0) }
         }
         binding.editSearch.setOnClickListener {
@@ -215,7 +226,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun selectMode(mode: MainViewModel.Mode) {
-        vm.setMode(mode)
+        if (vm.mode != mode) {
+            vm.setMode(mode)
+            adapter.submitList(emptyList()) // never leave old-mode rows under a new question
+        }
         renderMode(mode)
     }
 
@@ -224,8 +238,10 @@ class MainActivity : AppCompatActivity() {
         binding.stationInputs.visibility = if (stations) View.VISIBLE else View.GONE
         binding.trainBox.visibility = if (stations) View.GONE else View.VISIBLE
         binding.trainLabel.visibility = if (stations) View.GONE else View.VISIBLE
-        binding.resultsHead.visibility = View.GONE
-        binding.resultsSummary.visibility = View.GONE
+        val hasResults = vm.results.value?.hits?.isNotEmpty() == true
+        binding.resultsHead.visibility = if (hasResults) View.VISIBLE else View.GONE
+        binding.resultsSortRow.visibility = binding.resultsHead.visibility
+        binding.resultsSummary.visibility = binding.resultsHead.visibility
         binding.modeStations.setBackgroundResource(if (stations) R.drawable.bg_segment_on else 0)
         binding.modeTrain.setBackgroundResource(if (stations) 0 else R.drawable.bg_segment_on)
         binding.modeStations.setTextColor(getColor(if (stations) R.color.text1 else R.color.text3))

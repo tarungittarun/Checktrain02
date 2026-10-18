@@ -166,13 +166,13 @@ class InlineRouteRenderTest {
     }
 
     @Test fun verticalDistanceRulerScalesByScheduledKmWithoutOutgrowingTheViewport() {
-        assertEquals(73, LegGeometry.heightDp(2))
+        assertEquals(55, LegGeometry.heightDp(2))
         assertTrue(LegGeometry.heightDp(20) > LegGeometry.heightDp(6))
-        assertEquals(103, LegGeometry.heightDp(200))
+        assertEquals(78, LegGeometry.heightDp(200))
         assertEquals("small screens cap the leg and leave space for three halt rows",
-            90, LegGeometry.heightDp(200, 480f))
+            68, LegGeometry.heightDp(200, 480f))
         assertTrue(LegGeometry.heightDp(65) + 3 * 82 < 360)
-        assertEquals(64, LegGeometry.compactMappedHeightDp(65))
+        assertEquals(53, LegGeometry.compactMappedHeightDp(65))
         assertTrue("short mapped legs must not all look identical",
             LegGeometry.compactMappedHeightDp(3) < LegGeometry.compactMappedHeightDp(18))
         assertTrue("3 km, 7 km and 18 km need distinct stop separations",
@@ -180,7 +180,7 @@ class InlineRouteRenderTest {
                 LegGeometry.stopGapDp(7) < LegGeometry.stopGapDp(18))
         assertTrue("distance must still change the long-leg layout",
             LegGeometry.stopGapDp(60) > LegGeometry.stopGapDp(18))
-        assertTrue("small displays retain a bounded leg", LegGeometry.stopGapDp(200, 480f) <= 34)
+        assertTrue("small displays retain a bounded leg", LegGeometry.stopGapDp(200, 480f) <= 26)
         assertEquals("1 min ago", LegGeometry.ageLabel(60))
         assertEquals("1 hour ago", LegGeometry.ageLabel(3600))
         assertEquals("1 hour 2 min ago", LegGeometry.ageLabel(3720))

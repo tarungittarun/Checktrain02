@@ -89,10 +89,20 @@
         <item name="android:includeFontPadding">false</item>
     </style>
 
+    <style name="IconAction">
+        <item name="android:layout_width">48dp</item>
+        <item name="android:layout_height">48dp</item>
+        <item name="android:minWidth">48dp</item>
+        <item name="android:minHeight">48dp</item>
+        <item name="android:background">@drawable/ripple_btn_ghost</item>
+        <item name="android:padding">10dp</item>
+        <item name="android:scaleType">fitCenter</item>
+    </style>
+
     <!-- Column header of a table. -->
     <style name="TextLabel">
         <item name="android:textColor">@color/text3</item>
-        <item name="android:textSize">10sp</item>
+        <item name="android:textSize">11sp</item>
         <item name="android:windowLightNavigationBar" tools:targetApi="26">@bool/light_system_bars</item>
         <item name="android:fontFamily">sans-serif-medium</item>
         <item name="android:letterSpacing">0.09</item>

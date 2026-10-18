@@ -82,7 +82,7 @@ class SettingsFlowTest {
             E2E.reveal("defaultTrackingSource", "settingsScroll"))
         assertTrue("source picker cannot open", E2E.tap("defaultTrackingSource"))
         val website = E2E.ui.wait(Until.findObject(
-            androidx.test.uiautomator.By.text("Website · unverified")), E2E.LOCAL_MS)
+            androidx.test.uiautomator.By.text("Where Is My Train · website (unverified)")), E2E.LOCAL_MS)
         assertTrue("the site option is missing", website != null)
         website!!.click()
         assertTrue("selected default not labelled for TalkBack",

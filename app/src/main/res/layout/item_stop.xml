@@ -13,12 +13,12 @@
         android:id="@+id/stopRow"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:minHeight="80dp"
+        android:minHeight="72dp"
         android:orientation="horizontal"
-        android:paddingTop="7dp"
+        android:paddingTop="3dp"
         android:paddingStart="8dp"
         android:paddingEnd="20dp"
-        android:paddingBottom="7dp">
+        android:paddingBottom="3dp">
         <LinearLayout android:id="@+id/scheduleTimes"
             android:layout_width="@dimen/col_sched" android:layout_height="wrap_content"
             android:layout_marginTop="6dp"

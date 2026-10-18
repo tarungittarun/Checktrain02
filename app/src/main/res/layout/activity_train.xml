@@ -22,18 +22,28 @@
         android:paddingRight="@dimen/gap"
         android:paddingBottom="12dp">
 
-        <Button
+        <LinearLayout
             android:id="@+id/back"
-            style="@style/BtnGhost"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:minHeight="48dp"
-            android:text="@string/back" />
+            android:layout_height="48dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="@drawable/ripple_btn_ghost"
+            android:contentDescription="TrackTrain · return to train list">
+            <ImageView android:layout_width="36dp" android:layout_height="36dp"
+                android:src="@drawable/ic_launcher" android:contentDescription="@null" />
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_marginStart="4dp" android:text="@string/app_name"
+                android:textColor="@color/text1" android:textSize="17sp"
+                android:fontFamily="sans-serif-medium" />
+        </LinearLayout>
 
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginStart="12dp"
+            android:layout_marginStart="6dp"
             android:layout_weight="1"
             android:orientation="vertical">
 
@@ -311,20 +321,6 @@
                         android:popupBackground="@drawable/bg_inset"
                         android:spinnerMode="dropdown" />
 
-                    <Button
-                        android:id="@+id/sourceToggle"
-                        style="@style/BtnGhost"
-                        android:layout_width="94dp"
-                        android:layout_height="48dp"
-                        android:layout_marginStart="6dp"
-                        android:minWidth="94dp"
-                        android:minHeight="48dp"
-                        android:paddingStart="4dp"
-                        android:paddingEnd="4dp"
-                        android:singleLine="true"
-                        android:text="@string/source_info"
-                        android:textSize="11sp"
-                        android:contentDescription="Explain scheduled and reported times and their sources" />
                 </LinearLayout>
 
                 <TextView
@@ -364,14 +360,14 @@
                     android:textColor="@color/text2"
                     android:textSize="12sp"
                     android:contentDescription="@string/auto_refresh_minute" />
-                <Button
+                <ImageButton
                     android:id="@+id/refresh"
-                    style="@style/BtnGhost"
-                    android:layout_width="112dp"
+                    style="@style/IconAction"
+                    android:layout_width="48dp"
                     android:layout_height="48dp"
-                    android:minHeight="48dp"
-                    android:text="@string/refresh"
-                    android:textSize="13sp" />
+                    android:src="@drawable/ic_refresh"
+                    android:tint="@color/live"
+                    android:contentDescription="@string/refresh" />
             </LinearLayout>
 
     <!-- A checked-at receipt remains until the next request; never a movement claim. -->
@@ -423,7 +419,7 @@
                 android:gravity="center_vertical"
                 android:background="@drawable/bg_inset">
                 <TextView android:id="@+id/routeHeadTimetable"
-                    style="@style/TextMicro"
+                    style="@style/FieldLabel"
                     android:layout_width="@dimen/col_sched"
                     android:layout_height="wrap_content"
                     android:gravity="start"
@@ -432,13 +428,13 @@
                 <View android:layout_width="@dimen/route_station_spacer"
                     android:layout_height="1dp" />
                 <TextView android:id="@+id/routeHeadStations"
-                    style="@style/TextMicro"
+                    style="@style/FieldLabel"
                     android:layout_width="0dp" android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:singleLine="true"
                     android:text="STATIONS" android:textColor="@color/text1" />
                 <TextView android:id="@+id/routeHeadActual"
-                    style="@style/TextMicro"
+                    style="@style/FieldLabel"
                     android:layout_width="@dimen/route_actual"
                     android:layout_height="wrap_content"
                     android:gravity="end"

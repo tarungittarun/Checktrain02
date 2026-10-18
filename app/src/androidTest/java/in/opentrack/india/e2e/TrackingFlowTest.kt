@@ -338,8 +338,10 @@ class TrackingFlowTest {
     // @flow source-disclosure
     @Test
     fun sourceBlockExplainsTheAnswer() {
-        assertTrue("About times cannot be reached in the source card",
-            E2E.reveal("sourceToggle", "scroller") && E2E.tap("sourceToggle"))
+        assertTrue("source picker cannot be reached in the source card",
+            E2E.reveal("sourceSpinner", "scroller"))
+        assertTrue("removed About button is still displayed", E2E.find("sourceToggle", 200) == null)
+        E2E.find("sourceSpinner")!!.longClick()
         assertNotNull("plain-language times guide never appeared",
             E2E.ui.wait(Until.findObject(By.textContains("Dim times are the timetable")), E2E.LOCAL_MS))
         val detailsButton = E2E.ui.wait(Until.findObject(By.text(java.util.regex.Pattern.compile("(?i)^source details$"))), E2E.LOCAL_MS)
@@ -357,30 +359,17 @@ class TrackingFlowTest {
 
     // @flow public-source-manual-check
     @Test
-    fun publicSourceTapActuallyChecksAndKeepsTheOfficialTable() {
-        // Exercise the built APK through the same dropdown a traveller uses, on the radio-off
-        // device row. Whether the public page answers or fails, the result must be visible and
-        // must NEVER become Act or a measured marker just because a page had a quick clock.
+    fun onlyOfficialAndWebsiteAreTravellerSelectable() {
         assertTrue("source picker cannot be reached in the source card",
             E2E.reveal("sourceSpinner", "scroller") && E2E.tap("sourceSpinner"))
-        val ixigo = E2E.ui.wait(Until.findObject(By.textContains("ixigo page")), E2E.LOCAL_MS)
-        assertNotNull("ixigo not selectable in the source dropdown", ixigo)
-        ixigo!!.click()
-        assertTrue("source selection never produced a visible result",
-            E2E.ui.wait(Until.hasObject(By.res(E2E.PKG, "sourceSummary")), E2E.NETWORK_MS))
-        val summary = E2E.text("sourceSummary")
-        assertTrue("source returned no result: '$summary'",
-            summary.contains("ixigo") || summary.contains("connection failed"))
-        assertTrue("page result silently replaced official Act/position: '$summary'",
-            summary.contains("Timetable shown"))
-        assertTrue("selected alternate removed the station table", E2E.count(stopsBy) > 0)
-        val sheetVisible = revealTimeSheet()
-        if (!sheetVisible) E2E.shot("public-source-no-visible-time-sheet")
-        assertTrue("selected page hid the visible arrival/departure pair", sheetVisible)
-        val pageMinutes = rowTexts("liveArr")
-        assertTrue("site selection disclosed no stop to compare", pageMinutes.isNotEmpty())
-        assertTrue("page selection must not display NTES minutes as this page's Act",
-            pageMinutes.all { it == "—" })
+        val website = E2E.ui.wait(Until.findObject(By.textContains("Where Is My Train · website")), E2E.LOCAL_MS)
+        assertNotNull("website choice missing", website)
+        assertTrue("other unverified public probes are misleadingly selectable",
+            E2E.ui.findObject(By.textContains("ixigo page")) == null &&
+                E2E.ui.findObject(By.textContains("WIMT web cache")) == null &&
+                E2E.ui.findObject(By.textContains("confirmtkt")) == null)
+        website!!.click()
+        assertTrue("website selection removed the station table", E2E.count(stopsBy) > 0)
         E2E.shot("public-source-check")
     }
 
@@ -388,7 +377,7 @@ class TrackingFlowTest {
     fun orgWebsiteSelectionKeepsSourceSpecificMinutesDistinctFromNtes() {
         assertTrue("source picker cannot be reached in the source card",
             E2E.reveal("sourceSpinner", "scroller") && E2E.tap("sourceSpinner"))
-        val website = E2E.ui.wait(Until.findObject(By.textContains("whereismytrain.org.in (website)")), E2E.LOCAL_MS)
+        val website = E2E.ui.wait(Until.findObject(By.textContains("Where Is My Train · website")), E2E.LOCAL_MS)
         assertNotNull("org website not selectable", website)
         website!!.click()
         // A usable site report explains itself in the source badge + table; an

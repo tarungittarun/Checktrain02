@@ -139,6 +139,34 @@ class StationSearchFlowTest {
         E2E.shot("never-silent")
     }
 
+    // @flow populated-home-logo
+    @Test
+    fun homeLogoKeepsPopulatedResultsDirectlyBelowTheOpenSearch() {
+        assertTrue("boarding station not selectable", pick("fromBox", "yes"))
+        assertTrue("destination not selectable", pick("toBox", "smet"))
+        assertTrue("station-pair result never arrived",
+            E2E.ui.wait(Until.hasObject(By.res(E2E.PKG, "hitGo")), E2E.NETWORK_MS))
+        val before = E2E.text("resultsSummary")
+        assertTrue("fixture must have a populated list", E2E.resultRows() > 0 && before.contains("train"))
+        assertTrue("Home logo not tappable", E2E.tap("homeBrand"))
+        assertTrue("Home logo lost the expanded search form", E2E.visible("searchCardScroll"))
+        assertTrue("Home logo discarded the populated result or its source summary",
+            E2E.resultRows() > 0 && E2E.text("resultsSummary").substringBefore(" · ") ==
+                before.substringBefore(" · "))
+        assertTrue("Home logo hid the summary/header/sort",
+            E2E.visible("resultsSummary") && E2E.visible("resultsHead") &&
+                E2E.visible("resultsSortRow") && E2E.text("resultsTitle") == "SEARCHED TRAINS")
+        val card = E2E.find("searchCard")!!.visibleBounds
+        val summary = E2E.find("resultsSummary")!!.visibleBounds
+        val results = E2E.find("results")!!.visibleBounds
+        val pxPerDp = E2E.ui.displayWidth / 360f
+        assertTrue("blank gap after Home logo: $card / $summary / $results",
+            summary.top - card.bottom in 0..(80 * pxPerDp).toInt() &&
+                results.top - card.bottom in 0..(130 * pxPerDp).toInt() &&
+                results.height() >= 48 * pxPerDp)
+        E2E.shot("populated-home-logo")
+    }
+
     // @flow both-ends-search
     @Test
     fun bothEndsRunASearch() {

@@ -333,9 +333,9 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             (LegGeometry.stopGapDp(it, screenDp) * ctx.resources.displayMetrics.density).toInt()
         } ?: 0
         holder.row.setPadding(holder.row.paddingLeft,
-            ctx.resources.getDimensionPixelSize(R.dimen.gap_s),
+            ctx.resources.getDimensionPixelSize(R.dimen.gap_xs),
             holder.row.paddingRight,
-            ctx.resources.getDimensionPixelSize(R.dimen.gap_s) + if (hasTrainLeg || hasPoints || nextKm == null) 0 else gapPx)
+            ctx.resources.getDimensionPixelSize(R.dimen.gap_xs) + if (hasTrainLeg || hasPoints || nextKm == null) 0 else gapPx)
         // The stop dot and its label already mark the reported halt. Full-width
         // row bands made this look like a data table, not a continuous route.
         holder.row.setBackgroundColor(0x00000000)
