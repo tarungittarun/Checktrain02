@@ -85,7 +85,16 @@ class TravellerAcceptanceTest {
             !receipt.contains("Checking", true) && !receipt.contains("Refreshing", true) &&
             !receipt.contains("Loading", true))
         assertEquals("Refresh changed the ticket's train", "12627", E2E.text("trainNo"))
-        assertEquals("Refresh erased or changed the route", route, E2E.text("routeLabel"))
+        val afterRoute = E2E.text("routeLabel")
+        val baseRoute = "SBC → NDLS · 2406 km"
+        val confirmedRoute = "$baseRoute · identity confirmed live (via erail)"
+        // A parallel erail identity request may finish during refresh. Assert the
+        // exact corridor/distance AND permit only the one-way addition of its
+        // explicitly attributed identity; no other route mutation is acceptable.
+        assertTrue("Initial ticket had a different corridor or unsupported identity: $route",
+            route == baseRoute || route == confirmedRoute)
+        assertTrue("Refresh erased or changed the route: $route -> $afterRoute",
+            afterRoute == route || route == baseRoute && afterRoute == confirmedRoute)
         assertTrue("Refresh erased the station list", E2E.count(E2E.res("stopName")) > 0)
         E2E.shot("traveller-refresh")
     }
