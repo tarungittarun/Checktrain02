@@ -204,14 +204,15 @@ class ScreenRenderTest {
             shot.text(R.id.routeLabel), shot.text(R.id.runDate),
         )
         strings.forEach { assertTrue("unfilled or empty label: '$it'", it.isNotBlank() && !it.contains("%")) }
-        assertTrue("headline lost its named departure: '$headline'",
-            headline.startsWith("Departed ") && headline.length > 12)
+        assertTrue("headline must name the last departure without claiming current location: '$headline'",
+            headline.startsWith("Last NTES report: Departed ") &&
+                headline.endsWith(" · now unknown"))
         // The fixture's stop names are ALL CAPS, as the upstream dump writes them. A sentence that carries
         // them verbatim ("Between DOBETAKAPUR and TUMAKURU") sits above a table that prints "Dobetakapur",
         // and two casings on one screen is how an app starts to look untrustworthy.
         assertTrue("the headline should follow the table's casing: '$headline'",
             headline.contains("Dobetakapur") && !headline.contains("DOBETAKAPUR"))
-        assertEquals("response receipt shows duration and only the available source minute",
+        assertEquals("response receipt separates duration, event age and device check time",
             "Took: 1.0 sec\nFreshness: 2m old\nChecked: 09:05:01", shot.text(R.id.checkClock))
         val score = shot.root.findViewById<View>(R.id.checkClock)
         assertTrue("response score must not have a box", score.background == null)
