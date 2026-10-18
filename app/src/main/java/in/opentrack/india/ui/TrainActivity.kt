@@ -694,7 +694,10 @@ class TrainActivity : AppCompatActivity() {
                 org != null -> "Website page updated ${RailTime.formatClock(org.pageUpdatedAt)} IST · " +
                     "not a movement time · site omits run date"
                 claim != null -> "provider updated ${RailTime.formatClock(claim.updateAt)} IST · upstream ${claim.upstream} · not an event time"
-                else -> "No qualifying past-stop report from selected source"
+                // The source-specific failure is already in the headline and
+                // detailed source summary. A paragraph here made the evidence
+                // row taller than the dense-phone card, hiding that headline.
+                else -> "No event time"
             }
             val siteStop = org?.let { it.rows[it.anchorCode] }
             val scheduled = org?.intermediate?.scheduledMinute ?: station?.arrivalMin

@@ -417,6 +417,25 @@ Render.save("02-track-live", shot.bitmap)
     }
 
     @Test
+    fun denseWebsiteFailureKeepsSourceNamedHeadlineAboveTheFold() {
+        val shot = Render.render(R.layout.activity_train, widthDp = 393f,
+            heightDp = 785f, textScale = 1.15f) { root ->
+            Render.text(root, R.id.provenance,
+                "whereismytrain.org.in (website) · comparison only")
+            Render.text(root, R.id.age, "No event time")
+            Render.text(root, R.id.headline,
+                "whereismytrain.org.in (website): no qualifying past-stop report for this run")
+        }
+        val viewport = shot.bounds(R.id.scroller)
+        val badge = shot.bounds(R.id.provenance)
+        val headline = shot.bounds(R.id.headline)
+        assertTrue("source badge was clipped: $badge / $viewport",
+            badge.height() > 0 && badge.top >= viewport.top && badge.bottom <= viewport.bottom)
+        assertTrue("source-specific failure headline was clipped: $headline / $viewport",
+            headline.height() > 0 && headline.top >= viewport.top && headline.bottom <= viewport.bottom)
+    }
+
+    @Test
     fun failedWebsiteResultIsInTheVisibleTopCardEvenAtLargeFont() {
         val shot = Render.render(R.layout.activity_train, widthDp = 411f,
             heightDp = 760f, textScale = 1.15f) { root ->

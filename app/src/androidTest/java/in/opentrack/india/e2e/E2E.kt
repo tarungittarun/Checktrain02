@@ -348,14 +348,23 @@ object E2E {
         // Debounced results and accessibility nodes can be replaced after the initial
         // find, especially on a large-font emulator. Reacquire the *same box's* row
         // if the first tap misses; never count a closed panel as a selection.
-        fun selected(): Boolean = ui.findObject(res(box))?.findObject(res("suggestChip")) != null
-        repeat(2) {
-            val panel = ui.findObject(res(box))?.findObject(res("suggestPanel"))
-                ?: return selected() || visible("hitGo", 500)
-            val row = panel.findObjects(By.res(PKG, "sugPrimary")).getOrNull(index)
-                ?: return selected() || visible("hitGo", 500)
+        fun selected(): Boolean = runCatching {
+            ui.findObject(res(box))?.findObject(res("suggestChip")) != null
+        }.getOrDefault(false)
+        repeat(3) {
+            // A station panel is replaced when its debounce/query completes;
+            // stale accessibility nodes are not a successful suggestion tap.
+            val row = runCatching {
+                ui.findObject(res(box))?.findObject(res("suggestPanel"))
+                    ?.findObjects(By.res(PKG, "sugPrimary"))?.getOrNull(index)
+            }.getOrNull()
+            if (row == null) {
+                if (selected() || visible("hitGo", 500)) return true
+                Thread.sleep(200)
+                return@repeat
+            }
             runCatching { row.click(); ui.waitForIdle() }
-            if (ui.wait(Until.hasObject(res("suggestChip")), 2_500L) && selected() ||
+            if ((ui.wait(Until.hasObject(res("suggestChip")), 2_500L) && selected()) ||
                 visible("hitGo", 500)) return true
         }
         return false
