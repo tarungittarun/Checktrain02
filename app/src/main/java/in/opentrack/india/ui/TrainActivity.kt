@@ -96,6 +96,7 @@ class TrainActivity : AppCompatActivity() {
     private var mirrorBusy = false
     private var heroExpanded = true
     private var sourceSummaryWanted = false
+    private var initialSummaryTopDone = false
 
     private fun applyHeroExpansion() {
         binding.heroToggle.text = if (heroExpanded) "Less  ▴" else "More  ▾"
@@ -226,6 +227,10 @@ class TrainActivity : AppCompatActivity() {
         vm.ui.observe(this) { it?.let { u ->
             lastUi = u
             bind(u)
+            if (!initialSummaryTopDone) {
+                initialSummaryTopDone = true
+                binding.scroller.post { binding.scroller.scrollTo(0, 0) }
+            }
             // The offline timetable can paint while the network is still in flight.
             // Without this call the first-load panel kept its layout_weight until
             // checking changed, crushing the route viewport on dense phones.

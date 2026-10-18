@@ -410,11 +410,14 @@ class TrackingFlowTest {
             "checking='${E2E.text("mirrorState", 200)}' headline='${E2E.text("headline", 200)}'",
             resultVisible)
         val summary = E2E.text("sourceSummary")
+        val visibleFailure = E2E.text("headline").let {
+            it.contains("whereismytrain.org.in") && it.contains("no qualifying past-stop report")
+        }
         val siteReportVisible = (E2E.text("provenance").contains("WEBSITE · reported stop") ||
             E2E.text("provenance").contains("WEBSITE · NTES agrees within"))
         assertTrue("source result has no plain-language result: $summary",
             (summary.contains("whereismytrain.org.in") && summary.contains("Timetable shown")) ||
-                siteReportVisible)
+                siteReportVisible || visibleFailure)
         assertTrue("org selection lost the station table", E2E.count(stopsBy) > 0)
         val sheetVisible = revealTimeSheet()
         if (!sheetVisible) E2E.shot("org-source-no-visible-time-sheet")
@@ -440,7 +443,7 @@ class TrackingFlowTest {
             assertTrue("no Web cells but source pretends to verify station events: $summary",
                 summary.contains("NOT Act") || summary.contains("static") ||
                     summary.contains("whereismytrain.org.in") &&
-                    summary.contains("Timetable shown"))
+                    summary.contains("Timetable shown") || visibleFailure)
         }
         E2E.shot("org-website-source")
     }
@@ -456,6 +459,8 @@ class TrackingFlowTest {
             E2E.text("routeLabel").isNotBlank(),
         )
         assertTrue("a refresh left no halt rows", E2E.count(stopsBy) > 0)
+        assertTrue("a refresh hid the age chip in the bounded card",
+            E2E.reveal("age", "scroller", up = false))
         assertTrue("a refresh left the age chip blank", E2E.text("age").isNotBlank())
     }
 

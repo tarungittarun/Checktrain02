@@ -12,7 +12,17 @@ class RouteViewportBudgetTest {
         val cap = RouteViewportBudget.sourceCapPx(available, 2160, density, 1.30f)
         val routeDp = (available - cap) / density
         assertTrue("route only has $routeDp dp with 1.30× font", routeDp >= 460f)
-        assertTrue("source explanation cannot fit: ${cap / density} dp", cap / density >= 180f)
+        assertTrue("source explanation cannot fit: ${cap / density} dp", cap / density >= 210f)
+    }
+
+    @Test fun shortLargeFontScreenStillShowsHeadlineAndThreeCompactHalts() {
+        val density = 440f / 160f
+        val cap = RouteViewportBudget.sourceCapPx((660f * density).toInt(), 2160,
+            density, 1.15f)
+        assertTrue("headline and source badge are clipped: ${cap / density}dp",
+            cap / density >= 210f)
+        assertTrue("route disappears under summary: ${cap / density}dp",
+            660f - cap / density >= 400f)
     }
 
     @Test fun normalHeightStillLetsSummaryWrapWithoutTakingTheWholeScreen() {

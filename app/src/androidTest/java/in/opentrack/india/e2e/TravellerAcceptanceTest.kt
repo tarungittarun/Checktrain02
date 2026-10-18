@@ -97,7 +97,14 @@ class TravellerAcceptanceTest {
         // Selecting one end may compact the form; the traveller uses Edit search.
         if (E2E.visible("editSearch", 500)) assertTrue(E2E.tap("editSearch"))
         assertTrue("Get-off-at search is unavailable after Edit search", E2E.typeInBox("toBox", "yes"))
-        assertTrue("Same station has no suggestion", E2E.ui.wait(Until.hasObject(E2E.res("sugPrimary")), E2E.LOCAL_MS))
+        // On the resized keyboard viewport a populated suggestion can sit below
+        // the search-card fold. Scroll to the actual result; never accept a blank
+        // panel as a match or skip the same-station refusal check.
+        val sameStationSuggestion = E2E.ui.wait(Until.hasObject(E2E.res("sugPrimary")), E2E.LOCAL_MS) ||
+            E2E.reveal("sugPrimary", "searchCardScroll", swipes = 4)
+        if (!sameStationSuggestion) E2E.shot("same-station-suggestion-hidden")
+        assertTrue("Same station has no reachable suggestion: ${E2E.debugSearch("toBox")}",
+            sameStationSuggestion)
         assertTrue("Could not pick destination", E2E.tapSuggestion("toBox"))
         assertTrue("Same-station trip was not explicitly refused: '${E2E.text("statusLine")}'",
             listOf("same", "different").any { E2E.text("statusLine").contains(it, ignoreCase = true) })

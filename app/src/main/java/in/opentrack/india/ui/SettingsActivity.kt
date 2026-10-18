@@ -33,6 +33,7 @@ class SettingsActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivitySettingsBinding
     private lateinit var prefs: Prefs
+    private var stateFeedbackByAction = false
 
     /**
      * "Save to file" hands the log to the system's document picker, which answers with a content URI. The
@@ -117,6 +118,7 @@ class SettingsActivity : AppCompatActivity() {
             ) {
                 val why = "Enter a full http(s) address, or leave this blank. Nothing was saved."
                 binding.overrideUrl.error = why
+                stateFeedbackByAction = true
                 binding.state.text = why
                 return@setOnClickListener
             }
@@ -128,6 +130,7 @@ class SettingsActivity : AppCompatActivity() {
         binding.clear.setOnClickListener {
             lifecycleScope.launch {
                 (application as App).repository()?.clearCaches()
+                stateFeedbackByAction = true
                 binding.state.text = "Live cache cleared · saved timetable still available offline"
                 Toast.makeText(applicationContext, "Live cache cleared", Toast.LENGTH_SHORT).show()
             }
@@ -147,7 +150,9 @@ class SettingsActivity : AppCompatActivity() {
                 append("directly from a public Indian Railways enquiry endpoint; everything else — ")
                 append("station search, the ±24 h train list and every timetable — is answered here.")
             }
-            binding.state.text = when {
+            // Installation completes asynchronously. It must not overwrite a newer,
+            // actionable validation/cache message after the traveller pressed Save.
+            if (!stateFeedbackByAction) binding.state.text = when {
                 RefDb.isUsable(this@SettingsActivity) ->
                     "Built-in timetable installed · offline search ready"
                 else -> "Built-in timetable not installed yet — it is extracted on first search"
