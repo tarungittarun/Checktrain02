@@ -243,6 +243,12 @@ class ScreenRenderTest {
         assertEquals("TIMETABLE", shot.text(R.id.routeHeadTimetable))
         assertEquals("STATIONS", shot.text(R.id.routeHeadStations))
         assertEquals("ACTUAL", shot.text(R.id.routeHeadActual))
+        val actualHeading = shot.bounds(R.id.routeHeadActual)
+        assertTrue("ACTUAL header must occupy the visible right column: $actualHeading",
+            actualHeading.width() >= Render.dp(shot.context, 55f) &&
+                actualHeading.height() > 0 && actualHeading.right <= shot.bitmap.width)
+        assertTrue("ACTUAL heading is present in XML but was not PAINTED on screen: $actualHeading",
+            shot.countWith(shot.context.getColor(R.color.live), actualHeading) > 3)
         assertTrue("header must be outside the scrolling stop list",
             shot.root.findViewById<View>(R.id.routeColumnHeader).parent !== list)
         fun right(id: Int) = shot.bounds(id).right

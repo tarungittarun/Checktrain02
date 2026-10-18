@@ -150,9 +150,14 @@ class StationSearchFlowTest {
         assertTrue("fixture must have a populated list", E2E.resultRows() > 0 && before.contains("train"))
         assertTrue("Home logo not tappable", E2E.tap("homeBrand"))
         assertTrue("Home logo lost the expanded search form", E2E.visible("searchCardScroll"))
-        assertTrue("Home logo discarded the populated result or its source summary",
-            E2E.resultRows() > 0 && E2E.text("resultsSummary").substringBefore(" · ") ==
-                before.substringBefore(" · "))
+        val after = E2E.text("resultsSummary")
+        assertTrue("no result card exposed after opening the search form",
+            E2E.ui.wait(Until.hasObject(By.res(E2E.PKG, "hitNo")), E2E.LOCAL_MS))
+        val rows = E2E.resultRows()
+        // A live erail upgrade may legitimately change the number of hits while
+        // the card opens. It must never erase every result or its summary.
+        assertTrue("Home logo discarded visible results: before='$before' after='$after' rows=$rows",
+            rows > 0 && Regex("^[1-9]\\d* trains?\\b").containsMatchIn(after))
         assertTrue("Home logo hid the summary/header/sort",
             E2E.visible("resultsSummary") && E2E.visible("resultsHead") &&
                 E2E.visible("resultsSortRow") && E2E.text("resultsTitle") == "SEARCHED TRAINS")

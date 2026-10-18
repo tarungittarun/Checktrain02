@@ -6,7 +6,8 @@ import android.view.View
 import android.widget.ScrollView
 
 /** Wrap the edited search form without consuming the results viewport on tall phones.
- * A short/large-font phone can still scroll the form to reach Find. */
+ * A short/large-font phone can still scroll the form to reach Find. Reserve a
+ * real result-row viewport, not only the summary and sort controls. */
 class BoundedSearchScroll @JvmOverloads constructor(
     context: Context, attrs: AttributeSet? = null, defStyle: Int = 0,
 ) : ScrollView(context, attrs, defStyle) {
@@ -21,7 +22,7 @@ class BoundedSearchScroll @JvmOverloads constructor(
             super.onMeasure(widthMeasureSpec, heightMeasureSpec)
             return
         }
-        val screenCap = (resources.displayMetrics.heightPixels * 0.58f).toInt()
+        val screenCap = (resources.displayMetrics.heightPixels * 0.48f).toInt()
         val available = View.MeasureSpec.getSize(heightMeasureSpec)
         val cap = if (available > 0) minOf(screenCap, available) else screenCap
         super.onMeasure(widthMeasureSpec, View.MeasureSpec.makeMeasureSpec(cap, View.MeasureSpec.AT_MOST))

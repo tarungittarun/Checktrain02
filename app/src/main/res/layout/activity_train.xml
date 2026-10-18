@@ -181,17 +181,6 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content" />
 
-                <!-- A failed selected source must be visible in the first glance,
-                     not below a capped source card's scroll viewport. -->
-                <TextView
-                    android:id="@+id/sourceSummary"
-                    style="@style/TextMicro"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:textColor="@color/warn"
-                    android:visibility="gone" />
-
                 <!-- The distance-proportional icon lives in the corresponding table leg,
                      not twice in the header. The badge below still identifies its source. -->
 
@@ -220,6 +209,17 @@
                         android:layout_marginStart="8dp"
                         android:layout_weight="1" />
                 </LinearLayout>
+
+                <!-- A failed selected source must be visible in the first glance,
+                     not below a capped source card's scroll viewport. -->
+                <TextView
+                    android:id="@+id/sourceSummary"
+                    style="@style/TextMicro"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:textColor="@color/warn"
+                    android:visibility="gone" />
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -409,7 +409,7 @@
             <!-- Pinned outside RecyclerView: the headings do not scroll away with
                  the stops. These widths mirror item_stop.xml and leave the rail
                  between the timetable and station-name columns. -->
-            <LinearLayout
+            <FrameLayout
                 android:id="@+id/routeColumnHeader"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -418,32 +418,32 @@
                 android:paddingBottom="8dp"
                 android:paddingStart="8dp"
                 android:paddingEnd="20dp"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
                 android:background="@drawable/bg_inset">
                 <TextView android:id="@+id/routeHeadTimetable"
                     style="@style/FieldLabel"
                     android:layout_width="@dimen/col_sched"
                     android:layout_height="wrap_content"
+                    android:layout_gravity="start|center_vertical"
                     android:gravity="start"
                     android:singleLine="true"
                     android:text="TIMETABLE" android:textColor="@color/text2" />
-                <View android:layout_width="@dimen/route_station_spacer"
-                    android:layout_height="1dp" />
+                <!-- 108dp timetable + 26dp rail/spacer = station-name origin. -->
                 <TextView android:id="@+id/routeHeadStations"
                     style="@style/FieldLabel"
-                    android:layout_width="0dp" android:layout_height="wrap_content"
-                    android:layout_weight="1"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:layout_marginStart="134dp"
+                    android:layout_gravity="start|center_vertical"
                     android:singleLine="true"
                     android:text="STATIONS" android:textColor="@color/text1" />
                 <TextView android:id="@+id/routeHeadActual"
                     style="@style/FieldLabel"
                     android:layout_width="@dimen/route_actual"
                     android:layout_height="wrap_content"
-                    android:gravity="end"
+                    android:layout_gravity="end|center_vertical"
+                    android:gravity="end|center_vertical"
                     android:singleLine="true"
                     android:text="ACTUAL" android:textColor="@color/live" />
-            </LinearLayout>
+            </FrameLayout>
 
             <!-- Ripple is clipped by this viewport; it cannot spill into the source card,
                  the fixed column headings, or the rest of the screen. -->
