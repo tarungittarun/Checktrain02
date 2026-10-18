@@ -3,6 +3,7 @@ package `in`.opentrack.india.ui
 import android.content.Context
 import android.util.AttributeSet
 import android.view.View
+import android.view.MotionEvent
 import android.widget.ScrollView
 
 /** The top source card must remain scrollable without stealing the route viewport.
@@ -24,6 +25,22 @@ internal object RouteViewportBudget {
 class BoundedScrollView @JvmOverloads constructor(
     context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0,
 ) : ScrollView(context, attrs, defStyleAttr) {
+    // A source response may change the card's measured height and cause Android
+    // to auto-pan to a focused child. Until the traveller actually touches this
+    // viewport, the headline and provenance must remain in the first glance.
+    var touchedByUser: Boolean = false
+        private set
+
+    fun focusSourceResult() {
+        touchedByUser = false
+        post { scrollTo(0, 0) }
+    }
+
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) touchedByUser = true
+        return super.dispatchTouchEvent(event)
+    }
+
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val cap = RouteViewportBudget.sourceCapPx(
             View.MeasureSpec.getSize(heightMeasureSpec), resources.displayMetrics.heightPixels,

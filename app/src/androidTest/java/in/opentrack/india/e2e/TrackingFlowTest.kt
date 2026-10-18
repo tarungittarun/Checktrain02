@@ -51,7 +51,10 @@ class TrackingFlowTest {
             resultVisible,
         )
         assertTrue("the Track button did not open the tracking screen", E2E.openTrackFromFirstResult())
-        assertNotNull("no headline on the tracking screen", E2E.find("headline", E2E.NETWORK_MS))
+        val headline = E2E.find("headline", E2E.NETWORK_MS)
+        assertNotNull("no first-glance headline: summary='${E2E.text("summaryBoxLabel", 250)}' " +
+            "badge='${E2E.text("provenance", 250)}' age='${E2E.text("age", 250)}' " +
+            "source='${E2E.text("sourceSpinner", 250)}'", headline)
         assertTrue("first-load overlay still occupies the route after the timetable painted",
             E2E.find("firstLoad", 300) == null)
     }
