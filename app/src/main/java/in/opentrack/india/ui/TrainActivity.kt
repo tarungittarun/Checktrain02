@@ -984,9 +984,13 @@ class TrainActivity : AppCompatActivity() {
         }
         val stale = SourceFreshness.isStale(eventAt, now)
         binding.age.setTextColor(getColor(if (stale) R.color.late else R.color.text3))
-        if (ui.activeSource == `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG &&
-            ui.orgWebsiteReport != null && stale) {
+        if (stale && ui.activeSource == `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG &&
+            ui.orgWebsiteReport != null) {
             binding.provenance.text = "WEBSITE · reported stop · stale"
+            binding.provenance.setBackgroundResource(R.drawable.bg_badge_problem)
+            binding.provenance.setTextColor(getColor(R.color.late))
+        } else if (stale && ui.activeSource == "NTES (official)" && eventAt != null) {
+            binding.provenance.text = "NTES · last reported stop · stale"
             binding.provenance.setBackgroundResource(R.drawable.bg_badge_problem)
             binding.provenance.setTextColor(getColor(R.color.late))
         }

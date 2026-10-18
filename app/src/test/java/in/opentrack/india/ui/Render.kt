@@ -233,7 +233,7 @@ object Render {
         val hero = if (m.isLive) JourneyHero.official(m.rows,
             m.rows.firstOrNull { it.isAnchor && it.source == TrackModel.MinuteSource.REPORTED }?.code)
             else null
-        text(root, R.id.headline, hero?.title ?: m.headline)
+        text(root, R.id.headline, hero?.let { "Last NTES report: ${it.title} · now unknown" } ?: m.headline)
         text(root, R.id.heroEyebrow, if (m.rows.any {
                 it.source == TrackModel.MinuteSource.REPORTED
             }) "NTES REPORT" else "TIMETABLE ONLY")
