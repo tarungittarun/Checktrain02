@@ -396,7 +396,12 @@ class TrackingFlowTest {
             resultVisible = (summary.contains("whereismytrain.org.in") &&
                 summary.contains("Timetable shown") && !summary.contains("Checking")) ||
                 (badge.contains("WEBSITE · reported stop") ||
-                badge.contains("WEBSITE · NTES agrees within"))
+                badge.contains("WEBSITE · NTES agrees within")) ||
+                // On a short, large-font viewport the selected website can
+                // honestly explain failure in the visible headline while the
+                // lower source-summary line is scrollable below the fold.
+                (E2E.text("headline", 300).contains("whereismytrain.org.in") &&
+                    E2E.text("headline", 300).contains("no qualifying past-stop report"))
             if (!resultVisible) Thread.sleep(200)
         }
         if (!resultVisible) E2E.shot("org-website-missing-result")

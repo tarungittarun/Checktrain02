@@ -175,15 +175,6 @@
                         android:textColor="@color/live" />
                 </LinearLayout>
 
-                <TextView
-                    android:id="@+id/headline"
-                    style="@style/TextHeadline"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content" />
-
-                <!-- The distance-proportional icon lives in the corresponding table leg,
-                     not twice in the header. The badge below still identifies its source. -->
-
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -209,6 +200,15 @@
                         android:layout_marginStart="8dp"
                         android:layout_weight="1" />
                 </LinearLayout>
+
+                <TextView
+                    android:id="@+id/headline"
+                    style="@style/TextHeadline"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+
+                <!-- The distance-proportional icon lives in the corresponding table leg,
+                     not twice in the header. The badge below still identifies its source. -->
 
                 <!-- A failed selected source must be visible in the first glance,
                      not below a capped source card's scroll viewport. -->
@@ -435,7 +435,7 @@
                     android:layout_gravity="start|center_vertical"
                     android:singleLine="true"
                     android:text="STATIONS" android:textColor="@color/text1" />
-                <TextView android:id="@+id/routeHeadActual"
+                <in.opentrack.india.ui.RouteActualHeading android:id="@+id/routeHeadActual"
                     style="@style/FieldLabel"
                     android:layout_width="@dimen/route_actual"
                     android:layout_height="wrap_content"

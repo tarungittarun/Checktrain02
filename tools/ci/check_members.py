@@ -113,6 +113,8 @@ filterKeys
 # spinner layouts (not application resources). No project declaration can satisfy these names.
 selectedItemPosition simple_spinner_item simple_spinner_dropdown_item getLong
 ifBlank maxByOrNull
+# Explicit canvas text baseline for the right-hand column header: Paint/FontMetrics.
+fontMetrics ascent descent
 # pointing the screen at the train (2026-10-12): RecyclerView/LayoutManager positioning
 scrollToPositionWithOffset findViewByPosition smoothScrollTo
 # bind every route row in the shipped-data render test without assuming off-screen RecyclerView children exist
