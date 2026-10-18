@@ -249,8 +249,10 @@ class ScreenRenderTest {
         assertTrue("source picker should reach the right edge of its card",
             shot.bounds(R.id.sourceSpinner).right >= shot.bounds(R.id.scroller).right - 35 *
                 shot.context.resources.displayMetrics.density)
-        assertTrue("refresh must be an icon, not a text button",
-            shot.root.findViewById<View>(R.id.refresh) is android.widget.ImageButton)
+        assertTrue("refresh must contain an independently rotating icon, not text",
+            shot.root.findViewById<View>(R.id.refreshGlyph) is android.widget.ImageView &&
+                shot.root.findViewById<View>(R.id.refreshGlyph).parent ===
+                    shot.root.findViewById<View>(R.id.refresh))
         assertTrue("picker must remain long-pressable for source guidance",
             sourcePicker.height > 0)
         assertEquals("Refresh needs a 48dp touch target", 48,
