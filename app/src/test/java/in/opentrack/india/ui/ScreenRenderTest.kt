@@ -110,6 +110,24 @@ class ScreenRenderTest {
     // ------------------------------------------------------------------ the tracking screen
 
     @Test
+    fun keyboardEmptySearchUsesTheWholeVisibleCardNotAnEmptyListStrip() {
+        // Simulate the adjustResize viewport after the IME consumes 280dp.
+        val shot = Render.render(R.layout.activity_main, widthDp = 393f,
+            heightDp = 535f, textScale = 1.15f) { root ->
+            root.findViewById<View>(R.id.statusLine).visibility = View.GONE
+            root.findViewById<View>(R.id.results).visibility = View.GONE
+            root.findViewById<BoundedSearchScroll>(R.id.searchCardScroll).isFillViewport = true
+            root.findViewById<SuggestBox>(R.id.toBox).text = "SMET"
+        }
+        val card = shot.bounds(R.id.searchCard)
+        val viewport = shot.bounds(R.id.searchCardScroll)
+        assertTrue("empty list left a bare strip above IME: $card / $viewport",
+            card.bottom >= viewport.bottom - Render.dp(shot.context, 2f))
+        assertTrue("the focused station input vanished on the reduced viewport",
+            shot.bounds(R.id.toBox).top < viewport.bottom)
+    }
+
+    @Test
     fun editedSearchKeepsSummaryCloseAndSortInRightHalf() {
         val shot = Render.render(R.layout.activity_main) { root ->
             val scroll = root.findViewById<BoundedSearchScroll>(R.id.searchCardScroll)
@@ -194,7 +212,7 @@ class ScreenRenderTest {
         assertTrue("the headline should follow the table's casing: '$headline'",
             headline.contains("Dobetakapur") && !headline.contains("DOBETAKAPUR"))
         assertEquals("response receipt shows duration and only the available source minute",
-            "Took: 1.0 sec\nAt: 09:05", shot.text(R.id.checkClock))
+            "Took: 1.0 sec\nFreshness: 2m old\nChecked: 09:05:01", shot.text(R.id.checkClock))
         val score = shot.root.findViewById<View>(R.id.checkClock)
         assertTrue("response score must not have a box", score.background == null)
         assertTrue("response score is a text display, not a perpetual paint animation",
@@ -414,6 +432,26 @@ Render.save("02-track-live", shot.bitmap)
         assertEquals("12 min ago", text(reported, R.id.inlineLegAge))
         assertEquals(12 * 60L, icon.ageSeconds)
         Render.save("07-track-source-reported-halt", shot.bitmap)
+    }
+
+    @Test
+    fun trackingHasUnboxedBrandAndOnlyTheRefreshGlyphSpins() {
+        val shot = Render.render(R.layout.activity_train, widthDp = 411f,
+            heightDp = 760f, textScale = 1.15f) { root ->
+            root.findViewById<TextView>(R.id.checkClock).apply {
+                visibility = View.VISIBLE
+                text = "Took: 2.0 sec\nFreshness: 25m old\nChecked: 13:40:01"
+            }
+        }
+        val button = shot.root.findViewById<View>(R.id.refresh)
+        val glyph = shot.root.findViewById<View>(R.id.refreshGlyph)
+        assertTrue("refresh target shrank", button.width >= Render.dp(shot.context, 48f))
+        assertTrue("refresh icon cannot rotate independently", glyph.parent === button)
+        assertTrue("locomotive/title is no longer a usable home target",
+            shot.root.findViewById<View>(R.id.back).width >= Render.dp(shot.context, 180f))
+        val score = shot.root.findViewById<TextView>(R.id.checkClock)
+        assertEquals("score needs duration, event age AND checked time", 3, score.layout?.lineCount)
+        Render.assertNothingCut(score, "three-line source response")
     }
 
     @Test

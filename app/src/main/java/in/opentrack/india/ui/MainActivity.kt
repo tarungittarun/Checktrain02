@@ -1,6 +1,7 @@
 package `in`.opentrack.india.ui
 
 import android.content.Intent
+import android.graphics.Rect
 import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
@@ -41,6 +42,21 @@ class MainActivity : AppCompatActivity() {
     private var keepSearchOpen = false
     private var searchCollapsed = false
     private var sortMode = TrainResultsDisplay.Sort.SUGGESTED
+    private var keyboardOpen = false
+
+    /** With no hits, a weighted empty RecyclerView reserved a black strip above the IME.
+     * Let the form card extend to the keyboard; never hide populated search results. */
+    private fun updateKeyboardLayout(open: Boolean) {
+        if (keyboardOpen == open) return
+        keyboardOpen = open
+        val editingEmpty = open && vm.results.value?.hits?.isNotEmpty() != true
+        binding.results.visibility = if (editingEmpty) View.GONE else View.VISIBLE
+        binding.searchCardScroll.isFillViewport = editingEmpty
+    }
+
+    private fun firstSortedTrain() {
+        (binding.results.layoutManager as? LinearLayoutManager)?.scrollToPositionWithOffset(0, 0)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -65,6 +81,15 @@ class MainActivity : AppCompatActivity() {
         binding.results.adapter = adapter
         binding.results.itemAnimator = null // a live-list upgrade should not jump the edited list
         binding.results.setHasFixedSize(true)
+        // adjustResize changes the visible frame when the IME opens. Without
+        // this, the empty weighted results viewport sits between Find and the keyboard.
+        binding.root.viewTreeObserver.addOnGlobalLayoutListener {
+            val visible = Rect()
+            binding.root.getWindowVisibleDisplayFrame(visible)
+            val screen = android.graphics.Point().also { windowManager.defaultDisplay.getRealSize(it) }
+            val imeHeight = screen.y - visible.bottom
+            updateKeyboardLayout(imeHeight > 150f * resources.displayMetrics.density)
+        }
         val sorts = TrainResultsDisplay.Sort.entries
         binding.resultsSort.adapter = ArrayAdapter(this, R.layout.item_sort_selected,
             listOf("Suggested", "Departure", "Arrival", "Duration")).apply {
@@ -72,9 +97,12 @@ class MainActivity : AppCompatActivity() {
         }
         binding.resultsSort.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                val old = sortMode
                 sortMode = sorts.getOrElse(position) { TrainResultsDisplay.Sort.SUGGESTED }
                 binding.resultsSort.contentDescription = "Sort by ${sortMode.name.lowercase()}"
-                vm.results.value?.let(::displaySortedResults)
+                val changed = old != sortMode && vm.results.value?.hits?.isNotEmpty() == true
+                if (changed) firstSortedTrain()
+                vm.results.value?.let { displaySortedResults(it, scrollToTop = changed) }
             }
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
@@ -346,6 +374,9 @@ class MainActivity : AppCompatActivity() {
         (getSystemService(INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager)
             ?.hideSoftInputFromWindow(binding.root.windowToken, 0)
         binding.resultsHead.visibility = if (report.hits.isEmpty()) View.GONE else View.VISIBLE
+        // A result may arrive before adjustResize reports the IME closing.
+        binding.results.visibility = if (keyboardOpen && report.hits.isEmpty()) View.GONE else View.VISIBLE
+        binding.searchCardScroll.isFillViewport = keyboardOpen && report.hits.isEmpty()
         binding.resultsSortRow.visibility = binding.resultsHead.visibility
         binding.resultsSummary.visibility = binding.resultsHead.visibility
         updateResultsSummary(report)
@@ -393,7 +424,7 @@ class MainActivity : AppCompatActivity() {
         binding.resultsSummary.contentDescription = binding.resultsSummary.text
     }
 
-    private fun displaySortedResults(report: TrainFinder.Report) {
+    private fun displaySortedResults(report: TrainFinder.Report, scrollToTop: Boolean = false) {
         val sortLabel = when (sortMode) {
             TrainResultsDisplay.Sort.SUGGESTED -> getString(R.string.sorted_by)
             TrainResultsDisplay.Sort.DEPARTURE -> "sorted by departure"
@@ -403,7 +434,11 @@ class MainActivity : AppCompatActivity() {
         binding.resultsSub.text = sortLabel +
             (if (report.queryMillis > 0) " · ${report.queryMillis} ms on device" else "")
         adapter.nowMinute = vm.targetEpochMinute
-        adapter.submitList(TrainResultsDisplay.sorted(report.hits, sortMode))
+        adapter.submitList(TrainResultsDisplay.sorted(report.hits, sortMode)) {
+            // AsyncListDiffer may commit after the selection callback; reset only
+            // for a deliberate sort, not for a later live-list refresh.
+            if (scrollToTop) binding.results.post { firstSortedTrain() }
+        }
     }
 
     /**

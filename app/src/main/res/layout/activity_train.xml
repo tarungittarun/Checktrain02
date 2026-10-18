@@ -35,7 +35,7 @@
                 android:orientation="horizontal"
                 android:clickable="true"
                 android:focusable="true"
-                android:background="@drawable/ripple_btn_ghost"
+                android:background="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="TrackTrain · return to train list">
                 <ImageView android:layout_width="36dp" android:layout_height="36dp"
                     android:src="@drawable/ic_launcher" android:contentDescription="@null" />
@@ -259,16 +259,16 @@
                     <androidx.appcompat.widget.AppCompatTextView
                         android:id="@+id/checkClock"
                         style="@style/TextMicro"
-                        android:layout_width="138dp"
-                        android:layout_height="72dp"
+                        android:layout_width="156dp"
+                        android:layout_height="78dp"
                         android:layout_marginStart="6dp"
                         android:gravity="center"
-                        android:maxLines="2"
+                        android:maxLines="3"
                         android:textColor="@color/live"
-                        android:textSize="22sp"
+                        android:textSize="17sp"
                         app:autoSizeTextType="uniform"
-                        app:autoSizeMinTextSize="18sp"
-                        app:autoSizeMaxTextSize="22sp"
+                        app:autoSizeMinTextSize="13sp"
+                        app:autoSizeMaxTextSize="17sp"
                         app:autoSizeStepGranularity="1sp"
                         android:visibility="gone" />
 
@@ -365,14 +365,23 @@
                     android:textColor="@color/text2"
                     android:textSize="12sp"
                     android:contentDescription="@string/auto_refresh_minute" />
-                <ImageButton
+                <FrameLayout
                     android:id="@+id/refresh"
-                    style="@style/IconAction"
                     android:layout_width="48dp"
                     android:layout_height="48dp"
-                    android:src="@drawable/ic_refresh"
-                    android:tint="@color/live"
-                    android:contentDescription="@string/refresh" />
+                    android:background="@drawable/ripple_btn_ghost"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:contentDescription="@string/refresh">
+                    <ImageView
+                        android:id="@+id/refreshGlyph"
+                        android:layout_width="28dp"
+                        android:layout_height="28dp"
+                        android:layout_gravity="center"
+                        android:src="@drawable/ic_refresh"
+                        android:tint="@color/live"
+                        android:contentDescription="@null" />
+                </FrameLayout>
             </LinearLayout>
 
     <!-- A checked-at receipt remains until the next request; never a movement claim. -->

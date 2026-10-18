@@ -242,7 +242,7 @@ object Render {
         // The same composition the Activity uses, so no fixture has to invent this sentence (and cannot
         // quietly put facts on a screen that the app never shows there).
         text(root, R.id.delay, m.delayLabel)
-        text(root, R.id.checkClock, if (m.isLive) "Took: 1.0 sec\nAt: 09:05" else "")
+        text(root, R.id.checkClock, if (m.isLive) "Took: 1.0 sec\nFreshness: 2m old\nChecked: 09:05:01" else "")
         // Capture a frame of the one-second receipt only for a completed live ask.
         root.findViewById<View>(R.id.checkClock).visibility =
             if (m.isLive) View.VISIBLE else View.GONE

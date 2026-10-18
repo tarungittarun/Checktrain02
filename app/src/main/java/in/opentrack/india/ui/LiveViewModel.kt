@@ -1606,12 +1606,17 @@ class LiveViewModel(
                     `in`.opentrack.india.model.StopStatus.DEPARTED else
                     `in`.opentrack.india.model.StopStatus.ARRIVED,
                 delayMinutes = null, etaNextMinute = null,
-                ageSeconds = (now - (publicChecks[PublicPageChecks.ORG]?.checkedAt ?: now))
-                    .coerceAtLeast(0L) / 1000,
-                // This site's Last Updated can advance with unchanged rows. Keep
-                // only the HTTP-check age in the model; the page clock is printed
-                // separately with a non-event disclaimer on the screen.
-                feedAgeSeconds = null, feedStampMillis = null)
+                // Never score a train event by the page's newest check: it can
+                // keep advancing while the last station remains BDVT. Age the
+                // printed past-stop minute, with a separate page clock in Info.
+                ageSeconds = orgReport?.let { report ->
+                    (now - RailTime.railMinuteToEpochMillis(originDate, report.eventMinute))
+                        .coerceAtLeast(0L) / 1000
+                } ?: 0L,
+                feedAgeSeconds = orgReport?.let { report ->
+                    (now - RailTime.railMinuteToEpochMillis(originDate, report.eventMinute))
+                        .coerceAtLeast(0L) / 1000
+                }, feedStampMillis = null)
             claimStop != null -> pos.copy(
                 provenance = SourceKind.PROVIDER_OVERRIDE, anchorSeq = claimStop.seq,
                 nextSeq = route.stops.getOrNull(route.stops.indexOf(claimStop) + 1)?.seq ?: 0,

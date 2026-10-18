@@ -55,6 +55,22 @@ class TrainActivity : AppCompatActivity() {
     /** A completed HTTP request is not a new train event. Compare station+minute,
      * not the site's page-update clock or the time of our own button tap. */
     private var previousRefreshEvent: String? = null
+
+    private fun selectedEventAt(ui: LiveViewModel.Ui?): Long? {
+        if (ui == null) return null
+        val minute = when (ui.activeSource) {
+            `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG ->
+                ui.orgWebsiteReport?.eventMinute
+            `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE ->
+                return ui.wimtWebPoint?.eventAtMillis
+            else -> ui.model.rows.lastOrNull {
+                it.source == TrackModel.MinuteSource.REPORTED &&
+                    (it.showDep != null || it.showArr != null)
+            }?.let { it.showDep ?: it.showArr }
+        }
+        return minute?.let { RailTime.railMinuteToEpochMillis(vm.originDate, it) }
+    }
+
     private fun eventKey(ui: LiveViewModel.Ui?, source: String): String? {
         if (ui == null) return null
         if (source == `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG)
@@ -308,7 +324,7 @@ class TrainActivity : AppCompatActivity() {
         binding.firstLoad.visibility = if (busy && lastUi == null) View.VISIBLE else View.GONE
         if (chainBusy && refreshStartedAt > 0L) {
             if (refreshSpin == null) {
-                refreshSpin = ObjectAnimator.ofFloat(binding.refresh, View.ROTATION, 0f, 360f).apply {
+                refreshSpin = ObjectAnimator.ofFloat(binding.refreshGlyph, View.ROTATION, 0f, 360f).apply {
                     duration = 900L
                     repeatCount = ValueAnimator.INFINITE
                     interpolator = LinearInterpolator()
@@ -318,7 +334,7 @@ class TrainActivity : AppCompatActivity() {
         } else {
             refreshSpin?.cancel()
             refreshSpin = null
-            binding.refresh.rotation = 0f
+            binding.refreshGlyph.rotation = 0f
         }
     }
 
@@ -660,16 +676,16 @@ class TrainActivity : AppCompatActivity() {
                 it.code.equals(org.anchorCode, true) }
                 else claim?.let { c -> ui.route.stops.firstOrNull { it.code.equals(c.code, true) } }
             binding.headline.text = when {
-                org?.intermediate != null -> "Reported at ${RowText.of(org.intermediate.name)}"
-                org != null && station != null ->
-                    (if (org.departed) "Departed " else "Arrived at ") + RowText.of(station.name)
+                org != null -> "Last site report: " +
+                    RowText.of(org.intermediate?.name ?: station?.name ?: org.anchorCode) +
+                    " · ${RailTime.formatRailMinute(org.eventMinute)} · now unknown"
                 claim != null && station != null ->
                     "RailYatri reports ${claim.status} ${station.name} · passage time unknown"
                 else -> "${sourceName(publicCheck)}: no qualifying past-stop report for this run"
             }
             if (org != null) binding.headline.contentDescription =
-                "Website reports ${binding.headline.text}, " +
-                    "${RailTime.formatRailMinute(org.eventMinute)}; current position and motion unknown"
+                "Website's last reported event: ${binding.headline.text}; " +
+                    "current position and motion unknown. The website page clock is not this event."
             val ntesAgree = org?.let { report ->
                 val officialCell = ui.answer.perStop[report.anchorCode]
                 val officialMinute = if (report.departed) officialCell?.actualDepartureMin
@@ -688,8 +704,13 @@ class TrainActivity : AppCompatActivity() {
                 claim != null -> "RAILYATRI · station claim only"
                 else -> "${sourceName(publicCheck)} · comparison only"
             }
-            binding.provenance.setBackgroundResource(R.drawable.bg_badge_schedule)
-            binding.provenance.setTextColor(getColor(R.color.warn))
+            val oldWebsiteEvent = org != null && SourceFreshness.isStale(
+                RailTime.railMinuteToEpochMillis(vm.originDate, org.eventMinute),
+                System.currentTimeMillis())
+            if (oldWebsiteEvent) binding.provenance.text = "WEBSITE · reported stop · stale"
+            binding.provenance.setBackgroundResource(
+                if (oldWebsiteEvent) R.drawable.bg_badge_problem else R.drawable.bg_badge_schedule)
+            binding.provenance.setTextColor(getColor(if (oldWebsiteEvent) R.color.late else R.color.warn))
             binding.age.text = when {
                 org != null -> "Website page updated ${RailTime.formatClock(org.pageUpdatedAt)} IST · " +
                     "not a movement time · site omits run date"
@@ -735,7 +756,7 @@ class TrainActivity : AppCompatActivity() {
         if (ui.activeSource == "NTES (official)") {
             JourneyHero.official(m.rows, ui.anchorCode)?.let { hero ->
                 binding.headline.contentDescription = m.headline
-                binding.headline.text = hero.title
+                binding.headline.text = "Last NTES report: ${hero.title} · now unknown"
                 binding.next.text = hero.next
                 binding.provenance.text = "NTES · reported stop"
             }
@@ -938,8 +959,8 @@ class TrainActivity : AppCompatActivity() {
         when {
             ui.activeSource == `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG &&
                 ui.orgWebsiteReport != null && elapsed != null -> {
-                binding.age.text = "${RailTime.formatRailMinute(ui.orgWebsiteReport!!.eventMinute)} · " +
-                    "$elapsed · site checked ${RailTime.formatClock(ui.orgWebsiteReport!!.pageUpdatedAt)}"
+                binding.age.text = "Freshness: $elapsed · event " +
+                    RailTime.formatRailMinute(ui.orgWebsiteReport!!.eventMinute)
                 binding.age.contentDescription = "Website claim at " +
                     "${RailTime.formatRailMinute(ui.orgWebsiteReport!!.eventMinute)}; " +
                     "website page checked ${RailTime.formatClock(ui.orgWebsiteReport!!.pageUpdatedAt)}; " +
@@ -951,7 +972,7 @@ class TrainActivity : AppCompatActivity() {
             ui.activeSource == "NTES (official)" && timedHalt != null && elapsed != null -> {
                 val minute = (timedHalt.showDep ?: timedHalt.showArr)!!
                 val clock = RailTime.formatRailMinute(minute)
-                binding.age.text = "$clock · $elapsed · position now unknown"
+                binding.age.text = "Freshness: $elapsed · event $clock"
                 // A new HTTP answer with the same last-stop time cannot redate the delay.
                 // This is the delay *then*, not a prediction of the train's delay now.
                 if (ui.model.delayLabel != "—") {
@@ -960,6 +981,14 @@ class TrainActivity : AppCompatActivity() {
                         "reported stop ${timedHalt.name} at $clock; current delay unknown"
                 }
             }
+        }
+        val stale = SourceFreshness.isStale(eventAt, now)
+        binding.age.setTextColor(getColor(if (stale) R.color.late else R.color.text3))
+        if (ui.activeSource == `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG &&
+            ui.orgWebsiteReport != null && stale) {
+            binding.provenance.text = "WEBSITE · reported stop · stale"
+            binding.provenance.setBackgroundResource(R.drawable.bg_badge_problem)
+            binding.provenance.setTextColor(getColor(R.color.late))
         }
     }
 
@@ -1026,10 +1055,19 @@ class TrainActivity : AppCompatActivity() {
         val view = binding.checkClock
         val token = ++scoreGeneration
         view.animate().cancel()
-        view.text = ResponseScore.text(elapsedMs, updateAt, hasSeconds)
+        val checkedAt = System.currentTimeMillis()
+        val eventAt = selectedEventAt(lastUi)
+        view.text = ResponseScore.text(elapsedMs, eventAt, checkedAt)
+        view.setTextColor(getColor(when {
+            SourceFreshness.isStale(eventAt, checkedAt) -> R.color.late
+            eventAt == null -> R.color.warn
+            else -> R.color.live
+        }))
         view.contentDescription = "$source response took $elapsedMs milliseconds; " +
-            (updateAt?.let { "source data updated ${if (hasSeconds) RailTime.formatClockSeconds(it) else RailTime.formatClock(it)} IST" }
-                ?: "source update time unavailable") + "; not a train position or event"
+            "last reported event freshness ${SourceFreshness.label(eventAt, checkedAt)}; " +
+            "device checked at ${RailTime.formatClockSeconds(checkedAt)} IST; " +
+            (updateAt?.let { "source page/feed updated ${if (hasSeconds) RailTime.formatClockSeconds(it) else RailTime.formatClock(it)} IST" }
+                ?: "source page/feed update time unavailable") + "; none of these clocks establishes current position"
         flash(view, token, 1_000L)
     }
 
@@ -1216,7 +1254,7 @@ class TrainActivity : AppCompatActivity() {
         binding.statusRipple.cancelPulse()
         refreshSpin?.cancel()
         refreshSpin = null
-        binding.refresh.rotation = 0f
+        binding.refreshGlyph.rotation = 0f
         binding.checkClock.animate().cancel()
         binding.checkClock.visibility = View.GONE
         super.onStop()

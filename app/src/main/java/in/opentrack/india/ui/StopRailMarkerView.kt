@@ -26,7 +26,9 @@ class StopRailMarkerView @JvmOverloads constructor(context: Context,
         val x = width / 2f
         val y = height / 2f
         paint.style = Paint.Style.FILL
-        paint.color = context.getColor(R.color.live)
+        paint.color = context.getColor(
+            if (ageSeconds?.let { it >= SourceFreshness.STALE_AFTER_MS / 1_000L } == true)
+                R.color.late else R.color.live)
         canvas.drawCircle(x, y, dp(18f), paint)
         paint.color = context.getColor(R.color.bg)
         box.set(x - dp(9f), y - dp(10f), x + dp(9f), y + dp(7f))

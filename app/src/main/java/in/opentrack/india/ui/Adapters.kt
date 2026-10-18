@@ -237,6 +237,8 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         holder.markerAge.text = legAgeSeconds?.takeIf { ageLabel != null }
             ?.let(LegGeometry::compactAgeLabel) ?: ""
         holder.markerAge.visibility = if (ageLabel == null) View.GONE else View.VISIBLE
+        holder.markerAge.setTextColor(ctx.getColor(if (legAgeSeconds?.let {
+                it >= SourceFreshness.STALE_AFTER_MS / 1_000L } == true) R.color.late else R.color.live))
         holder.markerAge.contentDescription = ageLabel?.let { "Last reported event $it" } ?: ""
         holder.marker.setTextColor(ctx.getColor(R.color.live))
         val verified = s.source == TrackModel.MinuteSource.REPORTED

@@ -165,7 +165,8 @@ class InlineLegView @JvmOverloads constructor(
         }
         // A quiet, fixed-size locomotive: no pulsing/moving halo that could imply
         // fresh telemetry. Badge and rail have the same shape for every source.
-        paint.color = blue
+        paint.color = if (ageSeconds?.let { it >= SourceFreshness.STALE_AFTER_MS / 1_000L } == true)
+            context.getColor(R.color.late) else blue
         canvas.drawCircle(x, y, dp(18f), paint)
         paint.color = ink
         box.set(x - dp(9f), y - dp(10f), x + dp(9f), y + dp(7f))
@@ -215,7 +216,8 @@ class InlineLegView @JvmOverloads constructor(
         val label = LegGeometry.compactAgeLabel(age)
         paint.textSize = sp(10f)
         paint.textAlign = Paint.Align.CENTER
-        paint.color = context.getColor(R.color.text1)
+        paint.color = context.getColor(if (age >= SourceFreshness.STALE_AFTER_MS / 1_000L)
+            R.color.late else R.color.text1)
         canvas.drawText(label, x, y + dp(31f), paint)
         paint.textAlign = Paint.Align.LEFT
     }
