@@ -245,8 +245,11 @@ class ScreenRenderTest {
         assertTrue("opt-in one-minute Auto must stay in the source row",
             shot.root.findViewById<View>(R.id.autoSwitch).parent ===
                 shot.root.findViewById<View>(R.id.sourceSpinner).parent)
-        assertTrue("Refresh must float above the content, not reserve a row above the table",
-            shot.root.findViewById<View>(R.id.refresh).parent === shot.root &&
+        val trackingContent = (shot.root as android.view.ViewGroup).getChildAt(0)
+        assertTrue("Refresh must overlay the tracking content, not reserve a card row",
+            shot.root.findViewById<View>(R.id.refresh).parent === trackingContent &&
+                trackingContent is android.widget.FrameLayout &&
+                trackingContent.getChildAt(0) is android.widget.LinearLayout &&
                 shot.root.findViewById<View>(R.id.refresh).height > 0)
         assertEquals("the separate route button must not exist", 0,
             shot.context.resources.getIdentifier("betweenStations", "id", shot.context.packageName))
