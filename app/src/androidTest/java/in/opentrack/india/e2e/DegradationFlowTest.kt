@@ -43,6 +43,8 @@ class DegradationFlowTest {
         assertTrue("train search offline: switched=$switched typed=$typed ${E2E.debugSearch("trainBox")}",
             trainOffered)
         assertTrue("the train row could not be selected", E2E.tapSuggestion("trainBox", 0))
+        assertTrue("Find missing after selecting train",
+            E2E.reveal("find", "searchCardScroll") && E2E.tap("find"))
         val answered = E2E.ui.wait(Until.hasObject(E2E.res("hitNo")), E2E.LOCAL_MS) ||
             E2E.text("statusLine").isNotBlank() || E2E.resultRows() > 0
         assertTrue("offline search produced neither a list nor a sentence", answered)
@@ -59,6 +61,8 @@ class DegradationFlowTest {
             E2E.ui.wait(Until.findObject(E2E.res("sugPrimary")), E2E.LOCAL_MS) != null
         assertTrue("offline train search gave no answer: ${E2E.debugSearch("trainBox")}", found)
         assertTrue("the train row could not be selected", E2E.tapSuggestion("trainBox", 0))
+        assertTrue("Find missing after selecting train",
+            E2E.reveal("find", "searchCardScroll") && E2E.tap("find"))
         assertTrue("no result offline for a train in the timetable",
             E2E.ui.wait(Until.hasObject(E2E.res("hitGo")), E2E.LOCAL_MS))
         E2E.openTrackFromFirstResult()
@@ -92,6 +96,8 @@ class DegradationFlowTest {
         assertTrue(E2E.tap("modeTrain") && E2E.typeInBox("trainBox", "12627") &&
             E2E.ui.wait(Until.findObject(E2E.res("sugPrimary")), E2E.LOCAL_MS) != null)
         assertTrue("the train row could not be selected", E2E.tapSuggestion("trainBox", 0))
+        assertTrue("Find missing after selecting train",
+            E2E.reveal("find", "searchCardScroll") && E2E.tap("find"))
         assumeTrue("no result to open", E2E.ui.wait(Until.hasObject(E2E.res("hitGo")), E2E.NETWORK_MS))
         E2E.openTrackFromFirstResult()
         E2E.assertNoSystemDialog("location denied")
@@ -111,6 +117,8 @@ class DegradationFlowTest {
         assertTrue(E2E.tap("modeTrain") && E2E.typeInBox("trainBox", "12627") &&
             E2E.ui.wait(Until.findObject(E2E.res("sugPrimary")), E2E.LOCAL_MS) != null)
         assertTrue("the train row could not be selected", E2E.tapSuggestion("trainBox", 0))
+        assertTrue("Find missing after selecting train",
+            E2E.reveal("find", "searchCardScroll") && E2E.tap("find"))
         assumeTrue("no result to open", E2E.ui.wait(Until.hasObject(E2E.res("hitGo")), E2E.NETWORK_MS))
         E2E.openTrackFromFirstResult()
         val provenance = E2E.text("provenance")

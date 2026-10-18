@@ -30,6 +30,9 @@ class TravellerAcceptanceTest {
         assertTrue("No suggestion for a known offline train: ${E2E.debugSearch("trainBox")}",
             E2E.ui.wait(Until.hasObject(E2E.res("sugPrimary")), E2E.LOCAL_MS))
         assertTrue("Could not select the train", E2E.tapSuggestion("trainBox"))
+        assertTrue("Suggestion published train results without Find", E2E.resultRows() == 0)
+        assertTrue("Find is not reachable after selecting a train",
+            E2E.reveal("find", "searchCardScroll") && E2E.tap("find"))
         assertTrue("Known train did not produce a tappable result; ${E2E.debugSearch("trainBox")}",
             E2E.ui.wait(Until.hasObject(E2E.res("hitGo")), E2E.NETWORK_MS))
         assertTrue("Result is not the train requested: ${E2E.all(E2E.res("hitNo")).map { it.text }}",
@@ -103,9 +106,8 @@ class TravellerAcceptanceTest {
         assertTrue("Board-at search is unavailable", E2E.typeInBox("fromBox", "yes"))
         assertTrue("Known station has no suggestion", E2E.ui.wait(Until.hasObject(E2E.res("sugPrimary")), E2E.LOCAL_MS))
         assertTrue("Could not pick boarding station", E2E.tapSuggestion("fromBox"))
-        // Selecting one end may compact the form; the traveller uses Edit search.
-        if (E2E.visible("editSearch", 500)) assertTrue(E2E.tap("editSearch"))
-        assertTrue("Get-off-at search is unavailable after Edit search", E2E.typeInBox("toBox", "yes"))
+        assertEquals("A single station must not return trains before Find", 0, E2E.resultRows())
+        assertTrue("Get-off-at search is unavailable", E2E.typeInBox("toBox", "yes"))
         // On the resized keyboard viewport a populated suggestion can sit below
         // the search-card fold. Scroll to the actual result; never accept a blank
         // panel as a match or skip the same-station refusal check.
@@ -115,6 +117,9 @@ class TravellerAcceptanceTest {
         assertTrue("Same station has no reachable suggestion: ${E2E.debugSearch("toBox")}",
             sameStationSuggestion)
         assertTrue("Could not pick destination", E2E.tapSuggestion("toBox"))
+        assertEquals("Picking the second station must wait for Find", 0, E2E.resultRows())
+        assertTrue("Find missing for same-station validation",
+            E2E.reveal("find", "searchCardScroll") && E2E.tap("find"))
         assertTrue("Same-station trip was not explicitly refused: '${E2E.text("statusLine")}'",
             listOf("same", "different").any { E2E.text("statusLine").contains(it, ignoreCase = true) })
         // ListAdapter diffs asynchronously: a previous search can still be in

@@ -39,6 +39,8 @@ class ReleaseSmokeFlowTest {
         assertTrue(E2E.tap("modeTrain") && E2E.typeInBox("trainBox", "12627") &&
             E2E.ui.wait(Until.findObject(E2E.res("sugPrimary")), E2E.LOCAL_MS) != null)
         assertTrue("the release train row could not be selected", E2E.tapSuggestion("trainBox", 0))
+        assertTrue("Find missing for release train",
+            E2E.reveal("find", "searchCardScroll") && E2E.tap("find"))
         assertTrue("no results and no message in the release build",
             E2E.ui.wait(Until.hasObject(E2E.res("hitGo")), E2E.NETWORK_MS) ||
                 E2E.text("statusLine").isNotBlank() || E2E.resultRows() > 0)

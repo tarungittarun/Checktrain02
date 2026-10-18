@@ -55,6 +55,8 @@ class SuggestBox @JvmOverloads constructor(
     var suggester: Suggester? = null
     var onPick: ((Suggestion) -> Unit)? = null
     var onSearch: (() -> Unit)? = null
+    /** A human edit invalidates the displayed result, not the resolved suggestion list. */
+    var onEdit: (() -> Unit)? = null
 
     /**
      * The resolved code (station) or number (train) once a suggestion was chosen; null while the input
@@ -85,6 +87,7 @@ class SuggestBox @JvmOverloads constructor(
             override fun afterTextChanged(s: Editable?) {
                 if (!suppress) {
                     resolvedCode = null
+                    onEdit?.invoke()
                     schedule()
                 }
             }

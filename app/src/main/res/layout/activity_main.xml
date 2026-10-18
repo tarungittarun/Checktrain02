@@ -68,6 +68,8 @@
         <Button
             android:id="@+id/editSearch"
             style="@style/BtnGhost"
+            android:background="@drawable/ripple_btn_edit"
+            android:textColor="@color/live"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:minHeight="48dp"
@@ -215,8 +217,8 @@
         android:baselineAligned="false"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:paddingTop="8dp"
-        android:paddingBottom="6dp">
+        android:paddingTop="6dp"
+        android:paddingBottom="4dp">
         <TextView
             android:id="@+id/resultsTitle"
             style="@style/TextTitle"
@@ -233,7 +235,7 @@
             android:orientation="horizontal" android:visibility="gone">
             <TextView style="@style/TextMicro" android:layout_width="wrap_content"
                 android:layout_height="wrap_content" android:text="Sort by" />
-            <FrameLayout android:layout_width="0dp" android:layout_height="48dp"
+            <FrameLayout android:layout_width="0dp" android:layout_height="40dp"
                 android:layout_marginStart="4dp" android:layout_weight="1">
                 <Spinner android:id="@+id/resultsSort"
                     android:layout_width="match_parent" android:layout_height="match_parent"

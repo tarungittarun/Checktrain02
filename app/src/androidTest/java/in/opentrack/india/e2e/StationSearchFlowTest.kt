@@ -144,6 +144,8 @@ class StationSearchFlowTest {
     fun homeLogoKeepsPopulatedResultsDirectlyBelowTheOpenSearch() {
         assertTrue("boarding station not selectable", pick("fromBox", "yes"))
         assertTrue("destination not selectable", pick("toBox", "smet"))
+        assertEquals("pair suggestions must wait for Find", 0, E2E.resultRows())
+        assertTrue("Find missing for pair", E2E.reveal("find", "searchCardScroll") && E2E.tap("find"))
         assertTrue("station-pair result never arrived",
             E2E.ui.wait(Until.hasObject(By.res(E2E.PKG, "hitGo")), E2E.NETWORK_MS))
         val before = E2E.text("resultsSummary")
@@ -177,7 +179,8 @@ class StationSearchFlowTest {
     fun bothEndsRunASearch() {
         assertTrue("board-at never resolved", pick("fromBox", "yes"))
         assertTrue("get-off-at never resolved", pick("toBox", "ndls"))
-        // Picking the second end runs the search on its own — the common case, both ends known.
+        assertEquals("picking the second station must not run Find", 0, E2E.resultRows())
+        assertTrue("Find missing for chosen stations", E2E.reveal("find", "searchCardScroll") && E2E.tap("find"))
         val sawAnswer = E2E.ui.wait(Until.hasObject(By.res(E2E.PKG, "resultsTitle")), E2E.NETWORK_MS)
         val status = E2E.text("statusLine")
         assertTrue(
@@ -233,6 +236,8 @@ class StationSearchFlowTest {
         E2E.tapSuggestion("fromBox", 0)
         assertTrue(E2E.typeInBox("toBox", "yes") && awaitAnySuggestion("toBox"))
         assertTrue("get-off-at could not be selected", E2E.tapSuggestion("toBox", 0))
+        assertEquals("same-station selection must wait for Find", 0, E2E.resultRows())
+        assertTrue("Find missing for same-station refusal", E2E.reveal("find", "searchCardScroll") && E2E.tap("find"))
         val status = E2E.text("statusLine")
         val rows = E2E.resultRows()
         assertTrue("board==alight produced neither a refusal nor a list (status='$status', rows=$rows)",
@@ -281,20 +286,7 @@ class StationSearchFlowTest {
         E2E.tapSuggestion("fromBox", 0)
         assertTrue(E2E.typeInBox("toBox", "ndls") && awaitAnySuggestion("toBox"))
         assertTrue("could not pick 'ndls' before swapping", E2E.tapSuggestion("toBox", 0))
-        // Picking the second end starts an asynchronous pair search. Wait for its
-        // result BEFORE opening Edit: otherwise the late answer can collapse the
-        // form between the swap tap and reading its new fields.
-        val deadline = System.currentTimeMillis() + E2E.LOCAL_MS
-        var settled = false
-        while (System.currentTimeMillis() < deadline) {
-            val status = E2E.text("statusLine", 250)
-            settled = E2E.visible("editSearch", 250) ||
-                (status.isNotBlank() && !status.contains("Searching", true))
-            if (settled) break
-            Thread.sleep(150)
-        }
-        assertTrue("the pair search never settled before Swap", settled)
-        if (E2E.visible("editSearch", 500)) assertTrue(E2E.tap("editSearch"))
+        assertEquals("pair suggestions unexpectedly ran Find before Swap", 0, E2E.resultRows())
         var before = E2E.boxText("fromBox") to E2E.boxText("toBox")
         if (before.first.isBlank() || before.second.isBlank()) {
             // A late result may collapse the form between reading the status and
@@ -338,8 +330,10 @@ class StationSearchFlowTest {
         assertTrue("could not pick 'yes'", E2E.tapSuggestion("fromBox", 0))
         assertTrue("get-off-at 'ndls' never resolved", E2E.typeInBox("toBox", "ndls"))
         assertTrue("no suggestion for 'ndls': ${E2E.debugSearch("toBox")}", awaitAnySuggestion("toBox"))
-        // Selecting the second end starts the search; when results arrive Find collapses.
         assertTrue("could not pick 'ndls'", E2E.tapSuggestion("toBox", 0))
+        assertEquals("pair search ran before Find", 0, E2E.resultRows())
+        assertTrue("Find missing for source-labelled rows",
+            E2E.reveal("find", "searchCardScroll") && E2E.tap("find"))
         val answered = E2E.ui.wait(Until.hasObject(By.res(E2E.PKG, "resultsTitle")), E2E.NETWORK_MS)
         val metas = E2E.all(By.res(E2E.PKG, "hitMeta")).mapNotNull { it.text }
         val status = E2E.text("statusLine")

@@ -3,6 +3,7 @@ package `in`.opentrack.india.e2e
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.Until
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -38,9 +39,9 @@ class TrainSearchFlowTest {
         assertTrue("the train panel showed no rows", rows.isNotEmpty())
         val chosen = rows[0].text.orEmpty()
         assertTrue("tapping a train row did nothing", E2E.tapSuggestion("trainBox", 0))
-        // A successful pick starts the search and collapses its fields under Edit search.
-        // Reveal them as a traveller would before asking UiAutomator for their visible text.
-        if (E2E.visible("editSearch", 500)) assertTrue(E2E.tap("editSearch"))
+        assertTrue("choosing a suggestion unexpectedly submitted the search",
+            E2E.resultRows() == 0)
+        // Picking a row fills the field; the person may review it before Find.
         assertTrue(
             "the field does not read back what was picked ('$chosen' -> '${E2E.boxText("trainBox")}')",
             E2E.boxText("trainBox").isNotBlank(),
@@ -53,8 +54,9 @@ class TrainSearchFlowTest {
     @Test
     fun trainModeFindsByNumber() {
         assertTrue(E2E.typeInBox("trainBox", "12627") && awaitTrainSuggestion())
-        // Selecting a train starts the search and may immediately collapse Find.
-        assertTrue("the train suggestion did not launch a search", E2E.tapSuggestion("trainBox", 0))
+        assertTrue("the train suggestion was not selected", E2E.tapSuggestion("trainBox", 0))
+        assertTrue("a suggestion submitted without Find", E2E.resultRows() == 0)
+        assertTrue("Find not reachable", E2E.reveal("find", "searchCardScroll") && E2E.tap("find"))
         val answered = E2E.ui.wait(Until.hasObject(By.res(E2E.PKG, "hitNo")), E2E.NETWORK_MS) ||
             E2E.text("statusLine").isNotBlank() || E2E.resultRows() > 0
         assertTrue("a real train number produced neither a result nor a message", answered)
@@ -67,6 +69,7 @@ class TrainSearchFlowTest {
     fun resultsDropVerboseBannerAndOfferFullWidthEdit() {
         assertTrue(E2E.typeInBox("trainBox", "12627") && awaitTrainSuggestion())
         assertTrue(E2E.tapSuggestion("trainBox", 0))
+        assertTrue("Find missing for selected train", E2E.reveal("find", "searchCardScroll") && E2E.tap("find"))
         assertTrue("known train produced no result",
             E2E.ui.wait(Until.hasObject(By.res(E2E.PKG, "hitGo")), E2E.NETWORK_MS))
         val edit = E2E.find("editSearch")!!.visibleBounds
@@ -89,6 +92,10 @@ class TrainSearchFlowTest {
         assertTrue("full source explanation lost to accessibility",
             E2E.find("resultsTitle")!!.contentDescription.isNotBlank())
         E2E.shot("compact-train-results")
+        assertTrue("Edit search does not reopen", E2E.tap("editSearch"))
+        assertEquals("old results still shown while editing before Find", 0, E2E.resultRows())
+        assertTrue("cannot edit train number", E2E.typeInBox("trainBox", "12"))
+        assertEquals("one incomplete box produced train results without Find", 0, E2E.resultRows())
     }
 
     // @flow wrong-date
@@ -101,6 +108,7 @@ class TrainSearchFlowTest {
         E2E.tap("dayFwd")
         assertTrue(E2E.typeInBox("trainBox", "12627") && awaitTrainSuggestion())
         assertTrue("the train row was not selected", E2E.tapSuggestion("trainBox", 0))
+        assertTrue("Find missing for selected run date", E2E.reveal("find", "searchCardScroll") && E2E.tap("find"))
         val title = E2E.ui.wait(Until.hasObject(By.res(E2E.PKG, "resultsTitle")), E2E.NETWORK_MS)
         assertTrue(
             "an empty date range was met with silence (results header present=$title)",

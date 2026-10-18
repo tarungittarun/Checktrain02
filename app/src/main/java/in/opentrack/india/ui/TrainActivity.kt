@@ -14,6 +14,8 @@ import android.widget.TextView
 import android.widget.ArrayAdapter
 import android.widget.Toast
 import android.view.View
+import android.view.MotionEvent
+import android.view.ViewConfiguration
 import `in`.opentrack.india.domain.RouteBetween
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -182,6 +184,7 @@ class TrainActivity : AppCompatActivity() {
         }
 
         binding.refresh.setOnClickListener { requestRefresh() }
+        installFloatingRefresh()
         val refreshPrefs = getSharedPreferences("tracking_refresh", Context.MODE_PRIVATE)
         binding.autoSwitch.isChecked = refreshPrefs.getBoolean("every_minute", false)
         binding.autoSwitch.setOnCheckedChangeListener { _, enabled ->
@@ -306,6 +309,63 @@ class TrainActivity : AppCompatActivity() {
         }
     }
 
+    /** One-hand default: 1/8 screen from the right, 1/5 above the bottom.
+     * Dragging cannot cover the source card in the upper half. A short touch
+     * calls performClick so accessibility and the ordinary refresh share a path. */
+    private fun installFloatingRefresh() {
+        val prefs = getSharedPreferences("tracking_refresh", Context.MODE_PRIVATE)
+        val button = binding.refresh
+        val inset = (12f * resources.displayMetrics.density).toInt()
+        binding.root.addOnLayoutChangeListener { root, left, top, right, bottom, _, _, _, _ ->
+            val w = right - left
+            val h = bottom - top
+            if (w > 0 && h > 0) {
+                val point = RefreshPlacement.at(w, h, button.width, button.height, inset,
+                    prefs.getFloat("float_x", 0.875f), prefs.getFloat("float_y", 0.8f))
+                button.x = point.x
+                button.y = point.y
+            }
+        }
+        val slop = ViewConfiguration.get(this).scaledTouchSlop
+        var downX = 0f
+        var downY = 0f
+        var originX = 0f
+        var originY = 0f
+        var dragging = false
+        button.setOnTouchListener { v, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = event.rawX; downY = event.rawY
+                    originX = v.x; originY = v.y
+                    dragging = false
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = event.rawX - downX
+                    val dy = event.rawY - downY
+                    if (!dragging && dx * dx + dy * dy > slop * slop) dragging = true
+                    if (dragging) {
+                        v.parent.requestDisallowInterceptTouchEvent(true)
+                        val point = RefreshPlacement.drag(binding.root.width, binding.root.height,
+                            v.width, v.height, inset, originX + dx, originY + dy)
+                        v.x = point.x; v.y = point.y
+                    }
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    if (dragging) {
+                        prefs.edit().putFloat("float_x", (v.x + v.width / 2f) /
+                            binding.root.width.coerceAtLeast(1)).putFloat("float_y",
+                            (v.y + v.height / 2f) / binding.root.height.coerceAtLeast(1)).apply()
+                    } else v.performClick()
+                    true
+                }
+                MotionEvent.ACTION_CANCEL -> true
+                else -> false
+            }
+        }
+    }
+
     private fun requestRefresh(auto: Boolean = false) {
         if (chainBusy) return // never turn a duplicate tap/tick into a misleading receipt
         focusAfterRefresh = true
@@ -413,7 +473,7 @@ class TrainActivity : AppCompatActivity() {
                         val indicator = SourceIndicator.of(names[position], state, detail)
                         val shortName = if (names[position] ==
                             `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG)
-                            "Where Is My Train · website" else "NTES · official"
+                            "WIMT · website" else "NTES · official"
                         text = "● $shortName  ▾"
                         textSize = 14f
                         maxLines = 1

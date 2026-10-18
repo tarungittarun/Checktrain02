@@ -4,12 +4,18 @@
   then the stop-by-stop table that proves it. The top card scrolls separately; the stop table owns
   the remaining viewport and its scroll, so a long route never becomes a giant nested view.
 -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/bg"
-    android:orientation="vertical">
+    android:background="@color/bg">
+
+    <!-- The route retains the reclaimed vertical space. Refresh floats above it,
+         so the table never reserves an empty 48dp row for the button. -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical">
 
     <!-- Two compact lines keep the brand and run date readable without stealing
          the width required by the train identity at large font sizes. -->
@@ -316,7 +322,7 @@
                     <Spinner
                         android:id="@+id/sourceSpinner"
                         android:layout_width="0dp"
-                        android:layout_height="48dp"
+                        android:layout_height="40dp"
                         android:layout_marginStart="8dp"
                         android:layout_weight="1"
                         android:background="@drawable/bg_inset"
@@ -326,6 +332,16 @@
                         android:popupBackground="@drawable/bg_inset"
                         android:spinnerMode="dropdown" />
 
+                    <androidx.appcompat.widget.SwitchCompat
+                        android:id="@+id/autoSwitch"
+                        android:layout_width="wrap_content"
+                        android:layout_height="40dp"
+                        android:layout_marginStart="8dp"
+                        android:gravity="center_vertical"
+                        android:text="@string/auto_refresh_minute"
+                        android:textColor="@color/text2"
+                        android:textSize="12sp"
+                        android:contentDescription="@string/auto_refresh_minute" />
                 </LinearLayout>
 
                 <TextView
@@ -348,41 +364,6 @@
                     android:visibility="gone" />
             </LinearLayout>
 
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
-                android:gravity="end"
-                android:orientation="horizontal">
-                <androidx.appcompat.widget.SwitchCompat
-                    android:id="@+id/autoSwitch"
-                    android:layout_width="wrap_content"
-                    android:layout_height="48dp"
-                    android:layout_marginEnd="12dp"
-                    android:gravity="center_vertical"
-                    android:text="@string/auto_refresh_minute"
-                    android:textColor="@color/text2"
-                    android:textSize="12sp"
-                    android:contentDescription="@string/auto_refresh_minute" />
-                <FrameLayout
-                    android:id="@+id/refresh"
-                    android:layout_width="48dp"
-                    android:layout_height="48dp"
-                    android:background="@drawable/ripple_btn_ghost"
-                    android:clickable="true"
-                    android:focusable="true"
-                    android:contentDescription="@string/refresh">
-                    <ImageView
-                        android:id="@+id/refreshGlyph"
-                        android:layout_width="28dp"
-                        android:layout_height="28dp"
-                        android:layout_gravity="center"
-                        android:src="@drawable/ic_refresh"
-                        android:tint="@color/live"
-                        android:contentDescription="@null" />
-                </FrameLayout>
-            </LinearLayout>
 
     <!-- A checked-at receipt remains until the next request; never a movement claim. -->
     <TextView
@@ -501,4 +482,30 @@
                 android:visibility="gone" />
 
     </LinearLayout>
-</LinearLayout>
+    </LinearLayout>
+
+    <!-- Draggable lower-half overlay. The activity positions its centre at 7/8
+         of the screen width and 4/5 of its height, then clamps drag to the lower
+         half. No list height is reserved for this independent 48dp target. -->
+    <FrameLayout
+        android:id="@+id/refresh"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:layout_gravity="bottom|end"
+        android:layout_marginEnd="24dp"
+        android:layout_marginBottom="120dp"
+        android:elevation="10dp"
+        android:background="@drawable/ripple_btn_ghost"
+        android:clickable="true"
+        android:focusable="true"
+        android:contentDescription="Refresh. Drag to move within the lower half of the screen">
+        <ImageView
+            android:id="@+id/refreshGlyph"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:layout_gravity="center"
+            android:src="@drawable/ic_refresh"
+            android:tint="@color/live"
+            android:contentDescription="@null" />
+    </FrameLayout>
+</FrameLayout>

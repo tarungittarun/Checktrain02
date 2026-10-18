@@ -1,7 +1,7 @@
 package `in`.opentrack.india.core
 
 object BuildStamp {
-    const val ROUND = "R129"
+    const val ROUND = "R130"
     // Never let the copied diagnostic log name an older build than the screen/versionCode.
     val STAMP = "$ROUND · 2026-10-18"
 }

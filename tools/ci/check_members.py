@@ -101,8 +101,9 @@ setBounds sameAs
 offsetDescendantRectToMyCoords
 # Android Paint used for the locomotive age pill width.
 measureText
-# Android View's built-in animator/background and TextView's Typeface accessor.
-animate background typeface
+# Android View's built-in animator/background, listener and TextView colour accessor;
+# SharedPreferences stores the draggable refresh position as orientation-safe fractions.
+animate background typeface setOnTouchListener currentTextColor getFloat
 # Android SpannableString underlines only the days that operate.
 setSpan getSpans getSpanStart replaceFirst
 # legacy-cipher factory (2026-10-12): SSLSocket suite lists and the delegate pattern

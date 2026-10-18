@@ -40,6 +40,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var vm: MainViewModel
     private lateinit var adapter: TrainHitAdapter
     private var keepSearchOpen = false
+    /** Editing never publishes results; only the visible Find button commits a draft. */
+    private var draftSearch = false
     private var searchCollapsed = false
     private var sortMode = TrainResultsDisplay.Sort.SUGGESTED
     private var keyboardOpen = false
@@ -49,9 +51,23 @@ class MainActivity : AppCompatActivity() {
     private fun updateKeyboardLayout(open: Boolean) {
         if (keyboardOpen == open) return
         keyboardOpen = open
-        val editingEmpty = open && vm.results.value?.hits?.isNotEmpty() != true
+        val editingEmpty = open && (draftSearch || vm.results.value?.hits?.isNotEmpty() != true)
         binding.results.visibility = if (editingEmpty) View.GONE else View.VISIBLE
         binding.searchCardScroll.isFillViewport = editingEmpty
+    }
+
+    private fun enterDraft() {
+        val hadResult = vm.results.value != null
+        draftSearch = true
+        keepSearchOpen = true
+        setSearchCollapsed(false) // recalculate weighted space after hiding old results
+        binding.resultsHead.visibility = View.GONE
+        binding.resultsSummary.visibility = View.GONE
+        binding.results.visibility = View.GONE
+        if (hadResult) {
+            binding.statusLine.visibility = View.VISIBLE
+            binding.statusLine.text = "Edit your search, then tap Find."
+        }
     }
 
     private fun firstSortedTrain() {
@@ -72,6 +88,7 @@ class MainActivity : AppCompatActivity() {
                     MainViewModel(app) as T
             }
         )[MainViewModel::class.java]
+        draftSearch = savedInstanceState?.getBoolean("draftSearch") ?: false
 
         adapter = TrainHitAdapter { hit ->
             vm.remember(hit)
@@ -125,14 +142,12 @@ class MainActivity : AppCompatActivity() {
             }
             binding.searchCardScroll.post { binding.searchCardScroll.scrollTo(0, 0) }
         }
-        binding.editSearch.setOnClickListener {
-            keepSearchOpen = true
-            setSearchCollapsed(false)
-        }
+        binding.editSearch.setOnClickListener { enterDraft() }
         binding.swap.setOnClickListener { swap() }
         binding.dayBack.setOnClickListener { shiftDay(-1) }
         binding.dayFwd.setOnClickListener { shiftDay(1) }
         binding.dayNow.setOnClickListener {
+            if (vm.results.value != null) enterDraft()
             vm.setDate(RailTime.todayEpochDay(), RailTime.istMinuteOfDay(System.currentTimeMillis()))
             renderDate()
         }
@@ -165,10 +180,12 @@ class MainActivity : AppCompatActivity() {
         restoreLast()
         vm.prepare()
         if (savedInstanceState?.getBoolean("searchCollapsed") == true) setSearchCollapsed(true)
+        if (draftSearch) enterDraft()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putBoolean("searchCollapsed", searchCollapsed)
+        outState.putBoolean("draftSearch", draftSearch)
         super.onSaveInstanceState(outState)
     }
 
@@ -179,7 +196,7 @@ class MainActivity : AppCompatActivity() {
         // A weighted ScrollView left hundreds of empty pixels when Edit search reopened
         // above an existing list. Wrap its content instead, while bounding tall forms so
         // Find stays scrollable and the results retain a visible viewport.
-        val editingResults = !collapsed && vm.results.value?.hits?.isNotEmpty() == true
+        val editingResults = !collapsed && !draftSearch && vm.results.value?.hits?.isNotEmpty() == true
         (binding.searchCardScroll.layoutParams as LinearLayout.LayoutParams).apply {
             height = if (editingResults) ViewGroup.LayoutParams.WRAP_CONTENT else 0
             weight = if (editingResults) 0f else 2f
@@ -188,11 +205,8 @@ class MainActivity : AppCompatActivity() {
         binding.searchCardScroll.capWhenEditingResults = editingResults
     }
 
-    /**
-     * Suggestions for both fields. The station boxes share one source; the train box searches the
-     * offline train master by number or name. `onPick` fires a search when the *other* end is already
-     * filled, which is the common case on a second visit to the app.
-     */
+    /** Suggestions resolve a station or train number, but NEVER submit the form.
+     * Even choosing the second station or the keyboard's Search action waits for Find. */
     private fun wireBoxes() {
         val stationSuggester = object : SuggestBox.Suggester {
             override fun suggest(
@@ -210,20 +224,17 @@ class MainActivity : AppCompatActivity() {
         }
         listOf(binding.fromBox, binding.toBox).forEach { box ->
             box.suggester = stationSuggester
-            box.onPick = { if (otherEndFilled(box)) runSearch() }
-            box.onSearch = { runSearch() }
+            box.onEdit = { enterDraft() }
+            box.onPick = null
+            box.onSearch = null
         }
         binding.trainBox.suggester = trainSuggester
-        binding.trainBox.onPick = { runSearch() }
-        binding.trainBox.onSearch = { runSearch() }
+        binding.trainBox.onEdit = { enterDraft() }
+        binding.trainBox.onPick = null
+        binding.trainBox.onSearch = null
         binding.fromBox.hint = getString(R.string.hint_from)
         binding.toBox.hint = getString(R.string.hint_to)
         binding.trainBox.hint = getString(R.string.hint_train)
-    }
-
-    private fun otherEndFilled(box: SuggestBox): Boolean {
-        val other = if (box === binding.fromBox) binding.toBox else binding.fromBox
-        return other.valueOrText().length >= 3
     }
 
     /** Swap keeps the *resolved* codes with the names; a swap that lost the resolution would re-fuzzy. */
@@ -231,8 +242,7 @@ class MainActivity : AppCompatActivity() {
         // Picking the second endpoint starts an asynchronous search. If its results land
         // just after the user taps Swap, renderReport must not collapse the fields before
         // the swapped values can be seen. Find below explicitly ends this edit mode.
-        keepSearchOpen = true
-        setSearchCollapsed(false)
+        enterDraft()
         val (a, b) = binding.fromBox.text to binding.toBox.text
         val (ac, bc) = binding.fromBox.resolvedCode to binding.toBox.resolvedCode
         binding.fromBox.setTextShown(b); binding.fromBox.resolvedCode = bc
@@ -274,10 +284,10 @@ class MainActivity : AppCompatActivity() {
         binding.modeTrain.setBackgroundResource(if (stations) 0 else R.drawable.bg_segment_on)
         binding.modeStations.setTextColor(getColor(if (stations) R.color.text1 else R.color.text3))
         binding.modeTrain.setTextColor(getColor(if (stations) R.color.text3 else R.color.text1))
-        if (!stations && binding.trainBox.text.length >= 3) runSearch()
     }
 
     private fun shiftDay(delta: Int) {
+        if (vm.results.value != null) enterDraft()
         val day = (vm.targetEpochDay + delta).coerceIn(
             RailTime.todayEpochDay() - 1, RailTime.todayEpochDay() + 1)
         vm.setDate(day, vm.targetMinuteOfDay)
@@ -325,6 +335,12 @@ class MainActivity : AppCompatActivity() {
             binding.statusLine.setText(R.string.err_need_train_query)
             return
         }
+        // Clear the previous journey only after Find has valid inputs. A late live
+        // upgrade to the old result must not paint it over this pending search.
+        draftSearch = false
+        binding.resultsHead.visibility = View.GONE
+        binding.resultsSummary.visibility = View.GONE
+        adapter.submitList(emptyList())
         vm.search(from, if (vm.mode == MainViewModel.Mode.TRAIN) train else to)
     }
 
@@ -365,7 +381,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderReport(report: TrainFinder.Report) {
-        // Picking a suggestion launches the search before SuggestBox hides the IME. If
+        // A previous query may finish while the person edits. Do not publish it
+        // over the draft; only Find can display a result for the new fields.
+        if (draftSearch) return
+        // Find launches the search before SuggestBox hides the IME. If
         // that hide races the returned result, the still-focused editor can summon the
         // keyboard again and leave a real result row outside the accessible viewport.
         // Put focus on the screen, not an editor, when the report is ready.

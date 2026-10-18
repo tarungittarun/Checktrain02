@@ -174,7 +174,13 @@ class ScreenRenderTest {
         assertTrue("sort overlaps heading or spills beyond right half: $title / $sort",
             sort.left >= title.right && sort.right <= shot.bounds(R.id.resultsHead).right)
         assertTrue("sort arrow not painted", shot.root.findViewById<View>(R.id.sortArrow).width > 0)
-        Render.save("r127-populated-home-search", shot.bitmap)
+        assertEquals("sort selector should take less height than before", Render.dp(shot.context, 40f).toInt(),
+            sort.height())
+        val editButton = shot.root.findViewById<android.widget.Button>(R.id.editSearch)
+        assertEquals("Edit search should be blue, distinct from the green Find action",
+            shot.context.getColor(R.color.live), editButton.currentTextColor)
+        assertTrue("Edit search lost its blue surface", editButton.background != null)
+        Render.save("r130-populated-home-search", shot.bitmap)
     }
 
     @Test
@@ -236,10 +242,12 @@ class ScreenRenderTest {
         val wasted = summary.height - summary.getChildAt(0).height
         assertTrue("summary reserved $wasted px of blank space before the route",
             wasted <= (16 * shot.context.resources.displayMetrics.density).toInt())
-        assertTrue("opt-in one-minute Auto control must fit beside Refresh",
-            shot.root.findViewById<View>(R.id.autoSwitch).height > 0)
-        assertTrue("Refresh must remain available beside Auto",
-            shot.root.findViewById<View>(R.id.refresh).height > 0)
+        assertTrue("opt-in one-minute Auto must stay in the source row",
+            shot.root.findViewById<View>(R.id.autoSwitch).parent ===
+                shot.root.findViewById<View>(R.id.sourceSpinner).parent)
+        assertTrue("Refresh must float above the content, not reserve a row above the table",
+            shot.root.findViewById<View>(R.id.refresh).parent === shot.root &&
+                shot.root.findViewById<View>(R.id.refresh).height > 0)
         assertEquals("the separate route button must not exist", 0,
             shot.context.resources.getIdentifier("betweenStations", "id", shot.context.packageName))
         assertTrue("source dropdown must be visible",
@@ -247,9 +255,12 @@ class ScreenRenderTest {
         val sourcePicker = shot.root.findViewById<View>(R.id.sourceSpinner)
         assertEquals("About time button must be removed", 0,
             shot.context.resources.getIdentifier("sourceToggle", "id", shot.context.packageName))
-        assertTrue("source picker should reach the right edge of its card",
-            shot.bounds(R.id.sourceSpinner).right >= shot.bounds(R.id.scroller).right - 35 *
-                shot.context.resources.displayMetrics.density)
+        assertTrue("source picker must precede right-aligned Auto without overlap",
+            shot.bounds(R.id.sourceSpinner).right <= shot.bounds(R.id.autoSwitch).left &&
+                shot.bounds(R.id.autoSwitch).right >= shot.bounds(R.id.scroller).right -
+                    35 * shot.context.resources.displayMetrics.density)
+        assertEquals("source selector saved vertical space", Render.dp(shot.context, 40f).toInt(),
+            sourcePicker.height)
         assertTrue("refresh must contain an independently rotating icon, not text",
             shot.root.findViewById<View>(R.id.refreshGlyph) is android.widget.ImageView &&
                 shot.root.findViewById<View>(R.id.refreshGlyph).parent ===
@@ -259,6 +270,13 @@ class ScreenRenderTest {
         assertEquals("Refresh needs a 48dp touch target", 48,
             (shot.root.findViewById<View>(R.id.refresh).height /
                 shot.context.resources.displayMetrics.density).toInt())
+        val floating = shot.bounds(R.id.refresh)
+        val full = shot.bounds(R.id.routeViewport)
+        assertTrue("Refresh should be in the lower half, inset from the right and bottom",
+            floating.centerY() > shot.root.height / 2 &&
+                floating.centerX() > shot.root.width * 3 / 4 &&
+                floating.right < shot.root.width && floating.bottom < shot.root.height &&
+                floating.top < full.bottom)
         assertEquals("every stop must be in the list", 9, Render.rowCount(shot.root))
         val list = shot.root.findViewById<RecyclerView>(R.id.stops)!!
         assertEquals("TIMETABLE", shot.text(R.id.routeHeadTimetable))

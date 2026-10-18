@@ -37,11 +37,12 @@ class TrackingFlowTest {
             E2E.typeInBox("trainBox", "12627") &&
                 E2E.ui.wait(Until.findObject(By.res(E2E.PKG, "sugPrimary")), E2E.LOCAL_MS) != null,
         )
-        // Picking a train already starts the search. A second Find tapped immediately here
-        // used to launch duplicate work on every @Before (once per tracking assertion).
+        // Selecting a suggestion only resolves the train; Find alone runs the search.
         val selected = E2E.tapSuggestion("trainBox", 0)
         if (!selected) E2E.shot("train-suggestion-not-selected")
         assertTrue("the train suggestion could not be selected: ${E2E.debugSearch("trainBox")}", selected)
+        assertTrue("Find missing after picking the train",
+            E2E.reveal("find", "searchCardScroll") && E2E.tap("find"))
         val resultVisible = E2E.ui.wait(Until.hasObject(By.res(E2E.PKG, "hitGo")), E2E.NETWORK_MS)
         if (!resultVisible) E2E.shot("tracking-open-no-results")
         assertTrue(
@@ -470,7 +471,7 @@ class TrackingFlowTest {
     @Test
     fun tableOffersOptionalMinuteRefreshAndExpandableRoutePoints() {
         assertTrue("Refresh must remain reachable by scrolling", E2E.reveal("refresh", "scroller"))
-        assertTrue("one-minute Auto must be offered beside Refresh", E2E.visible("autoSwitch"))
+        assertTrue("one-minute Auto must remain beside the source selector", E2E.visible("autoSwitch"))
         assertTrue("route points must be inside the table, not a separate button",
             E2E.find("betweenStations", 1_000) == null)
         assertTrue("the station table vanished", E2E.count(stopsBy) > 0)
