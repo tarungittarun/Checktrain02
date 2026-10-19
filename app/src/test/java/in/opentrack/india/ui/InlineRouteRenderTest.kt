@@ -21,6 +21,38 @@ import org.robolectric.annotation.GraphicsMode
 @Config(sdk = [34])
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class InlineRouteRenderTest {
+    @Test fun onlyCollapsedReportedHaltShowsAtAndAsOnBesideItsLocomotive() {
+        val ctx = RuntimeEnvironment.getApplication()
+        val adapter = StopAdapter()
+        val main = TrackModel.Stop(1, "DRU", "Kadur", 512, 513,
+            523, 524, 11, TrackModel.MinuteSource.REPORTED, null,
+            TrackModel.State.PASSED, true, 167, 0, 40, false, false, false, -12)
+        val next = main.copy(seq = 2, code = "ASK", name = "Arsikere Jn",
+            showArr = null, showDep = null, source = TrackModel.MinuteSource.SCHEDULE,
+            isAnchor = false, kmFromOrigin = 206)
+        adapter.submitList(listOf(main, next))
+        adapter.haltMarker = TableMarker.Halt("DRU", "Last reported stop", false)
+        adapter.setRoutePoints(mapOf("DRU" to listOf(StopRow(3, "MID", "Intermediate",
+            null, null, null, 526, null, 0, 185, false))))
+        val holder = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
+        adapter.onBindViewHolder(holder, 0)
+        assertEquals(View.VISIBLE, holder.trainMarker.visibility)
+        assertEquals("At Kadur · last report\nAs on 08:44", holder.eventCaption.text.toString())
+        holder.inlineLegGroup.performClick()
+        adapter.onBindViewHolder(holder, 0)
+        assertEquals(View.GONE, holder.eventCaption.visibility)
+        holder.inlineLegGroup.performClick()
+        adapter.onBindViewHolder(holder, 0)
+        assertEquals(View.VISIBLE, holder.eventCaption.visibility)
+        adapter.haltMarker = null
+        adapter.onBindViewHolder(holder, 0)
+        assertEquals(View.GONE, holder.eventCaption.visibility)
+        adapter.haltMarker = TableMarker.Halt("DRU", "Site's last past stop", true)
+        adapter.onBindViewHolder(holder, 0)
+        assertEquals("an unverified site claim is not a reported halt", View.GONE,
+            holder.eventCaption.visibility)
+    }
+
     @Test fun projectedTrainIsInlineBetweenItsHaltRowsAndCandidateIsVisibleWithoutReplacingAct() {
         val ctx = RuntimeEnvironment.getApplication()
         val adapter = StopAdapter()
@@ -294,11 +326,8 @@ class InlineRouteRenderTest {
         assertEquals(901, points[0].passageMinute)
         assertEquals(906, points[0].siteArrivalMin)
         assertEquals(908, points[0].siteDepartureMin)
-        assertEquals("an arrival-only past card stays a Web claim, not an Act stop",
-            909, points[1].siteArrivalMin)
-        assertEquals(null, points[1].siteDepartureMin)
+        assertEquals("the non-stop has no documented stop event", null, points[1].siteArrivalMin)
         assertTrue(holder.inlineLeg.contentDescription.contains("website arrival claim 15:06"))
-        assertTrue(holder.inlineLeg.contentDescription.contains("website arrival claim 15:09"))
         adapter.websiteIntermediateReports = emptyMap()
         adapter.onBindViewHolder(holder, 0)
         assertTrue(holder.inlineLeg.projection!!.points.all { it.siteArrivalMin == null })

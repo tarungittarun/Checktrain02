@@ -122,15 +122,8 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
     private var expandedCode: String? = null
     private var routePoints: Map<String, List<StopRow>> = emptyMap()
     private var projectedLeg: RouteBetween.LegProjection? = null
-    /** Only the selected website's parsed past cards; never an ACTUAL/marker source. */
-    var websiteClaims: Map<String, LiveStopFields> = emptyMap()
-        set(value) {
-            if (field != value) { field = value; notifyDataSetChanged() }
-        }
+    /** Only the selected website's validated past cards, never a background comparison. */
     var websiteIntermediateReports: Map<String, LiveStopFields> = emptyMap()
-        set(value) {
-            if (field != value) { field = value; notifyDataSetChanged() }
-        }
     var sourceNameForMarker: String = "NTES"
         set(value) {
             if (field != value) { field = value; if (projectedLeg != null) notifyDataSetChanged() }
@@ -205,6 +198,7 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         val trainMarker: StopRailMarkerView = view.findViewById(R.id.stopTrainMarker)
         val marker: TextView = view.findViewById(R.id.haltMarker)
         val markerAge: TextView = view.findViewById(R.id.stopMarkerAge)
+        val eventCaption: TextView = view.findViewById(R.id.stopEventCaption)
         val name: TextView = view.findViewById(R.id.stopName)
         val meta: TextView = view.findViewById(R.id.stopMeta)
         val status: TextView = view.findViewById(R.id.stopStatus)
@@ -278,15 +272,8 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             s.source == TrackModel.MinuteSource.PROJECTED -> R.color.warn
             else -> R.color.text3
         }))
-        // A successful undated website response is useful to compare at the stop,
-        // but cannot populate ACTUAL, the train glyph, delay, or a run-verified event.
-        val webClaim = WebsiteClaimPresentation.stationClaim(websiteClaims[s.code])
-        holder.report.text = webClaim ?: reports[s.code].orEmpty()
-        holder.report.visibility = if (webClaim == null) View.GONE else View.VISIBLE
-        holder.report.contentDescription = webClaim?.let {
-            "Unverified whereismytrain.org.in website past-card claim. $it. " +
-                "Origin run date is inferred, not printed by the website. Not an actual train observation."
-        } ?: ""
+        holder.report.text = reports[s.code].orEmpty()
+        holder.report.visibility = View.GONE // Source explanations belong in Source details.
         // Two concise pairs are always present: dim timetable at left, selected
         // source at right. Arrows mean arrival / departure; missing reports stay —.
         fun time(minute: Int?): String = minute?.let(RailTime::formatRailMinute) ?: "—"
@@ -358,6 +345,20 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         val nextStop = currentList.getOrNull(position + 1)
         val leg = projectedLeg?.takeIf { it.fromCode.equals(s.code, true) }
         val disclosed = expandedCode == s.code && hasPoints
+        // Pure presentation of the SAME row that already owns the locomotive.
+        // A website comparison or a timetable dot cannot gain a reported clock.
+        val captionMinute = (s.showDep ?: s.showArr).takeIf {
+            expandedCode == null && marker != null && !marker.website &&
+                s.source == TrackModel.MinuteSource.REPORTED
+        }
+        holder.eventCaption.visibility = if (captionMinute == null) View.GONE else View.VISIBLE
+        holder.eventCaption.text = captionMinute?.let {
+            "At ${RowText.of(s.name)} · last report\nAs on ${RailTime.formatRailMinute(it)}"
+        }.orEmpty()
+        holder.eventCaption.contentDescription = captionMinute?.let {
+            "Last reported at ${RowText.of(s.name)}, event time ${RailTime.formatRailMinute(it)}. " +
+                "Present position unknown."
+        }.orEmpty()
         val available = if (points.isEmpty()) leg?.points.orEmpty() else points.mapIndexed { index, point ->
             val matching = leg?.points?.firstOrNull { it.code.equals(point.code, true) }
             val kmFraction = nextStop?.let { next ->
@@ -377,13 +378,14 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
                     (from + (to - from) * kmFraction).roundToInt() else null
             }
             val web = websiteIntermediateReports[point.code]
-            // An arrival-only website past card remains a labelled claim at the
-            // mapped intermediate; it never turns the point into a reported halt.
+            // A timetable's halt flag, or a validated arrival+later departure,
+            // establishes a stop. An arrival-only pass-through never becomes Act.
             val stopped = point.isHalt || (web?.actualArrivalMin != null &&
                 web.actualDepartureMin != null && web.actualDepartureMin > web.actualArrivalMin)
             RouteBetween.LegPoint(point.code, point.name, point.schedKm, fraction,
                 planned, point.arrivalMin == null && planned != null, stopped,
-                web?.actualArrivalMin, web?.actualDepartureMin)
+                web?.actualArrivalMin.takeIf { stopped },
+                web?.actualDepartureMin.takeIf { stopped })
         }
         // A mapped leg has a visible, full-width rail even while its station names
         // are folded. Previously only the stop row was tappable until expansion.

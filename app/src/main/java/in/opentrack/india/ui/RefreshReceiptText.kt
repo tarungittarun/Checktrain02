@@ -45,8 +45,8 @@ object RefreshReceiptText {
                 if (status?.first != "comparison")
                     return "Website answered at $checked · no validated site stop report " +
                         "for this run · $context"
-                return "Website answered at $checked · showing labelled Web claims on the rail " +
-                    "(comparison only; no run-verified actuals or position) · $age"
+                return "Website answered at $checked · site comparison only, " +
+                    "no run-verified actuals or position · $context"
             }
         }
         if (switched) return "Checked $checked · $sourceLabel has no usable report; $context"

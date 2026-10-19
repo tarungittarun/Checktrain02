@@ -585,9 +585,8 @@ class TrainActivity : AppCompatActivity() {
             ui.alternateSiteHint != null -> ui.alternateSiteHint
             ui.websiteGap != null -> ui.websiteGap
             ui.orgWebsiteReport != null -> "Website comparison: ${ui.orgWebsiteReport.anchorCode} " +
-                "${RailTime.formatRailMinute(ui.orgWebsiteReport.eventMinute)}; " +
-                "${ui.orgWebsiteReport.rows.size} past-card claims marked Web on the rail. " +
-                "Run date unprinted; not verified ACTUAL, position or delay."
+                "${RailTime.formatRailMinute(ui.orgWebsiteReport.eventMinute)}; run date unprinted. " +
+                "Not a verified position, ACTUAL time or delay."
             ui.wimtWebPoint != null -> "Site distance claim; not phone GPS."
             selectedPending -> "Checking ${sourceName(ui.activeSource.orEmpty())}…"
             else -> "${sourceName(ui.activeSource.orEmpty())}: $selectedReason$response. Timetable shown."
@@ -744,16 +743,11 @@ class TrainActivity : AppCompatActivity() {
         binding.note.visibility = if (m.note == null || !heroExpanded) View.GONE else View.VISIBLE
         m.note?.let { binding.note.text = it }
 
-        // The selected website's qualified past cards belong alongside the named
-        // stations on this rail. They are amber Web claims below the station name,
-        // NOT values in ACTUAL or evidence for a train-position marker. A background
-        // comparison must never leak into another selected source's row.
+        // Page notes stay in Info; the in-table icon and source badge already describe
+        // the selected site's qualified claim without repeating an excerpt at the halt.
         stopAdapter.reports = ui.sourceLines[ui.activeSource] ?: ui.reports
-        val websiteRows = if (ui.activeSource ==
-            `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG)
-            ui.orgWebsiteReport?.rows.orEmpty() else emptyMap()
-        stopAdapter.websiteClaims = websiteRows
-        stopAdapter.websiteIntermediateReports = websiteRows
+        // Undated site cards remain in Info, not on the ACTUAL rail or its marker.
+        stopAdapter.websiteIntermediateReports = emptyMap()
         stopAdapter.mappedLegStarts = ui.staticMappedLegStarts
         // A new response can repeat the same stop. Only show its receipt once;
         // neither the score nor the pulse changes a train's reported position.
@@ -802,9 +796,8 @@ class TrainActivity : AppCompatActivity() {
             }
         }
 
-        val anchorSeq = (ui.anchorCode ?: ui.orgWebsiteReport?.let {
-            it.intermediate?.precedingHalt ?: it.anchorCode
-        })?.let { ac -> m.rows.firstOrNull { it.code.equals(ac, true) }?.seq }
+        val anchorSeq = ui.anchorCode
+            ?.let { ac -> m.rows.firstOrNull { it.code.equals(ac, true) }?.seq }
             ?: m.anchorSeq
         // Always the FULL route now: the owner removed the segment toggle - the screen points at the
         // train and the traveller scrolls for the rest, which the anchor scroll already does.
@@ -819,7 +812,7 @@ class TrainActivity : AppCompatActivity() {
             // Focus on the SAME station that owns the actual train glyph, not on
             // the first timetable row. Post after RecyclerView's layout commit.
             val anchor = stopAdapter.haltMarker?.code ?: ui.wimtWebPoint?.precedingHalt
-                ?: ui.orgWebsiteReport?.let { it.intermediate?.precedingHalt ?: it.anchorCode }
+                ?: ui.orgWebsiteReport?.intermediate?.precedingHalt
             val focus = anchor != null && (!initialReportedFocusDone || anchor != lastAnchor)
             if (focus || receiptReady || focusAfterRefresh || newReceipt) binding.stops.post {
                 if (lastUi !== ui) return@post
@@ -1092,17 +1085,13 @@ class TrainActivity : AppCompatActivity() {
      * Row-start scrolling left the new intermediate icon offscreen after refresh. */
     private fun focusCurrentLeg() {
         val ui = lastUi ?: return
-        val website = ui.activeSource == `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG
-        val anchor = (stopAdapter.haltMarker?.code ?: if (website)
-            ui.orgWebsiteReport?.let { it.intermediate?.precedingHalt ?: it.anchorCode } else null)
-            ?: return
+        val anchor = stopAdapter.haltMarker?.code ?: return
         val idx = stopAdapter.currentList.indexOfFirst { it.code.equals(anchor, true) }
         if (idx < 0) return
         lastAnchor = anchor
         val list = binding.stops
         val manager = list.layoutManager as LinearLayoutManager
         manager.scrollToPositionWithOffset(idx, resources.getDimensionPixelSize(R.dimen.gap_s))
-        if (website) return // Scroll to the comparison row, not a purported train icon.
         list.post {
             val row = manager.findViewByPosition(idx) as? android.view.ViewGroup ?: return@post
             val marker = row.findViewById<View>(R.id.stopTrainMarker)
