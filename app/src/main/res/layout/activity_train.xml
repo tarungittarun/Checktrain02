@@ -457,14 +457,15 @@
                     android:layout_gravity="start|center_vertical"
                     android:singleLine="true"
                     android:text="STATIONS" android:textColor="@color/text1" />
-                <TextView android:id="@+id/routeHeadActual"
+                <in.opentrack.india.ui.RouteActualHeading android:id="@+id/routeHeadActual"
                     style="@style/FieldLabel"
                     android:layout_width="@dimen/route_actual"
                     android:layout_height="wrap_content"
                     android:layout_gravity="end|center_vertical"
                     android:gravity="end|center_vertical"
                     android:singleLine="true"
-                    android:text="ACTUAL" android:textColor="@color/live" />
+                    android:text="ACTUAL" android:textSize="12sp"
+                    android:fontFamily="sans-serif-medium" android:textColor="@color/live" />
             </FrameLayout>
 
             <!-- Ripple is clipped by this viewport; it cannot spill into the source card,

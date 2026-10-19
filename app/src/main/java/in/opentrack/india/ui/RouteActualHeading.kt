@@ -14,6 +14,7 @@ class RouteActualHeading @JvmOverloads constructor(
     context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0,
 ) : AppCompatTextView(context, attrs, defStyleAttr) {
     private val headingPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    init { setWillNotDraw(false) }
 
     override fun onDraw(canvas: Canvas) {
         val label = text.toString()
