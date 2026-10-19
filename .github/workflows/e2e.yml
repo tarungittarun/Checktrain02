@@ -23,7 +23,8 @@ on:
   push:
     branches: [main, 'arena/**']
   # Push events create only a skipped shell unless the commit explicitly contains
-  # [e2e-request]. No emulators or builds run on ordinary pushes. A workflow_dispatch
+  # [e2e-request] (full) or [e2e-smoke-request] (one device row).
+  # No emulators or builds run on ordinary pushes. A workflow_dispatch
   # is also an explicit request. Preserve push as a one-shot path where API dispatch
   # is unavailable to this integration; never infer permission from a normal push.
   workflow_dispatch:
@@ -128,7 +129,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
   plan:
-    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[e2e-request]')
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[e2e-request]') || contains(github.event.head_commit.message, '[e2e-smoke-request]')
     runs-on: ubuntu-latest
     outputs:
       full: ${{ steps.scope.outputs.full }}
@@ -172,7 +173,8 @@ jobs:
       - name: Decide how much of the device matrix this event deserves
         id: scope
         # The commit message is the third way in, and the one that works where the workflow_dispatch API
-        # does not: `[e2e-full]` runs all four rows, `[e2e-focus: TrackingFlowTest]` narrows the suite to one
+        # does not: [e2e-request] runs all rows; [e2e-smoke-request] runs the core row without
+        # disabling any assertions. `[e2e-full]` runs all four rows, `[e2e-focus: TrackingFlowTest]` narrows the suite to one
         # class, `[e2e-boot: 2700]` raises the boot budget. Values arrive through env, never interpolated into
         # the script - a commit message is arbitrary text and a quote in it should not be able to run anything.
         env:

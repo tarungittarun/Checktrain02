@@ -24,6 +24,7 @@ class OptInMatrixTest(unittest.TestCase):
         self.assertIn("  plan:\n    if: github.event_name == 'workflow_dispatch' || "
                       "contains(github.event.head_commit.message, '[e2e-request]')", workflow)
         self.assertIn("*'[e2e-request]'*) full=true", workflow)
+        self.assertIn("contains(github.event.head_commit.message, '[e2e-smoke-request]')", workflow)
         self.assertIn("if: always() && needs.plan.result == 'success'", workflow)
         self.assertIn("if: always() && needs.plan.outputs.full == 'true'", workflow)
 
