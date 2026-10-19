@@ -120,6 +120,14 @@ class SettingsActivity : AppCompatActivity() {
                 binding.overrideUrl.error = why
                 stateFeedbackByAction = true
                 binding.state.text = why
+                // The validation lives in ON THIS DEVICE, above a long form. A
+                // large-font device can leave it offscreen under the keyboard after
+                // Save; bring the explanation into view rather than making the user
+                // hunt for a reason nothing happened.
+                (getSystemService(INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager)
+                    ?.hideSoftInputFromWindow(binding.overrideUrl.windowToken, 0)
+                binding.overrideUrl.clearFocus()
+                binding.settingsScroll.post { binding.settingsScroll.smoothScrollTo(0, 0) }
                 return@setOnClickListener
             }
             prefs.overrideUrl = url
