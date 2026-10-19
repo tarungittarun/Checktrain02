@@ -52,7 +52,11 @@ class MainActivity : AppCompatActivity() {
         if (keyboardOpen == open) return
         keyboardOpen = open
         val editingEmpty = open && (draftSearch || vm.results.value?.hits?.isNotEmpty() != true)
-        binding.results.visibility = if (editingEmpty) View.GONE else View.VISIBLE
+        // Closing the IME after Edit must not resurrect old rows before Find.
+        // An API 34 device exposed this race even though enterDraft hid the list.
+        binding.results.visibility = if (SearchDraftVisibility.showResults(
+                draftSearch, open, vm.results.value?.hits?.isNotEmpty() == true))
+            View.VISIBLE else View.GONE
         binding.searchCardScroll.isFillViewport = editingEmpty
     }
 
@@ -277,7 +281,7 @@ class MainActivity : AppCompatActivity() {
         binding.trainBox.visibility = if (stations) View.GONE else View.VISIBLE
         binding.trainLabel.visibility = if (stations) View.GONE else View.VISIBLE
         val hasResults = vm.results.value?.hits?.isNotEmpty() == true
-        binding.resultsHead.visibility = if (hasResults) View.VISIBLE else View.GONE
+        binding.resultsHead.visibility = if (hasResults && !draftSearch) View.VISIBLE else View.GONE
         binding.resultsSortRow.visibility = binding.resultsHead.visibility
         binding.resultsSummary.visibility = binding.resultsHead.visibility
         binding.modeStations.setBackgroundResource(if (stations) R.drawable.bg_segment_on else 0)
@@ -364,8 +368,8 @@ class MainActivity : AppCompatActivity() {
                 binding.dataChip.visibility = View.VISIBLE
                 // A completed search also ends in Ready. Do not hide the very answer that
                 // renderReport just wrote (especially "no trains" and unknown-station advice).
-                binding.statusLine.visibility = if (vm.results.value?.hits?.isEmpty() == true)
-                    View.VISIBLE else View.GONE
+                binding.statusLine.visibility = if (draftSearch ||
+                    vm.results.value?.hits?.isEmpty() == true) View.VISIBLE else View.GONE
                 binding.find.isEnabled = true
             }
             is MainViewModel.Phase.Broken -> {
