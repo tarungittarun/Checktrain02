@@ -23,8 +23,8 @@ android {
         // without legacy branches.
         minSdk 24
         targetSdk 34
-        versionCode 61
-        versionName "1.0.60-r131"
+        versionCode 62
+        versionName "1.0.61-r132"
         // No ABI-specific native code at all -> one universal APK, no splits, no app bundle games.
         resConfigs "en"
         // Instrumented tests are how this app gets validated against the *live* feed: a JVM test can pin

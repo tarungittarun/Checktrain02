@@ -26,7 +26,7 @@ flowchart LR
     G -->|no| F
 ```
 
-**In plain English:** the timetable answers *when it is scheduled*; a reported event answers *what one source last saw*. Neither a quick download nor a page's “last updated” label proves the train has moved. Green source availability is not automatically a verified actual arrival.
+**In plain English:** the timetable answers *when it is scheduled*; a reported event answers *what one source last saw*. Neither a quick download nor a page's “last updated” label proves the train has moved. Green source availability is not automatically a verified actual arrival. **R132 safeguard:** selecting the undated Where Is My Train **website** displays its claim as a comparison, never as primary `ACTUAL` cells, delay, next halt or train marker. A site can answer while the train's position is still unknown; it is not the phone app. The [141-line diary audit](docs/R132_SOURCE_INTEGRITY_DESIGN.md) records exactly why.
 
 ## What the boxes and rail mean
 
