@@ -1035,7 +1035,8 @@ class TrainActivity : AppCompatActivity() {
         binding.age.setTextColor(getColor(if (stale) R.color.late else R.color.text3))
         if (stale && WebsiteReportDisplay.selected(ui.activeSource) &&
             ui.orgWebsiteReport != null) {
-            binding.provenance.text = "WEBSITE · last site stop · stale"
+            // Staleness must not erase the website's inferred-run warning.
+            binding.provenance.text = WebsiteReportDisplay.STALE_BADGE
             binding.provenance.setBackgroundResource(R.drawable.bg_badge_problem)
             binding.provenance.setTextColor(getColor(R.color.late))
         } else if (stale && ui.activeSource == "NTES (official)" && eventAt != null) {

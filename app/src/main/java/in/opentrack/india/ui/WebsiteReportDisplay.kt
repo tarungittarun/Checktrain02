@@ -8,6 +8,8 @@ import `in`.opentrack.india.v2.mirror.PublicPageChecks
  * It is not an independently run-verified NTES actual, and a page clock is not
  * a train event. Only [OrgWebsiteStatus.parse]'s guarded cells may be painted. */
 object WebsiteReportDisplay {
+    const val STALE_BADGE = "WEBSITE · last site stop · stale · run inferred"
+
     fun usable(state: String?, answered: Boolean, report: OrgWebsiteStatus.Report?): Boolean =
         state == "comparison" && answered && report != null && report.rows.isNotEmpty()
 

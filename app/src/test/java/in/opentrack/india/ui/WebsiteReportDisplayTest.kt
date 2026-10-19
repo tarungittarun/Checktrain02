@@ -28,6 +28,12 @@ class WebsiteReportDisplayTest {
         "YPR" to LiveStopFields(actualArrivalMin = 686),
     ), "YPR", false, 686, 1_792_389_499_000L)
 
+    @Test fun staleWebsiteBadgeRetainsInferredRunWarning() {
+        assertTrue(WebsiteReportDisplay.STALE_BADGE.contains("stale"))
+        assertTrue(WebsiteReportDisplay.STALE_BADGE.contains("run inferred"))
+        assertFalse(WebsiteReportDisplay.STALE_BADGE.contains("GPS"))
+    }
+
     @Test fun answeredSitePastCardsRemainSelectedButCacheAndUnparsedPagesFallBack() {
         assertTrue(WebsiteReportDisplay.selected(site))
         assertTrue(WebsiteReportDisplay.usable("comparison", true, report))
