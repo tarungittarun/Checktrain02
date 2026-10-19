@@ -370,6 +370,10 @@ class LiveViewModel(
                     resolved.copy(orgReport = previousReport,
                         detail = resolved.detail + " · previous website report retained, not refreshed")
                 else resolved
+                Diary.get()?.log("EVIDENCE") {
+                    SourceEvidenceReceipt.publicPage(name, trainNo, originEpochDay,
+                        publicChecks[name] ?: resolved)
+                }
                 manualProbeMs[name] = System.currentTimeMillis() - started
                 if (select) mirrorActiveSource = name
                 _ui.value?.let { u -> _ui.value = buildUi(u.route, lastAnswer ?: u.answer, u.tried) }
@@ -744,51 +748,23 @@ class LiveViewModel(
             minute)).takeIf { it >= 0L }
     }
 
-    /** Prefer another usable, fresh site over NTES. No cached schedule or HTTP 200 is a success. */
-    private fun bestAvailableSource(ui: Ui, rejected: String): String? {
-        val officialEventAge = ui.answer.position.takeIf {
-            it.provenance == SourceKind.PROVIDER_NTES }?.let { officialStopAgeMillis() }
-        val siteEventAge = publicChecks[PublicPageChecks.ORG]?.orgReport?.let { report ->
-            System.currentTimeMillis() - RailTime.railMinuteToEpochMillis(originEpochDay,
-                report.eventMinute)
+    /** Only sources with run-bound, validated actual minutes can be a movement fallback.
+     * A newer HTML page clock cannot outrank an older NTES train event. */
+    private fun bestAvailableSource(ui: Ui, rejected: String): String? =
+        listOf("NTES (official)", RunningStatusMirror.SOURCE,
+            ConfirmTktMirror.SOURCE, "erail").firstOrNull { name ->
+            name != rejected && ui.sourceStates[name]?.first == "live" &&
+                SourceEvidencePolicy.primaryActuals(name, runIdentified = true,
+                    verifiedStopMinutes = when (name) {
+                        "NTES (official)" -> ui.answer.position.provenance == SourceKind.PROVIDER_NTES &&
+                            ui.answer.perStop.values.any { it.actualArrivalMin != null || it.actualDepartureMin != null }
+                        RunningStatusMirror.SOURCE, ConfirmTktMirror.SOURCE ->
+                            freshShift() && mirrorStops[name].orEmpty().isNotEmpty()
+                        "erail" -> manualErail != null &&
+                            System.currentTimeMillis() - manualErailAt in 0L..PositionEngine.STALE_MS
+                        else -> false
+                    })
         }
-        // A fresh NTES LUPDT clock with an old stop is not a newer TRAIN event.
-        // Website page clocks have the same limitation. Only event ages decide.
-        val officialFirst = SourceRecency.officialIsNewer(officialEventAge, siteEventAge)
-        val preferred = if (officialFirst)
-            listOf("NTES (official)", PublicPageChecks.ORG, WimtCandidate.SOURCE,
-                RunningStatusMirror.SOURCE, ConfirmTktMirror.SOURCE, "erail")
-            else listOf(PublicPageChecks.ORG, WimtCandidate.SOURCE,
-                RunningStatusMirror.SOURCE, ConfirmTktMirror.SOURCE, "erail", "NTES (official)")
-        return preferred.firstOrNull { name ->
-            if (name == rejected || ui.sourceStates[name]?.first !in listOf("live", "candidate"))
-                false
-            else when (name) {
-                PublicPageChecks.ORG -> publicChecks[name]?.orgReport?.let { report ->
-                    publicChecks[name]?.pageAnswered == true &&
-                        System.currentTimeMillis() - report.pageUpdatedAt in 0L..300_000L &&
-                        // The site event may be old. Its age stays on the screen;
-                        // a recent HTTP answer is not evidence of fresh movement.
-                        (ui.route.stops.any { it.code.equals(report.anchorCode, true) } ||
-                            report.intermediate?.let { p ->
-                                RouteBetween.siteIntermediateLeg(ui.route, ui.staticRoute,
-                                    p.precedingHalt, p.followingHalt, p.code, p.mapKm) != null
-                            } == true)
-                } == true
-                WimtCandidate.SOURCE -> wimtCandidate?.webPoint?.let {
-                    System.currentTimeMillis() - it.eventAtMillis in 0L..600_000L &&
-                        System.currentTimeMillis() - it.cacheAtMillis in 0L..120_000L
-                } == true
-                RunningStatusMirror.SOURCE, ConfirmTktMirror.SOURCE ->
-                    freshShift() && mirrorStops[name].orEmpty().isNotEmpty()
-                "erail" -> (manualErail != null &&
-                    System.currentTimeMillis() - manualErailAt in 0L..PositionEngine.STALE_MS) ||
-                    (ui.answer.position.provenance == SourceKind.PROVIDER &&
-                        ui.answer.position.ageSeconds <= PositionEngine.STALE_MS / 1000)
-                else -> ui.sourceStates[name]?.first == "live"
-            }
-        }
-    }
 
     private suspend fun refreshBody(previous: TrainPosition?) {
         run {
@@ -880,6 +856,16 @@ class LiveViewModel(
                 OfficialRequestReceipt(OfficialRequestReceipt.Kind.REQUEST_FAILED,
                     "The request could not complete on this device.")
             else OfficialRequestReceipt.from(live.tried, live.notes)
+            Diary.get()?.log("EVIDENCE") {
+                val snapshot = live?.answer
+                val anchor = snapshot?.anchorStopCode
+                val fields = anchor?.let { snapshot?.perStop?.get(it) }
+                SourceEvidenceReceipt.official(trainNo, originEpochDay, lastOfficialRequest!!,
+                    snapshot?.perStop?.values?.count {
+                        it.actualArrivalMin != null || it.actualDepartureMin != null
+                    } ?: 0, anchor, fields?.actualDepartureMin ?: fields?.actualArrivalMin,
+                    snapshot?.position?.feedStampMillis)
+            }
             if (live == null) {
                 // A transient failure cannot delete an already rendered valid report.
                 _ui.value?.let { old ->
@@ -1590,59 +1576,14 @@ class LiveViewModel(
         }
         val orgStop = orgReport?.let { report -> route.stops.firstOrNull {
             it.code.equals(report.intermediate?.precedingHalt ?: report.anchorCode, true) } }
-        val tablePos = when {
-            webPoint != null && webAnchor != null -> pos.copy(
-                provenance = SourceKind.PROVIDER_OVERRIDE, anchorSeq = webAnchor.seq,
-                nextSeq = route.stops.first { it.code.equals(webPoint.followingHalt, true) }.seq,
-                fraction = 0f, kmAlong = webAnchor.schedKm.toFloat(),
-                status = `in`.opentrack.india.model.StopStatus.DEPARTED,
-                delayMinutes = null, etaNextMinute = null,
-                ageSeconds = (now - wimtCheckedAt).coerceAtLeast(0L) / 1000,
-                feedAgeSeconds = (now - webPoint.eventAtMillis).coerceAtLeast(0L) / 1000,
-                feedStampMillis = null)
-            orgStop != null -> pos.copy(
-                provenance = SourceKind.PROVIDER_OVERRIDE, anchorSeq = orgStop.seq,
-                nextSeq = route.stops.getOrNull(route.stops.indexOf(orgStop) + 1)?.seq ?: orgStop.seq,
-                fraction = 0f, kmAlong = orgStop.schedKm.toFloat(),
-                status = if (orgReport?.departed == true || orgReport?.intermediate != null)
-                    `in`.opentrack.india.model.StopStatus.DEPARTED else
-                    `in`.opentrack.india.model.StopStatus.ARRIVED,
-                delayMinutes = null, etaNextMinute = null,
-                // Never score a train event by the page's newest check: it can
-                // keep advancing while the last station remains BDVT. Age the
-                // printed past-stop minute, with a separate page clock in Info.
-                ageSeconds = orgReport?.let { report ->
-                    (now - RailTime.railMinuteToEpochMillis(originDate, report.eventMinute))
-                        .coerceAtLeast(0L) / 1000
-                } ?: 0L,
-                feedAgeSeconds = orgReport?.let { report ->
-                    (now - RailTime.railMinuteToEpochMillis(originDate, report.eventMinute))
-                        .coerceAtLeast(0L) / 1000
-                }, feedStampMillis = null)
-            claimStop != null -> pos.copy(
-                provenance = SourceKind.PROVIDER_OVERRIDE, anchorSeq = claimStop.seq,
-                nextSeq = route.stops.getOrNull(route.stops.indexOf(claimStop) + 1)?.seq ?: 0,
-                fraction = 0f, kmAlong = claimStop.schedKm.toFloat(),
-                status = if (railClaim?.status == "arrived")
-                    `in`.opentrack.india.model.StopStatus.ARRIVED else
-                    `in`.opentrack.india.model.StopStatus.DEPARTED,
-                delayMinutes = null, etaNextMinute = null,
-                // The publication clock is NOT a departure/arrival minute. Keep it only as
-                // source freshness; the table's Act cells and timed event remain absent.
-                ageSeconds = (now - (publicChecks[PublicPageChecks.RAIL_YATRI]?.checkedAt ?: now))
-                    .coerceAtLeast(0L) / 1000,
-                feedAgeSeconds = (now - railClaim!!.updateAt).coerceAtLeast(0L) / 1000,
-                feedStampMillis = railClaim.updateAt)
-            mirrorSelected || publicSelected || (wimtSelected && webPoint == null) ||
-                (erailSelected && erailAnswer == null) || officialUnavailable -> pos.copy(
-                provenance = SourceKind.OFFLINE_SCHEDULE, anchorSeq = 0, nextSeq = 0,
-                fraction = 0f, delayMinutes = null, etaNextMinute = null, feedStampMillis = null)
-            else -> pos
-        }
+        val tablePos = if (mirrorSelected || publicSelected || wimtSelected ||
+            (erailSelected && erailAnswer == null) || officialUnavailable) pos.copy(
+            provenance = SourceKind.OFFLINE_SCHEDULE, anchorSeq = 0, nextSeq = 0,
+            fraction = 0f, delayMinutes = null, etaNextMinute = null, feedStampMillis = null)
+        else pos
         val model = TrackModel.build(
             route = route, pos = tablePos,
-            perStop = if (orgReport != null) orgReport.rows
-                else if (mirrorSelected || wimtSelected || publicSelected || officialUnavailable) emptyMap()
+            perStop = if (mirrorSelected || wimtSelected || publicSelected || officialUnavailable) emptyMap()
                 else if (erailSelected) erailAnswer?.perStop.orEmpty()
                 else answer.perStop,
             nowRailMinute = nowRail,
@@ -1659,7 +1600,7 @@ class LiveViewModel(
             note = (if (orgReport != null && publicChecks[PublicPageChecks.ORG]?.pageAnswered == false)
                     "Website request failed. Keeping the previous site report at its original event time; " +
                         "position since then unknown."
-                else if (orgReport != null) "Website reports past stops. The source badge says when NTES agrees; future stops use the timetable."
+                else if (orgReport != null) "Website comparison only: origin run not printed; no verified position or delay. The site claim is in Info, not ACTUAL."
                 else if (publicSelected) "No confirmed times from this site; timetable shown."
                 else if (mirrorSelected && !selectedMirrorForTable ||
                     erailSelected && erailAnswer == null || officialUnavailable)
@@ -1680,22 +1621,17 @@ class LiveViewModel(
             // The raw enum covers real overrides too. A public station claim must not
             // inherit its generic "LIVE · custom" wording in Info or copied diagnostics.
             provenanceLabel = when {
-                claimStop != null -> "RailYatri · station claim only"
-                orgStop != null -> "whereismytrain.org.in · website report, unverified"
-                webPoint != null -> "WIMT web · unverified cache point"
+                claimStop != null -> "RailYatri · comparison only"
+                orgStop != null -> "whereismytrain.org.in · comparison only"
+                webPoint != null -> "WIMT web · comparison only"
                 else -> model.provenanceLabel
             },
             routeLabel = identityOverlay(route.srcCode, route.dstCode, liveIdentity?.identity)
                 ?.let { "${model.routeLabel} · $it" }
                 ?: model.routeLabel,
-            progressLabel = if (orgReport?.intermediate != null)
-                "Website's last past-marked intermediate ${orgReport.intermediate.name} · " +
-                    "map ${orgReport.intermediate.mapKm} km · not GPS"
-                else if (orgStop != null)
-                "Website's last past-marked halt · ${orgStop.schedKm} scheduled km · not GPS"
-                else if (claimStop != null)
-                    "RailYatri station claim · ${claimStop.schedKm} scheduled km · not GPS"
-                else model.progressLabel,
+            progressLabel = if (SourceEvidencePolicy.comparisonOnly(mirrorActiveSource))
+                "Position unknown · timetable only; compare website separately"
+            else model.progressLabel,
         )
         // THE OWNER'S COLUMNS, FED: the active witness's structured minutes are written INTO the
         // rows - Act under Sch - whenever that witness answered, whether or not the erail chain
@@ -1708,11 +1644,6 @@ class LiveViewModel(
             (pos.provenance != SourceKind.PROVIDER_NTES || selectedMirrorForTable))
             mirrorStops[mirrorActiveSource].orEmpty() else emptyList()
         val withActuals = when {
-            orgReport != null -> labelled.copy(rows = labelled.rows.map { row ->
-                if (row.code in orgReport.rows && row.source == TrackModel.MinuteSource.REPORTED)
-                    row.copy(source = TrackModel.MinuteSource.SITE_REPORTED)
-                else row
-            })
             overlayStops.isEmpty() -> labelled
             else -> overlayActuals(labelled, overlayStops, nowMinute(now), staticFuture = true)
         }
@@ -1747,7 +1678,7 @@ class LiveViewModel(
                     p.routeKm in from.schedKm.toDouble()..to.schedKm.toDouble() &&
                     now - p.eventAtMillis in 0L..600_000L &&
                     now - p.cacheAtMillis in 0L..120_000L
-                (if (usable) "candidate" else "unverified") to
+                (if (usable) "comparison" else "unverified") to
                     "${it.detail}; web point is not phone-app GPS or a verified stop Act"
             } ?: ("none" to "manual check available; not a verified source")),
             "erail" to (if (manualErail != null) "live" to (manualErailDetail ?: "verified manual result")
@@ -1764,9 +1695,9 @@ class LiveViewModel(
                     (!result.pageAnswered || now - result.orgReport.pageUpdatedAt !in 0L..300_000L))
                     "last-known" else if (result.orgReport != null &&
                     now - result.orgReport.pageUpdatedAt in 0L..300_000L)
-                    "candidate" else if (result.stationClaim != null &&
+                    "comparison" else if (result.stationClaim != null &&
                     now - result.stationClaim.updateAt in 0L..300_000L)
-                    "candidate" else "unverified") to (result.detail + " · checked " +
+                    "comparison" else "unverified") to (result.detail + " · checked " +
                     RailTime.formatDate(RailTime.istEpochDay(result.checkedAt)) + " " +
                     RailTime.formatClock(result.checkedAt) + " IST" +
                     (if (now - result.checkedAt > 300_000L) " (old check; refresh to ask again)" else ""))
@@ -1846,10 +1777,7 @@ class LiveViewModel(
             nowRailMinute = nowRail, tried = tried, loading = false,
             reports = selectable[mirrorActiveSource] ?: _ui.value?.reports ?: emptyMap(),
             relayOk = _ui.value?.relayOk ?: true,
-            anchorCode = if (webPoint != null) webPoint.precedingHalt
-                else if (orgReport != null) orgReport.intermediate?.precedingHalt ?: orgReport.anchorCode
-                else if (railClaim != null) railClaim.code
-                else if (verified != null) lastReported?.code else null,
+            anchorCode = if (verified != null) lastReported?.code else null,
             actualsHeadline = verified?.first?.let { if (selected == "last known")
                 "Last known at ${clockAt(mirrorRefreshedAt)} · $it" else it },
             actualsNext = if (verified != null) nextStatement else null,

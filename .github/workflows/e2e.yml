@@ -272,6 +272,35 @@ jobs:
           gh api -X POST "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/comments" \
             -f body="$(cat /tmp/body.md)" || echo "::warning::could not post the commit comment"
 
+  # Dedicated same-commit source-admission gate. These deterministic contracts
+  # replay the owner's contradictory page and cached/failure variants; they do NOT
+  # assert that a public URL currently supplies live railway observations.
+  source_integrity:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare offline timetable for source-contract tests
+        run: bash tools/ci/prepare_asset.sh
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Source identity, chronology, cache and admission fixtures
+        run: |
+          ./gradlew --no-daemon :app:testDebugUnitTest \
+            --tests 'in.opentrack.india.v2.mirror.OrgWebsiteStatusTest' \
+            --tests 'in.opentrack.india.v2.mirror.PublicPageChecksTest' \
+            --tests 'in.opentrack.india.ui.SourceEvidencePolicyTest' \
+            --tests 'in.opentrack.india.ui.RefreshReceiptTextTest' --stacktrace
+      - name: Record the evidence level (not a claim of live movement)
+        if: always()
+        run: |
+          echo 'Source-integrity fixture verdict: ${{ job.status }} at ${{ github.sha }}' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Real-network device tests report source transport and parsed claims separately; an unreachable provider supplies no verified actuals.' >> "$GITHUB_STEP_SUMMARY"
+
   # --------------------------------------------------------------------------------------- the artifacts
   build:
     needs: plan
@@ -938,7 +967,7 @@ jobs:
   report:
     # `always()` because `e2e_full` is legitimately skipped on an ordinary push, and a skipped dependency
     # would otherwise skip this job - which is the job that tells you what was and was not tested.
-    needs: [e2e, e2e_full, release_smoke, plan]
+    needs: [e2e, e2e_full, release_smoke, source_integrity, plan]
     if: always() && needs.plan.result == 'success'
     permissions:
       contents: write
@@ -951,6 +980,15 @@ jobs:
           pattern: e2e-result-*
           merge-multiple: false
           path: /tmp/rows
+      - name: Require source-admission fixtures at the installed APK commit
+        env:
+          SOURCE_RESULT: ${{ needs.source_integrity.result }}
+        run: |
+          echo "Source identity/admission fixtures: $SOURCE_RESULT at $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$SOURCE_RESULT" != success ]; then
+            echo "::error::source admission fixtures did not pass; HTTP reachability is not verified ACTUAL"
+            exit 1
+          fi
       - name: What ran, what did not, and whether that is acceptable
         env:
           E2E_FULL: ${{ needs.plan.outputs.full }}

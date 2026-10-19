@@ -17,6 +17,7 @@ object SourceIndicator {
         state == "candidate" && name == WimtCandidate.SOURCE ->
             Indicator(Tone.CANDIDATE, "site distance · not GPS")
         state == "candidate" -> Indicator(Tone.CANDIDATE, "unverified station claim")
+        state == "comparison" -> Indicator(Tone.CANDIDATE, "comparison only · not ACTUAL")
         state == "last-known" -> Indicator(Tone.OLD, "saved · not new")
         detail.contains("not answered yet") || detail.contains("checking on first load") ||
             detail.contains("manual check available") -> Indicator(Tone.PENDING, "checking…")

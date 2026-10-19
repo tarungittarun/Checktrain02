@@ -42,15 +42,11 @@ object RefreshReceiptText {
         }
         if (source == PublicPageChecks.ORG) {
             if (websiteAnswered == true) {
-                if (status?.first != "candidate" || switched)
+                if (status?.first != "comparison")
                     return "Website answered at $checked · no validated site stop report " +
                         "for this run · $context"
-                val finding = when (change) {
-                    RefreshEvidence.Change.NEW_STOP -> "new site-reported stop (unverified)"
-                    RefreshEvidence.Change.REVISED_AT_SAME_STOP -> "site revised time at same stop (unverified)"
-                    RefreshEvidence.Change.UNCHANGED -> "same last site-reported stop; no newer event"
-                }
-                return "Website answered at $checked · $finding · $age"
+                return "Website answered at $checked · site comparison only, " +
+                    "no run-verified actuals or position · $context"
             }
         }
         if (switched) return "Checked $checked · $sourceLabel has no usable report; $context"

@@ -377,6 +377,7 @@ class TrackingFlowTest {
         E2E.shot("public-source-check")
     }
 
+    // @flow source-identity-and-admission
     @Test
     fun orgWebsiteSelectionKeepsSourceSpecificMinutesDistinctFromNtes() {
         assertTrue("source picker cannot be reached in the source card",
@@ -384,72 +385,41 @@ class TrackingFlowTest {
         val website = E2E.ui.wait(Until.findObject(By.textContains("Where Is My Train · website")), E2E.LOCAL_MS)
         assertNotNull("org website not selectable", website)
         website!!.click()
-        // A usable site report explains itself in the source badge + table; an
-        // unavailable source instead shows one short line, not old station excerpts.
+        // Await the *selected* source, not the first nonempty source response. A
+        // network error still must be honestly named; it cannot pass as a live Act.
         val deadline = System.currentTimeMillis() + E2E.NETWORK_MS
-        var resultVisible = false
-        while (System.currentTimeMillis() < deadline && !resultVisible) {
-            // An unavailable website must show its answer near the headline,
-            // inside the capped card's visible viewport. A valid timed website
-            // report instead earns a clearly attributed badge.
-            // The selected source must finish with either a qualified website
-            // badge or a readable failure receipt at the TOP of the card. A
-            // comparison-only badge and an off-screen summary do not pass.
-            val summary = E2E.text("sourceSummary", 300)
+        var identified = false
+        while (System.currentTimeMillis() < deadline && !identified) {
             val badge = E2E.text("provenance", 300)
-            resultVisible = (summary.contains("whereismytrain.org.in") &&
-                summary.contains("Timetable shown") && !summary.contains("Checking")) ||
-                (badge.contains("WEBSITE · reported stop") ||
-                badge.contains("WEBSITE · NTES agrees within")) ||
-                // On a short, large-font viewport the selected website can
-                // honestly explain failure in the visible headline while the
-                // lower source-summary line is scrollable below the fold.
-                (E2E.text("headline", 300).contains("whereismytrain.org.in") &&
-                    E2E.text("headline", 300).contains("no qualifying past-stop report"))
-            if (!resultVisible) Thread.sleep(200)
+            val headline = E2E.text("headline", 300)
+            identified = badge.contains("WEB", true) && badge.contains("comparison only") &&
+                (headline.startsWith("Website comparison:") ||
+                    headline.contains("no run-verified station event"))
+            if (!identified) Thread.sleep(200)
         }
-        if (!resultVisible) E2E.shot("org-website-missing-result")
-        assertTrue("site check returned no visible result: spinner='${E2E.text("sourceSpinner", 200)}' " +
-            "badge='${E2E.text("provenance", 200)}' summary='${E2E.text("sourceSummary", 200)}' " +
-            "checking='${E2E.text("mirrorState", 200)}' headline='${E2E.text("headline", 200)}'",
-            resultVisible)
-        val summary = E2E.text("sourceSummary")
-        val visibleFailure = E2E.text("headline").let {
-            it.contains("whereismytrain.org.in") && it.contains("no qualifying past-stop report")
-        }
-        val siteReportVisible = (E2E.text("provenance").contains("WEBSITE · reported stop") ||
-            E2E.text("provenance").contains("WEBSITE · NTES agrees within"))
-        assertTrue("source result has no plain-language result: $summary",
-            (summary.contains("whereismytrain.org.in") && summary.contains("Timetable shown")) ||
-                siteReportVisible || visibleFailure)
-        assertTrue("org selection lost the station table", E2E.count(stopsBy) > 0)
+        if (!identified) E2E.shot("org-website-missing-identity")
+        assertTrue("selected site must be visibly comparison-only: badge='${E2E.text("provenance")}'; " +
+            "headline='${E2E.text("headline")}'", identified)
+        assertTrue("website selection removed the station table", E2E.count(stopsBy) > 0)
         val sheetVisible = revealTimeSheet()
         if (!sheetVisible) E2E.shot("org-source-no-visible-time-sheet")
-        assertTrue("website selection hid the visible arrival/departure pair", sheetVisible)
+        assertTrue("website selection hid arrival/departure columns", sheetVisible)
         val live = rowTexts("liveArr") + rowTexts("liveDep")
-        assertTrue("site selection disclosed no stop to compare", live.isNotEmpty())
+        assertTrue("ACTUAL cells absent from selected source", live.isNotEmpty())
+        assertTrue("undated website minutes were promoted to ACTUAL: $live", live.all { it == "—" })
         val spoken = E2E.all(By.res(E2E.PKG, "liveArr"))
             .map { it.contentDescription.orEmpty() }
-        assertTrue("org selection misattributes NTES actuals: $spoken",
-            spoken.none { it.startsWith("Reported arrival") })
-        if (live.any { it != "—" }) {
-            assertTrue("Web cell without site provenance", E2E.text("provenance").contains("WEBSITE"))
-            assertTrue("Web cell without spoken website source: $spoken",
-                spoken.any { it.startsWith("Website claim arrival") })
-            repeat(5) { if (!E2E.visible("age", 300)) E2E.swipeIn("scroller", up = false) }
-            val age = E2E.text("age")
-            val explanation = E2E.find("age")?.contentDescription.orEmpty()
-            assertTrue("site page clock confused with an event clock: '$age' / '$explanation'",
-                age.contains("site checked", true) &&
-                    explanation.contains("not event time", true) &&
-                    explanation.contains("movement", true))
-        } else {
-            assertTrue("no Web cells but source pretends to verify station events: $summary",
-                summary.contains("NOT Act") || summary.contains("static") ||
-                    summary.contains("whereismytrain.org.in") &&
-                    summary.contains("Timetable shown") || visibleFailure)
-        }
-        E2E.shot("org-website-source")
+        assertTrue("accessibility still calls an undated website minute reported: $spoken",
+            spoken.none { it.startsWith("Reported arrival") || it.startsWith("Website claim arrival") })
+        assertTrue("website assigned a primary locomotive", E2E.find("stopTrainMarker", 300) == null)
+        repeat(5) { if (!E2E.visible("delay", 300)) E2E.swipeIn("scroller", up = false) }
+        assertTrue("website change fabricated a measured delay: ${E2E.text("delay")}",
+            E2E.text("delay").startsWith("—"))
+        val age = E2E.text("age")
+        assertTrue("page update was presented as a train event: $age",
+            (age.startsWith("Page updated") && age.contains("not movement")) ||
+                age == "No verified event time")
+        E2E.shot("org-website-comparison-no-actual")
     }
 
     // @flow refresh
@@ -506,7 +476,7 @@ class TrackingFlowTest {
                 listOf("same last reported stop", "same last site-reported stop",
                     "new reported stop", "new site-reported stop", "revised time",
                     "request failed", "answered, no validated new stop", "no validated site stop report", "not reached",
-                    "no usable new report", "has no usable report", "cached HTTP body",
+                    "no usable new report", "has no usable report", "site comparison only", "cached HTTP body",
                     "New stop report", "Revised time", "No newer stop").any { receipt.contains(it) })
         } finally {
             // Each flow starts in the same installed app; never contaminate another test.

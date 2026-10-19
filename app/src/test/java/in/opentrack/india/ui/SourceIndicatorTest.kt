@@ -38,13 +38,13 @@ class SourceIndicatorTest {
     }
 
     @Test fun siteClaimsAreAmberAndNeverLabelledAsVerifiedActuals() {
-        val site = SourceIndicator.of(PublicPageChecks.ORG, "candidate", "13 past-card rows")
+        val site = SourceIndicator.of(PublicPageChecks.ORG, "comparison", "13 past-card rows")
         assertEquals(SourceIndicator.Tone.CANDIDATE, site.tone)
-        assertEquals(true, site.label.contains("unverified"))
+        assertEquals(true, site.label.contains("comparison only"))
         assertEquals(SourceIndicator.Tone.CANDIDATE,
-            SourceIndicator.of(WimtCandidate.SOURCE, "candidate", "dated km point").tone)
+            SourceIndicator.of(WimtCandidate.SOURCE, "comparison", "dated km point").tone)
         assertEquals(SourceIndicator.Tone.CANDIDATE,
-            SourceIndicator.of(PublicPageChecks.RAIL_YATRI, "candidate", "no passage minute").tone)
+            SourceIndicator.of(PublicPageChecks.RAIL_YATRI, "comparison", "no passage minute").tone)
         assertEquals(SourceIndicator.Tone.READY,
             SourceIndicator.of("NTES (official)", "live", "11 actual stops").tone)
     }

@@ -149,6 +149,7 @@ object OrgWebsiteStatus {
         var eventMinute = -1
         var previousSeq = -1
         var intermediate: Intermediate? = null
+        var laterThanPage = 0
         for (part in card.split(html).drop(1)) {
             val code = heading.find(part)?.groupValues?.get(1)?.uppercase(Locale.ROOT) ?: continue
             val stop = byCode[code] ?: continue
@@ -188,6 +189,13 @@ object OrgWebsiteStatus {
                 // schedule-equal site claim. Other schedule echoes are not Act.
                 if ((value == printedSchedule && !originDeparture) ||
                     value !in originDep..railNow) return null
+                // A page cannot have published an event which had not happened at its
+                // own update time. 20652's 06:14:20 page marked ANF 06:15 as past;
+                // using the device's later 06:15:52 fetch clock made a false jump.
+                if (RailTime.railMinuteToEpochMillis(originDay, value) > stamp) {
+                    laterThanPage++
+                    return null
+                }
                 return value to printedSchedule
             }
             val arrival = published(arrSection, stop.arrivalMin)
@@ -216,7 +224,8 @@ object OrgWebsiteStatus {
                     (arrival ?: departure)?.second ?: return@let null)
             }
         }
-        if (anchorCode == null) return Outcome(null, "no past-marked, schedule-paired website station minute for this run")
+        if (anchorCode == null) return Outcome(null, "no past-marked, schedule-paired website station minute for this run" +
+            if (laterThanPage > 0) "; $laterThanPage claimed event(s) later than the page update clock rejected" else "")
         // The owner's 20689 diary shows the last green card's BDVT departure
         // changing 13:47→13:48→13:51→13:52 as the page clock advanced. It is
         // NOT a settled historic departure until another station has been reached.
@@ -233,6 +242,8 @@ object OrgWebsiteStatus {
                 Regex("\\d{1,2}:\\d{2}:\\d{2}").containsMatchIn(it)
             } == true)
         return Outcome(report,
-            "${rows.size} website-published past station rows; origin day inferred from timetable, not stated by site; clocks are site claims, not independently verified observations")
+            "${rows.size} website-published past station rows; " +
+                (if (laterThanPage > 0) "$laterThanPage claimed event(s) later than the page update clock rejected; " else "") +
+                "origin day inferred from timetable, not stated by site; clocks are site claims, not independently verified observations")
     }
 }

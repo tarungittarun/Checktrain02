@@ -277,6 +277,34 @@ class OrgWebsiteStatusTest {
         assertNull(OrgWebsiteStatus.parse(later, "16227", day, now + 17 * 60_000L,
             halts, null).report?.intermediate)
     }
+    @Test fun `20652 diary page cannot announce 0615 arrival before its 061420 publication`() {
+        val run = SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).apply {
+            timeZone = TimeZone.getTimeZone("UTC")
+        }.parse("2026-10-19")!!.time / 86_400_000L
+        val checked = SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z", Locale.ROOT)
+            .parse("2026-10-19 06:15:58 +0530")!!.time
+        fun sameDay(seq: Int, code: String, arr: Int?, dep: Int?, km: Int) = StopRow(
+            seq, code, "$code Jn", "KA", null, null, arr, dep, 1, km, true)
+        val daily = TrainRoute("20652", "TLGP SBC EXP", "TLGP", "Talguppa",
+            "SBC", "Bangalore", 372, 400, 127, null, listOf(
+                sameDay(1, "TLGP", null, 320, 0), sameDay(2, "SRF", 335, 337, 15),
+                sameDay(3, "ANF", 364, 365, 42), sameDay(4, "SBC", 720, null, 372)),
+            emptyList())
+        val html = """<html><h1>20652 Running Status</h1><p>Source: TLGP</p>
+            <p>Destination: SBC</p><p>Last Updated: 06:14:20 AM</p>
+            ${card("TLGP", "bg-green-50 opacity-90", "—", "—", "05:25 AM", "05:20 AM")}
+            ${card("SRF", "bg-green-50 opacity-90", "05:42 AM", "05:35 AM", "05:46 AM", "05:37 AM")}
+            ${card("ANF", "bg-green-50 opacity-90", "06:15 AM", "06:04 AM", "—", "06:05 AM")}
+            </html>""".trimIndent()
+        val outcome = OrgWebsiteStatus.parse(html, "20652", run, checked, daily)
+        val report = outcome.report ?: error(outcome.reason)
+        assertEquals("SRF", report.anchorCode)
+        assertEquals(342, report.eventMinute) // provisional SRF departure is not settled
+        assertNull("06:15 occurred after the page's own 06:14:20 stamp", report.rows["ANF"])
+        assertTrue("the rejection must be diagnosable", outcome.reason.contains("later than the page update clock"))
+        assertTrue(report.originInferred) // even retained SRF is a comparison, not dated Act
+    }
+
     @Test fun `cached HTML cannot publish a fresh website claim`() {
         val fetched = PublicPageChecks.fetch(PublicPageChecks.ORG, "16227", day, now,
             "MYS", "TLGP", route.stops.map { it.code }.toSet(), route) {

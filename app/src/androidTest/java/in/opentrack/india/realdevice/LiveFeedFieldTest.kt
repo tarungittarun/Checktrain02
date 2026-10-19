@@ -6,6 +6,9 @@ import `in`.opentrack.india.core.RailTime
 import `in`.opentrack.india.domain.TrackModel
 import `in`.opentrack.india.model.SourceKind
 import `in`.opentrack.india.remote.ErailWire
+import `in`.opentrack.india.ui.SourceEvidencePolicy
+import `in`.opentrack.india.ui.SourceEvidenceReceipt
+import `in`.opentrack.india.v2.mirror.PublicPageChecks
 import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -101,6 +104,39 @@ class LiveFeedFieldTest {
             assertTrue("feed stamp is ${(age / 86_400_000L)} days old — refuse to call this live",
                 age < 7 * 86_400_000L)
         }
+    }
+
+    /** A network field observation, not a proof of moving-train ground truth. Even an
+     * answered page can be an undated claim; its source, cache status and byte digest
+     * are logged separately from actuals. Provider unreachability is an unverified
+     * outcome, NEVER a green claim of fresh real-world train data. */
+    // @flow source-network-evidence
+    @Test
+    fun requiredWebsiteWireIsNamedAndAnswerIsNotPromotedToActual() {
+        val train = arg("train", "12627")
+        val day = RailTime.istEpochDay(System.currentTimeMillis())
+        var requested = ""
+        val result = PublicPageChecks.fetch(PublicPageChecks.ORG, train, day,
+            System.currentTimeMillis()) { url ->
+            requested = url
+            Http(context).get(url)
+        }
+        assertTrue("source request was routed to an unrelated host: $requested",
+            requested == "https://whereismytrain.org.in/?trainNo=$train")
+        assertTrue("site must never be promoted by an HTTP answer",
+            SourceEvidencePolicy.comparisonOnly(PublicPageChecks.ORG) &&
+                !SourceEvidencePolicy.primaryActuals(PublicPageChecks.ORG, true, true))
+        assertTrue("cached body must not count as a fresh site answer",
+            !result.fromHttpCache || !result.pageAnswered)
+        if (result.pageAnswered) {
+            assertTrue("answered request carried no recorded bytes/digest",
+                result.responseBytes > 0 && result.responseDigest?.length == 16)
+        }
+        Log.i(tag, "SOURCE-INTEGRITY website: " +
+            SourceEvidenceReceipt.publicPage(PublicPageChecks.ORG, train, day, result))
+        Log.i(tag, "SOURCE-INTEGRITY verdict: network=${result.pageAnswered}; " +
+            "site comparison=${result.orgReport != null}; primaryActuals=0; " +
+            "same-run train movement NOT established by page transport")
     }
 
     /**

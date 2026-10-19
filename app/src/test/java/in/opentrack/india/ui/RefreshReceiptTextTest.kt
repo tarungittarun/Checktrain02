@@ -38,7 +38,8 @@ class RefreshReceiptTextTest {
             "00:35:02", "site-reported stop 53 min ago", "candidate" to "past card",
             null, true, false, unchanged, false)
         assertTrue(answer.contains("Website answered"))
-        assertTrue(answer.contains("no newer event"))
+        assertTrue(answer.contains("no validated site stop report"))
+        assertFalse(answer.contains("site-reported stop"))
         val failure = RefreshReceiptText.format(website, "website", "NTES · official",
             "00:36:00", "last reported stop 54 min ago",
             "last-known" to "Request failed: TIMEOUT; previous website report retained",
@@ -46,6 +47,17 @@ class RefreshReceiptTextTest {
         assertTrue(failure.contains("website request failed"))
         assertTrue(failure.contains("showing NTES"))
         assertFalse(failure.contains("Website answered"))
+    }
+
+    @Test fun websiteHttpSuccessWithPastCardIsComparisonNotANewTrainPosition() {
+        val text = RefreshReceiptText.format(PublicPageChecks.ORG, "website", "website",
+            "06:15:58", "no new timed position from this source",
+            "comparison" to "3 past-marked cards, origin run inferred",
+            null, true, false, RefreshEvidence.Change.NEW_STOP, false)
+        assertTrue(text.contains("Website answered"))
+        assertTrue(text.contains("comparison only"))
+        assertTrue(text.contains("no run-verified actuals or position"))
+        assertFalse(text.contains("new site-reported stop"))
     }
 
     @Test fun answeredWebsiteWithoutQualifyingStopNeverClaimsSameOldSiteEvent() {

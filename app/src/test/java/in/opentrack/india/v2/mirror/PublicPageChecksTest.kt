@@ -101,6 +101,11 @@ class PublicPageChecksTest {
             }
             assertTrue("$name did not make a request", result.pageAnswered)
             assertTrue("$name omitted its returned status", result.detail.contains("16227"))
+            assertEquals("HTTP body byte count missing", response.toByteArray(Charsets.UTF_8).size,
+                result.responseBytes)
+            assertTrue("only a digest, not raw HTML, belongs in a source receipt",
+                result.responseDigest?.matches(Regex("[0-9a-f]{16}")) == true)
+            assertFalse(result.fromHttpCache)
         }
         assertEquals(3, urls.distinct().size)
         assertTrue(urls[0].contains("/16227/1.json?start_day=1"))
@@ -111,6 +116,8 @@ class PublicPageChecksTest {
             Http.Result.Ok(relay, fromCache = true, ageMillis = 900_000)
         }
         assertFalse("cached page is not a new source answer", cached.pageAnswered)
+        assertTrue(cached.fromHttpCache)
+        assertEquals(relay.toByteArray(Charsets.UTF_8).size, cached.responseBytes)
         assertTrue(cached.detail.contains("Cached HTTP body (15 min old)"))
         assertTrue(cached.detail.contains("No fresh observation"))
         val failed = PublicPageChecks.fetch(PublicPageChecks.IXIGO, "16227", day, now) {

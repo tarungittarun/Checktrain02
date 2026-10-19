@@ -8,6 +8,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
+import java.security.MessageDigest
 
 /** Manual public-source comparisons. A freshly published station claim is NOT an observed
  * station event, a departure minute or GPS. The caller must keep these distinctions on screen. */
@@ -27,6 +28,11 @@ object PublicPageChecks {
         val lines: Map<String, String> = emptyMap(),
         /** The website's printed publication label; never a station-event timestamp. */
         val pageUpdateLabel: String? = null,
+        /** Transport evidence, not event freshness. A short digest compares repeated bodies
+         * without persisting HTML or cookies in the diagnostic diary. */
+        val responseBytes: Int = 0,
+        val responseDigest: String? = null,
+        val fromHttpCache: Boolean = false,
     )
 
     /** Explain a missing destination in a returned website timeline without treating its
@@ -85,8 +91,12 @@ object PublicPageChecks {
                 System.currentTimeMillis(), false)
             is Http.Result.Ok -> {
                 val checked = System.currentTimeMillis()
+                val bytes = reply.body.toByteArray(Charsets.UTF_8)
+                val digest = MessageDigest.getInstance("SHA-256").digest(bytes).take(8)
+                    .joinToString("") { "%02x".format(it) }
                 val answer = parse(name, reply.body, number, originDay, checked, source, destination,
-                    knownCodes, route, mapRoute)
+                    knownCodes, route, mapRoute).copy(responseBytes = bytes.size,
+                        responseDigest = digest, fromHttpCache = reply.fromCache)
                 if (reply.fromCache) answer.copy(
                     detail = "Cached HTTP body (${reply.ageMillis / 60_000} min old); " +
                         answer.detail + " No fresh observation.", pageAnswered = false,

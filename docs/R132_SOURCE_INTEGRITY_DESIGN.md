@@ -1,0 +1,52 @@
+# R132 · Evidence before movement — design and diary audit (19 Oct 2026)
+
+**Scope:** owner-supplied `opentrack-diary-20261019-061626.txt` (141 lines, R131, train 20652 TLGP→SBC, origin 19 Oct). This is the *only* attached session; references to `list-*.png`/`track-*.png` are files on the owner's phone, not image attachments here. No new requests to railway/status sites were made for this analysis. The log starts at 03:07 but has no entries until 06:15; it does not show what happened in the intervening hours.
+
+## Line-by-line ledger (ranges expand repetitive request cycles without hiding any lines)
+
+| Log lines | Observation | Trust decision |
+| --- | --- | --- |
+| 1–4 | Diary header, R131 stamp and resume at 03:07. | Not a train observation. No continuity of observations to 06:15. |
+| 5–8 | Station search first lists one timetable train, then four after erail listing enrichment. | The three added *search results* are not stations the train passed; erail list freshness is not running-position freshness. |
+| 9–14 | Track opens with website selected: offline schedule-only paint, erail **identity** checked, no stop event yet. | Initial website-first display hides NTES actuals until website answers, even though NTES is being requested. |
+| 15–21 | NTES POST answers 35,685 B, decoded 16 stops; only two have reported minutes, last SRF departure **05:42**, +5 minutes at that stop. Schedule replacement does not change that. | Real HTTP connection and decoded, run-bound official evidence; not current motion. The selected website UI still says “no verified delay”. |
+| 22–28 | Background survey starts mirror pair, RailYatri, ixigo, `.org.in`, WIMT web cache and erail; source box reports official answered. | Independent reads are *not* interchangeable; no success just from 200/bytes. |
+| 29–33 | erail returns 789 B without same-run stop minutes; RailGeo returns 537 B maintenance HTML. | Identity/schedule or maintenance; neither qualifies for Act, delay or marker. |
+| 34–39 | `.org.in` GET 106,698 B, parsed TLGP 05:25 and SRF **arrival 05:42**. At 06:15 the app switches the primary card from NTES to site-only **+7m** and labels event 33m old. ntfy poll has zero reports. | HTTP happened, but website URL gives **no origin run**, the parser infers it, and the number differs from NTES's **+5m** despite the same printed 05:42. That is source switching, not a train moving. |
+| 40–47 | WIMT cache: 17 rows, 15 ETA rows excluded, last usable claim 30m old; RailYatri JSON 21,771 B has root claim but its 06:03 publication clock is old; ixigo HTML 294,053 B no dated event. | Accessible sources, no independent live position here. |
+| 48–51 | runningstatus browser text 264 B; direct 403; ConfirmTkt 11 raw, **zero corroborated** halts. | Do not promote raw page claims or bypass refusal. |
+| 52–54 | User expands/collapses leg with two map points. | Static map action, not a train transition. |
+| 55–64 | First website Refresh: selected-first, GET 106,698 B, same SRF 05:42 and +7m; box and receipt explicitly say unchanged. | Another connection, **no new movement**. |
+| 65–74 | Second website Refresh: same request size, same rendered event and unchanged receipt. | No new movement. Same byte *length* is not a content checksum. |
+| 75–84 | Third website Refresh: same event/receipt. | No new movement. |
+| 85–94 | Fourth website Refresh: same event/receipt. | No new movement. |
+| 95–96 | Another leg toggle. | Static map; no new network event. |
+| 97–106 | Fifth website Refresh: same event/receipt. | No new movement. |
+| 107–116 | Sixth website Refresh: same event/receipt. | No new movement. Six repeated checks in ~18s are an avoidable provider-load risk. |
+| 117–118 | User switches to NTES at 06:15:49; screen becomes NTES SRF 05:42, **+5m**, 33m-old event. | Source switch explains +7→+5 without any new train report. The phone screenshots named in the diary were not attached. |
+| 119–126 | NTES Refresh at 06:15:52: another 35,685 B, 16/2 stops, same SRF 05:42, +5m and unchanged displayed card. | Successful new transport response, **unchanged old event**; size equality alone is insufficient to prove identical response bytes. |
+| 127–134 | Since NTES event is old, background `.org.in` comparison GET grows to **106,937 B** and parser sees **third past-card ANF arrival 06:15**, though the page still labels itself “Last Updated 06:14:20”. NTES card remains at SRF. | Contradiction: page publication is **40 seconds earlier** than the claimed ANF event minute. Cannot certify that event as a current observation, nor treat site progress as NTES progress. Different byte size shows a page change, not its truth. |
+| 135–141 | User manually selects the website; another 106,937-B GET yields the same third card, changes primary marker SRF→ANF and delay +5m NTES→**+11m website** in six seconds. | **Observed jump is one scheduled halt**, arising from source choice and a self-contradictory, undated site claim. This diary does **not** show a 30-minute delay or a three/four-station jump; those observations require a separate timed capture. |
+
+### Fault model, not just visual symptoms
+
+```text
+wire answer (HTTP OK) != verified run/event
+           |
+           +-> NTES decoded 20652 / origin day / SRF 05:42 -> eligible official Act (+5 at SRF)
+           +-> site HTML 20652 / *origin day inferred* / ANF 06:15
+                     page 'updated 06:14:20' -> inconsistent -> comparison-only, no primary marker
+           +-> erail identity, WIMT ETA, RailYatri old clock, mirror raw -> no primary event
+```
+
+Existing code promotes `orgReport` to `tablePos` (`LiveViewModel.buildUi`) and passes its rows into `TrackModel` Act even though the site run is inferred; `bestAvailableSource` can choose an undocumented site as a fallback on a *fresh page clock*, and first-load survey displays a website claim while NTES is already known. The parser checks `eventMinute <= wall-clock-now` but **not** `eventMinute <= its own page publication timestamp`. This combination permits source reordering to look like instantaneous movement or delay change. A site clock advancing must not redate a train event.
+
+## Architecture contract to implement
+
+1. **Separate request outcome from evidence.** Each source attempt should log the selected source, train, origin day, outcome (`HTTP answered`, `cached`, `failed`), parse/identity verdict, *actual* last event and source publication time. A transport success, cache fallback or source/page clock alone must never populate a movement/delay claim.
+2. **Allow only run-bound observations to drive the main marker and `ACTUAL` cells.** NTES dated actuals, or independently validated same-run mirror events with sufficient corroboration, may drive the table. Undated `.org.in` HTML, WIMT cache points and RailYatri publication claims are **comparison-only**: show their source/time/stop in source details or an explicitly unverified comparison, not in primary `ACTUAL`, delay or marker. The traveller can select the site to examine its claim, but selecting it does not make it verified.
+3. **Reject inconsistent site chronology.** A station minute cannot be later than the page's own publication time; a claimed 06:15 event on a page saying 06:14:20 must not qualify. Preserve the last *trusted* observation with its original age; never silently adopt a newer site card or turn absence into a current position. Treat date ambiguity as a separate limitation even if clocks are consistent.
+4. **Make fallback explicit.** Refresh still asks the user's selection first, then a qualifying source. If a website returns comparison-only information, mark it as “answered; no run-verified actuals” and fetch NTES as a clearly named fallback. No NTES preflight. Do not use an undated site as an automatic position fallback from NTES.
+5. **Separate test layers.** Unit/fixture tests replay the contradictory page and a correct dated NTES snapshot, including cached/failure cases. APK journeys assert visible source and event labels, no fabricated Act or movement on selector change, and distinguish connected-but-unchanged from offline cache. A dedicated E2E source-integrity stage runs fixture/contract tests against the **same commit as the APK**, with no silent skip. Real-network field checks are bounded and reported as *observations*: if the provider is unreachable, report unverified, not “passed live fetch”.
+
+**Acceptance invariant:** two screen states a few seconds apart may differ in source claims; they must not imply the train passed extra stations merely because the selected website or its page clock changed. If dated telemetry cannot prove current progress, show `position unknown after <last verified stop>` and the independent website comparison separately.
