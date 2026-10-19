@@ -47,6 +47,45 @@ class OrgWebsiteStatusTest {
         ${card("ANF", "bg-white", "06:08 AM", "06:00 AM", "06:10 AM", "06:02 AM")}
         </html>""".trimIndent()
 
+    @Test fun `same website distance POC finds no km-to-next in the existing time-page fixture`() {
+        val report = OrgWebsiteStatus.parse(page, "16227", day, now, route).report!!
+        val finding = OrgWebsiteDistanceProbe.inspect(page, report, route, null)
+        assertNull(finding.candidate)
+        assertTrue(finding.reason.contains("no explicit km-to-next-station label"))
+        val result = PublicPageChecks.parse(PublicPageChecks.ORG, page, "16227", day, now,
+            route = route)
+        assertTrue(result.pageAnswered)
+        assertTrue(result.orgDistanceProbe!!.contains("no explicit km-to-next-station label"))
+        assertTrue(result.detail.contains("no extra request"))
+    }
+
+    @Test fun `same website synthetic explicit distance scales only on matching next leg`() {
+        fun withText(text: String) = page.replace("</html>", "<p>$text</p></html>")
+        val example = withText("1 km to ANF")
+        val parsed = PublicPageChecks.parse(PublicPageChecks.ORG, example, "16227", day, now,
+            route = route)
+        val report = parsed.orgReport!!
+        val finding = OrgWebsiteDistanceProbe.inspect(example, report, route, null)
+        val claim = finding.candidate!!
+        assertEquals("ARU", claim.fromCode)
+        assertEquals("ANF", claim.nextCode)
+        assertEquals(15.0, claim.legKm, 0.0001)
+        assertEquals(14.0 / 15.0, claim.fraction, 0.0001)
+        assertTrue(parsed.orgDistanceProbe!!.contains("NOT shown as live position"))
+        for (text in listOf("16 km to ANF", "1 km to TLGP", "1 km to ANF; 2 km to ANF")) {
+            val candidate = withText(text)
+            val sameRun = OrgWebsiteStatus.parse(candidate, "16227", day, now, route).report!!
+            assertNull(text, OrgWebsiteDistanceProbe.inspect(candidate, sameRun, route, null).candidate)
+        }
+        val inScript = withText("<script>1 km to ANF</script>")
+        assertNull(OrgWebsiteDistanceProbe.inspect(inScript, report, route, null).candidate)
+        val stalePage = example.replace("06:06:19 AM", "05:55:19 AM")
+        assertNull(PublicPageChecks.parse(PublicPageChecks.ORG, stalePage, "16227", day, now,
+            route = route).orgReport)
+        assertFalse(PublicPageChecks.parse(PublicPageChecks.ORG, stalePage, "16227", day, now,
+            route = route).orgDistanceProbe!!.contains("km segment"))
+    }
+
     @Test fun `website mobile retry is bounded and other source policy is unchanged`() {
         assertEquals(1, PublicPageChecks.retriesFor(PublicPageChecks.ORG))
         assertEquals(0, PublicPageChecks.retriesFor(PublicPageChecks.RAIL_YATRI))

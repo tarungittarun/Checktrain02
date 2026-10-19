@@ -1261,6 +1261,9 @@ class TrainActivity : AppCompatActivity() {
                     "arr ${hhmm(cell.actualArrivalMin)} dep ${hhmm(cell.actualDepartureMin)} " +
                     "pf ${cell.platform ?: "–"}; site report, run inferred (not NTES)\n")
             }
+            u.orgWebsiteDistanceProbe?.let {
+                append("same-website distance POC: $it; no other request; not a live position\n")
+            }
             append("providers ${u.tried.joinToString(" ")}\n")
             m.note?.let { append("note $it\n") }
             // The device-run request experiment, if it has run. This is the line that turns "it does not work

@@ -33,6 +33,9 @@ object PublicPageChecks {
         val responseBytes: Int = 0,
         val responseDigest: String? = null,
         val fromHttpCache: Boolean = false,
+        /** POC only: inspection of the SAME .org.in page for a visible next-point km label.
+         * Diagnostic, never an admitted position or a second provider request. */
+        val orgDistanceProbe: String? = null,
     )
 
     /** Explain a missing destination in a returned website timeline without treating its
@@ -100,7 +103,8 @@ object PublicPageChecks {
                 if (reply.fromCache) answer.copy(
                     detail = "Cached HTTP body (${reply.ageMillis / 60_000} min old); " +
                         answer.detail + " No fresh observation.", pageAnswered = false,
-                    stationClaim = null, orgReport = null)
+                    stationClaim = null, orgReport = null,
+                    orgDistanceProbe = "cached HTTP page; no same-page distance accepted")
                 else answer
             }
         }
@@ -197,6 +201,15 @@ object PublicPageChecks {
         val wrong = selected != null && selected.replace('/', '-') != date
         val org = if (name == ORG && route != null && !wrong)
             OrgWebsiteStatus.parse(body, number, originDay, now, route, mapRoute) else null
+        val distanceProbe = if (name == ORG && route != null)
+            OrgWebsiteDistanceProbe.inspect(body, org?.report, route, mapRoute) else null
+        val distanceNote = distanceProbe?.let { finding ->
+            finding.candidate?.let { p ->
+                "site printed ${p.remainingKm} km to ${p.nextCode} after ${p.fromCode}; " +
+                    "mapped ${p.legKm} km segment, ${(p.fraction * 100).toInt()}% schematic; " +
+                    "unverified candidate, NOT shown as live position"
+            } ?: finding.reason
+        }
         val runLabel = if (org?.report != null && selected == null)
             "site has no date selector; mapped to the active selected run by timetable" else returned
         return Result("$title: train $number · $runLabel (requested origin $date) · $status" +
@@ -205,8 +218,10 @@ object PublicPageChecks {
             ". ${lines.size} displayed station excerpts for comparison" +
             (if (org?.report != null) "; source-marked past rows are website claims, NOT independently verified Act/GPS."
                 else "; NOT Act or measured position.") +
-            (if (name == ORG) " not Google's WIMT phone app." else ""), now, true,
-            orgReport = org?.report, lines = lines,
-            pageUpdateLabel = if (name == ORG) updated else null)
+            (if (name == ORG) " not Google's WIMT phone app." else "") +
+            (distanceNote?.let { " Same-page distance probe: $it; no extra request." } ?: ""),
+            now, true, orgReport = org?.report, lines = lines,
+            pageUpdateLabel = if (name == ORG) updated else null,
+            orgDistanceProbe = distanceNote)
     }
 }

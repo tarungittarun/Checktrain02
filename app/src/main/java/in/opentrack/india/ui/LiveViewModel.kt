@@ -155,6 +155,8 @@ class LiveViewModel(
         val railYatriClaim: PublicPageChecks.StationClaim? = null,
         /** The .org.in site's own past-card claims, not Google's app or verified GPS. */
         val orgWebsiteReport: `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.Report? = null,
+        /** R139 diagnostic from that *same* reply; never drives the marker or Actual cells. */
+        val orgWebsiteDistanceProbe: String? = null,
         /** A newer unverified comparison, not a silent switch away from NTES. */
         val alternateSiteHint: String? = null,
         /** Website did answer, but its comparison timeline omits the destination arrival. */
@@ -357,6 +359,7 @@ class LiveViewModel(
                         }
                         result
                     } else result.copy(orgReport = accepted,
+                        orgDistanceProbe = "newer page regressed; no distance candidate retained",
                         detail = result.detail + if (accepted == null)
                             " Newer page regressed behind a previously reached station; position unknown."
                         else " Newer page regressed; holding the previous reported station until its original clock expires.")
@@ -1860,6 +1863,8 @@ class LiveViewModel(
             wimtWebPoint = webPoint,
             railYatriClaim = railClaim,
             orgWebsiteReport = orgReport,
+            orgWebsiteDistanceProbe = publicChecks[PublicPageChecks.ORG]?.orgDistanceProbe
+                ?.takeIf { selected == PublicPageChecks.ORG },
             alternateSiteHint = alternateSiteHint,
             websiteGap = if (selected == "NTES (official)" || selected == PublicPageChecks.ORG)
                 PublicPageChecks.websiteGap(publicChecks[PublicPageChecks.ORG], route.dstCode)
