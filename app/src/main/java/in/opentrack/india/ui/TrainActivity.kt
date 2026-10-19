@@ -606,17 +606,27 @@ class TrainActivity : AppCompatActivity() {
         }
         binding.heroEyebrow.setTextColor(getColor(if (ui.wimtWebPoint != null ||
             ui.orgWebsiteReport != null || ui.railYatriClaim != null) R.color.warn else R.color.live))
-        // No NTES time-interpolated icon in position-only mode. A separate amber
-        // marker can scale a fresh, explicitly UNVERIFIED WIMT web-cache km claim
-        // onto two official scheduled halts; it never invents an ETA or Act cell.
+        // A reported departure may earn a symbolic cue just off the last stop;
+        // the fraction is NEVER a measured distance. The latest website card's
+        // revisable departure is only an amber suggestion, not a Web Act cell.
+        val tentativeSiteDep = ui.orgWebsiteReport?.let { report ->
+            if (m.rows.any { it.code.equals(report.anchorCode, true) &&
+                    it.source == TrackModel.MinuteSource.SITE_REPORTED })
+                DepartureCue.websiteSuggestion(report, vm.originDate, System.currentTimeMillis())
+            else null
+        }
         val leg = ui.orgWebsiteReport?.let { report ->
             report.intermediate?.let { p ->
                 RouteBetween.siteIntermediateLeg(ui.route, ui.staticRoute,
                     p.precedingHalt, p.followingHalt, p.code, p.mapKm)
             } ?: if (m.rows.any { it.code.equals(report.anchorCode, true) &&
-                    it.source == TrackModel.MinuteSource.SITE_REPORTED })
-                RouteBetween.siteLastStopLeg(ui.route, ui.staticRoute, report.anchorCode)
-            else null
+                    it.source == TrackModel.MinuteSource.SITE_REPORTED }) {
+                if (tentativeSiteDep != null || report.departed &&
+                    m.rows.any { it.code.equals(report.anchorCode, true) && it.showDep != null })
+                    RouteBetween.departureCueLeg(ui.route, ui.staticRoute, report.anchorCode,
+                        websiteSuggestion = true)
+                else RouteBetween.siteLastStopLeg(ui.route, ui.staticRoute, report.anchorCode)
+            } else null
         } ?: if (SourceEvidencePolicy.comparisonOnly(ui.activeSource)) null
             else if (ui.activeSource in setOf("NTES (official)", "erail", "last known",
                 `in`.opentrack.india.v2.mirror.RunningStatusMirror.SOURCE,
@@ -626,7 +636,11 @@ class TrainActivity : AppCompatActivity() {
                     (it.showArr != null || it.showDep != null) } ?: m.rows.lastOrNull {
                     it.source == TrackModel.MinuteSource.REPORTED &&
                         (it.showArr != null || it.showDep != null) }
-                reported?.let { RouteBetween.reportedHaltLeg(ui.route, ui.staticRoute, it.code) }
+                reported?.let { row ->
+                    if (row.showDep != null)
+                        RouteBetween.departureCueLeg(ui.route, ui.staticRoute, row.code)
+                    else RouteBetween.reportedHaltLeg(ui.route, ui.staticRoute, row.code)
+                }
             } else null
         val (badgeBg, badgeText) = when (m.tone) {
             TrackModel.Tone.LIVE_OK, TrackModel.Tone.LIVE_EARLY ->
@@ -760,6 +774,17 @@ class TrainActivity : AppCompatActivity() {
             binding.next.text = next?.let { RowText.of(it.name) + " · " +
                 ((it.arrivalMin ?: it.departureMin)?.let(RailTime::formatRailMinute) ?: "—") +
                 "\nTimetable · not ETA" } ?: "Next stop unknown · timetable below"
+            if (org != null && tentativeSiteDep != null) {
+                binding.headline.text = "Website suggests left ${RowText.of(place ?: org.anchorCode)} " +
+                    "${RailTime.formatRailMinute(tentativeSiteDep)} · unconfirmed; now unknown"
+                binding.provenance.text = "WEBSITE · departure suggestion · run inferred"
+                binding.headline.contentDescription = binding.headline.text.toString() +
+                    ". The website's last-card departure can change; not verified train position."
+            } else if (org?.departed == true && leg?.markerKind ==
+                RouteBetween.MarkerKind.SITE_DEPARTURE_SUGGESTION) {
+                binding.headline.text = "Website reports left ${RowText.of(place ?: org.anchorCode)} " +
+                    "${RailTime.formatRailMinute(org.eventMinute)} · now unknown"
+            }
         }
         // The first glance is a report, not a paragraph. Keep the complete model
         // sentence available to TalkBack / Info, but present the event, delay and
@@ -781,6 +806,8 @@ class TrainActivity : AppCompatActivity() {
         stopAdapter.reports = ui.sourceLines[ui.activeSource] ?: ui.reports
         stopAdapter.websiteIntermediateReports = if (WebsiteReportDisplay.selected(ui.activeSource))
             ui.orgWebsiteReport?.rows.orEmpty() else emptyMap()
+        stopAdapter.websiteTentativeDeparture = if (tentativeSiteDep != null)
+            ui.orgWebsiteReport?.anchorCode?.let { it to tentativeSiteDep } else null
         stopAdapter.mappedLegStarts = ui.staticMappedLegStarts
         // A new response can repeat the same stop. Only show its receipt once;
         // neither the score nor the pulse changes a train's reported position.
@@ -822,6 +849,20 @@ class TrainActivity : AppCompatActivity() {
         stopAdapter.setProjectedLeg(leg)
         renderSourceChips(ui)
         updateTableMarker(ui)
+        if (DepartureCue.isCue(leg?.markerKind)) {
+            // The station keeps its dot. The only train glyph is in the outbound
+            // leg, never simultaneously pinned to the station and the leg.
+            stopAdapter.haltMarker = null
+            if (tentativeSiteDep != null) {
+                // Do not apply the arrived-at-station age to an unconfirmed
+                // departure; its minute is visibly marked WEB? in the table.
+                stopAdapter.legAgeSeconds = null
+                val report = ui.orgWebsiteReport!!
+                binding.age.text = "Site arrival ${RailTime.formatRailMinute(report.eventMinute)} · " +
+                    "departure suggestion ${RailTime.formatRailMinute(tentativeSiteDep)} · " +
+                    "page checked ${RailTime.formatClock(report.pageUpdatedAt)} (not movement)"
+            }
+        }
         applyHeroExpansion()
         stopAdapter.highlightCode = stopAdapter.haltMarker?.code ?: ui.anchorCode
         if (ui.reports.isNotEmpty()) {
@@ -845,7 +886,8 @@ class TrainActivity : AppCompatActivity() {
             // A usable NTES/website station may paint before ui.anchorCode is set.
             // Focus on the SAME station that owns the actual train glyph, not on
             // the first timetable row. Post after RecyclerView's layout commit.
-            val anchor = stopAdapter.haltMarker?.code ?: ui.wimtWebPoint?.precedingHalt
+            val anchor = stopAdapter.haltMarker?.code ?: leg?.takeIf {
+                DepartureCue.isCue(it.markerKind) }?.fromCode ?: ui.wimtWebPoint?.precedingHalt
                 ?: ui.orgWebsiteReport?.intermediate?.precedingHalt
             val focus = anchor != null && (!initialReportedFocusDone || anchor != lastAnchor)
             if (focus || receiptReady || focusAfterRefresh || newReceipt) binding.stops.post {
@@ -1137,7 +1179,7 @@ class TrainActivity : AppCompatActivity() {
      * Row-start scrolling left the new intermediate icon offscreen after refresh. */
     private fun focusCurrentLeg() {
         val ui = lastUi ?: return
-        val anchor = stopAdapter.haltMarker?.code
+        val anchor = stopAdapter.haltMarker?.code ?: stopAdapter.departureCueAnchor()
             ?: ui.orgWebsiteReport?.intermediate?.precedingHalt ?: return
         val idx = stopAdapter.currentList.indexOfFirst { it.code.equals(anchor, true) }
         if (idx < 0) return

@@ -21,6 +21,92 @@ import org.robolectric.annotation.GraphicsMode
 @Config(sdk = [34])
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class InlineRouteRenderTest {
+    @Test fun birurDepartureSuggestionUsesOneSeparatedSymbolAndFoldedBetweenCaption() {
+        val ctx = RuntimeEnvironment.getApplication()
+        val adapter = StopAdapter()
+        val birur = TrackModel.Stop(1, "RRB", "Birur Jn", 1205, 1206, 1215,
+            null, 10, TrackModel.MinuteSource.SITE_REPORTED, null,
+            TrackModel.State.HERE, true, 211, 0, 24, false, false, false, -11)
+        val tarikere = birur.copy(seq = 2, code = "TKE", name = "Tarikere Jn",
+            schedArr = 1230, schedDep = 1231, showArr = null, showDep = null,
+            source = TrackModel.MinuteSource.SCHEDULE, isAnchor = false, kmFromOrigin = 235)
+        val map = listOf(StopRow(2, "SPV", "Sivapur", null, null, null,
+            null, null, 0, 215, false), StopRow(3, "KRNH", "Koranahalli", null, null,
+            null, null, null, 0, 220, false))
+        val halts = `in`.opentrack.india.model.TrainRoute("12089", "Test", "SBC", "Bengaluru",
+            "SMET", "Shivamogga", 274, null, null, null,
+            listOf(StopRow(1, "RRB", "Birur Jn", null, null, null,
+                1205, 1206, 0, 211, true), StopRow(2, "TKE", "Tarikere Jn", null,
+                null, null, 1230, 1231, 0, 235, true)), emptyList())
+        val expanded = halts.copy(stops = listOf(halts.stops[0]) + map + halts.stops[1])
+        adapter.setRoutePoints(mapOf("RRB" to map))
+        adapter.setProjectedLeg(RouteBetween.departureCueLeg(halts, expanded, "RRB", true))
+        adapter.websiteTentativeDeparture = "RRB" to 1221
+        adapter.submitList(listOf(birur, tarikere))
+        val holder = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
+        adapter.onBindViewHolder(holder, 0)
+        assertEquals("20:21?", holder.liveDep.text.toString())
+        assertTrue(holder.liveDep.contentDescription.contains("not actual"))
+        assertEquals(View.GONE, holder.trainMarker.visibility)
+        assertEquals(View.VISIBLE, holder.dot.visibility)
+        assertTrue(holder.inlineLeg.showTrain)
+        assertTrue(holder.inlineLegCaption.text.toString().contains("Between Birur Jn and Sivapur"))
+        assertEquals(View.VISIBLE, holder.inlineLegCaption.visibility)
+        assertFalse(holder.inlineLeg.contentDescription.contains("percent of scheduled leg"))
+        holder.inlineLegGroup.performClick()
+        assertEquals("text must disappear on the tap, not only after a rebind",
+            View.GONE, holder.inlineLegCaption.visibility)
+        adapter.onBindViewHolder(holder, 0)
+        assertEquals(View.GONE, holder.inlineLegCaption.visibility)
+        assertTrue(holder.inlineLeg.showLabels)
+        holder.inlineLegGroup.performClick()
+        adapter.onBindViewHolder(holder, 0)
+        assertEquals(View.VISIBLE, holder.inlineLegCaption.visibility)
+        adapter.websiteTentativeDeparture = null
+        adapter.setProjectedLeg(RouteBetween.siteLastStopLeg(halts, expanded, "RRB"))
+        adapter.haltMarker = TableMarker.Halt("RRB", "Site's last past stop", true)
+        adapter.onBindViewHolder(holder, 0)
+        assertEquals("—", holder.liveDep.text.toString())
+        assertEquals(View.GONE, holder.inlineLegCaption.visibility)
+        assertEquals(View.VISIBLE, holder.trainMarker.visibility)
+    }
+
+    @Test fun confirmedDepartureShowsActualTimeAndSymbolicGapWithoutInventingKm() {
+        val ctx = RuntimeEnvironment.getApplication()
+        val adapter = StopAdapter()
+        val stop = TrackModel.Stop(1, "RRB", "Birur Jn", 1205, 1206, 1215,
+            1221, 15, TrackModel.MinuteSource.REPORTED, null,
+            TrackModel.State.PASSED, true, 211, 0, 24, false, false, false, -5)
+        val next = stop.copy(seq = 2, code = "TKE", name = "Tarikere Jn",
+            schedArr = 1230, schedDep = 1231, showArr = null, showDep = null,
+            source = TrackModel.MinuteSource.SCHEDULE, isAnchor = false, kmFromOrigin = 235)
+        val route = `in`.opentrack.india.model.TrainRoute("12089", "Test", "RRB", "Birur",
+            "TKE", "Tarikere", 24, null, null, null,
+            listOf(StopRow(1, "RRB", "Birur Jn", null, null, null,
+                1205, 1206, 0, 211, true), StopRow(2, "TKE", "Tarikere Jn", null,
+                null, null, 1230, 1231, 0, 235, true)), emptyList())
+        adapter.setProjectedLeg(RouteBetween.departureCueLeg(route, null, "RRB"))
+        adapter.submitList(listOf(stop, next))
+        val holder = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
+        adapter.onBindViewHolder(holder, 0)
+        assertEquals("20:21", holder.liveDep.text.toString())
+        assertEquals("Reported departure 20:21", holder.liveDep.contentDescription)
+        assertEquals(View.GONE, holder.trainMarker.visibility)
+        assertEquals(View.VISIBLE, holder.dot.visibility)
+        assertTrue(holder.inlineLeg.showTrain)
+        assertTrue(holder.inlineLegCaption.text.toString().contains("Between Birur Jn and Tarikere Jn"))
+        assertFalse(holder.inlineLeg.contentDescription.contains("percent of scheduled leg"))
+        holder.inlineLeg.measure(View.MeasureSpec.makeMeasureSpec(360, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+        holder.inlineLeg.layout(0, 0, holder.inlineLeg.measuredWidth, holder.inlineLeg.measuredHeight)
+        assertTrue("departure icon must have a visible gap below the leg start",
+            holder.inlineLeg.trainCenter()!!.second > 24 * ctx.resources.displayMetrics.density)
+        adapter.legAgeSeconds = SourceFreshness.STALE_AFTER_MS / 1_000L
+        adapter.onBindViewHolder(holder, 0)
+        assertTrue(holder.inlineLegCaption.text.toString().contains("current segment unknown"))
+        assertFalse(holder.inlineLegCaption.text.toString().contains("Between"))
+    }
+
     @Test fun websiteArrivalOnlyAtYesvantpurAppearsOnRailAndClearsOnSourceChange() {
         val ctx = RuntimeEnvironment.getApplication()
         val adapter = StopAdapter()

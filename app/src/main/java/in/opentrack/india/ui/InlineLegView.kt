@@ -88,7 +88,9 @@ class InlineLegView @JvmOverloads constructor(
         val positions = if (showLabels) LegGeometry.pointPositionsDp(leg.points, distanceKm)
             .map(::dp) else emptyList()
         val y = trainCenter()?.second ?: y0
-        val blue = context.getColor(R.color.live)
+        val cue = DepartureCue.isCue(leg.markerKind)
+        val blue = context.getColor(if (leg.markerKind ==
+            RouteBetween.MarkerKind.SITE_DEPARTURE_SUGGESTION) R.color.warn else R.color.live)
         val ink = context.getColor(R.color.bg)
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = dp(2f)
@@ -96,7 +98,7 @@ class InlineLegView @JvmOverloads constructor(
         // Continue the stop rows' rail right to both edges of this View. A
         // 24dp blank at each end used to leave a broken-looking route line.
         canvas.drawLine(x, 0f, x, height.toFloat(), paint)
-        if (leg.fraction > 0f) {
+        if (leg.fraction > 0f && !cue) {
             paint.color = blue
             canvas.drawLine(x, y0, x, y, paint)
         }

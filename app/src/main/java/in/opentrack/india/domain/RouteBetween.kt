@@ -55,13 +55,27 @@ object RouteBetween {
     fun followingPoints(map: TrainRoute?, halts: TrainRoute, fromCode: String): List<StopRow> =
         groupedPoints(map, halts)[fromCode].orEmpty()
 
+    /** A departure is a state change, not an observed kilometre. Draw the icon a
+     * visible quarter of the way to the FIRST mapped point (or next halt), solely as
+     * a symbolic departure cue. Never expose its fraction as measured progress. */
+    fun departureCueLeg(halts: TrainRoute, map: TrainRoute?, anchorCode: String,
+                        websiteSuggestion: Boolean = false): LegProjection? {
+        val base = lastReportedLeg(halts,
+            map?.takeIf { withVerifiedHalts(it, halts) != null } ?: halts,
+            anchorCode, if (websiteSuggestion) MarkerKind.SITE_DEPARTURE_SUGGESTION
+                else MarkerKind.REPORTED_DEPARTURE_CUE) ?: return null
+        val first = base.points.firstOrNull { it.fraction > 0f && it.fraction < 1f }
+        return base.copy(fraction = (first?.fraction ?: 1f) * .25f,
+            nearestPoint = first?.name ?: base.to)
+    }
+
     /** A *projected* train icon within the two NTES halts. Never display this as observed
      * GPS or as an actual passage through an intermediate point. Hide on stale/schedule-only data. */
     data class LegPoint(val code: String, val name: String, val mapKm: Int, val fraction: Float,
                         val passageMinute: Int? = null, val approximate: Boolean = false,
                         val isHalt: Boolean = false, val siteArrivalMin: Int? = null,
                         val siteDepartureMin: Int? = null)
-    enum class MarkerKind { PROJECTED, WEB_CACHE_CANDIDATE, SITE_INTERMEDIATE, SITE_LAST_STOP, REPORTED_HALT, STATION_CLAIM }
+    enum class MarkerKind { PROJECTED, WEB_CACHE_CANDIDATE, SITE_INTERMEDIATE, SITE_LAST_STOP, REPORTED_HALT, STATION_CLAIM, REPORTED_DEPARTURE_CUE, SITE_DEPARTURE_SUGGESTION }
     data class LegProjection(
         val from: String, val to: String, val fraction: Float,
         val nearestPoint: String?, val estimateKm: Int,

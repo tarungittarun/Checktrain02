@@ -251,7 +251,8 @@ class TrackingFlowTest {
             assertTrue("marker falsely projects a moving train: $caption / $detail",
                 !caption.contains("Projected between") &&
                     (detail.contains("last reported halt") || detail.contains("static map") ||
-                        detail.contains("unverified") || detail.contains("station claim")))
+                        detail.contains("unverified") || detail.contains("station claim") ||
+                        detail.contains("symbolic departure icon only; no measured distance")))
             assertTrue("marker falsely claims GPS: $detail", detail.contains("not GPS"))
         }
         assertTrue("a railway feed was labelled device GPS",
@@ -393,7 +394,8 @@ class TrackingFlowTest {
             val badge = E2E.text("provenance", 300)
             val headline = E2E.text("headline", 300)
             identified = badge.contains("WEB", true) &&
-                (headline.startsWith("Website reports ") && badge.contains("run inferred") ||
+                ((headline.startsWith("Website reports ") ||
+                    headline.startsWith("Website suggests ")) && badge.contains("run inferred") ||
                     headline.contains("no qualifying past-stop report"))
             if (!identified) Thread.sleep(200)
         }
@@ -406,7 +408,8 @@ class TrackingFlowTest {
         assertTrue("website selection hid arrival/departure columns", sheetVisible)
         val live = rowTexts("liveArr") + rowTexts("liveDep")
         assertTrue("ACTUAL cells absent from selected source", live.isNotEmpty())
-        val reported = E2E.text("headline").startsWith("Website reports ")
+        val suggestion = E2E.text("headline").startsWith("Website suggests ")
+        val reported = E2E.text("headline").startsWith("Website reports ") || suggestion
         val spoken = E2E.all(By.res(E2E.PKG, "liveArr"))
             .map { it.contentDescription.orEmpty() }
         assertTrue("selected site borrowed NTES arrival provenance: $spoken",
@@ -417,11 +420,19 @@ class TrackingFlowTest {
             assertTrue("website reported a past stop but none reached its table rail: $live",
                 live.any { it != "—" && it.isNotBlank() } || inlineClaim)
             assertTrue("site row lost its Web label: ${rowTexts("stopTimeType")}",
-                rowTexts("stopTimeType").any { it == "WEB" } || inlineClaim)
+                rowTexts("stopTimeType").any { it == if (suggestion) "WEB?" else "WEB" } || inlineClaim)
             assertTrue("website cells lost source attribution: $spoken",
                 spoken.any { it.startsWith("Website claim arrival") } || inlineClaim)
+            if (suggestion) {
+                val departures = E2E.all(By.res(E2E.PKG, "liveDep"))
+                    .map { it.contentDescription.orEmpty() }
+                assertTrue("tentative website departure became an actual: $departures",
+                    departures.any { it.startsWith("Unconfirmed website departure suggestion") &&
+                        it.contains("not actual") } &&
+                        departures.none { it.startsWith("Reported departure") })
+            }
             assertTrue("site event was replaced with a page-check clock: ${E2E.text("age")}",
-                E2E.text("age").contains("Site event"))
+                E2E.text("age").contains(if (suggestion) "Site arrival" else "Site event"))
         } else {
             assertTrue("no site report must not populate station clocks: $live", live.all { it == "—" })
             assertTrue("missing site event got a locomotive", E2E.find("stopTrainMarker", 300) == null)

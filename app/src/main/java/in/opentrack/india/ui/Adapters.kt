@@ -124,6 +124,11 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
     private var projectedLeg: RouteBetween.LegProjection? = null
     /** Only the selected website's validated past cards, never a background comparison. */
     var websiteIntermediateReports: Map<String, LiveStopFields> = emptyMap()
+    /** Tentative last website departure: separately marked, never a reported Act. */
+    var websiteTentativeDeparture: Pair<String, Int>? = null
+        set(value) {
+            if (field != value) { field = value; notifyDataSetChanged() }
+        }
     var sourceNameForMarker: String = "NTES"
         set(value) {
             if (field != value) { field = value; if (projectedLeg != null) notifyDataSetChanged() }
@@ -139,6 +144,9 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
                 if (projectedLeg != null || haltMarker != null) notifyDataSetChanged()
             } else field = value
         }
+
+    fun departureCueAnchor(): String? = projectedLeg?.takeIf {
+        DepartureCue.isCue(it.markerKind) }?.fromCode
 
     fun setProjectedLeg(leg: RouteBetween.LegProjection?) {
         if (projectedLeg == leg) return
@@ -244,8 +252,11 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         holder.marker.setTextColor(ctx.getColor(R.color.live))
         val verified = s.source == TrackModel.MinuteSource.REPORTED
         val website = s.source == TrackModel.MinuteSource.SITE_REPORTED
+        val suggestedDep = websiteTentativeDeparture?.takeIf { website &&
+            it.first.equals(s.code, true) }?.second
         val stationClaim = reports[s.code]?.startsWith("RailYatri root claims") == true
         holder.status.text = when {
+            suggestedDep != null -> "Website suggests departure · unconfirmed"
             website && s.showDep != null && s.showArr == null ->
                 "Website arrival not validated · departure shown"
             website && s.showDep != null -> "Departed · later position unknown"
@@ -265,9 +276,11 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         }
         // Reported clocks have provenance in their content descriptions. Do not
         // repeat unhelpful prose below every halt; preserve exceptional warnings.
-        holder.status.visibility = if (s.state == TrackModel.State.CANCELLED || s.state == TrackModel.State.SKIPPED || stationClaim)
+        holder.status.visibility = if (s.state == TrackModel.State.CANCELLED ||
+            s.state == TrackModel.State.SKIPPED || stationClaim || suggestedDep != null)
             View.VISIBLE else View.GONE
         holder.status.setTextColor(ctx.getColor(when {
+            suggestedDep != null -> R.color.warn
             stationClaim || website || verified -> R.color.live
             s.source == TrackModel.MinuteSource.PROJECTED -> R.color.warn
             else -> R.color.text3
@@ -284,7 +297,8 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         val reported = s.source != TrackModel.MinuteSource.SCHEDULE
         val late: Boolean = (s.delay ?: 0) >= 3
         holder.liveArr.text = time(s.showArr.takeIf { reported })
-        holder.liveDep.text = time(s.showDep.takeIf { reported })
+        holder.liveDep.text = if (suggestedDep != null) "${time(suggestedDep)}?" else
+            time(s.showDep.takeIf { reported })
         DirectionArrowDrawable.attach(holder.liveArr, arriving = true, reported = reported)
         DirectionArrowDrawable.attach(holder.liveDep, arriving = false, reported = reported)
         val evidence = when (s.source) {
@@ -296,7 +310,9 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         holder.schedArr.contentDescription = "Scheduled arrival ${time(s.schedArr)}"
         holder.schedDep.contentDescription = "Scheduled departure ${time(s.schedDep)}"
         holder.liveArr.contentDescription = "$evidence arrival ${time(s.showArr.takeIf { reported })}"
-        holder.liveDep.contentDescription = "$evidence departure ${time(s.showDep.takeIf { reported })}"
+        holder.liveDep.contentDescription = if (suggestedDep != null)
+            "Unconfirmed website departure suggestion ${time(suggestedDep)}; not actual"
+            else "$evidence departure ${time(s.showDep.takeIf { reported })}"
         // Late = red (the colour a traveller scans for); on-time actual = green; estimate = amber.
         // A pure-timetable row stays grey in both - no number pretends to be news.
         val color = when {
@@ -310,7 +326,8 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         val hasShownTime = reported && (s.showArr != null || s.showDep != null)
         val primary = if (hasShownTime) s.showDep ?: s.showArr else s.schedArr ?: s.schedDep
         holder.primaryTime.text = primary?.let(RailTime::formatRailMinute) ?: "—"
-        holder.timeType.text = if (website && hasShownTime) "WEB" else if (hasShownTime) evidence else "SCHEDULE"
+        holder.timeType.text = if (suggestedDep != null) "WEB?" else
+            if (website && hasShownTime) "WEB" else if (hasShownTime) evidence else "SCHEDULE"
         holder.timeType.visibility = if (website && hasShownTime) View.VISIBLE else View.GONE
         holder.timeType.setTextColor(ctx.getColor(R.color.warn))
         holder.details.visibility = View.GONE
@@ -426,9 +443,19 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             val siteHalt = leg?.markerKind == RouteBetween.MarkerKind.SITE_LAST_STOP
             val reportedHalt = leg?.markerKind == RouteBetween.MarkerKind.REPORTED_HALT
             val stationClaim = leg?.markerKind == RouteBetween.MarkerKind.STATION_CLAIM
-            // A drawn marker, source selector and station clocks carry the facts;
-            // this duplicate "last stop / motion unknown" caption hid the route.
-            val caption = ""
+            val departureCue = DepartureCue.isCue(leg?.markerKind)
+            // The cue is a state, not a kilometre: name the first mapped point
+            // while folded. Expanded names make this sentence redundant.
+            val firstPoint = available.firstOrNull { it.fraction > 0f && it.fraction < 1f }
+            val caption = if (departureCue && !disclosed) {
+                val bound = firstPoint?.name ?: nextStop?.name ?: leg!!.to
+                if (holder.inlineLeg.ageSeconds?.let {
+                        it >= SourceFreshness.STALE_AFTER_MS / 1_000L } == true)
+                    "Last departure: ${RowText.of(s.name)} towards ${RowText.of(bound)} · current segment unknown"
+                else DepartureCue.between(s.name, bound, leg!!.to) +
+                    (if (suggestedDep != null) " · website departure unconfirmed; position unknown"
+                    else " · departure reported; position unknown")
+            } else ""
             holder.inlineLegCaption.text = caption
             holder.inlineLegCaption.visibility = if (caption.isEmpty()) View.GONE else View.VISIBLE
             holder.inlineLegCaption.setTextColor(ctx.getColor(R.color.text2))
@@ -464,20 +491,34 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             holder.inlineLeg.contentDescription = if (leg == null)
                 "Intermediate stations on ${mapSource ?: "the static route"}; no train-position claim. " +
                     pointDescription
-            else caption +
-                (holder.inlineLeg.ageSeconds?.let { " · reported event ${LegGeometry.ageLabel(it)}" }
-                    ?: " · event time unknown") +
-                " · not GPS · ${displayedLeg.from} to ${displayedLeg.to} " +
-                "${(displayedLeg.fraction * 100).toInt()} percent of scheduled leg by " +
-                (if (stationClaim) "unverified station claim (no passage time or measured distance)"
-                    else if (reportedHalt || siteHalt) "last reported halt (no measured distance since)"
-                    else if (site) "static map of the site-reported station"
-                    else if (web) "web-cache km claim" else "estimated distance") +
-                (if (site && holder.inlineLeg.siteEventMinute != null)
-                    " · website-published event " +
-                        RailTime.formatRailMinute(holder.inlineLeg.siteEventMinute!!) else "") +
-                (if (pointDescription.isEmpty()) "" else " · intermediate stations from " +
-                    (mapSource ?: "static map") + ": $pointDescription")
+            else buildString {
+                append(caption)
+                append(holder.inlineLeg.ageSeconds?.let {
+                    " · reported event ${LegGeometry.ageLabel(it)}"
+                } ?: " · event time unknown")
+                if (departureCue) {
+                    append(" · symbolic departure icon only; no measured distance; not GPS from ")
+                    append(displayedLeg.from).append(" towards ")
+                    append(firstPoint?.name ?: displayedLeg.to)
+                    if (suggestedDep != null) append("; website departure unconfirmed")
+                } else {
+                    append(" · not GPS · ${displayedLeg.from} to ${displayedLeg.to} ")
+                    append("${(displayedLeg.fraction * 100).toInt()} percent of scheduled leg by ")
+                    append(when {
+                        stationClaim -> "unverified station claim (no passage time or measured distance)"
+                        reportedHalt || siteHalt -> "last reported halt (no measured distance since)"
+                        site -> "static map of the site-reported station"
+                        web -> "web-cache km claim"
+                        else -> "estimated distance"
+                    })
+                }
+                if (site && holder.inlineLeg.siteEventMinute != null)
+                    append(" · website-published event ")
+                        .append(RailTime.formatRailMinute(holder.inlineLeg.siteEventMinute!!))
+                if (pointDescription.isNotEmpty())
+                    append(" · intermediate stations from ").append(mapSource ?: "static map")
+                        .append(": ").append(pointDescription)
+            }
         }
         fun onLegTap() {
             `in`.opentrack.india.core.Diary.get()?.log("ROUTE_UI") {
@@ -514,6 +555,9 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         // change animation/rebind while the user scrolls the long train route.
         val opened = expandedCode == code
         holder.inlineLeg.showLabels = opened
+        // The station names themselves replace the folded between-points sentence.
+        if (DepartureCue.isCue(holder.inlineLeg.projection?.markerKind))
+            holder.inlineLegCaption.visibility = if (opened) View.GONE else View.VISIBLE
         holder.routeToggle.text = if (opened) "Hide ▴" else "Stations ▾"
         holder.routeToggle.contentDescription = if (opened)
             "Hide intermediate stations" else "Show intermediate stations"

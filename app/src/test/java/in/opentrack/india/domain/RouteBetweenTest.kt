@@ -84,6 +84,20 @@ class RouteBetweenTest {
         assertEquals(null, halts.stops[1].actualArrivalMin)
     }
 
+    @Test fun departureCueIsOnlyAQuarterOfTheFirstMappedLegAndNeverAReportedKm() {
+        val halts = route.copy(stops = route.stops.filter { it.isHalt }
+            .mapIndexed { i, s -> s.copy(seq = i + 1) })
+        val cue = RouteBetween.departureCueLeg(halts, route, "AAA")!!
+        assertEquals(RouteBetween.MarkerKind.REPORTED_DEPARTURE_CUE, cue.markerKind)
+        assertEquals("Passing", cue.nearestPoint)
+        assertEquals(.125f, cue.fraction, .001f) // first mapped point is halfway
+        assertEquals(0, cue.estimateKm) // never advertise 1/4 as measured km
+        assertEquals(.25f, RouteBetween.departureCueLeg(halts, null, "CCC")!!.fraction, .001f)
+        assertEquals(null, RouteBetween.departureCueLeg(halts, null, "DDD"))
+        assertEquals(RouteBetween.MarkerKind.SITE_DEPARTURE_SUGGESTION,
+            RouteBetween.departureCueLeg(halts, route, "AAA", true)!!.markerKind)
+    }
+
     @Test fun officialStopMarkerUsesDatedHaltEvenWithoutExpandedMap() {
         val halts = route.copy(stops = route.stops.filter { it.isHalt }
             .mapIndexed { i, s -> s.copy(seq = i + 1) })
