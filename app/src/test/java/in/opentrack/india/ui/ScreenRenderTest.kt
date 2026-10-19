@@ -221,17 +221,19 @@ class ScreenRenderTest {
         assertEquals("response receipt separates duration, event age and device check time",
             "Took: 1.0 sec\nFreshness: 2m old\nChecked: 09:05:01", shot.text(R.id.checkClock))
         val score = shot.root.findViewById<View>(R.id.checkClock)
-        assertTrue("response score must not have a box", score.background == null)
-        assertTrue("response score is a text display, not a perpetual paint animation",
-            score is TextView && score.parent is android.widget.LinearLayout)
+        assertTrue("short-lived score must cover its own ink without resizing the summary",
+            score.background != null && score is TextView &&
+                score.parent is android.widget.FrameLayout)
         assertTrue("ripple must overlay ONLY the status table viewport",
             shot.root.findViewById<View>(R.id.statusRipple).parent ===
                 shot.root.findViewById<View>(R.id.routeViewport))
         val delayBox = shot.bounds(R.id.delay)
         val checkBox = shot.bounds(R.id.checkClock)
         val nextBox = shot.bounds(R.id.next)
-        assertTrue("screen-load clock must sit between delay and right-aligned next stop",
-            delayBox.left < checkBox.left && checkBox.left < nextBox.left)
+        val summaryBox = shot.bounds(R.id.trackingSummaryCard)
+        assertTrue("score must overlay (not displace) the existing delay/next row",
+            checkBox.left <= delayBox.left && checkBox.right >= nextBox.right &&
+                checkBox.top >= summaryBox.top && checkBox.bottom <= summaryBox.bottom)
         assertEquals(m.trainNo, shot.text(R.id.trainNo))
         assertNotClipped(shot.root.findViewById(R.id.headline), "headline")
         // The header line is where the app used to lose a word to an ellipsis; the fix is in the layout, so
@@ -579,11 +581,15 @@ Render.save("02-track-live", shot.bitmap)
         // reprinted the timetable, so every row looked like a confirmed arrival. A dash is the honest cell —
         // the schedule column above it already says that number, and saying it twice invents a report.
         val offline = shot.root.findViewById<RecyclerView>(R.id.stops)!!
-        val dashed = (0 until offline.childCount).count {
-            val row = offline.getChildAt(it)
-            Render.read(row, R.id.liveArr) == "—" && Render.read(row, R.id.liveDep) == "—"
+        for (i in 0 until offline.childCount) {
+            val row = offline.getChildAt(i)
+            val arr = Render.read(row, R.id.liveArr)
+            val dep = Render.read(row, R.id.liveDep)
+            assertEquals("offline arrival slot must be a dash except at the route origin",
+                if (i == 0) "START" else "—", arr)
+            assertEquals("offline departure slot must be a dash except at the terminus",
+                if (i == offline.childCount - 1) "END" else "—", dep)
         }
-        assertEquals("an offline screen must dash both live cells in every row", offline.childCount, dashed)
 Render.save("01-track-schedule", shot.bitmap)
     }
 

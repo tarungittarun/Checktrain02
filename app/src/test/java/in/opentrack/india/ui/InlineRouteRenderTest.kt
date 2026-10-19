@@ -397,8 +397,14 @@ class InlineRouteRenderTest {
         val d = ctx.resources.displayMetrics.density
         val positions = LegGeometry.pointPositionsDp(points, 25)
         assertTrue(positions[1] - positions[0] > positions[0] - 24f)
-        for (y in positions) assertEquals("intermediate dot is not on the train's rail",
-            ctx.getColor(R.color.text2), bmp.getPixel((RouteRailGeometry.X_DP * d).toInt(), (y * d).toInt()))
+        for (y in positions) {
+            val cx = (RouteRailGeometry.X_DP * d).toInt()
+            val cy = (y * d).toInt()
+            // The shortened first gap may put its circle centre between device
+            // pixels; anti-aliasing changes one pixel, never the actual dot.
+            assertTrue("intermediate dot is not on the train's rail at $cy",
+                (-2..2).any { dy -> bmp.getPixel(cx, cy + dy) == ctx.getColor(R.color.text2) })
+        }
         val surface = ctx.getColor(R.color.surface)
         val timeY = (positions[0] * d).toInt()
         // Only the planned clock may change when the static timetable changes:
