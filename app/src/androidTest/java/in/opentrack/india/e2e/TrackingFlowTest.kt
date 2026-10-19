@@ -459,7 +459,16 @@ class TrackingFlowTest {
     @Test
     fun autoRefreshActuallyRunsOnceAfterOneMinute() {
         assertTrue("cannot reach optional Auto", E2E.reveal("autoSwitch", "scroller"))
+        // This preference survives Activity recreation and even other flows in
+        // the same installed test APK. A blind click could TURN IT OFF and then
+        // falsely wait for a tick that the traveller deliberately disabled.
+        if (E2E.find("autoSwitch")?.isChecked == true) {
+            assertTrue("cannot reset previously enabled Auto", E2E.tap("autoSwitch"))
+            assertTrue("Auto stayed enabled after reset", E2E.find("autoSwitch")?.isChecked == false)
+        }
         assertTrue("cannot enable optional Auto", E2E.tap("autoSwitch"))
+        assertTrue("Auto control did not become checked after the tap",
+            E2E.find("autoSwitch")?.isChecked == true)
         try {
             // The minute tick starts a selected-source request; a slow network
             // may still be answering at second 80. Also, a layout update can put
@@ -495,8 +504,10 @@ class TrackingFlowTest {
                     "no usable new report", "has no usable report", "site comparison only", "cached HTTP body",
                     "New stop report", "Revised time", "No newer stop").any { receipt.contains(it) })
         } finally {
-            // Each flow starts in the same installed app; never contaminate another test.
-            E2E.tap("autoSwitch")
+            // Persisted across tracking Activities: restore OFF so later flows
+            // don't unknowingly start from a live one-minute polling session.
+            if (E2E.reveal("autoSwitch", "scroller", up = false) &&
+                E2E.find("autoSwitch")?.isChecked == true) E2E.tap("autoSwitch")
         }
     }
 
