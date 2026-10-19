@@ -327,14 +327,18 @@ class ScreenRenderTest {
                 assertEquals("row $i cue points the wrong way", id == R.id.schedArr,
                     (arrow as DirectionArrowDrawable).arriving)
                 assertTrue("row $i schedule is not a plain clock", text(row, id).matches(
-                    Regex("""(?:—|\d{2}:\d{2}(?: \(\+\d+d\))?)""")))
+                    Regex("""(?:—|START|END|\d{2}:\d{2})""")))
             }
             // The complaint this pins: an offline screen printed the schedule twice, and the right-hand copy
             // read like a report about the train. A row nothing moved must show a dash, not a second "05:52".
             if (m.rows[i].source == TrackModel.MinuteSource.SCHEDULE) {
                 listOf(R.id.liveArr, R.id.liveDep).forEach { id ->
                     assertEquals("a timetable-only row must not look reported in ${name(shot, id)}",
-                        "—", text(row, id))
+                        when {
+                            i == 0 && id == R.id.liveArr && m.rows[i].schedArr == null -> "START"
+                            i == list.childCount - 1 && id == R.id.liveDep && m.rows[i].schedDep == null -> "END"
+                            else -> "—"
+                        }, text(row, id))
                 }
             }
             // A station owns its clocks. The previous two-tier layout passed all
