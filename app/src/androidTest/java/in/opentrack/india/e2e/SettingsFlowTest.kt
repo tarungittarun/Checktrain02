@@ -217,6 +217,11 @@ class SettingsFlowTest {
         assertTrue(openSettings())
         assertTrue("no clear control", E2E.reveal("clear", "settingsScroll") &&
             E2E.tap("clear"))
+        // Clear is near the bottom, but its result is in ON THIS DEVICE near
+        // the top. Off-screen nodes are absent from UiAutomator on API 24: a
+        // blank read is not evidence that the cache-clear callback failed.
+        assertTrue("cache-clear state line cannot be reached from the clear button",
+            E2E.reveal("state", "settingsScroll", up = false))
         val deadline = System.currentTimeMillis() + E2E.LOCAL_MS
         while (!E2E.text("state").contains("cache cleared", true) && System.currentTimeMillis() < deadline) {
             Thread.sleep(150)
