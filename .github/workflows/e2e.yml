@@ -637,7 +637,9 @@ jobs:
       FOCUS: ${{ needs.plan.outputs.focus }}
       GROUP: ${{ matrix.group }}
       BOOT_TIMEOUT: ${{ needs.plan.outputs.boot_timeout }}
-      ROW_BUDGET_MINUTES: 12  # identical bound on every parallel partition
+      # API 24 track3 needs room for the one-minute Auto flow plus refresh/expand;
+      # still below the job's 15m hard ceiling and the harness retains its deadline.
+      ROW_BUDGET_MINUTES: ${{ matrix.name == 'min24-track3' && 13 || 12 }}
     continue-on-error: ${{ matrix.optional }}
     strategy:
       fail-fast: false
