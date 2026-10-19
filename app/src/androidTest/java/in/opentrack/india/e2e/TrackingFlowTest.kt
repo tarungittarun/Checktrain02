@@ -461,12 +461,20 @@ class TrackingFlowTest {
         assertTrue("cannot reach optional Auto", E2E.reveal("autoSwitch", "scroller"))
         assertTrue("cannot enable optional Auto", E2E.tap("autoSwitch"))
         try {
-            // On a compact font-scaled viewport the receipt is after the switch.
-            // Scroll to the card bottom before waiting, as a traveller would.
-            repeat(5) { E2E.swipeIn("scroller") }
-            assertTrue("no refresh receipt after a minute with Auto on",
-                E2E.ui.wait(Until.hasObject(By.res(E2E.PKG, "refreshFeedback")), 80_000L))
-            val receipt = E2E.text("refreshFeedback")
+            // The minute tick starts a selected-source request; a slow network
+            // may still be answering at second 80. Also, a layout update can put
+            // the new receipt outside UiAutomator's visible accessibility tree.
+            // Keep revealing the receipt inside the card while allowing one
+            // bounded 50-second response window *after* the one-minute tick.
+            val deadline = System.currentTimeMillis() + 110_000L
+            var receipt = ""
+            while (System.currentTimeMillis() < deadline && receipt.isBlank()) {
+                if (E2E.reveal("refreshFeedback", "scroller", swipes = 2))
+                    receipt = E2E.text("refreshFeedback", 300)
+                if (receipt.isBlank()) Thread.sleep(700)
+            }
+            if (receipt.isBlank()) E2E.shot("auto-minute-no-visible-receipt")
+            assertTrue("no refresh receipt after a minute plus bounded source reply", receipt.isNotBlank())
             val checked = Regex("^Checked \\d{2}:\\d{2}:\\d{2} · ").containsMatchIn(receipt)
             val answered = Regex("^(NTES|Website) answered at \\d{2}:\\d{2}:\\d{2} · ")
                 .containsMatchIn(receipt)

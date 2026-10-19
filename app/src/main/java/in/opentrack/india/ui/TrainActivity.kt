@@ -589,7 +589,7 @@ class TrainActivity : AppCompatActivity() {
         }
         binding.headline.text = m.headline
         binding.heroEyebrow.text = when {
-            ui.wimtWebPoint != null -> "WEB CACHE · CANDIDATE"
+            ui.wimtWebPoint != null -> "WEB CACHE · COMPARISON"
             ui.orgWebsiteReport != null -> "WEBSITE COMPARISON"
             ui.railYatriClaim != null -> "RAILYATRI CLAIM"
             m.rows.any { it.source == TrackModel.MinuteSource.REPORTED } -> "NTES REPORT"
@@ -969,8 +969,8 @@ class TrainActivity : AppCompatActivity() {
                 ui?.orgWebsiteReport != null -> {
                 val eventMillis = RailTime.railMinuteToEpochMillis(vm.originDate,
                     ui.orgWebsiteReport!!.eventMinute)
-                "site-reported stop ${TableMarker.elapsedLabel((now - eventMillis).coerceAtLeast(0))} ago" +
-                    " · later position unknown"
+                "website comparison ${TableMarker.elapsedLabel((now - eventMillis).coerceAtLeast(0))} old" +
+                    " · no run-verified position"
             }
             active == `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE &&
                 ui?.wimtWebPoint != null -> "web point " +
