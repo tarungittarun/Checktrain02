@@ -8,7 +8,7 @@ import org.junit.Test
 class SourceIndicatorTest {
     @Test fun travellerChoicesNeverPresentUnverifiedProbesAsThePhoneApp() {
         assertEquals(listOf(TrackingSources.OFFICIAL, PublicPageChecks.ORG), TrackingSources.options)
-        assertEquals("Where Is My Train · website (unverified)",
+        assertEquals("Where Is My Train · website",
             TrackingSources.label(PublicPageChecks.ORG))
         assertEquals(TrackingSources.OFFICIAL, TrackingSources.valid(WimtCandidate.SOURCE))
     }

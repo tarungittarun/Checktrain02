@@ -11,7 +11,7 @@ object TrackingSources {
     val options = listOf(OFFICIAL, PublicPageChecks.ORG)
     fun label(name: String): String = when (name) {
         OFFICIAL -> "NTES · official"
-        PublicPageChecks.ORG -> "Where Is My Train · website (unverified)"
+        PublicPageChecks.ORG -> "Where Is My Train · website"
         else -> name
     }
     fun valid(name: String?): String = name?.takeIf(options::contains) ?: OFFICIAL
