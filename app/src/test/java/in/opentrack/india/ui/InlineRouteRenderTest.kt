@@ -42,6 +42,9 @@ class InlineRouteRenderTest {
         assertEquals("At Yesvantpur Jn · website report\nAs on 11:26",
             holder.eventCaption.text.toString())
         adapter.haltMarker = null
+        // A standalone holder has no RecyclerView to drive the async nonempty-list diff.
+        // Reset synchronously so the subsequent bind observes the changed source.
+        adapter.submitList(emptyList())
         adapter.submitList(listOf(site.copy(showArr = 670, showDep = 672,
             source = TrackModel.MinuteSource.SCHEDULE), next))
         adapter.onBindViewHolder(holder, 0)
@@ -80,6 +83,7 @@ class InlineRouteRenderTest {
         adapter.onBindViewHolder(holder, 0)
         assertEquals("an NTES row must not inherit a site marker", View.GONE,
             holder.eventCaption.visibility)
+        adapter.submitList(emptyList())
         adapter.submitList(listOf(main.copy(source = TrackModel.MinuteSource.SITE_REPORTED), next))
         adapter.onBindViewHolder(holder, 0)
         assertEquals("At Kadur · website report\nAs on 08:44", holder.eventCaption.text.toString())
