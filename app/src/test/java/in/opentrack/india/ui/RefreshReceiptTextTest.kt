@@ -35,7 +35,7 @@ class RefreshReceiptTextTest {
     @Test fun websiteAnsweredWithSameStopIsDifferentFromFailureAndCache() {
         val website = PublicPageChecks.ORG
         val answer = RefreshReceiptText.format(website, "website", "website",
-            "00:35:02", "site-reported stop 53 min ago", "candidate" to "past card",
+            "00:35:02", "no new timed position from this source", "candidate" to "past card",
             null, true, false, unchanged, false)
         assertTrue(answer.contains("Website answered"))
         assertTrue(answer.contains("no validated site stop report"))
