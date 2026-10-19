@@ -2,6 +2,9 @@ package `in`.opentrack.india.ui
 
 import android.animation.ObjectAnimator
 import android.animation.ValueAnimator
+import android.transition.AutoTransition
+import android.transition.ChangeBounds
+import android.transition.TransitionManager
 import android.view.animation.LinearInterpolator
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -122,7 +125,8 @@ class TrainActivity : AppCompatActivity() {
         binding.headline.visibility = if (heroExpanded) View.VISIBLE else View.GONE
         binding.heroEvidence.visibility = if (heroExpanded) View.VISIBLE else View.GONE
         binding.sourceSummary.visibility = if (heroExpanded && sourceSummaryWanted) View.VISIBLE else View.GONE
-        binding.note.visibility = if (heroExpanded && lastUi?.model?.note != null) View.VISIBLE else View.GONE
+        binding.note.visibility = if (heroExpanded &&
+            (lastUi?.model?.note != null || errorText != null)) View.VISIBLE else View.GONE
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -139,6 +143,8 @@ class TrainActivity : AppCompatActivity() {
         connectionCue = ConnectionIssueCue(binding.trackingSummaryCard, binding.connectionAlert)
         heroExpanded = savedInstanceState?.getBoolean("heroExpanded", true) ?: true
         binding.heroToggle.setOnClickListener {
+            TransitionManager.beginDelayedTransition(binding.contentColumn,
+                AutoTransition().apply { duration = 240L })
             heroExpanded = !heroExpanded
             applyHeroExpansion()
         }
@@ -299,7 +305,9 @@ class TrainActivity : AppCompatActivity() {
             renderChecking()
             val useful = st != null && (st.startsWith("Checking") ||
                 st.startsWith("Already checking"))
-            binding.mirrorState.visibility = if (useful) View.VISIBLE else View.GONE
+            // checkingBar reserves its own 3dp slot above the card. A second
+            // status line would resize the table every time the poll starts.
+            binding.mirrorState.visibility = View.GONE
             if (useful) binding.mirrorState.text = simpleSourceStatus(st!!)
             st?.let { Diary.get()?.log("UISTATE") { "sources box: $it" } }
         }
@@ -368,13 +376,15 @@ class TrainActivity : AppCompatActivity() {
 
     private fun requestRefresh(auto: Boolean = false) {
         if (chainBusy) return // never turn a duplicate tap/tick into a misleading receipt
+        TransitionManager.beginDelayedTransition(binding.contentColumn,
+            ChangeBounds().apply { duration = 180L })
         connectionCue.clear() // a new request will earn its own result; never blink during checking
         lastFlashErrorKey = null
         focusAfterRefresh = true
         refreshStartedAt = SystemClock.elapsedRealtime()
         requestedRefreshSource = lastUi?.activeSource ?: "NTES (official)"
         previousRefreshEvent = eventKey(lastUi, requestedRefreshSource)
-        binding.refreshFeedback.visibility = View.GONE
+        binding.refreshFeedback.visibility = View.INVISIBLE
         binding.stops.post { pulseAtVisibleTrain() }
         vm.refresh(manual = true, auto = auto)
     }
@@ -382,7 +392,7 @@ class TrainActivity : AppCompatActivity() {
     /** Keep progress visible only while a requested source is actually fetching. */
     private fun renderChecking() {
         val busy = chainBusy || mirrorBusy
-        binding.checkingBar.visibility = if (busy) View.VISIBLE else View.GONE
+        binding.checkingBar.visibility = if (busy) View.VISIBLE else View.INVISIBLE
         binding.firstLoad.visibility = if (busy && lastUi == null) View.VISIBLE else View.GONE
         if (chainBusy && refreshStartedAt > 0L) {
             if (refreshSpin == null) {
@@ -421,7 +431,7 @@ class TrainActivity : AppCompatActivity() {
     /** One writer for the note line: a live-identity conflict outranks a transient error message. */
     private fun renderNote() {
         val msg = identityConflict() ?: errorText
-        binding.note.visibility = if (msg == null) View.GONE else View.VISIBLE
+        binding.note.visibility = if (msg == null || !heroExpanded) View.GONE else View.VISIBLE
         if (msg != null) binding.note.text = msg
     }
 
@@ -569,7 +579,7 @@ class TrainActivity : AppCompatActivity() {
         // provenance. Show this line only when its selected source has no usable point.
         sourceSummaryWanted = (
             ui.websiteGap != null || ui.alternateSiteHint != null ||
-                publicCheck != null ||
+                publicCheck != null && ui.orgWebsiteReport == null ||
             ui.activeSource == `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE &&
                 ui.wimtWebPoint == null || mirrorWithoutTimes
         )
@@ -590,8 +600,6 @@ class TrainActivity : AppCompatActivity() {
         binding.sourceSummary.text = when {
             ui.alternateSiteHint != null -> ui.alternateSiteHint
             ui.websiteGap != null -> ui.websiteGap
-            ui.orgWebsiteReport != null -> "Site past-card times in the table · run date inferred; " +
-                "page update is not a train event."
             ui.wimtWebPoint != null -> "Site distance claim; not phone GPS."
             selectedPending -> "Checking ${sourceName(ui.activeSource.orEmpty())}…"
             else -> "${sourceName(ui.activeSource.orEmpty())}: $selectedReason$response. Timetable shown."
@@ -735,8 +743,8 @@ class TrainActivity : AppCompatActivity() {
                 it.code.equals(report.anchorCode, true) } }
             val place = org?.intermediate?.name ?: station?.name ?: org?.anchorCode
             binding.headline.text = when {
-                org != null -> "Website reports ${RowText.of(place ?: org.anchorCode)} " +
-                    "${RailTime.formatRailMinute(org.eventMinute)} · last site stop; now unknown"
+                org != null -> "Recently reported at ${RowText.of(place ?: org.anchorCode)} · " +
+                    "${RailTime.formatRailMinuteBare(org.eventMinute)}"
                 claim != null -> "RailYatri comparison: ${claim.code} · passage time unverified"
                 else -> "${sourceName(publicCheck)}: no qualifying past-stop report"
             }
@@ -747,8 +755,7 @@ class TrainActivity : AppCompatActivity() {
             binding.provenance.setBackgroundResource(R.drawable.bg_badge_schedule)
             binding.provenance.setTextColor(getColor(R.color.warn))
             binding.age.text = when {
-                org != null -> "Site event ${RailTime.formatRailMinute(org.eventMinute)} · " +
-                    "page updated ${RailTime.formatClock(org.pageUpdatedAt)} (not movement)"
+                org != null -> "Site event · run inferred"
                 claim != null -> "Provider updated ${RailTime.formatClock(claim.updateAt)} IST · not movement"
                 else -> "No reported event time"
             }
@@ -759,10 +766,13 @@ class TrainActivity : AppCompatActivity() {
             binding.delayLabel.text = if (siteDelay == null) "Delay" else "Delay at site stop"
             binding.delay.text = if (siteDelay == null || org == null) "— · no reported delay"
                 else when {
-                    siteDelay > 0 -> "+${siteDelay}m late · ${RailTime.formatRailMinute(org.eventMinute)}"
-                    siteDelay < 0 -> "${-siteDelay}m early · ${RailTime.formatRailMinute(org.eventMinute)}"
-                    else -> "On time · ${RailTime.formatRailMinute(org.eventMinute)}"
+                    siteDelay > 0 -> "+${siteDelay}m late · ${RailTime.formatRailMinuteBare(org.eventMinute)}"
+                    siteDelay < 0 -> "${-siteDelay}m early · ${RailTime.formatRailMinuteBare(org.eventMinute)}"
+                    else -> "On time · ${RailTime.formatRailMinuteBare(org.eventMinute)}"
                 }
+            if (org != null && tentativeSiteDep == null && siteDelay == 0) {
+                binding.headline.text = binding.headline.text.toString() + " · on time at stop"
+            }
             binding.delay.contentDescription = if (siteDelay == null) "No site delay at last stop"
                 else "Website arrival delay $siteDelay minutes at ${RowText.of(place ?: org!!.anchorCode)}; " +
                     "current delay unknown"
@@ -772,18 +782,18 @@ class TrainActivity : AppCompatActivity() {
                 it.code.equals(p.followingHalt, true) } } ?: station?.let {
                 ui.route.stops.getOrNull(ui.route.stops.indexOf(it) + 1) }
             binding.next.text = next?.let { RowText.of(it.name) + " · " +
-                ((it.arrivalMin ?: it.departureMin)?.let(RailTime::formatRailMinute) ?: "—") +
+                ((it.arrivalMin ?: it.departureMin)?.let(RailTime::formatRailMinuteBare) ?: "—") +
                 "\nTimetable · not ETA" } ?: "Next stop unknown · timetable below"
             if (org != null && tentativeSiteDep != null) {
-                binding.headline.text = "Website suggests left ${RowText.of(place ?: org.anchorCode)} " +
-                    "${RailTime.formatRailMinute(tentativeSiteDep)} · unconfirmed; now unknown"
+                binding.headline.text = "Recently reported at ${RowText.of(place ?: org.anchorCode)} · " +
+                    "departure suggested, unconfirmed"
                 binding.provenance.text = "WEBSITE · departure suggestion · run inferred"
                 binding.headline.contentDescription = binding.headline.text.toString() +
                     ". The website's last-card departure can change; not verified train position."
             } else if (org?.departed == true && leg?.markerKind ==
                 RouteBetween.MarkerKind.SITE_DEPARTURE_SUGGESTION) {
-                binding.headline.text = "Website reports left ${RowText.of(place ?: org.anchorCode)} " +
-                    "${RailTime.formatRailMinute(org.eventMinute)} · now unknown"
+                binding.headline.text = "Recently reported near ${RowText.of(place ?: org.anchorCode)} · " +
+                    "later position unknown"
             }
         }
         // The first glance is a report, not a paragraph. Keep the complete model
@@ -801,6 +811,17 @@ class TrainActivity : AppCompatActivity() {
         binding.note.visibility = if (m.note == null || !heroExpanded) View.GONE else View.VISIBLE
         m.note?.let { binding.note.text = it }
 
+        if (WebsiteReportDisplay.selected(ui.activeSource) && ui.orgWebsiteReport != null) {
+            val report = ui.orgWebsiteReport!!
+            val eventAt = RailTime.railMinuteToEpochMillis(vm.originDate, report.eventMinute)
+            val eventAge = TableMarker.elapsedLabel((System.currentTimeMillis() - eventAt).coerceAtLeast(0))
+            binding.refreshFeedback.text = "Site ${RailTime.formatRailMinuteBare(report.eventMinute)} · " +
+                "$eventAge ago · page ${RailTime.formatClockSeconds(report.pageUpdatedAt)}"
+            binding.refreshFeedback.contentDescription = "Website station claim " +
+                "${RailTime.formatRailMinute(report.eventMinute)}, $eventAge old. Page checked " +
+                "${RailTime.formatClockSeconds(report.pageUpdatedAt)}; page clock is not a train movement."
+            binding.refreshFeedback.visibility = View.VISIBLE
+        }
         // A selected website paints its own parsed past cards, never NTES's cells.
         // An intermediate without a documented stop event stays timetable-only.
         stopAdapter.reports = ui.sourceLines[ui.activeSource] ?: ui.reports
@@ -1012,8 +1033,7 @@ class TrainActivity : AppCompatActivity() {
         when {
             WebsiteReportDisplay.selected(ui.activeSource) &&
                 ui.orgWebsiteReport != null && elapsed != null -> {
-                binding.age.text = "Site event ${RailTime.formatRailMinute(ui.orgWebsiteReport!!.eventMinute)} " +
-                    "· $elapsed · page checked ${RailTime.formatClock(ui.orgWebsiteReport!!.pageUpdatedAt)}"
+                binding.age.text = "Site stop · $elapsed"
                 binding.age.contentDescription = "Website station event " +
                     "${RailTime.formatRailMinute(ui.orgWebsiteReport!!.eventMinute)}; " +
                     "page update ${RailTime.formatClock(ui.orgWebsiteReport!!.pageUpdatedAt)} is not movement"
@@ -1092,13 +1112,16 @@ class TrainActivity : AppCompatActivity() {
             RefreshEvidence.compare(previousRefreshEvent, report)
         val checked = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.ROOT)
             .format(java.util.Date(now))
-        binding.refreshFeedback.text = RefreshReceiptText.format(
+        val detail = RefreshReceiptText.format(
             requestedRefreshSource, source, sourceName(active), checked, age,
             status, ui?.officialRequest,
             ui?.publicSourceAnswered?.get(requestedRefreshSource),
             cachedResponse, change, switched,
         )
-        Diary.get()?.log("REFRESH") { binding.refreshFeedback.text.toString() }
+        binding.refreshFeedback.contentDescription = detail
+        binding.refreshFeedback.text = RefreshReceiptUi.short(
+            source, checked, change, detail, cachedResponse)
+        Diary.get()?.log("REFRESH") { detail }
         binding.refreshFeedback.visibility = View.VISIBLE
     }
 
@@ -1127,6 +1150,8 @@ class TrainActivity : AppCompatActivity() {
 
     private fun showConnectionError(reason: String, source: String) {
         val label = sourceName(source)
+        TransitionManager.beginDelayedTransition(binding.contentColumn,
+            ChangeBounds().apply { duration = 180L })
         connectionCue.show(reason, label)
         val view = binding.checkClock
         val token = ++scoreGeneration

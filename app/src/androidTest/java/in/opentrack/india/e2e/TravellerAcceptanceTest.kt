@@ -80,11 +80,11 @@ class TravellerAcceptanceTest {
             // scrolls to read the receipt; an offscreen accessibility node is blank.
             E2E.reveal("refreshFeedback", "scroller", swipes = 3)
             receipt = E2E.text("refreshFeedback", 250).trim()
-            if (receipt.isNotBlank() && !receipt.contains("Checking", true) &&
+            if (receipt.startsWith("Checked ") && !receipt.contains("Checking", true) &&
                 !receipt.contains("Refreshing", true) && !receipt.contains("Loading", true)) break
             Thread.sleep(250)
         }
-        assertTrue("Refresh never gave a completed, readable receipt: '$receipt'", receipt.isNotBlank() &&
+        assertTrue("Refresh never gave a completed, readable receipt: '$receipt'", receipt.startsWith("Checked ") &&
             !receipt.contains("Checking", true) && !receipt.contains("Refreshing", true) &&
             !receipt.contains("Loading", true))
         assertEquals("Refresh changed the ticket's train", "12627", E2E.text("trainNo"))

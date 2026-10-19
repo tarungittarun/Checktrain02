@@ -13,6 +13,7 @@
     <!-- The route retains the reclaimed vertical space. Refresh floats above it,
          so the table never reserves an empty 48dp row for the button. -->
     <LinearLayout
+        android:id="@+id/contentColumn"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:orientation="vertical">
@@ -97,11 +98,11 @@
         android:id="@+id/checkingBar"
         style="?android:attr/progressBarStyleHorizontal"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="3dp"
         android:layout_marginLeft="@dimen/gap"
         android:layout_marginRight="@dimen/gap"
         android:indeterminate="true"
-        android:visibility="gone" />
+        android:visibility="invisible" />
 
     <LinearLayout
         android:id="@+id/firstLoad"
@@ -173,13 +174,16 @@
                     <TextView
                         android:id="@+id/heroToggle"
                         style="@style/TextMeta"
-                        android:layout_width="wrap_content"
+                        android:layout_width="72dp"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:clickable="true"
+                        android:focusable="true"
                         android:layout_height="48dp"
                         android:gravity="end|center_vertical"
                         android:paddingStart="12dp"
                         android:paddingEnd="8dp"
                         android:text="Less  ▴"
-                        android:textColor="@color/live" />
+                        android:textColor="@color/text1" />
                 </LinearLayout>
 
                 <!-- Always in the top box, including when it is collapsed. A transport
@@ -198,6 +202,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:id="@+id/heroEvidence"
+                    android:minHeight="38dp"
                     android:layout_marginTop="6dp"
                     android:baselineAligned="false"
                     android:gravity="center_vertical"
@@ -226,7 +231,10 @@
                     android:id="@+id/headline"
                     style="@style/TextHeadline"
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content" />
+                    android:layout_height="wrap_content"
+                    android:minHeight="56dp"
+                    android:maxLines="3"
+                    android:ellipsize="end" />
 
                 <!-- The distance-proportional icon lives in the corresponding table leg,
                      not twice in the header. The badge below still identifies its source. -->
@@ -242,10 +250,13 @@
                     android:textColor="@color/warn"
                     android:visibility="gone" />
 
+                <FrameLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp">
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
                     android:baselineAligned="false"
                     android:orientation="horizontal">
 
@@ -273,25 +284,7 @@
                             android:textSize="15sp" />
                     </LinearLayout>
 
-                    <!-- One-second response score, not a persistent clock or a train-event time.
-                         No box and no caption; detail remains in Source Info / receipts. -->
-                    <androidx.appcompat.widget.AppCompatTextView
-                        android:id="@+id/checkClock"
-                        style="@style/TextMicro"
-                        android:layout_width="156dp"
-                        android:layout_height="78dp"
-                        android:layout_marginStart="6dp"
-                        android:gravity="center"
-                        android:maxLines="3"
-                        android:textColor="@color/live"
-                        android:textSize="17sp"
-                        app:autoSizeTextType="uniform"
-                        app:autoSizeMinTextSize="13sp"
-                        app:autoSizeMaxTextSize="17sp"
-                        app:autoSizeStepGranularity="1sp"
-                        android:visibility="gone" />
-
-                    <LinearLayout
+                        <LinearLayout
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_marginStart="6dp"
@@ -318,6 +311,26 @@
                             android:gravity="end" />
                     </LinearLayout>
                 </LinearLayout>
+                <!-- Short-lived score overlays the summary contents instead of changing its height. -->
+                    <androidx.appcompat.widget.AppCompatTextView
+                        android:id="@+id/checkClock"
+                        style="@style/TextMicro"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:layout_gravity="center"
+                        android:background="@drawable/bg_inset"
+                        android:padding="6dp"
+                        android:gravity="center"
+                        android:maxLines="3"
+                        android:textColor="@color/live"
+                        android:textSize="14sp"
+                        app:autoSizeTextType="uniform"
+                        app:autoSizeMinTextSize="11sp"
+                        app:autoSizeMaxTextSize="14sp"
+                        app:autoSizeStepGranularity="1sp"
+                        android:visibility="gone" />
+
+                </FrameLayout>
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -383,13 +396,16 @@
         android:id="@+id/refreshFeedback"
         style="@style/TextMicro"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="36dp"
+        android:gravity="center_vertical"
+        android:singleLine="true"
+        android:ellipsize="end"
         android:layout_marginTop="6dp"
         android:background="@drawable/bg_inset"
         android:padding="7dp"
         android:accessibilityLiveRegion="polite"
         android:textColor="@color/text2"
-        android:visibility="gone" />
+        android:visibility="invisible" />
 
             <TextView
                 android:id="@+id/mirrorState"
@@ -435,12 +451,13 @@
                 <!-- 108dp timetable + 26dp rail/spacer = station-name origin. -->
                 <TextView android:id="@+id/routeHeadStations"
                     style="@style/FieldLabel"
-                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:layout_width="115dp" android:layout_height="wrap_content"
+                    android:ellipsize="end"
                     android:layout_marginStart="134dp"
                     android:layout_gravity="start|center_vertical"
                     android:singleLine="true"
                     android:text="STATIONS" android:textColor="@color/text1" />
-                <in.opentrack.india.ui.RouteActualHeading android:id="@+id/routeHeadActual"
+                <TextView android:id="@+id/routeHeadActual"
                     style="@style/FieldLabel"
                     android:layout_width="@dimen/route_actual"
                     android:layout_height="wrap_content"

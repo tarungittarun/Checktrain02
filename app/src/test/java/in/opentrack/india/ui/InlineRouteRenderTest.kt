@@ -123,9 +123,11 @@ class InlineRouteRenderTest {
         assertEquals("11:26", holder.liveArr.text.toString())
         assertEquals("—", holder.liveDep.text.toString())
         assertEquals("Website claim arrival 11:26", holder.liveArr.contentDescription)
-        assertEquals("WEB", holder.timeType.text.toString())
+        assertEquals("", holder.timeType.text.toString())
+        assertEquals("WEB attribution stays in badge/accessibility, not repeated beside clocks",
+            View.GONE, holder.timeType.visibility)
         assertEquals(View.VISIBLE, holder.trainMarker.visibility)
-        assertEquals("At Yesvantpur Jn · website report\nAs on 11:26",
+        assertEquals("At Yesvantpur Jn · 11:26",
             holder.eventCaption.text.toString())
         adapter.haltMarker = null
         // AsyncListDiffer's null-list removal is synchronous; emptyList() is not.
@@ -155,7 +157,7 @@ class InlineRouteRenderTest {
         val holder = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
         adapter.onBindViewHolder(holder, 0)
         assertEquals(View.VISIBLE, holder.trainMarker.visibility)
-        assertEquals("At Kadur · last report\nAs on 08:44", holder.eventCaption.text.toString())
+        assertEquals("At Kadur · 08:44\n18 km → Intermediate · static", holder.eventCaption.text.toString())
         holder.inlineLegGroup.performClick()
         adapter.onBindViewHolder(holder, 0)
         assertEquals(View.GONE, holder.eventCaption.visibility)
@@ -172,9 +174,11 @@ class InlineRouteRenderTest {
         adapter.submitList(null)
         adapter.submitList(listOf(main.copy(source = TrackModel.MinuteSource.SITE_REPORTED), next))
         adapter.onBindViewHolder(holder, 0)
-        assertEquals("At Kadur · website report\nAs on 08:44", holder.eventCaption.text.toString())
-        assertEquals("WEB", holder.timeType.text.toString())
-        assertEquals(View.VISIBLE, holder.timeType.visibility)
+        assertEquals("At Kadur · 08:44\n18 km → Intermediate · static", holder.eventCaption.text.toString())
+        assertEquals("", holder.timeType.text.toString())
+        assertEquals("WEB attribution stays in badge/accessibility, not repeated beside clocks",
+            View.GONE, holder.timeType.visibility)
+        assertEquals(View.GONE, holder.timeType.visibility)
     }
 
     @Test fun projectedTrainIsInlineBetweenItsHaltRowsAndCandidateIsVisibleWithoutReplacingAct() {

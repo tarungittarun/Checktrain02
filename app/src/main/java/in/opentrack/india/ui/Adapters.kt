@@ -213,6 +213,7 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         val report: TextView = view.findViewById(R.id.stopReport)
         val schedArr: TextView = view.findViewById(R.id.schedArr)
         val schedDep: TextView = view.findViewById(R.id.schedDep)
+        val schedDay: TextView = view.findViewById(R.id.schedDay)
         val liveArr: TextView = view.findViewById(R.id.liveArr)
         val liveDep: TextView = view.findViewById(R.id.liveDep)
     }
@@ -289,16 +290,24 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         holder.report.visibility = View.GONE // Source explanations belong in Source details.
         // Two concise pairs are always present: dim timetable at left, selected
         // source at right. Arrows mean arrival / departure; missing reports stay —.
-        fun time(minute: Int?): String = minute?.let(RailTime::formatRailMinute) ?: "—"
-        holder.schedArr.text = time(s.schedArr)
-        holder.schedDep.text = time(s.schedDep)
+        fun time(minute: Int?): String = RouteClockUi.clock(minute)
+        val isFirst = position == 0 && s.schedArr == null
+        val isLast = position == itemCount - 1 && s.schedDep == null
+        holder.schedArr.text = if (isFirst) "START" else time(s.schedArr)
+        holder.schedDep.text = if (isLast) "END" else time(s.schedDep)
+        val prior = currentList.getOrNull(position - 1)
+        val day = RouteClockUi.dayMarker(s.schedArr ?: s.schedDep,
+            prior?.let { it.schedArr ?: it.schedDep })
+        holder.schedDay.text = day.orEmpty()
+        holder.schedDay.visibility = if (day == null) View.GONE else View.VISIBLE
+        holder.schedDay.contentDescription = day?.let { "Run ${it.replace("day", "day ")}" } ?: ""
         DirectionArrowDrawable.attach(holder.schedArr, arriving = true, reported = false)
         DirectionArrowDrawable.attach(holder.schedDep, arriving = false, reported = false)
         val reported = s.source != TrackModel.MinuteSource.SCHEDULE
         val late: Boolean = (s.delay ?: 0) >= 3
-        holder.liveArr.text = time(s.showArr.takeIf { reported })
-        holder.liveDep.text = if (suggestedDep != null) "${time(suggestedDep)}?" else
-            time(s.showDep.takeIf { reported })
+        holder.liveArr.text = if (isFirst) "START" else time(s.showArr.takeIf { reported })
+        holder.liveDep.text = if (isLast) "END" else if (suggestedDep != null)
+            "${time(suggestedDep)}?" else time(s.showDep.takeIf { reported })
         DirectionArrowDrawable.attach(holder.liveArr, arriving = true, reported = reported)
         DirectionArrowDrawable.attach(holder.liveDep, arriving = false, reported = reported)
         val evidence = when (s.source) {
@@ -307,12 +316,16 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             TrackModel.MinuteSource.REPORTED -> "Reported"
             else -> "Not reported"
         }
-        holder.schedArr.contentDescription = "Scheduled arrival ${time(s.schedArr)}"
-        holder.schedDep.contentDescription = "Scheduled departure ${time(s.schedDep)}"
-        holder.liveArr.contentDescription = "$evidence arrival ${time(s.showArr.takeIf { reported })}"
-        holder.liveDep.contentDescription = if (suggestedDep != null)
+        holder.schedArr.contentDescription = if (isFirst) "Start of route, scheduled departure ${s.schedDep?.let(RailTime::formatRailMinute) ?: "unknown"}"
+            else "Scheduled arrival ${s.schedArr?.let(RailTime::formatRailMinute) ?: "unknown"}"
+        holder.schedDep.contentDescription = if (isLast) "End of route, scheduled arrival ${s.schedArr?.let(RailTime::formatRailMinute) ?: "unknown"}"
+            else "Scheduled departure ${s.schedDep?.let(RailTime::formatRailMinute) ?: "unknown"}"
+        holder.liveArr.contentDescription = if (isFirst) "Start of route; $evidence departure ${s.showDep?.let(RailTime::formatRailMinute) ?: "unknown"}"
+            else "$evidence arrival ${s.showArr?.takeIf { reported }?.let(RailTime::formatRailMinute) ?: "unknown"}"
+        holder.liveDep.contentDescription = if (isLast) "End of route; $evidence arrival ${s.showArr?.let(RailTime::formatRailMinute) ?: "unknown"}"
+            else if (suggestedDep != null)
             "Unconfirmed website departure suggestion ${time(suggestedDep)}; not actual"
-            else "$evidence departure ${time(s.showDep.takeIf { reported })}"
+            else "$evidence departure ${s.showDep?.takeIf { reported }?.let(RailTime::formatRailMinute) ?: "unknown"}"
         // Late = red (the colour a traveller scans for); on-time actual = green; estimate = amber.
         // A pure-timetable row stays grey in both - no number pretends to be news.
         val color = when {
@@ -326,9 +339,10 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         val hasShownTime = reported && (s.showArr != null || s.showDep != null)
         val primary = if (hasShownTime) s.showDep ?: s.showArr else s.schedArr ?: s.schedDep
         holder.primaryTime.text = primary?.let(RailTime::formatRailMinute) ?: "—"
-        holder.timeType.text = if (suggestedDep != null) "WEB?" else
-            if (website && hasShownTime) "WEB" else if (hasShownTime) evidence else "SCHEDULE"
-        holder.timeType.visibility = if (website && hasShownTime) View.VISIBLE else View.GONE
+        // Source attribution stays in the selector/badge and each clock's accessibility text.
+        // A '?' remains on an unconfirmed departure; never repeat WEB beside the times.
+        holder.timeType.text = ""
+        holder.timeType.visibility = View.GONE
         holder.timeType.setTextColor(ctx.getColor(R.color.warn))
         holder.details.visibility = View.GONE
         val points = routePoints[s.code].orEmpty()
@@ -373,8 +387,7 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         }
         holder.eventCaption.visibility = if (captionMinute == null) View.GONE else View.VISIBLE
         holder.eventCaption.text = captionMinute?.let {
-            "At ${RowText.of(s.name)} · ${if (marker?.website == true) "website report" else "last report"}" +
-                "\nAs on ${RailTime.formatRailMinute(it)}"
+            "At ${RowText.of(s.name)} · ${RailTime.formatRailMinuteBare(it)}"
         }.orEmpty()
         holder.eventCaption.setTextColor(ctx.getColor(if (marker?.website == true) R.color.warn else R.color.text2))
         holder.eventCaption.contentDescription = captionMinute?.let {
@@ -409,6 +422,19 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
                 planned, point.arrivalMin == null && planned != null, stopped,
                 web?.actualArrivalMin.takeIf { stopped },
                 web?.actualDepartureMin.takeIf { stopped })
+        }
+        if (captionMinute != null) {
+            val firstPoint = available.firstOrNull { it.schedKm > s.kmFromOrigin }
+            val boundName = firstPoint?.name ?: nextStop?.name
+            val boundKm = firstPoint?.schedKm ?: nextStop?.kmFromOrigin
+            val staticKm = boundKm?.takeIf { s.kmFromOrigin >= 0 && it > s.kmFromOrigin }
+                ?.minus(s.kmFromOrigin)
+            if (boundName != null && staticKm != null) {
+                holder.eventCaption.text = holder.eventCaption.text.toString() +
+                    "\n${staticKm} km → ${RowText.of(boundName)} · static"
+                holder.eventCaption.contentDescription = holder.eventCaption.contentDescription.toString() +
+                    " Static route gap $staticKm kilometres to ${RowText.of(boundName)}, not live remaining distance."
+            }
         }
         // A mapped leg has a visible, full-width rail even while its station names
         // are folded. Previously only the stop row was tappable until expansion.

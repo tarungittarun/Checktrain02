@@ -122,6 +122,36 @@ class TrackingFlowTest {
         assertNotNull("expanding did not restore source evidence", E2E.find("provenance"))
     }
 
+    // @flow summary-stability
+    @Test
+    fun refreshReceiptOverlaysWithoutMovingTheRouteAndCollapseAnimates() {
+        val card = E2E.find("trackingSummaryCard")!!.visibleBounds
+        assertEquals("ACTUAL", E2E.text("routeHeadActual"))
+        val header = E2E.find("routeColumnHeader")!!.visibleBounds
+        assertTrue("ACTUAL header is outside the table viewport",
+            header.bottom <= E2E.find("routeViewport")!!.visibleBounds.top)
+        assertTrue("source card not expanded at start", E2E.find("headline") != null)
+        assertTrue("Refresh control missing", E2E.tap("refresh"))
+        // A check clock may only appear for two seconds; it must float over the
+        // summary, not occupy a third column or resize the table.
+        val score = E2E.find("checkClock", E2E.NETWORK_MS)
+        if (score != null) {
+            val during = E2E.find("trackingSummaryCard")!!.visibleBounds
+            assertTrue("response flash resized the summary: $card -> $during",
+                kotlin.math.abs(card.height() - during.height()) <= 8)
+        }
+        assertTrue("no route after refresh", E2E.count(stopsBy) > 0)
+        assertTrue("collapse handle missing", E2E.tap("heroToggle"))
+        assertTrue("collapse did not hide headline",
+            E2E.ui.wait(Until.gone(By.res(E2E.PKG, "headline")), E2E.LOCAL_MS))
+        assertNotNull("collapsed card lost source", E2E.find("sourceSpinner"))
+        assertTrue("More label not visible", E2E.text("heroToggle").contains("More"))
+        assertTrue("expand handle missing", E2E.tap("heroToggle"))
+        assertNotNull("expanded headline missing", E2E.find("headline"))
+        assertTrue("Less label not visible", E2E.text("heroToggle").contains("Less"))
+        E2E.shot("summary-stable-refresh")
+    }
+
     // @flow headline-position
     @Test
     fun headlineAlwaysNamesAState() {
@@ -158,8 +188,9 @@ class TrackingFlowTest {
                     val view = row.findObject(By.res(E2E.PKG, id))
                         ?: throw AssertionError("fully visible station lost its $id cell")
                     val direction = if (id.endsWith("Arr")) "arrival" else "departure"
-                    assertTrue("$id lost its spoken diagonal direction",
-                        view.contentDescription.orEmpty().contains(direction, ignoreCase = true))
+                    assertTrue("$id lost its spoken diagonal direction or route boundary",
+                        view.contentDescription.orEmpty().contains(direction, ignoreCase = true) ||
+                        view.text in setOf("START", "END"))
                     return view.text?.trim()
                         ?: throw AssertionError("fully visible station lost its $id clock")
                 }
@@ -172,14 +203,14 @@ class TrackingFlowTest {
         var missing = 0
         pairs.forEachIndexed { i, pair ->
             assertTrue("row $i lost the scheduled arrival minute",
-                pair.plannedArr == "—" || Regex("""^\d{2}:\d{2}""").containsMatchIn(pair.plannedArr))
+                pair.plannedArr in setOf("—", "START") || Regex("""^\d{2}:\d{2}""").containsMatchIn(pair.plannedArr))
             assertTrue("row $i lost the scheduled departure minute",
-                pair.plannedDep == "—" || Regex("""^\d{2}:\d{2}""").containsMatchIn(pair.plannedDep))
+                pair.plannedDep in setOf("—", "END") || Regex("""^\d{2}:\d{2}""").containsMatchIn(pair.plannedDep))
             assertTrue("row $i source departure must be a minute or dash",
-                pair.reportedDep == "—" || Regex("""^\d{2}:\d{2}""").containsMatchIn(pair.reportedDep))
+                pair.reportedDep in setOf("—", "END") || Regex("""^\d{2}:\d{2}""").containsMatchIn(pair.reportedDep))
             if (pair.reportedArr == "—") missing++ else assertTrue(
                 "row $i source arrival is not a clock: '${pair.reportedArr}'",
-                Regex("""^\d{2}:\d{2}""").containsMatchIn(pair.reportedArr))
+                pair.reportedArr == "START" || Regex("""^\d{2}:\d{2}""").containsMatchIn(pair.reportedArr))
         }
         assertTrue("a missing source time must remain a dash, not a timetable copy", missing > 0)
         E2E.shot("visible-arrival-departure")
@@ -394,8 +425,8 @@ class TrackingFlowTest {
             val badge = E2E.text("provenance", 300)
             val headline = E2E.text("headline", 300)
             identified = badge.contains("WEB", true) &&
-                ((headline.startsWith("Website reports ") ||
-                    headline.startsWith("Website suggests ")) && badge.contains("run inferred") ||
+                ((headline.startsWith("Recently reported at ") ||
+                    headline.startsWith("Recently reported near ")) && badge.contains("run inferred") ||
                     headline.contains("no qualifying past-stop report"))
             if (!identified) Thread.sleep(200)
         }
@@ -408,8 +439,8 @@ class TrackingFlowTest {
         assertTrue("website selection hid arrival/departure columns", sheetVisible)
         val live = rowTexts("liveArr") + rowTexts("liveDep")
         assertTrue("ACTUAL cells absent from selected source", live.isNotEmpty())
-        val suggestion = E2E.text("headline").startsWith("Website suggests ")
-        val reported = E2E.text("headline").startsWith("Website reports ") || suggestion
+        val suggestion = E2E.text("headline").contains("departure suggested")
+        val reported = E2E.text("headline").startsWith("Recently reported ")
         val spoken = E2E.all(By.res(E2E.PKG, "liveArr"))
             .map { it.contentDescription.orEmpty() }
         assertTrue("selected site borrowed NTES arrival provenance: $spoken",
@@ -419,8 +450,9 @@ class TrackingFlowTest {
                 it.contentDescription.orEmpty().contains("website arrival claim") }
             assertTrue("website reported a past stop but none reached its table rail: $live",
                 live.any { it != "—" && it.isNotBlank() } || inlineClaim)
-            assertTrue("site row lost its Web label: ${rowTexts("stopTimeType")}",
-                rowTexts("stopTimeType").any { it == if (suggestion) "WEB?" else "WEB" } || inlineClaim)
+            assertTrue("website provenance must stay in summary after removing repeated row labels",
+                E2E.text("provenance").contains("WEBSITE") &&
+                    rowTexts("stopTimeType").none { it == "WEB" || it == "WEB?" })
             assertTrue("website cells lost source attribution: $spoken",
                 spoken.any { it.startsWith("Website claim arrival") } || inlineClaim)
             if (suggestion) {
@@ -432,9 +464,11 @@ class TrackingFlowTest {
                         departures.none { it.startsWith("Reported departure") })
             }
             assertTrue("site event was replaced with a page-check clock: ${E2E.text("age")}",
-                E2E.text("age").contains(if (suggestion) "Site arrival" else "Site event"))
+                E2E.text("age").contains("Site") &&
+                    E2E.text("refreshFeedback").contains("Site "))
         } else {
-            assertTrue("no site report must not populate station clocks: $live", live.all { it == "—" })
+            assertTrue("no site report must not populate numeric station clocks: $live",
+                live.all { it in setOf("—", "START", "END") })
             assertTrue("missing site event got a locomotive", E2E.find("stopTrainMarker", 300) == null)
         }
         E2E.shot("org-website-past-cards-on-rail")
@@ -495,32 +529,21 @@ class TrackingFlowTest {
             // bounded 50-second response window *after* the one-minute tick.
             val deadline = System.currentTimeMillis() + 110_000L
             var receipt = ""
-            while (System.currentTimeMillis() < deadline && receipt.isBlank()) {
+            while (System.currentTimeMillis() < deadline && !receipt.startsWith("Checked ")) {
                 if (E2E.reveal("refreshFeedback", "scroller", swipes = 2))
                     receipt = E2E.text("refreshFeedback", 300)
-                if (receipt.isBlank()) Thread.sleep(700)
+                if (!receipt.startsWith("Checked ")) Thread.sleep(700)
             }
             if (receipt.isBlank()) E2E.shot("auto-minute-no-visible-receipt")
             assertTrue("no refresh receipt after a minute plus bounded source reply", receipt.isNotBlank())
-            val checked = Regex("^Checked \\d{2}:\\d{2}:\\d{2} · ").containsMatchIn(receipt)
-            val answered = Regex("^(NTES|Website) answered at \\d{2}:\\d{2}:\\d{2} · ")
-                .containsMatchIn(receipt)
-            val changed = Regex("^New stop report · .+ · checked \\d{2}:\\d{2}:\\d{2} · ")
-                .containsMatchIn(receipt)
-            val revised = Regex("^Revised time at same stop · .+ · checked \\d{2}:\\d{2}:\\d{2} · ")
-                .containsMatchIn(receipt)
-            assertTrue("auto refresh must show a check clock and named source: $receipt",
-                (checked || answered || changed || revised) && listOf("NTES", "erail", "website", "WIMT",
-                    "ConfirmTkt", "runningstatus", "Website").any { receipt.contains(it) })
-            // Requiring a distinct terminal finding catches the original bug: a
-            // successful HTTP response with an unchanged old event looked like
-            // failure, while a failed request looked like a new observation.
-            assertTrue("auto refresh must distinguish answered/unchanged, failed, and revised: $receipt",
-                listOf("same last reported stop", "same last site stop, no newer event",
-                    "new reported stop", "new site-reported stop", "revised time",
-                    "request failed", "answered, no validated new stop", "no validated site stop report", "not reached",
-                    "no usable new report", "has no usable report", "site comparison only", "cached HTTP body",
-                    "New stop report", "Revised time", "No newer stop").any { receipt.contains(it) })
+            assertTrue("auto refresh must show check clock and named source: $receipt",
+                Regex("^Checked \\d{2}:\\d{2}:\\d{2} · ").containsMatchIn(receipt) &&
+                listOf("NTES", "erail", "website", "WIMT", "ConfirmTkt", "runningstatus")
+                    .any { receipt.contains(it, true) })
+            assertTrue("auto refresh must distinguish new, unchanged, revised and failed: $receipt",
+                listOf("new stop reported", "stop time revised", "no newer stop",
+                    "no validated stop", "check failed", "cached reply")
+                    .any { receipt.contains(it, true) })
         } finally {
             // Persisted across tracking Activities: restore OFF so later flows
             // don't unknowingly start from a live one-minute polling session.

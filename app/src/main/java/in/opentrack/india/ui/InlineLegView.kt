@@ -118,7 +118,7 @@ class InlineLegView @JvmOverloads constructor(
             // stop; otherwise a dash, even when the map has a planned passage.
             val planned = point.passageMinute?.let {
                 (if (point.approximate) "~" else "") +
-                    `in`.opentrack.india.core.RailTime.formatRailMinute(it)
+                    `in`.opentrack.india.core.RailTime.formatRailMinuteBare(it)
             } ?: "—"
             paint.textSize = sp(12f)
             paint.textAlign = Paint.Align.LEFT
@@ -126,13 +126,13 @@ class InlineLegView @JvmOverloads constructor(
             canvas.drawText(planned, dp(12f), tickY + dp(4f), paint)
             paint.textAlign = Paint.Align.RIGHT
             val arrived = point.siteArrivalMin?.let {
-                "↘" + `in`.opentrack.india.core.RailTime.formatRailMinute(it)
+                "↘" + `in`.opentrack.india.core.RailTime.formatRailMinuteBare(it)
             } ?: "—"
             paint.color = if (point.siteArrivalMin == null) context.getColor(R.color.text2)
                 else context.getColor(R.color.warn)
             canvas.drawText(arrived, width - dp(20f), tickY + dp(4f), paint)
             point.siteDepartureMin?.let { minute ->
-                canvas.drawText("↙" + `in`.opentrack.india.core.RailTime.formatRailMinute(minute),
+                canvas.drawText("↙" + `in`.opentrack.india.core.RailTime.formatRailMinuteBare(minute),
                     width - dp(20f), tickY + dp(18f), paint)
             }
             paint.textAlign = Paint.Align.LEFT
@@ -187,7 +187,7 @@ class InlineLegView @JvmOverloads constructor(
             siteEventMinute?.let { minute ->
                 paint.textSize = sp(11f)
                 paint.color = context.getColor(R.color.warn)
-                val clock = "As on " + `in`.opentrack.india.core.RailTime.formatRailMinute(minute)
+                val clock = "As on " + `in`.opentrack.india.core.RailTime.formatRailMinuteBare(minute)
                 val clockY = y + dp(31f)
                 canvas.drawText(clock, x + dp(24f), clockY, paint)
             }
@@ -252,7 +252,10 @@ object LegGeometry {
         val bonus = distanceKm.coerceIn(0, 100) * 1.2f
         var y = 23f
         return points.mapIndexed { i, _ ->
-            y += 34f + bonus * (ratios[i + 1] - ratios[i]).coerceAtLeast(0f)
+            // Bring the first intermediate 20% nearer its main station; preserve
+            // the remaining route distances and all map-fraction ordering.
+            val gap = 34f + bonus * (ratios[i + 1] - ratios[i]).coerceAtLeast(0f)
+            y += if (i == 0) gap * .8f else gap
             y
         }
     }
