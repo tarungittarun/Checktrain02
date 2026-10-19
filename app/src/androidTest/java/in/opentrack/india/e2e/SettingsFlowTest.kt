@@ -36,7 +36,10 @@ class SettingsFlowTest {
     }
 
     private fun openSettings(): Boolean {
-        if (!E2E.tap("settings")) return false
+        // A valid Save finishes Settings asynchronously. Wait for the Home button
+        // to become visible before reopening; a tap on the departing Activity is
+        // not evidence that the saved form persisted on a fresh screen.
+        if (!E2E.visible("settings", E2E.LOCAL_MS) || !E2E.tap("settings")) return false
         // The state is populated by an asynchronous repository check; a mounted but empty
         // TextView is not yet an answer to the traveller.
         val deadline = System.currentTimeMillis() + E2E.LOCAL_MS

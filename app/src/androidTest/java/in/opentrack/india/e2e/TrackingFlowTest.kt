@@ -463,9 +463,15 @@ class TrackingFlowTest {
                         it.contains("not actual") } &&
                         departures.none { it.startsWith("Reported departure") })
             }
-            assertTrue("site event was replaced with a page-check clock: ${E2E.text("age")}",
-                E2E.text("age").contains("Site") &&
-                    E2E.text("refreshFeedback").contains("Site "))
+            // The detailed receipt is no longer a persistent second line below
+            // the card. Verify the actual age + accessible event/page distinction,
+            // not a transient overlay that may already have faded at assertion time.
+            val eventAge = E2E.text("age")
+            val eventDetail = E2E.find("age")?.contentDescription.orEmpty()
+            assertTrue("site event was replaced with a page-check clock: $eventAge / $eventDetail",
+                eventAge.startsWith("Site stop · ") &&
+                    eventDetail.contains("Website station event") &&
+                    eventDetail.contains("page update") && eventDetail.contains("not movement"))
         } else {
             assertTrue("no site report must not populate numeric station clocks: $live",
                 live.all { it in setOf("—", "START", "END") })
