@@ -441,7 +441,15 @@ class TrackingFlowTest {
     @Test
     fun tableOffersOptionalMinuteRefreshAndExpandableRoutePoints() {
         assertTrue("Refresh must remain reachable by scrolling", E2E.reveal("refresh", "scroller"))
-        assertTrue("one-minute Auto must remain beside the source selector", E2E.visible("autoSwitch"))
+        // Refresh floats over the rail after R130; scrolling to it does not
+        // imply the in-card source picker and Auto switch are in the viewport.
+        assertTrue("source picker cannot be reached after floating Refresh",
+            E2E.reveal("sourceSpinner", "scroller"))
+        val source = E2E.find("sourceSpinner")?.visibleBounds
+        val auto = E2E.find("autoSwitch")?.visibleBounds
+        assertTrue("one-minute Auto must remain beside the source selector: $source / $auto",
+            source != null && auto != null && auto.left >= source.right &&
+                kotlin.math.abs(auto.centerY() - source.centerY()) <= source.height())
         assertTrue("route points must be inside the table, not a separate button",
             E2E.find("betweenStations", 1_000) == null)
         assertTrue("the station table vanished", E2E.count(stopsBy) > 0)

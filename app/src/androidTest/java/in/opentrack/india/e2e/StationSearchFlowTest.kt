@@ -193,10 +193,20 @@ class StationSearchFlowTest {
             assertTrue("Edit search did not reopen the SEARCH BOX", E2E.tap("editSearch"))
             assertTrue("SEARCH BOX label missing", E2E.ui.wait(
                 Until.hasObject(By.text("SEARCH BOX")), E2E.LOCAL_MS))
-            val form = E2E.find("searchCard")!!.visibleBounds
-            val summary = E2E.find("resultsSummary")!!.visibleBounds
-            assertTrue("large blank gap between edited search and count/source/date: $form / $summary",
-                summary.top - form.bottom in 0..(E2E.ui.displayWidth / 5))
+            // Editing is a draft, not another Find: the old list, count and
+            // source summary must disappear until the traveller submits again.
+            assertEquals("edit showed pre-Find result rows", 0, E2E.resultRows())
+            assertTrue("edit kept an old source/count summary before Find",
+                E2E.find("resultsSummary", 300) == null)
+            assertTrue("edited Find cannot be reached", E2E.reveal("find", "searchCardScroll") &&
+                E2E.tap("find"))
+            assertTrue("submitted edit did not restore a new source/count summary",
+                E2E.ui.wait(Until.hasObject(By.res(E2E.PKG, "resultsSummary")), E2E.NETWORK_MS))
+            val compact = E2E.find("searchCompact")?.visibleBounds
+            val summary = E2E.find("resultsSummary")?.visibleBounds
+            assertTrue("large blank gap between submitted edit and count/source/date: $compact / $summary",
+                compact != null && summary != null &&
+                    summary.top - compact.bottom in 0..(E2E.ui.displayWidth / 5))
             assertTrue("result count missing from summary", E2E.text("resultsSummary").contains("train"))
         }
         E2E.shot("both-ends")
