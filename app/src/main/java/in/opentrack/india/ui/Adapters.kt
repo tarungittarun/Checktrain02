@@ -424,9 +424,10 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
                 web?.actualDepartureMin.takeIf { stopped })
         }
         if (captionMinute != null) {
-            val firstPoint = available.firstOrNull { it.schedKm > s.kmFromOrigin }
+            val firstPoint = available.firstOrNull { it.mapKm > s.kmFromOrigin &&
+                (nextStop == null || it.mapKm < nextStop.kmFromOrigin) }
             val boundName = firstPoint?.name ?: nextStop?.name
-            val boundKm = firstPoint?.schedKm ?: nextStop?.kmFromOrigin
+            val boundKm = firstPoint?.mapKm ?: nextStop?.kmFromOrigin
             val staticKm = boundKm?.takeIf { s.kmFromOrigin >= 0 && it > s.kmFromOrigin }
                 ?.minus(s.kmFromOrigin)
             if (boundName != null && staticKm != null) {
