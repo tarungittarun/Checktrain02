@@ -40,7 +40,8 @@ class SourceIndicatorTest {
     @Test fun siteClaimsAreAmberAndNeverLabelledAsVerifiedActuals() {
         val site = SourceIndicator.of(PublicPageChecks.ORG, "comparison", "13 past-card rows")
         assertEquals(SourceIndicator.Tone.CANDIDATE, site.tone)
-        assertEquals(true, site.label.contains("comparison only"))
+        assertEquals(true, site.label.contains("site past-card times"))
+        assertEquals(false, site.label.contains("verified"))
         assertEquals(SourceIndicator.Tone.CANDIDATE,
             SourceIndicator.of(WimtCandidate.SOURCE, "comparison", "dated km point").tone)
         assertEquals(SourceIndicator.Tone.CANDIDATE,

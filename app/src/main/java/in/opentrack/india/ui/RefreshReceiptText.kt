@@ -45,8 +45,12 @@ object RefreshReceiptText {
                 if (status?.first != "comparison")
                     return "Website answered at $checked · no validated site stop report " +
                         "for this run · $context"
-                return "Website answered at $checked · site comparison only, " +
-                    "no run-verified actuals or position · $context"
+                val finding = when (change) {
+                    RefreshEvidence.Change.NEW_STOP -> "new site-reported stop"
+                    RefreshEvidence.Change.REVISED_AT_SAME_STOP -> "revised site stop time"
+                    RefreshEvidence.Change.UNCHANGED -> "same last site stop, no newer event"
+                }
+                return "Website answered at $checked · $finding · $age"
             }
         }
         if (switched) return "Checked $checked · $sourceLabel has no usable report; $context"

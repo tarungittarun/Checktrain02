@@ -685,11 +685,12 @@ class LiveViewModel(
                     probeSource(selected, select = true)?.join()
                     val current = _ui.value ?: return@launch
                     val state = current.sourceStates[selected]?.first
-                    val usable = state == "live" || state == "candidate" &&
-                        (selected == PublicPageChecks.ORG &&
-                            current.publicSourceAnswered[selected] == true &&
-                            current.orgWebsiteReport != null ||
-                            selected == WimtCandidate.SOURCE && current.wimtWebPoint != null)
+                    val usable = state == "live" ||
+                        selected == PublicPageChecks.ORG && WebsiteReportDisplay.usable(
+                            state, current.publicSourceAnswered[selected] == true,
+                            current.orgWebsiteReport) ||
+                        state == "candidate" && selected == WimtCandidate.SOURCE &&
+                            current.wimtWebPoint != null
                     if (!usable) {
                         val fallback = bestAvailableSource(current, selected)
                         Diary.get()?.log("SOURCE", "refresh $selected failed ($state); fallback=${fallback ?: "official request"}")
@@ -748,8 +749,9 @@ class LiveViewModel(
             minute)).takeIf { it >= 0L }
     }
 
-    /** Only sources with run-bound, validated actual minutes can be a movement fallback.
-     * A newer HTML page clock cannot outrank an older NTES train event. */
+    /** Prefer run-bound actuals; a selected website can separately provide its own
+     * labelled past-card timeline when the official request genuinely fails.
+     * A newer HTML page clock never outranks an older train event by itself. */
     private fun bestAvailableSource(ui: Ui, rejected: String): String? =
         listOf("NTES (official)", RunningStatusMirror.SOURCE,
             ConfirmTktMirror.SOURCE, "erail").firstOrNull { name ->
@@ -764,6 +766,9 @@ class LiveViewModel(
                             System.currentTimeMillis() - manualErailAt in 0L..PositionEngine.STALE_MS
                         else -> false
                     })
+        } ?: PublicPageChecks.ORG.takeIf { name ->
+            name != rejected && WebsiteReportDisplay.usable(ui.sourceStates[name]?.first,
+                ui.publicSourceAnswered[name] == true, ui.orgWebsiteReport)
         }
 
     private suspend fun refreshBody(previous: TrainPosition?) {
@@ -1576,14 +1581,30 @@ class LiveViewModel(
         }
         val orgStop = orgReport?.let { report -> route.stops.firstOrNull {
             it.code.equals(report.intermediate?.precedingHalt ?: report.anchorCode, true) } }
-        val tablePos = if (mirrorSelected || publicSelected || wimtSelected ||
+        val tablePos = if (orgReport != null && orgStop != null) pos.copy(
+            provenance = SourceKind.PROVIDER_OVERRIDE,
+            anchorSeq = orgStop.seq,
+            nextSeq = route.stops.getOrNull(route.stops.indexOf(orgStop) + 1)?.seq ?: orgStop.seq,
+            fraction = 0f, kmAlong = orgStop.schedKm.toFloat(),
+            status = if (orgReport.departed || orgReport.intermediate != null)
+                `in`.opentrack.india.model.StopStatus.DEPARTED else
+                `in`.opentrack.india.model.StopStatus.ARRIVED,
+            delayMinutes = null, etaNextMinute = null,
+            // A page update cannot move or re-age the last published past card.
+            ageSeconds = (now - RailTime.railMinuteToEpochMillis(originDate,
+                orgReport.eventMinute)).coerceAtLeast(0L) / 1_000L,
+            feedAgeSeconds = (now - RailTime.railMinuteToEpochMillis(originDate,
+                orgReport.eventMinute)).coerceAtLeast(0L) / 1_000L,
+            feedStampMillis = null)
+        else if (mirrorSelected || publicSelected || wimtSelected ||
             (erailSelected && erailAnswer == null) || officialUnavailable) pos.copy(
             provenance = SourceKind.OFFLINE_SCHEDULE, anchorSeq = 0, nextSeq = 0,
             fraction = 0f, delayMinutes = null, etaNextMinute = null, feedStampMillis = null)
         else pos
         val model = TrackModel.build(
             route = route, pos = tablePos,
-            perStop = if (mirrorSelected || wimtSelected || publicSelected || officialUnavailable) emptyMap()
+            perStop = if (orgReport != null && orgStop != null) orgReport.rows
+                else if (mirrorSelected || wimtSelected || publicSelected || officialUnavailable) emptyMap()
                 else if (erailSelected) erailAnswer?.perStop.orEmpty()
                 else answer.perStop,
             nowRailMinute = nowRail,
@@ -1600,7 +1621,7 @@ class LiveViewModel(
             note = (if (orgReport != null && publicChecks[PublicPageChecks.ORG]?.pageAnswered == false)
                     "Website request failed. Keeping the previous site report at its original event time; " +
                         "position since then unknown."
-                else if (orgReport != null) "Website comparison only: origin run not printed; no verified position or delay. The site claim is in Info, not ACTUAL."
+                else if (orgReport != null) "Website past-card times shown in the station table; origin run inferred from the timetable. Last site report is not a current GPS position."
                 else if (publicSelected) "No confirmed times from this site; timetable shown."
                 else if (mirrorSelected && !selectedMirrorForTable ||
                     erailSelected && erailAnswer == null || officialUnavailable)
@@ -1622,16 +1643,23 @@ class LiveViewModel(
             // inherit its generic "LIVE · custom" wording in Info or copied diagnostics.
             provenanceLabel = when {
                 claimStop != null -> "RailYatri · comparison only"
-                orgStop != null -> "whereismytrain.org.in · comparison only"
+                orgStop != null -> "whereismytrain.org.in · website past-card report"
                 webPoint != null -> "WIMT web · comparison only"
                 else -> model.provenanceLabel
             },
             routeLabel = identityOverlay(route.srcCode, route.dstCode, liveIdentity?.identity)
                 ?.let { "${model.routeLabel} · $it" }
                 ?: model.routeLabel,
-            progressLabel = if (SourceEvidencePolicy.comparisonOnly(mirrorActiveSource))
-                "Position unknown · timetable only; compare website separately"
-            else model.progressLabel,
+            progressLabel = when {
+                orgReport?.intermediate != null ->
+                    "Website's last past-card station ${orgReport.intermediate.name} · " +
+                        "static map ${orgReport.intermediate.mapKm} km · current position unknown"
+                orgStop != null -> "Website's last past-card halt · ${orgStop.schedKm} " +
+                    "scheduled km · current position unknown"
+                SourceEvidencePolicy.comparisonOnly(mirrorActiveSource) ->
+                    "Position unknown · timetable only; compare website separately"
+                else -> model.progressLabel
+            },
         )
         // THE OWNER'S COLUMNS, FED: the active witness's structured minutes are written INTO the
         // rows - Act under Sch - whenever that witness answered, whether or not the erail chain
@@ -1644,6 +1672,7 @@ class LiveViewModel(
             (pos.provenance != SourceKind.PROVIDER_NTES || selectedMirrorForTable))
             mirrorStops[mirrorActiveSource].orEmpty() else emptyList()
         val withActuals = when {
+            orgReport != null -> WebsiteReportDisplay.rows(labelled, orgReport)
             overlayStops.isEmpty() -> labelled
             else -> overlayActuals(labelled, overlayStops, nowMinute(now), staticFuture = true)
         }
@@ -1777,7 +1806,8 @@ class LiveViewModel(
             nowRailMinute = nowRail, tried = tried, loading = false,
             reports = selectable[mirrorActiveSource] ?: _ui.value?.reports ?: emptyMap(),
             relayOk = _ui.value?.relayOk ?: true,
-            anchorCode = if (verified != null) lastReported?.code else null,
+            anchorCode = if (orgReport != null) orgReport.intermediate?.precedingHalt
+                ?: orgReport.anchorCode else if (verified != null) lastReported?.code else null,
             actualsHeadline = verified?.first?.let { if (selected == "last known")
                 "Last known at ${clockAt(mirrorRefreshedAt)} · $it" else it },
             actualsNext = if (verified != null) nextStatement else null,

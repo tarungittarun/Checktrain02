@@ -392,13 +392,13 @@ class TrackingFlowTest {
         while (System.currentTimeMillis() < deadline && !identified) {
             val badge = E2E.text("provenance", 300)
             val headline = E2E.text("headline", 300)
-            identified = badge.contains("WEB", true) && badge.contains("comparison only") &&
-                (headline.startsWith("Website comparison:") ||
-                    headline.contains("no run-verified station event"))
+            identified = badge.contains("WEB", true) &&
+                (headline.startsWith("Website reports ") && badge.contains("run inferred") ||
+                    headline.contains("no qualifying past-stop report"))
             if (!identified) Thread.sleep(200)
         }
         if (!identified) E2E.shot("org-website-missing-identity")
-        assertTrue("selected site must be visibly comparison-only: badge='${E2E.text("provenance")}'; " +
+        assertTrue("selected site must be visibly website-attributed: badge='${E2E.text("provenance")}'; " +
             "headline='${E2E.text("headline")}'", identified)
         assertTrue("website selection removed the station table", E2E.count(stopsBy) > 0)
         val sheetVisible = revealTimeSheet()
@@ -406,20 +406,27 @@ class TrackingFlowTest {
         assertTrue("website selection hid arrival/departure columns", sheetVisible)
         val live = rowTexts("liveArr") + rowTexts("liveDep")
         assertTrue("ACTUAL cells absent from selected source", live.isNotEmpty())
-        assertTrue("undated website minutes were promoted to ACTUAL: $live", live.all { it == "—" })
+        val reported = E2E.text("headline").startsWith("Website reports ")
         val spoken = E2E.all(By.res(E2E.PKG, "liveArr"))
             .map { it.contentDescription.orEmpty() }
-        assertTrue("accessibility still calls an undated website minute reported: $spoken",
-            spoken.none { it.startsWith("Reported arrival") || it.startsWith("Website claim arrival") })
-        assertTrue("website assigned a primary locomotive", E2E.find("stopTrainMarker", 300) == null)
-        repeat(5) { if (!E2E.visible("delay", 300)) E2E.swipeIn("scroller", up = false) }
-        assertTrue("website change fabricated a measured delay: ${E2E.text("delay")}",
-            E2E.text("delay").startsWith("—"))
-        val age = E2E.text("age")
-        assertTrue("page update was presented as a train event: $age",
-            (age.startsWith("Page updated") && age.contains("not movement")) ||
-                age == "No verified event time")
-        E2E.shot("org-website-comparison-no-actual")
+        assertTrue("selected site borrowed NTES arrival provenance: $spoken",
+            spoken.none { it.startsWith("Reported arrival") })
+        if (reported) {
+            val inlineClaim = E2E.all(By.res(E2E.PKG, "inlineLeg")).any {
+                it.contentDescription.orEmpty().contains("website arrival claim") }
+            assertTrue("website reported a past stop but none reached its table rail: $live",
+                live.any { it != "—" && it.isNotBlank() } || inlineClaim)
+            assertTrue("site row lost its Web label: ${rowTexts("stopTimeType")}",
+                rowTexts("stopTimeType").any { it == "WEB" } || inlineClaim)
+            assertTrue("website cells lost source attribution: $spoken",
+                spoken.any { it.startsWith("Website claim arrival") } || inlineClaim)
+            assertTrue("site event was replaced with a page-check clock: ${E2E.text("age")}",
+                E2E.text("age").contains("Site event"))
+        } else {
+            assertTrue("no site report must not populate station clocks: $live", live.all { it == "—" })
+            assertTrue("missing site event got a locomotive", E2E.find("stopTrainMarker", 300) == null)
+        }
+        E2E.shot("org-website-past-cards-on-rail")
     }
 
     // @flow refresh
@@ -498,7 +505,7 @@ class TrackingFlowTest {
             // successful HTTP response with an unchanged old event looked like
             // failure, while a failed request looked like a new observation.
             assertTrue("auto refresh must distinguish answered/unchanged, failed, and revised: $receipt",
-                listOf("same last reported stop", "same last site-reported stop",
+                listOf("same last reported stop", "same last site stop, no newer event",
                     "new reported stop", "new site-reported stop", "revised time",
                     "request failed", "answered, no validated new stop", "no validated site stop report", "not reached",
                     "no usable new report", "has no usable report", "site comparison only", "cached HTTP body",

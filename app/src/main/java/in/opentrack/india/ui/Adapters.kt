@@ -310,7 +310,9 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         val hasShownTime = reported && (s.showArr != null || s.showDep != null)
         val primary = if (hasShownTime) s.showDep ?: s.showArr else s.schedArr ?: s.schedDep
         holder.primaryTime.text = primary?.let(RailTime::formatRailMinute) ?: "—"
-        holder.timeType.text = if (hasShownTime) evidence else "SCHEDULE"
+        holder.timeType.text = if (website && hasShownTime) "WEB" else if (hasShownTime) evidence else "SCHEDULE"
+        holder.timeType.visibility = if (website && hasShownTime) View.VISIBLE else View.GONE
+        holder.timeType.setTextColor(ctx.getColor(R.color.warn))
         holder.details.visibility = View.GONE
         val points = routePoints[s.code].orEmpty()
         val hasPoints = points.isNotEmpty() || projectedLeg?.takeIf {
@@ -348,15 +350,19 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         // Pure presentation of the SAME row that already owns the locomotive.
         // A website comparison or a timetable dot cannot gain a reported clock.
         val captionMinute = (s.showDep ?: s.showArr).takeIf {
-            expandedCode == null && marker != null && !marker.website &&
-                s.source == TrackModel.MinuteSource.REPORTED
+            expandedCode == null && marker != null &&
+                (s.source == TrackModel.MinuteSource.REPORTED && !marker.website ||
+                 s.source == TrackModel.MinuteSource.SITE_REPORTED && marker.website)
         }
         holder.eventCaption.visibility = if (captionMinute == null) View.GONE else View.VISIBLE
         holder.eventCaption.text = captionMinute?.let {
-            "At ${RowText.of(s.name)} · last report\nAs on ${RailTime.formatRailMinute(it)}"
+            "At ${RowText.of(s.name)} · ${if (marker?.website == true) "website report" else "last report"}" +
+                "\nAs on ${RailTime.formatRailMinute(it)}"
         }.orEmpty()
+        holder.eventCaption.setTextColor(ctx.getColor(if (marker?.website == true) R.color.warn else R.color.text2))
         holder.eventCaption.contentDescription = captionMinute?.let {
-            "Last reported at ${RowText.of(s.name)}, event time ${RailTime.formatRailMinute(it)}. " +
+            "${if (marker?.website == true) "Website reports" else "Last reported at"} " +
+                "${RowText.of(s.name)}, event time ${RailTime.formatRailMinute(it)}. " +
                 "Present position unknown."
         }.orEmpty()
         val available = if (points.isEmpty()) leg?.points.orEmpty() else points.mapIndexed { index, point ->

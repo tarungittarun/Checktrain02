@@ -17,8 +17,9 @@ object SourceEvidenceReceipt {
         val siteClaim = result.orgReport?.let { it.anchorCode + ":" + it.eventMinute } ?: "none"
         return "source=$source train=$train originDay=$originDay " +
             "transport=$transport bytes=${result.responseBytes} sha256_16=${result.responseDigest ?: "none"} " +
-            "parsed=$parsed runIdentity=$identity primaryActuals=0 marker=none delay=unknown " +
-            "siteClaim=$siteClaim pagePublishedAt=${result.orgReport?.pageUpdatedAt ?: "unknown"} " +
+            "parsed=$parsed runIdentity=$identity primaryActuals=0 primaryMarker=none " +
+            "siteRows=${result.orgReport?.rows?.size ?: 0} siteClaim=$siteClaim " +
+            "pagePublishedAt=${result.orgReport?.pageUpdatedAt ?: "unknown"} " +
             "checkedAt=${result.checkedAt}"
     }
 

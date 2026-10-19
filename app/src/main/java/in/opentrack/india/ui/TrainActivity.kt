@@ -60,7 +60,11 @@ class TrainActivity : AppCompatActivity() {
     private var previousRefreshEvent: String? = null
 
     private fun selectedEventAt(ui: LiveViewModel.Ui?): Long? {
-        if (ui == null || SourceEvidencePolicy.comparisonOnly(ui.activeSource)) return null
+        if (ui == null) return null
+        if (WebsiteReportDisplay.selected(ui.activeSource)) return ui.orgWebsiteReport?.let {
+            RailTime.railMinuteToEpochMillis(vm.originDate, it.eventMinute)
+        }
+        if (SourceEvidencePolicy.comparisonOnly(ui.activeSource)) return null
         val minute = ui.model.rows.lastOrNull {
             it.source == TrackModel.MinuteSource.REPORTED &&
                 (it.showDep != null || it.showArr != null)
@@ -512,7 +516,9 @@ class TrainActivity : AppCompatActivity() {
                     sourceSelectionTouched = false
                     `in`.opentrack.india.data.Prefs(application as App).defaultTrackingSource =
                         TrackingSources.valid(name)
-                    if (spinnerStates[name]?.first !in listOf("live", "last-known", "candidate")) {
+                    if (spinnerStates[name]?.first !in listOf("live", "last-known", "candidate") &&
+                        !(name == `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG &&
+                            spinnerStates[name]?.first == "comparison")) {
                         // API 24's Toast layout must use the framework inflater: the
                         // Activity's AppCompat factory crashes on its system TextView
                         // (StringBlock pooled-string index outside the Toast XML pool).
@@ -584,9 +590,8 @@ class TrainActivity : AppCompatActivity() {
         binding.sourceSummary.text = when {
             ui.alternateSiteHint != null -> ui.alternateSiteHint
             ui.websiteGap != null -> ui.websiteGap
-            ui.orgWebsiteReport != null -> "Website comparison: ${ui.orgWebsiteReport.anchorCode} " +
-                "${RailTime.formatRailMinute(ui.orgWebsiteReport.eventMinute)}; run date unprinted. " +
-                "Not a verified position, ACTUAL time or delay."
+            ui.orgWebsiteReport != null -> "Site past-card times in the table · run date inferred; " +
+                "page update is not a train event."
             ui.wimtWebPoint != null -> "Site distance claim; not phone GPS."
             selectedPending -> "Checking ${sourceName(ui.activeSource.orEmpty())}…"
             else -> "${sourceName(ui.activeSource.orEmpty())}: $selectedReason$response. Timetable shown."
@@ -594,7 +599,7 @@ class TrainActivity : AppCompatActivity() {
         binding.headline.text = m.headline
         binding.heroEyebrow.text = when {
             ui.wimtWebPoint != null -> "WEB CACHE · COMPARISON"
-            ui.orgWebsiteReport != null -> "WEBSITE COMPARISON"
+            ui.orgWebsiteReport != null -> "WEBSITE REPORT"
             ui.railYatriClaim != null -> "RAILYATRI CLAIM"
             m.rows.any { it.source == TrackModel.MinuteSource.REPORTED } -> "NTES REPORT"
             else -> "TIMETABLE ONLY"
@@ -604,7 +609,15 @@ class TrainActivity : AppCompatActivity() {
         // No NTES time-interpolated icon in position-only mode. A separate amber
         // marker can scale a fresh, explicitly UNVERIFIED WIMT web-cache km claim
         // onto two official scheduled halts; it never invents an ETA or Act cell.
-        val leg = if (SourceEvidencePolicy.comparisonOnly(ui.activeSource)) null
+        val leg = ui.orgWebsiteReport?.let { report ->
+            report.intermediate?.let { p ->
+                RouteBetween.siteIntermediateLeg(ui.route, ui.staticRoute,
+                    p.precedingHalt, p.followingHalt, p.code, p.mapKm)
+            } ?: if (m.rows.any { it.code.equals(report.anchorCode, true) &&
+                    it.source == TrackModel.MinuteSource.SITE_REPORTED })
+                RouteBetween.siteLastStopLeg(ui.route, ui.staticRoute, report.anchorCode)
+            else null
+        } ?: if (SourceEvidencePolicy.comparisonOnly(ui.activeSource)) null
             else if (ui.activeSource in setOf("NTES (official)", "erail", "last known",
                 `in`.opentrack.india.v2.mirror.RunningStatusMirror.SOURCE,
                 `in`.opentrack.india.v2.mirror.ConfirmTktMirror.SOURCE)) {
@@ -704,29 +717,49 @@ class TrainActivity : AppCompatActivity() {
             val org = ui.orgWebsiteReport?.takeIf { publicCheck ==
                 `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG }
             val claim = ui.railYatriClaim
-            val siteName = org?.let { report -> ui.route.stops.firstOrNull {
-                it.code.equals(report.anchorCode, true) }?.name ?: report.anchorCode }
+            val station = org?.let { report -> ui.route.stops.firstOrNull {
+                it.code.equals(report.anchorCode, true) } }
+            val place = org?.intermediate?.name ?: station?.name ?: org?.anchorCode
             binding.headline.text = when {
-                org != null -> "Website comparison: ${RowText.of(siteName ?: org.anchorCode)} " +
-                    "${RailTime.formatRailMinute(org.eventMinute)} · run unverified; position unknown"
+                org != null -> "Website reports ${RowText.of(place ?: org.anchorCode)} " +
+                    "${RailTime.formatRailMinute(org.eventMinute)} · last site stop; now unknown"
                 claim != null -> "RailYatri comparison: ${claim.code} · passage time unverified"
-                else -> "${sourceName(publicCheck)}: no run-verified station event"
+                else -> "${sourceName(publicCheck)}: no qualifying past-stop report"
             }
             binding.headline.contentDescription = binding.headline.text.toString() +
-                ". This source does not supply verified actuals or a current position."
-            binding.provenance.text = "${sourceName(publicCheck)} · comparison only"
+                ". Website origin run inferred; this is not independently verified GPS."
+            binding.provenance.text = if (org != null) "WEBSITE · past-card report · run inferred"
+                else "${sourceName(publicCheck)} · comparison only"
             binding.provenance.setBackgroundResource(R.drawable.bg_badge_schedule)
             binding.provenance.setTextColor(getColor(R.color.warn))
             binding.age.text = when {
-                org != null -> "Page updated ${RailTime.formatClock(org.pageUpdatedAt)} IST · not movement"
+                org != null -> "Site event ${RailTime.formatRailMinute(org.eventMinute)} · " +
+                    "page updated ${RailTime.formatClock(org.pageUpdatedAt)} (not movement)"
                 claim != null -> "Provider updated ${RailTime.formatClock(claim.updateAt)} IST · not movement"
-                else -> "No verified event time"
+                else -> "No reported event time"
             }
-            binding.delayLabel.text = "Delay"
-            binding.delay.text = "— · no run-verified delay"
-            binding.delay.contentDescription = "Selected website does not supply a run-verified delay"
-            binding.delay.setTextColor(getColor(R.color.warn))
-            binding.next.text = "Next stop unknown · timetable below"
+            val siteStop = org?.rows?.get(org.anchorCode)
+            val scheduledArrival = org?.intermediate?.scheduledMinute ?: station?.arrivalMin
+            val siteDelay = if (siteStop?.actualArrivalMin != null && scheduledArrival != null)
+                siteStop.actualArrivalMin - scheduledArrival else null
+            binding.delayLabel.text = if (siteDelay == null) "Delay" else "Delay at site stop"
+            binding.delay.text = if (siteDelay == null || org == null) "— · no reported delay"
+                else when {
+                    siteDelay > 0 -> "+${siteDelay}m late · ${RailTime.formatRailMinute(org.eventMinute)}"
+                    siteDelay < 0 -> "${-siteDelay}m early · ${RailTime.formatRailMinute(org.eventMinute)}"
+                    else -> "On time · ${RailTime.formatRailMinute(org.eventMinute)}"
+                }
+            binding.delay.contentDescription = if (siteDelay == null) "No site delay at last stop"
+                else "Website arrival delay $siteDelay minutes at ${RowText.of(place ?: org!!.anchorCode)}; " +
+                    "current delay unknown"
+            binding.delay.setTextColor(getColor(if (siteDelay == null) R.color.warn
+                else DelayPresentation.color(m.tone, siteDelay)))
+            val next = org?.intermediate?.let { p -> ui.route.stops.firstOrNull {
+                it.code.equals(p.followingHalt, true) } } ?: station?.let {
+                ui.route.stops.getOrNull(ui.route.stops.indexOf(it) + 1) }
+            binding.next.text = next?.let { RowText.of(it.name) + " · " +
+                ((it.arrivalMin ?: it.departureMin)?.let(RailTime::formatRailMinute) ?: "—") +
+                "\nTimetable · not ETA" } ?: "Next stop unknown · timetable below"
         }
         // The first glance is a report, not a paragraph. Keep the complete model
         // sentence available to TalkBack / Info, but present the event, delay and
@@ -743,11 +776,11 @@ class TrainActivity : AppCompatActivity() {
         binding.note.visibility = if (m.note == null || !heroExpanded) View.GONE else View.VISIBLE
         m.note?.let { binding.note.text = it }
 
-        // Page notes stay in Info; the in-table icon and source badge already describe
-        // the selected site's qualified claim without repeating an excerpt at the halt.
+        // A selected website paints its own parsed past cards, never NTES's cells.
+        // An intermediate without a documented stop event stays timetable-only.
         stopAdapter.reports = ui.sourceLines[ui.activeSource] ?: ui.reports
-        // Undated site cards remain in Info, not on the ACTUAL rail or its marker.
-        stopAdapter.websiteIntermediateReports = emptyMap()
+        stopAdapter.websiteIntermediateReports = if (WebsiteReportDisplay.selected(ui.activeSource))
+            ui.orgWebsiteReport?.rows.orEmpty() else emptyMap()
         stopAdapter.mappedLegStarts = ui.staticMappedLegStarts
         // A new response can repeat the same stop. Only show its receipt once;
         // neither the score nor the pulse changes a train's reported position.
@@ -784,7 +817,8 @@ class TrainActivity : AppCompatActivity() {
         stopAdapter.sourceNameForMarker = if (ui.activeSource == "NTES (official)") "NTES"
             else if (ui.activeSource == "last known") "Saved report"
             else ui.activeSource ?: "Source"
-        stopAdapter.legWebsiteEventMinute = null
+        stopAdapter.legWebsiteEventMinute = ui.orgWebsiteReport
+            ?.takeIf { it.intermediate != null }?.eventMinute
         stopAdapter.setProjectedLeg(leg)
         renderSourceChips(ui)
         updateTableMarker(ui)
@@ -905,7 +939,10 @@ class TrainActivity : AppCompatActivity() {
         val fromOfficial = ui.activeSource in listOf("NTES (official)", "erail", "last known")
         val anchor = ui.anchorCode ?: if (fromOfficial) ui.answer.anchorStopCode else null
         val now = System.currentTimeMillis()
-        stopAdapter.haltMarker = if (fromOfficial)
+        stopAdapter.haltMarker = if (WebsiteReportDisplay.selected(ui.activeSource) &&
+            ui.orgWebsiteReport?.intermediate == null)
+            TableMarker.atHalt(rows, ui.orgWebsiteReport?.anchorCode, vm.originDate, now)
+        else if (fromOfficial)
             TableMarker.atHalt(rows, anchor, vm.originDate, now) ?: rows.lastOrNull {
                 it.source == TrackModel.MinuteSource.REPORTED
             }?.let { TableMarker.atHalt(rows, it.code, vm.originDate, now) }
@@ -917,7 +954,9 @@ class TrainActivity : AppCompatActivity() {
             (it.showDep != null || it.showArr != null) } ?: rows.lastOrNull {
             it.source == TrackModel.MinuteSource.REPORTED &&
                 (it.showDep != null || it.showArr != null) }
-        val eventAt = if (fromOfficial) (timedHalt?.showDep ?: timedHalt?.showArr)?.let {
+        val eventAt = ui.orgWebsiteReport?.let {
+            RailTime.railMinuteToEpochMillis(vm.originDate, it.eventMinute)
+        } ?: if (fromOfficial) (timedHalt?.showDep ?: timedHalt?.showArr)?.let {
             RailTime.railMinuteToEpochMillis(vm.originDate, it)
         } else null
         stopAdapter.legAgeSeconds = eventAt?.takeIf { it <= now }?.let { (now - it) / 1_000L }
@@ -929,6 +968,14 @@ class TrainActivity : AppCompatActivity() {
             TableMarker.elapsedLabel(now - it) + " ago"
         }
         when {
+            WebsiteReportDisplay.selected(ui.activeSource) &&
+                ui.orgWebsiteReport != null && elapsed != null -> {
+                binding.age.text = "Site event ${RailTime.formatRailMinute(ui.orgWebsiteReport!!.eventMinute)} " +
+                    "· $elapsed · page checked ${RailTime.formatClock(ui.orgWebsiteReport!!.pageUpdatedAt)}"
+                binding.age.contentDescription = "Website station event " +
+                    "${RailTime.formatRailMinute(ui.orgWebsiteReport!!.eventMinute)}; " +
+                    "page update ${RailTime.formatClock(ui.orgWebsiteReport!!.pageUpdatedAt)} is not movement"
+            }
             ui.activeSource == "NTES (official)" && timedHalt != null && elapsed != null -> {
                 val minute = (timedHalt.showDep ?: timedHalt.showArr)!!
                 val clock = RailTime.formatRailMinute(minute)
@@ -944,7 +991,12 @@ class TrainActivity : AppCompatActivity() {
         }
         val stale = SourceFreshness.isStale(eventAt, now)
         binding.age.setTextColor(getColor(if (stale) R.color.late else R.color.text3))
-        if (stale && ui.activeSource == "NTES (official)" && eventAt != null) {
+        if (stale && WebsiteReportDisplay.selected(ui.activeSource) &&
+            ui.orgWebsiteReport != null) {
+            binding.provenance.text = "WEBSITE · last site stop · stale"
+            binding.provenance.setBackgroundResource(R.drawable.bg_badge_problem)
+            binding.provenance.setTextColor(getColor(R.color.late))
+        } else if (stale && ui.activeSource == "NTES (official)" && eventAt != null) {
             binding.provenance.text = "NTES · last reported stop · stale"
             binding.provenance.setBackgroundResource(R.drawable.bg_badge_problem)
             binding.provenance.setTextColor(getColor(R.color.late))
@@ -965,8 +1017,8 @@ class TrainActivity : AppCompatActivity() {
                 ui?.orgWebsiteReport != null -> {
                 val eventMillis = RailTime.railMinuteToEpochMillis(vm.originDate,
                     ui.orgWebsiteReport!!.eventMinute)
-                "website comparison ${TableMarker.elapsedLabel((now - eventMillis).coerceAtLeast(0))} old" +
-                    " · no run-verified position"
+                "last website stop ${TableMarker.elapsedLabel((now - eventMillis).coerceAtLeast(0))} ago" +
+                    " · current position unknown"
             }
             active == `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE &&
                 ui?.wimtWebPoint != null -> "web point " +
@@ -1085,7 +1137,8 @@ class TrainActivity : AppCompatActivity() {
      * Row-start scrolling left the new intermediate icon offscreen after refresh. */
     private fun focusCurrentLeg() {
         val ui = lastUi ?: return
-        val anchor = stopAdapter.haltMarker?.code ?: return
+        val anchor = stopAdapter.haltMarker?.code
+            ?: ui.orgWebsiteReport?.intermediate?.precedingHalt ?: return
         val idx = stopAdapter.currentList.indexOfFirst { it.code.equals(anchor, true) }
         if (idx < 0) return
         lastAnchor = anchor
@@ -1161,9 +1214,9 @@ class TrainActivity : AppCompatActivity() {
                     "${RailTime.formatRailMinute(p.eventMinute)}; page updated " +
                     "${RailTime.formatClock(p.pageUpdatedAt)} IST (not event clock); " +
                     "origin run inferred, not printed on page\n")
-                for ((code, cell) in p.rows.entries.toList().takeLast(4)) append("  $code Web comparison " +
+                for ((code, cell) in p.rows.entries.toList().takeLast(4)) append("  $code Web past card " +
                     "arr ${hhmm(cell.actualArrivalMin)} dep ${hhmm(cell.actualDepartureMin)} " +
-                    "pf ${cell.platform ?: "–"}; not admitted to ACTUAL\n")
+                    "pf ${cell.platform ?: "–"}; site report, run inferred (not NTES)\n")
             }
             append("providers ${u.tried.joinToString(" ")}\n")
             m.note?.let { append("note $it\n") }

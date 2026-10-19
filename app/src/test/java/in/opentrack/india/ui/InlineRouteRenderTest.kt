@@ -21,6 +21,35 @@ import org.robolectric.annotation.GraphicsMode
 @Config(sdk = [34])
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class InlineRouteRenderTest {
+    @Test fun websiteArrivalOnlyAtYesvantpurAppearsOnRailAndClearsOnSourceChange() {
+        val ctx = RuntimeEnvironment.getApplication()
+        val adapter = StopAdapter()
+        val site = TrackModel.Stop(2, "YPR", "Yesvantpur Jn", 670, 672,
+            686, null, null, TrackModel.MinuteSource.SITE_REPORTED, null,
+            TrackModel.State.HERE, true, 367, 0, 5, false, false, false, -2)
+        val next = site.copy(seq = 3, code = "SBC", name = "Bengaluru",
+            schedArr = 720, schedDep = null, showArr = 720,
+            source = TrackModel.MinuteSource.SCHEDULE, isAnchor = false)
+        adapter.submitList(listOf(site, next))
+        adapter.haltMarker = TableMarker.Halt("YPR", "Site's last past stop", true)
+        val holder = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
+        adapter.onBindViewHolder(holder, 0)
+        assertEquals("11:26", holder.liveArr.text.toString())
+        assertEquals("—", holder.liveDep.text.toString())
+        assertEquals("Website claim arrival 11:26", holder.liveArr.contentDescription)
+        assertEquals("WEB", holder.timeType.text.toString())
+        assertEquals(View.VISIBLE, holder.trainMarker.visibility)
+        assertEquals("At Yesvantpur Jn · website report\nAs on 11:26",
+            holder.eventCaption.text.toString())
+        adapter.haltMarker = null
+        adapter.submitList(listOf(site.copy(showArr = 670, showDep = 672,
+            source = TrackModel.MinuteSource.SCHEDULE), next))
+        adapter.onBindViewHolder(holder, 0)
+        assertEquals("—", holder.liveArr.text.toString())
+        assertEquals(View.GONE, holder.timeType.visibility)
+        assertEquals(View.GONE, holder.eventCaption.visibility)
+    }
+
     @Test fun onlyCollapsedReportedHaltShowsAtAndAsOnBesideItsLocomotive() {
         val ctx = RuntimeEnvironment.getApplication()
         val adapter = StopAdapter()
@@ -49,8 +78,13 @@ class InlineRouteRenderTest {
         assertEquals(View.GONE, holder.eventCaption.visibility)
         adapter.haltMarker = TableMarker.Halt("DRU", "Site's last past stop", true)
         adapter.onBindViewHolder(holder, 0)
-        assertEquals("an unverified site claim is not a reported halt", View.GONE,
+        assertEquals("an NTES row must not inherit a site marker", View.GONE,
             holder.eventCaption.visibility)
+        adapter.submitList(listOf(main.copy(source = TrackModel.MinuteSource.SITE_REPORTED), next))
+        adapter.onBindViewHolder(holder, 0)
+        assertEquals("At Kadur · website report\nAs on 08:44", holder.eventCaption.text.toString())
+        assertEquals("WEB", holder.timeType.text.toString())
+        assertEquals(View.VISIBLE, holder.timeType.visibility)
     }
 
     @Test fun projectedTrainIsInlineBetweenItsHaltRowsAndCandidateIsVisibleWithoutReplacingAct() {

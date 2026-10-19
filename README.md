@@ -26,7 +26,7 @@ flowchart LR
     G -->|no| F
 ```
 
-**In plain English:** the timetable answers *when it is scheduled*; a reported event answers *what one source last saw*. Neither a quick download nor a page's “last updated” label proves the train has moved. Green source availability is not automatically a verified actual arrival. **R132 safeguard:** selecting the undated Where Is My Train **website** displays its claim as a comparison, never as primary `ACTUAL` cells, delay, next halt or train marker. A site can answer while the train's position is still unknown; it is not the phone app. The [141-line diary audit](docs/R132_SOURCE_INTEGRITY_DESIGN.md) records exactly why.
+**In plain English:** the timetable answers *when it is scheduled*; a reported event answers *what one source last published*. Neither a quick download nor a page's “last updated” label proves the train has moved. Green source availability is not automatically a verified actual arrival. **Website source:** selecting whereismytrain.org.in shows its parser-qualified past-card arrival/departure clocks on the rail, separately marked `WEB`; the last published site stop and delay *at that stop* are attributed to the website. The site omits the run origin date, so that association is inferred from the selected current timetable and is **not an independently verified railway actual or present GPS position**. The [diary investigation and repair](docs/R136_WEBSITE_SOURCE_REPAIR.md) explains why successful website answers must not be labelled failed or replaced by stale NTES. The website is not the Where Is My Train phone app.
 
 ## What the boxes and rail mean
 

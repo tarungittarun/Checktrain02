@@ -40,7 +40,8 @@ class SourceEvidencePolicyTest {
         assertTrue(text.contains("transport=NETWORK_ANSWER"))
         assertTrue(text.contains("parsed=SITE_COMPARISON"))
         assertTrue(text.contains("runIdentity=INFERRED"))
-        assertTrue(text.contains("primaryActuals=0 marker=none delay=unknown"))
+        assertTrue(text.contains("primaryActuals=0 primaryMarker=none"))
+        assertTrue(text.contains("siteRows=0 siteClaim=SRF:342"))
         assertTrue(text.contains("siteClaim=SRF:342"))
         assertTrue(text.contains("sha256_16=deadbeefdeadbeef"))
         val cache = SourceEvidenceReceipt.publicPage(PublicPageChecks.ORG, "20652", 20_745L,

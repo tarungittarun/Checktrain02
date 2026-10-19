@@ -49,15 +49,20 @@ class RefreshReceiptTextTest {
         assertFalse(failure.contains("Website answered"))
     }
 
-    @Test fun websiteHttpSuccessWithPastCardIsComparisonNotANewTrainPosition() {
+    @Test fun websiteHttpSuccessWithPastCardShowsSourceEventNotPageClockMovement() {
         val text = RefreshReceiptText.format(PublicPageChecks.ORG, "website", "website",
             "06:15:58", "no new timed position from this source",
             "comparison" to "3 past-marked cards, origin run inferred",
             null, true, false, RefreshEvidence.Change.NEW_STOP, false)
         assertTrue(text.contains("Website answered"))
-        assertTrue(text.contains("comparison only"))
-        assertTrue(text.contains("no run-verified actuals or position"))
-        assertFalse(text.contains("new site-reported stop"))
+        assertTrue(text.contains("new site-reported stop"))
+        assertTrue(text.contains("last website stop") || text.contains("no new timed position"))
+        assertFalse(text.contains("showing NTES"))
+        val same = RefreshReceiptText.format(PublicPageChecks.ORG, "website", "website",
+            "11:28:54", "last website stop 2 min ago", "comparison" to "15 past cards",
+            null, true, false, RefreshEvidence.Change.UNCHANGED, false)
+        assertTrue(same.contains("same last site stop, no newer event"))
+        assertFalse(same.contains("new site-reported stop"))
     }
 
     @Test fun answeredWebsiteWithoutQualifyingStopNeverClaimsSameOldSiteEvent() {
