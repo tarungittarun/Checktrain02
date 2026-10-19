@@ -685,11 +685,12 @@ class LiveViewModel(
                     probeSource(selected, select = true)?.join()
                     val current = _ui.value ?: return@launch
                     val state = current.sourceStates[selected]?.first
-                    val usable = state == "live" || state == "candidate" &&
-                        (selected == PublicPageChecks.ORG &&
-                            current.publicSourceAnswered[selected] == true &&
-                            current.orgWebsiteReport != null ||
-                            selected == WimtCandidate.SOURCE && current.wimtWebPoint != null)
+                    val usable = WebsiteClaimPresentation.selectedSourceAnswered(
+                        selected, state, current.publicSourceAnswered[selected] == true,
+                        current.orgWebsiteReport != null, current.wimtWebPoint != null)
+                    // A network answer with qualified past cards is usable as a labelled
+                    // website comparison. It is not a run-verified movement source, but
+                    // neither is it a failure that should replace the user's selection.
                     if (!usable) {
                         val fallback = bestAvailableSource(current, selected)
                         Diary.get()?.log("SOURCE", "refresh $selected failed ($state); fallback=${fallback ?: "official request"}")
@@ -1600,7 +1601,7 @@ class LiveViewModel(
             note = (if (orgReport != null && publicChecks[PublicPageChecks.ORG]?.pageAnswered == false)
                     "Website request failed. Keeping the previous site report at its original event time; " +
                         "position since then unknown."
-                else if (orgReport != null) "Website comparison only: origin run not printed; no verified position or delay. The site claim is in Info, not ACTUAL."
+                else if (orgReport != null) "Website past-card claims are shown beside their stations, not in ACTUAL. Origin run unprinted; no verified position or delay."
                 else if (publicSelected) "No confirmed times from this site; timetable shown."
                 else if (mirrorSelected && !selectedMirrorForTable ||
                     erailSelected && erailAnswer == null || officialUnavailable)

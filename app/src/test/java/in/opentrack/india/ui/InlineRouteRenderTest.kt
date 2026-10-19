@@ -294,8 +294,11 @@ class InlineRouteRenderTest {
         assertEquals(901, points[0].passageMinute)
         assertEquals(906, points[0].siteArrivalMin)
         assertEquals(908, points[0].siteDepartureMin)
-        assertEquals("the non-stop has no documented stop event", null, points[1].siteArrivalMin)
+        assertEquals("an arrival-only past card stays a Web claim, not an Act stop",
+            909, points[1].siteArrivalMin)
+        assertEquals(null, points[1].siteDepartureMin)
         assertTrue(holder.inlineLeg.contentDescription.contains("website arrival claim 15:06"))
+        assertTrue(holder.inlineLeg.contentDescription.contains("website arrival claim 15:09"))
         adapter.websiteIntermediateReports = emptyMap()
         adapter.onBindViewHolder(holder, 0)
         assertTrue(holder.inlineLeg.projection!!.points.all { it.siteArrivalMin == null })
