@@ -330,6 +330,29 @@ class InlineRouteRenderTest {
                     siteEvent.getPixel(x, y) != noSiteEvent.getPixel(x, y)
                 }
             })
+        ruler.showLabels = true
+        ruler.measure(View.MeasureSpec.makeMeasureSpec(360, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+        ruler.layout(0, 0, ruler.measuredWidth, ruler.measuredHeight)
+        val expandedWithoutClock = painted(null)
+        val expandedWithClock = painted(1576)
+        assertFalse("expanded points already show the detail; no As on text next to the logo",
+            (0 until expandedWithClock.width).any { x ->
+                (0 until expandedWithClock.height).any { y ->
+                    expandedWithoutClock.getPixel(x, y) != expandedWithClock.getPixel(x, y)
+                }
+            })
+        ruler.showLabels = false
+        ruler.measure(View.MeasureSpec.makeMeasureSpec(360, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+        ruler.layout(0, 0, ruler.measuredWidth, ruler.measuredHeight)
+        val foldedAgain = painted(1576)
+        assertTrue("folding must restore the nearby source time",
+            (fromX until foldedAgain.width).any { x ->
+                (0 until foldedAgain.height).any { y ->
+                    foldedAgain.getPixel(x, y) != noSiteEvent.getPixel(x, y)
+                }
+            })
     }
 
     @Test fun compactSiteIntermediateNamesTheReportedPointAndPlacesAgeBelowTheTrain() {
@@ -378,6 +401,18 @@ class InlineRouteRenderTest {
             })
         assertFalse("the selected site report must not automatically open all intermediate points",
             ruler.showLabels)
+        ruler.showLabels = true
+        ruler.measure(View.MeasureSpec.makeMeasureSpec(360, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+        ruler.layout(0, 0, ruler.measuredWidth, ruler.measuredHeight)
+        val expandedPlain = paint(null, false)
+        val expandedNamed = paint(null, true)
+        assertFalse("expanded stations must not repeat At station beside the locomotive",
+            (0 until expandedNamed.width).any { x ->
+                (0 until expandedNamed.height).any { y ->
+                    expandedPlain.getPixel(x, y) != expandedNamed.getPixel(x, y)
+                }
+            })
     }
 
     @Test fun onlyARecentSourceEventPaintsTheGreenCheckOnTheLocomotive() {

@@ -182,6 +182,18 @@
                         android:textColor="@color/live" />
                 </LinearLayout>
 
+                <!-- Always in the top box, including when it is collapsed. A transport
+                     failure does not redate or erase the previous train report. -->
+                <TextView
+                    android:id="@+id/connectionAlert"
+                    style="@style/TextMeta"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:textColor="@color/connection_ink"
+                    android:accessibilityLiveRegion="polite"
+                    android:visibility="gone" />
+
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"

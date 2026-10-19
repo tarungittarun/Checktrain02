@@ -22,5 +22,15 @@ class RefreshFlashTest {
         assertEquals("Connection failed", RefreshFlash.connectionError(TrackingSources.OFFICIAL,
             "last-known" to "saved stop", OfficialRequestReceipt(
                 OfficialRequestReceipt.Kind.REQUEST_FAILED), null))
+        assertEquals("Source timed out", RefreshFlash.connectionError(TrackingSources.OFFICIAL,
+            "last-known" to "saved stop", OfficialRequestReceipt(
+                OfficialRequestReceipt.Kind.REQUEST_FAILED, "request timed out"), null))
+        assertEquals("Source blocked request", RefreshFlash.connectionError(TrackingSources.OFFICIAL,
+            "unverified" to "HTTP 429", OfficialRequestReceipt(
+                OfficialRequestReceipt.Kind.REQUEST_FAILED), null))
+        assertNull("answered but unusable is not a network fault",
+            RefreshFlash.connectionError(TrackingSources.OFFICIAL,
+                "unverified" to "no per-stop actual minute", OfficialRequestReceipt(
+                    OfficialRequestReceipt.Kind.ANSWERED_UNUSABLE), null))
     }
 }

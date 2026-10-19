@@ -48,7 +48,7 @@ class InlineLegView @JvmOverloads constructor(
             else LegGeometry.heightDp(distanceKm, screenDp)
         // The named website event needs room for At / As on and age below the train,
         // even if its scheduled leg is only a few kilometres long.
-        val height = if (projection?.markerKind == RouteBetween.MarkerKind.SITE_INTERMEDIATE)
+        val height = if (!showLabels && projection?.markerKind == RouteBetween.MarkerKind.SITE_INTERMEDIATE)
             baseHeight.coerceAtLeast(76) else baseHeight
         setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), dp(height.toFloat()).roundToInt())
     }
@@ -154,7 +154,7 @@ class InlineLegView @JvmOverloads constructor(
         // A source-named intermediate is not a generic map dot: show its name
         // beside the locomotive even when all OTHER mapped points are folded.
         // This is the last site-reported event, not an inferred current position.
-        if (leg.markerKind == RouteBetween.MarkerKind.SITE_INTERMEDIATE) {
+        if (!showLabels && leg.markerKind == RouteBetween.MarkerKind.SITE_INTERMEDIATE) {
             paint.color = context.getColor(R.color.warn)
             paint.textSize = sp(12f)
             val name = android.text.TextUtils.ellipsize(
@@ -181,7 +181,7 @@ class InlineLegView @JvmOverloads constructor(
 
         // Keep the site's OWN past-card time beside its named intermediate. It is
         // neither an NTES actual nor a calculated passing time for neighboring dots.
-        if (leg.markerKind == RouteBetween.MarkerKind.SITE_INTERMEDIATE) {
+        if (!showLabels && leg.markerKind == RouteBetween.MarkerKind.SITE_INTERMEDIATE) {
             siteEventMinute?.let { minute ->
                 paint.textSize = sp(11f)
                 paint.color = context.getColor(R.color.warn)

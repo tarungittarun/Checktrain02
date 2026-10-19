@@ -47,6 +47,7 @@ class TrainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityTrainBinding
     private lateinit var vm: LiveViewModel
     private lateinit var stopAdapter: StopAdapter
+    private lateinit var connectionCue: ConnectionIssueCue
     /** A new anchor scrolls once; a manual successful refresh scrolls even at the SAME anchor. */
     private var lastAnchor: String? = null
     private var initialReportedFocusDone = false
@@ -131,6 +132,7 @@ class TrainActivity : AppCompatActivity() {
         if (trainNo.length < 4) { finish(); return }
         binding = ActivityTrainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        connectionCue = ConnectionIssueCue(binding.trackingSummaryCard, binding.connectionAlert)
         heroExpanded = savedInstanceState?.getBoolean("heroExpanded", true) ?: true
         binding.heroToggle.setOnClickListener {
             heroExpanded = !heroExpanded
@@ -263,7 +265,7 @@ class TrainActivity : AppCompatActivity() {
                 val failure = RefreshFlash.connectionError(requestedRefreshSource,
                     lastUi?.sourceStates?.get(requestedRefreshSource), lastUi?.officialRequest,
                     lastUi?.publicSourceAnswered?.get(requestedRefreshSource))
-                if (failure != null) showConnectionError(failure)
+                if (failure != null) showConnectionError(failure, requestedRefreshSource)
                 else showResponseScore(elapsed, lastUi?.selectedSourceUpdateMillis,
                     lastUi?.activeSource ?: requestedRefreshSource,
                     lastUi?.selectedSourceUpdateHasSeconds == true)
@@ -362,6 +364,8 @@ class TrainActivity : AppCompatActivity() {
 
     private fun requestRefresh(auto: Boolean = false) {
         if (chainBusy) return // never turn a duplicate tap/tick into a misleading receipt
+        connectionCue.clear() // a new request will earn its own result; never blink during checking
+        lastFlashErrorKey = null
         focusAfterRefresh = true
         refreshStartedAt = SystemClock.elapsedRealtime()
         requestedRefreshSource = lastUi?.activeSource ?: "NTES (official)"
@@ -628,14 +632,7 @@ class TrainActivity : AppCompatActivity() {
         binding.delayLabel.text = if (ui.actualsHeadline != null ||
             m.rows.any { it.source == TrackModel.MinuteSource.REPORTED &&
                 (it.showArr != null || it.showDep != null) }) "Delay at stop" else "Delay"
-        binding.delay.setTextColor(getColor(
-            when (m.tone) {
-                TrackModel.Tone.LIVE_LATE, TrackModel.Tone.PROBLEM -> R.color.late
-                TrackModel.Tone.LIVE_EARLY -> R.color.early
-                TrackModel.Tone.SCHEDULE -> R.color.warn
-                else -> R.color.accent
-            }
-        ))
+        binding.delay.setTextColor(getColor(DelayPresentation.color(m.tone)))
         binding.next.text = m.nextLabel
         // When the mirror's actuals reached this screen, THEY are the headline: the schedule's own
         // sentences ("Should be past Shimoga Town") contradicted the confirmed departure and read as
@@ -679,13 +676,9 @@ class TrainActivity : AppCompatActivity() {
                 if (late > 2) R.drawable.bg_badge_problem else R.drawable.bg_badge_live,
             )
             binding.provenance.setTextColor(getColor(if (late > 2) R.color.late else R.color.live))
-            binding.delay.text = when {
-                late > 2 -> "$late min late"
-                ui.actualsLate != null -> "on time"
-                else -> m.delayLabel
-            }
+            binding.delay.text = DelayPresentation.mirrorLabel(ui.actualsLate, m.delayLabel)
             ui.delayDetail?.let { binding.delay.text = "${binding.delay.text} · $it" }
-            binding.delay.setTextColor(getColor(if (late > 2) R.color.late else R.color.live))
+            binding.delay.setTextColor(getColor(DelayPresentation.color(m.tone, ui.actualsLate)))
         }
         if (ui.actualsHeadline != null) ui.sourcesLine?.let { binding.age.text = it }
         ui.wimtWebPoint?.let { point ->
@@ -769,7 +762,10 @@ class TrainActivity : AppCompatActivity() {
                 "${ui.activeSource}:${ui.sourceStates[ui.activeSource]?.second}:$failure"
             if (key != null && key != lastFlashErrorKey) {
                 lastFlashErrorKey = key
-                showConnectionError(failure!!)
+                showConnectionError(failure!!, ui.activeSource.orEmpty())
+            } else if (failure == null) {
+                lastFlashErrorKey = null
+                connectionCue.clear()
             }
         }
         if (newReceipt && refreshStartedAt == 0L &&
@@ -1034,12 +1030,14 @@ class TrainActivity : AppCompatActivity() {
         flash(view, token, 1_000L)
     }
 
-    private fun showConnectionError(reason: String) {
+    private fun showConnectionError(reason: String, source: String) {
+        val label = sourceName(source)
+        connectionCue.show(reason, label)
         val view = binding.checkClock
         val token = ++scoreGeneration
         view.animate().cancel()
-        view.text = "$reason\nPlz change source"
-        view.contentDescription = "$reason. Plz change source using the source selector."
+        view.text = "$reason\nChange source or retry"
+        view.contentDescription = "$reason from $label. Change source or retry."
         flash(view, token, 3_000L)
     }
 
@@ -1213,6 +1211,7 @@ class TrainActivity : AppCompatActivity() {
         binding.root.removeCallbacks(autoRefreshTicker)
         binding.stops.removeCallbacks(ageTicker)
         binding.statusRipple.cancelPulse()
+        connectionCue.pause()
         refreshSpin?.cancel()
         refreshSpin = null
         binding.refreshGlyph.rotation = 0f
