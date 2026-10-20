@@ -566,7 +566,7 @@ class TrainActivity : AppCompatActivity() {
         binding.sourceSpinner.visibility = if (names.isEmpty()) View.GONE else View.VISIBLE
         // Spinner's own accessibility text can be empty on Android even when its
         // painted child says WIMT. Expose the *selected* source to TalkBack too.
-        binding.sourceSpinner.contentDescription = "Selected ${TrackingSources.label(ui.activeSource)}. " +
+        binding.sourceSpinner.contentDescription = "Selected ${TrackingSources.label(TrackingSources.valid(ui.activeSource))}. " +
             "Choose NTES or Where Is My Train website. Long press for time and source details."
         if (names.isEmpty()) return
         // State updates recolor the existing adapter. Rebuilding the Spinner for every
