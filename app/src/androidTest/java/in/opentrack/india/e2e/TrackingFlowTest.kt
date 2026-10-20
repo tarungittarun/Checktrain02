@@ -429,7 +429,12 @@ class TrackingFlowTest {
             identified = badge.contains("WEB", true) &&
                 ((headline.startsWith("Recently reported at ") ||
                     headline.startsWith("Recently reported near ")) && badge.contains("run inferred") ||
-                    headline.contains("no qualifying past-stop report"))
+                    headline.contains("no qualifying past-stop report") ||
+                    // Before a scheduled origin departure, no website past-card
+                    // event may be assigned to this run. The new first-glance
+                    // notice must remain website-attributed and timetable-only.
+                    (headline.startsWith("Journey not started yet by timetable") &&
+                        badge.contains("comparison only", true)))
             if (!identified) Thread.sleep(200)
         }
         if (!identified) E2E.shot("org-website-missing-identity")
