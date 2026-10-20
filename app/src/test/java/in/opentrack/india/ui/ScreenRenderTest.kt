@@ -219,7 +219,7 @@ class ScreenRenderTest {
         assertTrue("the headline should follow the table's casing: '$headline'",
             headline.contains("Dobetakapur") && !headline.contains("DOBETAKAPUR"))
         assertEquals("a completed check must never draw a score on top of the journey",
-            null, shot.root.findViewById<View>(R.id.checkClock))
+            0, shot.context.resources.getIdentifier("checkClock", "id", shot.context.packageName))
         assertTrue("ripple must overlay ONLY the status table viewport",
             shot.root.findViewById<View>(R.id.statusRipple).parent ===
                 shot.root.findViewById<View>(R.id.routeViewport))
@@ -464,7 +464,7 @@ Render.save("02-track-live", shot.bitmap)
         assertTrue("locomotive/title is no longer a usable home target",
             shot.root.findViewById<View>(R.id.back).width >= Render.dp(shot.context, 180f))
         assertEquals("the response score must not cover the readable summary text",
-            null, shot.root.findViewById<View>(R.id.checkClock))
+            0, shot.context.resources.getIdentifier("checkClock", "id", shot.context.packageName))
         val headline = shot.root.findViewById<TextView>(R.id.headline)
         assertTrue("summary headline is too small for a phone", headline.textSize >=
             Render.dp(shot.context, 23f))

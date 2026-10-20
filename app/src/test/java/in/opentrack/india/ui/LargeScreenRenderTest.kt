@@ -238,7 +238,7 @@ class LargeScreenRenderTest {
     /** Every header cell on the tracking screen, measured rather than eyeballed. */
     private fun assertHeaderIntact(shot: Render.Shot) {
         assertEquals("no refresh score should occlude the journey on large-font phones",
-            null, shot.root.findViewById<View>(R.id.checkClock))
+            0, shot.context.resources.getIdentifier("checkClock", "id", shot.context.packageName))
         listOf(R.id.trainNo, R.id.routeLabel, R.id.runDate, R.id.headline, R.id.provenance, R.id.age,
             R.id.delay, R.id.next).forEach {
             val value = shot.text(it)
