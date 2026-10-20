@@ -637,9 +637,9 @@ jobs:
       FOCUS: ${{ needs.plan.outputs.focus }}
       GROUP: ${{ matrix.group }}
       BOOT_TIMEOUT: ${{ needs.plan.outputs.boot_timeout }}
-      # API 24 track3 needs room for the one-minute Auto flow plus refresh/expand;
-      # still below the job's 15m hard ceiling and the harness retains its deadline.
-      ROW_BUDGET_MINUTES: ${{ matrix.name == 'min24-track3' && 13 || 12 }}
+      # Track3's one-minute Auto flow can take 300+ seconds even on API 34;
+      # retain all device assertions and the harness's bounded instrument limit.
+      ROW_BUDGET_MINUTES: ${{ endsWith(matrix.name, '-track3') && 13 || 12 }}
     continue-on-error: ${{ matrix.optional }}
     strategy:
       fail-fast: false

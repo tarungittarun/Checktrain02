@@ -502,11 +502,11 @@ runs:
             train) CLASS_FILTER="in.opentrack.india.e2e.TrainSearchFlowTest" run_suite train ;;
             track0|track1|track2|track3)
               idx=${GROUP#track}
-              # API 24 track3 includes the real one-minute Auto path and the new
-              # refresh/expand flow. Keep every assertion; allow a bounded extra
-              # two minutes for this slower instrument instead of dropping tests.
+              # Track3 includes the real one-minute Auto path and the refresh/
+              # expand flow. API 34 offline/granted also reached 300s on CI; keep
+              # every assertion and allow the same bounded limit on all devices.
               track_timeout=300
-              if [ "$API" = 24 ] && [ "$idx" = 3 ]; then track_timeout=420; fi
+              if [ "$idx" = 3 ]; then track_timeout=420; fi
               CLASS_FILTER="in.opentrack.india.e2e.TrackingFlowTest" \
                 EXTRA_ARGS="-e numShards 4 -e shardIndex $idx" RUN_TIMEOUT="$track_timeout" run_suite "$GROUP"
               # Assert the new packaged offline corpus + actual rail disclosure on a

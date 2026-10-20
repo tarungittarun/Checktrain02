@@ -1,6 +1,7 @@
 package `in`.opentrack.india.e2e
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.uiautomator.By
 import androidx.test.uiautomator.Until
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
@@ -30,17 +31,25 @@ class SettingsFlowTest {
         // UiAutomator can report a click while the keyboard/scroll intercepts it
         // on a 440dpi large-font phone. Success is the destination screen, not a
         // tapped pixel. The invalid-endpoint flow intentionally stays in Settings.
+        // Inspect the IME before tapping. Pressing Back AFTER a swallowed click
+        // can close Settings (the IME already dismissed) without persisting.
+        // This covers both AOSP Latin IME (API 24) and Gboard (API 34).
+        val ime = runCatching { E2E.ui.executeShellCommand("dumpsys input_method") }
+            .getOrDefault("")
+        if (Regex("""\bmInput(?:View)?Shown=true""").containsMatchIn(ime) ||
+            E2E.ui.hasObject(By.pkg("com.android.inputmethod.latin")) ||
+            E2E.ui.hasObject(By.pkg("com.google.android.inputmethod.latin"))) {
+            E2E.ui.pressBack()
+        }
         repeat(2) { attempt ->
             if (E2E.reveal("save", "settingsScroll") && E2E.tap("save", 500)) {
                 if (!expectFinish) return true
                 if (E2E.visible("settings", E2E.LOCAL_MS)) return true
             }
             if (attempt == 0 && E2E.visible("settingsScroll", 500)) {
-                // The IME can hide Save on narrow API 24 viewports. Back dismisses
-                // the keyboard so a second scroll/tap can reach the real button.
-                // Do not count Back as a Save: the destination must still be Home.
+                // Retry only on the editable form; do not mistake a delivered
+                // accessibility click for a finished Save.
                 E2E.shot("settings-save-still-on-form")
-                E2E.ui.pressBack()
             }
         }
         return false
