@@ -9,6 +9,7 @@ from __future__ import annotations
 import pathlib
 import re
 import sys
+import xml.etree.ElementTree as ET
 
 RES = pathlib.Path("app/src/main/res")
 SRC = pathlib.Path("app/src/main/java")
@@ -137,6 +138,14 @@ def layout_dims() -> list[str]:
 def main() -> int:
     names = resource_names()
     problems = 0
+    # A regex can see a declared id in a malformed layout. Parse everything
+    # before declaring the binding/resources usable (no Android SDK needed).
+    for xml in sorted(RES.rglob("*.xml")):
+        try:
+            ET.parse(xml)
+        except ET.ParseError as error:
+            problems += 1
+            print(f"{xml}: invalid XML — {error}")
     for msg in res_references() + r_imports() + layout_dims():
         print(msg)
         problems += 1
