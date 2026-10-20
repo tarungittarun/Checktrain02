@@ -132,7 +132,9 @@ class TrainActivity : AppCompatActivity() {
         binding.heroToggle.text = if (heroExpanded) "Less  ▴" else "More  ▾"
         binding.heroToggle.contentDescription = if (heroExpanded)
             "Collapse journey card to delay, next stop and source" else "Expand journey card"
-        binding.heroEyebrow.visibility = if (heroExpanded) View.VISIBLE else View.INVISIBLE
+        binding.heroEyebrow.visibility = if (heroExpanded || connectionCue.reason != null)
+            View.VISIBLE else View.INVISIBLE
+        binding.heroEvidenceSlot.visibility = if (heroExpanded) View.VISIBLE else View.GONE
         binding.headline.visibility = if (heroExpanded) View.VISIBLE else View.GONE
         binding.heroEvidence.visibility = if (heroExpanded) View.VISIBLE else View.GONE
         binding.sourceSummary.visibility = if (heroExpanded && sourceSummaryWanted) View.VISIBLE else View.GONE
@@ -151,7 +153,8 @@ class TrainActivity : AppCompatActivity() {
         if (trainNo.length < 4) { finish(); return }
         binding = ActivityTrainBinding.inflate(layoutInflater)
         setContentView(binding.root)
-        connectionCue = ConnectionIssueCue(binding.trackingSummaryCard, binding.connectionAlert)
+        connectionCue = ConnectionIssueCue(binding.trackingSummaryCard, binding.connectionAlert,
+            binding.heroEvidence)
         heroExpanded = savedInstanceState?.getBoolean("heroExpanded", true) ?: true
         binding.heroToggle.setOnClickListener {
             // The previous fixed height is *not* the target of More/Less. Measure
@@ -344,7 +347,10 @@ class TrainActivity : AppCompatActivity() {
                 focusCurrentLeg()
                 focusAfterRefresh = false
             }
-            if (wasBusy && !chainBusy) binding.trackingSummaryCard.post { freezeSummaryHeight() }
+            // Initial timetable and live data can arrive in separate UI emissions.
+            // Freezing the first placeholder height clips the selector once the
+            // fuller headline/website note arrives. Lock only on a later Refresh
+            // (requestRefresh does it before fetching) or explicit More/Less.
             if (wasBusy && !chainBusy && pendingAutoRefresh) binding.root.post {
                 if (screenStarted && binding.autoSwitch.isChecked && !chainBusy && pendingAutoRefresh) {
                     pendingAutoRefresh = false
@@ -436,6 +442,7 @@ class TrainActivity : AppCompatActivity() {
         if (chainBusy) return // never turn a duplicate tap/tick into a misleading receipt
         freezeSummaryHeight()
         connectionCue.clear() // a new request will earn its own result; never blink during checking
+        applyHeroExpansion()
         lastFlashErrorKey = null
         // Preserve the traveller's scroll position. A new stop rebinds the rail,
         // but refreshing the same report never recentres the list.
@@ -1068,7 +1075,7 @@ class TrainActivity : AppCompatActivity() {
         val fromOfficial = ui.activeSource in listOf("NTES (official)", "erail", "last known")
         val anchor = ui.anchorCode ?: if (fromOfficial) ui.answer.anchorStopCode else null
         val now = System.currentTimeMillis()
-        stopAdapter.haltMarker = if (WebsiteReportDisplay.selected(ui.activeSource) &&
+        val lastStopMarker = if (WebsiteReportDisplay.selected(ui.activeSource) &&
             ui.orgWebsiteReport?.intermediate == null)
             TableMarker.atHalt(rows, ui.orgWebsiteReport?.anchorCode, vm.originDate, now)
         else if (fromOfficial)
@@ -1076,6 +1083,12 @@ class TrainActivity : AppCompatActivity() {
                 it.source == TrackModel.MinuteSource.REPORTED
             }?.let { TableMarker.atHalt(rows, it.code, vm.originDate, now) }
         else null
+        // This function also runs every 30 seconds. Re-adding the row locomotive
+        // after bind had already put a departure cue in the outbound leg painted
+        // TWO trains on a real phone. Keep the same single-glyph decision on ticks.
+        stopAdapter.haltMarker = lastStopMarker?.takeUnless { marker ->
+            stopAdapter.departureCueAnchor()?.equals(marker.code, ignoreCase = true) == true
+        }
         // The marker never moves with this clock. Recompute only the age of the
         // source's last event, including a website halt at 0% of the next leg.
         val timedHalt = rows.firstOrNull { it.code.equals(anchor, true) &&
@@ -1194,6 +1207,11 @@ class TrainActivity : AppCompatActivity() {
         // Reserve the warning slot even when clear; do not cover the headline or
         // replace an earlier report with a page-check timestamp.
         connectionCue.show(reason, sourceName(source))
+        if (!heroExpanded) {
+            binding.heroEyebrow.text = "CHECK FAILED"
+            binding.heroEyebrow.setTextColor(getColor(R.color.connection_ink))
+        }
+        applyHeroExpansion()
     }
 
     /** Locate the drawable's actual centre within the visible route viewport.

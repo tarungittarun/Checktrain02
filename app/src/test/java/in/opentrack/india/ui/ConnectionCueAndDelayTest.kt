@@ -52,18 +52,25 @@ class ConnectionCueAndDelayTest {
                 ctx.getColor(R.color.connection_surface)) >= 4.5)
         val card = LinearLayout(ctx)
         val label = TextView(ctx)
-        val cue = ConnectionIssueCue(card, label)
+        val evidence = LinearLayout(ctx)
+        val cue = ConnectionIssueCue(card, label, evidence)
         assertEquals(333L, ConnectionIssueCue.PULSE_MILLIS)
         assertEquals(6, ConnectionIssueCue.PULSES)
         cue.show("Source timed out", "NTES · official")
         assertEquals(View.VISIBLE, label.visibility)
+        assertEquals("warning must replace, not push down, the evidence row", 0f,
+            evidence.alpha, .001f)
+        assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS,
+            evidence.importantForAccessibility)
         assertTrue(label.text.contains("Source timed out · NTES"))
         assertTrue(label.text.contains("Previous report unchanged"))
         cue.pause()
         assertEquals(1f, card.alpha, .001f)
         assertEquals(0f, card.translationX, .001f)
         cue.clear()
-        assertEquals(View.INVISIBLE, label.visibility) // reserved warning slot never resizes card
+        assertEquals(View.GONE, label.visibility) // warning shares the evidence slot
+        assertEquals(1f, evidence.alpha, .001f)
+        assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO, evidence.importantForAccessibility)
         assertEquals(null, cue.reason)
     }
 }

@@ -37,6 +37,20 @@ class TrackingFlowTest {
     // Drive interactions through accessibility, but read the *installed Activity's*
     // actual laid-out pixel height and scroll offset to test this geometry claim.
     // No app model, service or test fixture supplies the value under assertion.
+    private fun summaryFooterFits(): Boolean {
+        var fits = false
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            val activity = ActivityLifecycleMonitorRegistry.getInstance()
+                .getActivitiesInStage(Stage.RESUMED)
+                .first { it.packageName == E2E.PKG &&
+                    it.findViewById<View>(R.id.trackingSummaryCard) != null }
+            val card = activity.findViewById<View>(R.id.trackingSummaryCard)
+            val sourceRow = activity.findViewById<View>(R.id.sourceSpinner).parent as View
+            fits = sourceRow.bottom + card.paddingBottom <= card.height + 2
+        }
+        return fits
+    }
+
     private fun cardGeometry(): Pair<Int, Int> {
         var result: Pair<Int, Int>? = null
         InstrumentationRegistry.getInstrumentation().runOnMainSync {
@@ -154,6 +168,8 @@ class TrackingFlowTest {
         assertTrue("ACTUAL header is outside the table viewport",
             header.bottom <= E2E.find("routeViewport")!!.visibleBounds.top)
         assertTrue("source card not expanded at start", E2E.find("headline") != null)
+        assertTrue("initial source selector was clipped by a premature height lock",
+            summaryFooterFits())
         assertTrue("Refresh control missing", E2E.tap("refresh"))
         val until = System.currentTimeMillis() + E2E.NETWORK_MS
         while (System.currentTimeMillis() < until && E2E.visible("checkingBar", 250)) {
@@ -165,6 +181,8 @@ class TrackingFlowTest {
             kotlin.math.abs(card.first - afterRefresh.first) <= 8)
         assertTrue("refresh shifted the summary viewport: $card -> $afterRefresh",
             kotlin.math.abs(card.second - afterRefresh.second) <= 8)
+        assertTrue("Refresh clipped the source chooser at the bottom of the card",
+            summaryFooterFits())
         assertTrue("refresh overlaid the readable text with a response score",
             E2E.find("checkClock", 250) == null)
         assertTrue("persistent receipt still pushes the route down",
@@ -196,6 +214,7 @@ class TrackingFlowTest {
         }
         assertTrue("More did not restore the evidence height: $compact -> $restored",
             restored.first >= compact.first + 30)
+        assertTrue("More squeezed the source dropdown and Auto switch", summaryFooterFits())
         E2E.shot("summary-stable-refresh")
     }
 

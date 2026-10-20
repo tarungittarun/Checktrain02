@@ -230,6 +230,13 @@ class ScreenRenderTest {
         assertNotClipped(shot.root.findViewById(R.id.routeLabel), "routeLabel ('${shot.text(R.id.routeLabel)}')")
 
         val summary = shot.root.findViewById<android.widget.ScrollView>(R.id.scroller)
+        val topGap = shot.bounds(R.id.heroEvidenceSlot).top -
+            shot.bounds(R.id.summaryBoxLabel).bottom
+        assertTrue("an invisible connection warning left $topGap px of empty space above the report",
+            topGap in 0..Render.dp(shot.context, 39f).toInt())
+        assertTrue("a warning must share rather than follow the evidence row",
+            shot.root.findViewById<View>(R.id.connectionAlert).parent ===
+                shot.root.findViewById<View>(R.id.heroEvidenceSlot))
         val wasted = summary.height - summary.getChildAt(0).height
         assertTrue("summary reserved $wasted px of blank space before the route",
             wasted <= (16 * shot.context.resources.displayMetrics.density).toInt())

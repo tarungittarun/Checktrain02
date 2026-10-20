@@ -154,6 +154,8 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
     fun setProjectedLeg(leg: RouteBetween.LegProjection?) {
         if (projectedLeg == leg) return
         projectedLeg = leg
+        if (DepartureCue.isCue(leg?.markerKind) &&
+            leg?.fromCode.equals(haltMarker?.code, ignoreCase = true)) haltMarker = null
         notifyDataSetChanged()
     }
 
@@ -170,8 +172,14 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
     /** The halt the mirror's actuals say the train is at or making for - tinted, never silent. */
     var haltMarker: TableMarker.Halt? = null
         set(value) {
-            if (field != value) {
-                field = value
+            // A refresh/age tick may reinstall the reported halt marker AFTER a
+            // departure cue is on the leg. One train cannot occupy both places.
+            val unique = value?.takeUnless { marker ->
+                DepartureCue.isCue(projectedLeg?.markerKind) &&
+                    projectedLeg?.fromCode.equals(marker.code, ignoreCase = true)
+            }
+            if (field != unique) {
+                field = unique
                 notifyDataSetChanged()
             }
         }

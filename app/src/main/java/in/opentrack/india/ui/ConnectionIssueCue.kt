@@ -9,7 +9,8 @@ import `in`.opentrack.india.R
 /** A short transport-failure cue on the TOP summary, not on the train icon.
  * Six low-contrast dips at three per second, then a persistent, readable reason.
  * No position/age changes and no endless or full-white flashing. */
-class ConnectionIssueCue(private val card: View, private val alert: TextView) {
+class ConnectionIssueCue(private val card: View, private val alert: TextView,
+                         private val evidence: View? = null) {
     companion object {
         const val PULSE_MILLIS = 333L
         const val PULSES = 6
@@ -26,6 +27,8 @@ class ConnectionIssueCue(private val card: View, private val alert: TextView) {
         reason = "$source:$newReason"
         alert.text = "$newReason · $source. Previous report unchanged; retry or change source."
         alert.visibility = View.VISIBLE
+        evidence?.alpha = 0f // share the evidence slot, never cover readable text
+        evidence?.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
         card.setBackgroundResource(R.drawable.bg_summary_connection)
         val pulse = ObjectAnimator.ofFloat(card, View.ALPHA, 1f, MIN_ALPHA, 1f).apply {
             duration = PULSE_MILLIS
@@ -46,9 +49,11 @@ class ConnectionIssueCue(private val card: View, private val alert: TextView) {
         stopMotion()
         reason = null
         alert.text = ""
-        // The warning slot is measured even when hidden: a failed check cannot
-        // stretch the summary or push the route while explaining what happened.
-        alert.visibility = View.INVISIBLE
+        // The warning overlays the existing evidence slot, so an ordinary
+        // summary has no empty reserved line above the report.
+        alert.visibility = View.GONE
+        evidence?.alpha = 1f
+        evidence?.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_AUTO
         card.setBackgroundResource(R.drawable.bg_summary_card)
     }
 

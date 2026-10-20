@@ -735,6 +735,38 @@ class InlineRouteRenderTest {
         assertEquals(0, holder.inlineLeg.projection!!.points.size)
     }
 
+    @Test fun refreshAndAgeTickCannotDrawTwoLocomotivesForAReportedDeparture() {
+        val ctx = RuntimeEnvironment.getApplication()
+        val adapter = StopAdapter()
+        val departed = TrackModel.Stop(1, "BDVT", "Bhadravati", 770, 772,
+            785, 810, null, TrackModel.MinuteSource.REPORTED, null,
+            TrackModel.State.PASSED, true, 250, 0, 19, true, false, false, 38)
+        val next = departed.copy(seq = 2, code = "SMET", name = "Shimoga Town",
+            schedArr = 845, schedDep = null, showArr = null, showDep = null,
+            source = TrackModel.MinuteSource.SCHEDULE, isAnchor = false, kmFromOrigin = 269)
+        adapter.submitList(listOf(departed, next))
+        val candidate = TableMarker.Halt("BDVT", "NTES last reported departure", false)
+        val cue = RouteBetween.LegProjection("Bhadravati", "Shimoga Town", .1f,
+            "Shimoga Bidare", 250, "BDVT", "SMET", emptyList(),
+            RouteBetween.MarkerKind.REPORTED_DEPARTURE_CUE)
+        adapter.haltMarker = candidate
+        adapter.setProjectedLeg(cue)
+        assertEquals("binding a departure cue must remove the old station train",
+            null, adapter.haltMarker)
+        // Simulate the 30-second age ticker and another refresh; neither can
+        // re-introduce the row locomotive while the outbound cue remains.
+        repeat(2) { adapter.haltMarker = candidate }
+        assertEquals(null, adapter.haltMarker)
+        val holder = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
+        adapter.onBindViewHolder(holder, 0)
+        assertEquals(View.GONE, holder.trainMarker.visibility)
+        assertTrue("the outbound cue should keep the sole locomotive", holder.inlineLeg.showTrain)
+        adapter.setProjectedLeg(null)
+        adapter.haltMarker = candidate
+        assertEquals("without a departure cue the reported stop regains its train",
+            candidate, adapter.haltMarker)
+    }
+
     @Test fun birurMarkerIsOnItsStationAndWholeLegTogglesExactlyTwoMappedPoints() {
         val ctx = RuntimeEnvironment.getApplication()
         val adapter = StopAdapter()
