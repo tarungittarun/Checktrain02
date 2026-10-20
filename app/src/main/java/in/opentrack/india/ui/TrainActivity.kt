@@ -880,7 +880,7 @@ class TrainActivity : AppCompatActivity() {
             val report = ui.orgWebsiteReport!!
             val eventAt = RailTime.railMinuteToEpochMillis(vm.originDate, report.eventMinute)
             val eventAge = TableMarker.elapsedLabel((System.currentTimeMillis() - eventAt).coerceAtLeast(0))
-            binding.provenance.contentDescription = binding.provenance.contentDescription.orEmpty().toString() +
+            binding.provenance.contentDescription = binding.provenance.contentDescription?.toString().orEmpty() +
                 ". Website station claim ${RailTime.formatRailMinute(report.eventMinute)}, " +
                 "$eventAge old. Page checked ${RailTime.formatClockSeconds(report.pageUpdatedAt)}; " +
                 "page clock is not a train movement."
