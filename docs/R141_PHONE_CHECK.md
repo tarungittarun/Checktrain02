@@ -13,3 +13,7 @@ The rolling [debug test APK](https://github.com/tarungittarun/Checktrain02/relea
 - For an erail-only result with no vetted weekly calendar, the row now says *listed for selected date; weekly days unverified* instead of implying that today's appearance proves a Mon–Sun schedule. Known bundled weekly days remain underlined when available.
 
 Tests and release evidence should be linked to the **same build**. The screenshot comparison is not a permitted feed or measured locomotive position. Do not merge this PR until the owner tests this APK on their phone.
+
+## Validation note
+
+The Android pipeline builds the rolling APK and installs its **published bytes** in six independent traveller partitions; the full E2E request separately exercises API 24, API 34, density/large font, source contracts and a minified release smoke. A successful matrix verifies presentation and source honesty, **not** permission or field truth for the other phone app's telemetry.
