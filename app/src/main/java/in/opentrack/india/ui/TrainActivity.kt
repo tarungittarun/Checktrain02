@@ -340,6 +340,9 @@ class TrainActivity : AppCompatActivity() {
                     lastUi?.sourceStates?.get(requestedRefreshSource), lastUi?.officialRequest,
                     lastUi?.publicSourceAnswered?.get(requestedRefreshSource))
                 if (failure != null) showConnectionError(failure, requestedRefreshSource)
+                // showConnectionError re-applies More/Less accessibility labels;
+                // the receipt must be the final description, even on failure.
+                attachCompletedReceipt()
                 refreshStartedAt = 0L
             }
             if (wasBusy && !chainBusy && focusAfterRefresh) binding.stops.post {
@@ -1219,8 +1222,8 @@ class TrainActivity : AppCompatActivity() {
     }
 
     private fun showConnectionError(reason: String, source: String) {
-        // Reserve the warning slot even when clear; do not cover the headline or
-        // replace an earlier report with a page-check timestamp.
+        // Reuse the evidence slot; do not cover the headline or replace an
+        // earlier report with a page-check timestamp.
         connectionCue.show(reason, sourceName(source))
         if (!heroExpanded) {
             binding.heroEyebrow.text = "CHECK FAILED"

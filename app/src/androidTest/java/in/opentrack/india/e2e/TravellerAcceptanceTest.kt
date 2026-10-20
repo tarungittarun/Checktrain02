@@ -91,7 +91,12 @@ class TravellerAcceptanceTest {
         }
         assertTrue("Refresh must not leave a persistent receipt below the card",
             E2E.find("refreshFeedback", 250) == null)
-        assertTrue("Refresh never gave a completed, accessible receipt: '$receipt'", receipt.startsWith("Checked ") &&
+        assertTrue("Refresh never gave a completed, accessible receipt: '$receipt'; " +
+            "toggle='${E2E.find("heroToggle", 250)?.contentDescription}' " +
+            "badge='${E2E.find("provenance", 250)?.contentDescription}' " +
+            "source='${E2E.find("sourceSpinner", 250)?.contentDescription}' " +
+            "warning='${E2E.text("connectionAlert", 250)}' " +
+            "busy=${E2E.visible("checkingBar", 250)}", receipt.startsWith("Checked ") &&
             !receipt.contains("Checking", true) && !receipt.contains("Refreshing", true) &&
             !receipt.contains("Loading", true))
         assertEquals("Refresh changed the ticket's train", "12627", E2E.text("trainNo"))
