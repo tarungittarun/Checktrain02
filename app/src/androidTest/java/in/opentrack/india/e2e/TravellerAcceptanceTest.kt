@@ -78,10 +78,11 @@ class TravellerAcceptanceTest {
         while (System.currentTimeMillis() < until) {
             // Full timing and source receipt stays accessible on the badge;
             // the sighted user sees only the refreshed report text, no score overlay.
-            E2E.reveal("sourceSpinner", "scroller", swipes = 3, up = false)
-            // When a selected source fails, its warning replaces the evidence
-            // row. The always-visible selector must still speak the receipt.
-            val accessible = E2E.find("sourceSpinner", 250)?.contentDescription.orEmpty()
+            E2E.reveal("heroToggle", "scroller", swipes = 3, up = false)
+            // The warning can cover the badge, and Android's Spinner can expose
+            // its selected child instead of its own description. The always-
+            // reachable More/Less control must speak the completed receipt.
+            val accessible = E2E.find("heroToggle", 250)?.contentDescription.orEmpty()
             receipt = Regex("""Checked \d{2}:\d{2}:\d{2} · [^.]+""")
                 .find(accessible)?.value.orEmpty()
             if (receipt.startsWith("Checked ") && !receipt.contains("Checking", true) &&
