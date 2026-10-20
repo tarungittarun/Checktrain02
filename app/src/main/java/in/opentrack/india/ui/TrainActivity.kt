@@ -1199,8 +1199,12 @@ class TrainActivity : AppCompatActivity() {
         )
         val receipt = RefreshReceiptUi.short(source, checked, change, detail, cachedResponse)
         Diary.get()?.log("REFRESH") { detail }
-        binding.provenance.contentDescription = binding.provenance.text.toString() + ". " +
-            receipt + ". " + detail
+        val spoken = receipt + ". " + detail
+        binding.provenance.contentDescription = binding.provenance.text.toString() + ". " + spoken
+        // On a failed check the warning occupies the evidence slot and hides
+        // the provenance badge. The source chooser remains visible in More AND
+        // Less, so the full receipt must also be reachable there.
+        binding.sourceSpinner.contentDescription = "Choose tracking source. " + spoken
     }
 
     private fun showConnectionError(reason: String, source: String) {
