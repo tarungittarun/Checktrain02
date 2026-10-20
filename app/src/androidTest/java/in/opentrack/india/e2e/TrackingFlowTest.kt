@@ -1,6 +1,11 @@
 package `in`.opentrack.india.e2e
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry
+import androidx.test.runner.lifecycle.Stage
+import android.view.View
+import `in`.opentrack.india.R
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiObject2
 import androidx.test.uiautomator.Until
@@ -26,6 +31,24 @@ import org.junit.runner.RunWith
 class TrackingFlowTest {
 
     private val stopsBy = By.res(E2E.PKG, "stopName")
+
+    // UiAutomator's visibleBounds is clipped by BoundedScrollView. At large font,
+    // scrolling 33 px changed its apparent card height while the card was unchanged.
+    // Drive interactions through accessibility, but read the *installed Activity's*
+    // actual laid-out pixel height and scroll offset to test this geometry claim.
+    // No app model, service or test fixture supplies the value under assertion.
+    private fun cardGeometry(): Pair<Int, Int> {
+        var result: Pair<Int, Int>? = null
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            val activity = ActivityLifecycleMonitorRegistry.getInstance()
+                .getActivitiesInStage(Stage.RESUMED)
+                .first { it.packageName == E2E.PKG &&
+                    it.findViewById<View>(R.id.trackingSummaryCard) != null }
+            result = activity.findViewById<View>(R.id.trackingSummaryCard).height to
+                activity.findViewById<View>(R.id.scroller).scrollY
+        }
+        return requireNotNull(result) { "tracking Activity did not expose a laid-out summary" }
+    }
 
     @Before
     fun openTrain() {
@@ -125,7 +148,7 @@ class TrackingFlowTest {
     // @flow summary-stability
     @Test
     fun refreshReceiptOverlaysWithoutMovingTheRouteAndCollapseAnimates() {
-        val card = E2E.find("trackingSummaryCard")!!.visibleBounds
+        val card = cardGeometry()
         assertEquals("ACTUAL", E2E.text("routeHeadActual"))
         val header = E2E.find("routeColumnHeader")!!.visibleBounds
         assertTrue("ACTUAL header is outside the table viewport",
@@ -137,9 +160,11 @@ class TrackingFlowTest {
             Thread.sleep(200)
         }
         assertTrue("refresh did not finish", !E2E.visible("checkingBar", 250))
-        val afterRefresh = E2E.find("trackingSummaryCard")!!.visibleBounds
+        val afterRefresh = cardGeometry()
         assertTrue("refresh resized summary: $card -> $afterRefresh",
-            kotlin.math.abs(card.height() - afterRefresh.height()) <= 8)
+            kotlin.math.abs(card.first - afterRefresh.first) <= 8)
+        assertTrue("refresh shifted the summary viewport: $card -> $afterRefresh",
+            kotlin.math.abs(card.second - afterRefresh.second) <= 8)
         assertTrue("refresh overlaid the readable text with a response score",
             E2E.find("checkClock", 250) == null)
         assertTrue("persistent receipt still pushes the route down",
@@ -151,26 +176,26 @@ class TrackingFlowTest {
         assertNotNull("collapsed card lost source", E2E.find("sourceSpinner"))
         assertTrue("More label not visible", E2E.text("heroToggle").contains("More"))
         val shrinkDeadline = System.currentTimeMillis() + E2E.LOCAL_MS
-        var compact = E2E.find("trackingSummaryCard")!!.visibleBounds
-        while (compact.height() + 30 >= afterRefresh.height() &&
+        var compact = cardGeometry()
+        while (compact.first + 30 >= afterRefresh.first &&
             System.currentTimeMillis() < shrinkDeadline) {
             Thread.sleep(100)
-            compact = E2E.find("trackingSummaryCard")!!.visibleBounds
+            compact = cardGeometry()
         }
         assertTrue("Less left an empty fixed-height card: $afterRefresh -> $compact",
-            compact.height() + 30 < afterRefresh.height())
+            compact.first + 30 < afterRefresh.first)
         assertTrue("expand handle missing", E2E.tap("heroToggle"))
         assertNotNull("expanded headline missing", E2E.find("headline"))
         assertTrue("Less label not visible", E2E.text("heroToggle").contains("Less"))
         val growDeadline = System.currentTimeMillis() + E2E.LOCAL_MS
-        var restored = E2E.find("trackingSummaryCard")!!.visibleBounds
-        while (restored.height() < compact.height() + 30 &&
+        var restored = cardGeometry()
+        while (restored.first < compact.first + 30 &&
             System.currentTimeMillis() < growDeadline) {
             Thread.sleep(100)
-            restored = E2E.find("trackingSummaryCard")!!.visibleBounds
+            restored = cardGeometry()
         }
         assertTrue("More did not restore the evidence height: $compact -> $restored",
-            restored.height() >= compact.height() + 30)
+            restored.first >= compact.first + 30)
         E2E.shot("summary-stable-refresh")
     }
 
