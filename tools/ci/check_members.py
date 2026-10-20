@@ -104,6 +104,9 @@ measureText
 # Android View's built-in animator/background, listener and TextView colour accessor;
 # SharedPreferences stores the draggable refresh position as orientation-safe fractions.
 animate background typeface setOnTouchListener currentTextColor getFloat
+# ViewTreeObserver is the attached-layout measurement hook for More/Less. Unlike a detached
+# UNSPECIFIED measure it yields the real height after visibility changes on large-font phones.
+viewTreeObserver addOnPreDrawListener removeOnPreDrawListener isAlive
 # Android SpannableString underlines only the days that operate.
 setSpan getSpans getSpanStart replaceFirst
 # legacy-cipher factory (2026-10-12): SSLSocket suite lists and the delegate pattern
