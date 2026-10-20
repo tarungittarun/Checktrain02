@@ -35,10 +35,12 @@ class SettingsFlowTest {
                 if (!expectFinish) return true
                 if (E2E.visible("settings", E2E.LOCAL_MS)) return true
             }
-            if (attempt == 0 && E2E.visible("overrideUrl", 500)) {
-                // Retry the gesture only if still on the editable form. Never
-                // count an unexplained validation failure as a saved endpoint.
+            if (attempt == 0 && E2E.visible("settingsScroll", 500)) {
+                // The IME can hide Save on narrow API 24 viewports. Back dismisses
+                // the keyboard so a second scroll/tap can reach the real button.
+                // Do not count Back as a Save: the destination must still be Home.
                 E2E.shot("settings-save-still-on-form")
+                E2E.ui.pressBack()
             }
         }
         return false
