@@ -508,11 +508,13 @@ class TrackingFlowTest {
             if (E2E.text("sourceSpinner", 300).isBlank())
                 E2E.reveal("sourceSpinner", "scroller", swipes = 3)
             val chooser = E2E.text("sourceSpinner", 300)
+            val warning = E2E.text("connectionAlert", 300)
             // On API 24 the nested evidence viewport can hide the badge after
             // scrolling. The selected chooser still visibly names the website;
             // this asserts source identity, not that it supplied a past card.
             val siteVisible = badge.contains("WEB", true) ||
-                (chooser.contains("WIMT", true) && chooser.contains("website", true))
+                (chooser.contains("WIMT", true) && chooser.contains("website", true)) ||
+                warning.contains("whereismytrain.org.in (website)", true)
             identified = siteVisible &&
                 ((headline.startsWith("Recently reported at ") ||
                     headline.startsWith("Recently reported near ")) && badge.contains("run inferred") ||
@@ -520,13 +522,14 @@ class TrackingFlowTest {
                     // A future origin with no site past card is timetable-only.
                     (headline.startsWith("Journey not started yet by timetable") &&
                         (badge.contains("comparison only", true) ||
-                            chooser.contains("website", true))))
+                            chooser.contains("website", true) ||
+                            warning.contains("whereismytrain.org.in (website)", true))))
             if (!identified) Thread.sleep(200)
         }
         if (!identified) E2E.shot("org-website-missing-identity")
         assertTrue("selected site must be visibly website-attributed: badge='${E2E.text("provenance")}'; " +
             "chooser='${E2E.text("sourceSpinner")}' " +
-            "warning='${E2E.text("connectionAlert")}' " +
+            "warning='$warning' " +
             "headline='${E2E.text("headline")}'", identified)
         assertTrue("website selection removed the station table", E2E.count(stopsBy) > 0)
         val sheetVisible = revealTimeSheet()

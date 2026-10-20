@@ -118,6 +118,8 @@ class TrainActivity : AppCompatActivity() {
     private var sourceSummaryWanted = false
     private var expansionAnimating = false
     private var expansionAnimator: ValueAnimator? = null
+    private var summaryLockedHeight: Int? = null
+    private var detailsLockedHeight: Int? = null
 
     /** A refresh may replace labels, never remeasure this card.
      * More/Less is the only gesture allowed to change its measured height. */
@@ -125,15 +127,20 @@ class TrainActivity : AppCompatActivity() {
         if (expansionAnimating) return
         val card = binding.trackingSummaryCard
         val details = binding.heroDetailsScroll
-        // Pin the *text viewport*, not merely the parent. A longer source note
-        // now scrolls inside this region instead of shoving the source/Auto row
-        // below a card whose height was already locked before the request.
-        if (heroExpanded && details.height > 0 && details.layoutParams.height != details.height) {
-            details.layoutParams = details.layoutParams.apply { height = details.height }
+        // Store the chosen pixel heights. Never silently re-lock to a larger
+        // height after a background source emission; only More/Less resets them.
+        val cardHeight = summaryLockedHeight ?: card.height.takeIf { it > 0 } ?: return
+        summaryLockedHeight = cardHeight
+        if (heroExpanded) {
+            val detailHeight = detailsLockedHeight ?: details.height.takeIf { it > 0 }
+            if (detailHeight != null) {
+                detailsLockedHeight = detailHeight
+                if (details.layoutParams.height != detailHeight)
+                    details.layoutParams = details.layoutParams.apply { height = detailHeight }
+            }
         }
-        if (card.height > 0 && card.layoutParams.height != card.height) {
-            card.layoutParams = card.layoutParams.apply { height = card.height }
-        }
+        if (card.layoutParams.height != cardHeight)
+            card.layoutParams = card.layoutParams.apply { height = cardHeight }
     }
 
     private fun applyHeroExpansion() {
@@ -168,6 +175,8 @@ class TrainActivity : AppCompatActivity() {
             // only the card height. Lock exactly the new natural height at the end.
             expansionAnimator?.cancel()
             expansionAnimating = true
+            summaryLockedHeight = null
+            detailsLockedHeight = null
             val card = binding.trackingSummaryCard
             val details = binding.heroDetailsScroll
             val from = card.height
@@ -188,6 +197,8 @@ class TrainActivity : AppCompatActivity() {
                     if (observer.isAlive) observer.removeOnPreDrawListener(this)
                     val to = card.height
                     val detailsHeight = details.height
+                    summaryLockedHeight = to
+                    detailsLockedHeight = if (heroExpanded) detailsHeight else null
                     card.layoutParams = card.layoutParams.apply { height = from }
                     if (heroExpanded && detailsHeight > 0) details.layoutParams =
                         details.layoutParams.apply { height = detailsHeight }
@@ -363,10 +374,11 @@ class TrainActivity : AppCompatActivity() {
                 focusCurrentLeg()
                 focusAfterRefresh = false
             }
-            // Initial timetable and live data can arrive in separate UI emissions.
-            // Freezing the first placeholder height clips the selector once the
-            // fuller headline/website note arrives. Lock only on a later Refresh
-            // (requestRefresh does it before fetching) or explicit More/Less.
+            // Lock once the initial selected-source check completes. A later
+            // background mirror answer can add text, but the evidence scrolls
+            // inside the locked area instead of growing the whole summary.
+            if (wasBusy && !chainBusy && refreshStartedAt == 0L)
+                binding.trackingSummaryCard.post { if (!chainBusy) freezeSummaryHeight() }
             if (wasBusy && !chainBusy && pendingAutoRefresh) binding.root.post {
                 if (screenStarted && binding.autoSwitch.isChecked && !chainBusy && pendingAutoRefresh) {
                     pendingAutoRefresh = false
@@ -542,7 +554,9 @@ class TrainActivity : AppCompatActivity() {
         if (!touchFresh) sourceSelectionTouched = false
         val choosing = (binding.sourceSpinner.tag as? List<*>)
             ?.filterIsInstance<String>()?.takeIf { touchFresh && it.isNotEmpty() }
-        val names = choosing ?: ui.sourceLines.keys.filter(TrackingSources.options::contains).withIndex().sortedWith(
+        // An offline or unresponsive source can leave sourceLines empty. Never
+        // remove the selector just when a traveller needs its alternative.
+        val names = choosing ?: TrackingSources.options.withIndex().sortedWith(
             compareBy<IndexedValue<String>> {
                 val (state, detail) = spinnerStates[it.value] ?: ("none" to "checking on first load")
                 SourceIndicator.priority(SourceIndicator.of(it.value, state, detail).tone)
