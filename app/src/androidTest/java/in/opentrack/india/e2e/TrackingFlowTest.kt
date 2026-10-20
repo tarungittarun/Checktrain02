@@ -132,14 +132,16 @@ class TrackingFlowTest {
             header.bottom <= E2E.find("routeViewport")!!.visibleBounds.top)
         assertTrue("source card not expanded at start", E2E.find("headline") != null)
         assertTrue("Refresh control missing", E2E.tap("refresh"))
-        // A check clock may only appear for two seconds; it must float over the
-        // summary, not occupy a third column or resize the table.
-        val score = E2E.find("checkClock", E2E.NETWORK_MS)
-        if (score != null) {
-            val during = E2E.find("trackingSummaryCard")!!.visibleBounds
-            assertTrue("response flash resized the summary: $card -> $during",
-                kotlin.math.abs(card.height() - during.height()) <= 8)
+        val until = System.currentTimeMillis() + E2E.NETWORK_MS
+        while (System.currentTimeMillis() < until && E2E.visible("checkingBar", 250)) {
+            Thread.sleep(200)
         }
+        assertTrue("refresh did not finish", !E2E.visible("checkingBar", 250))
+        val afterRefresh = E2E.find("trackingSummaryCard")!!.visibleBounds
+        assertTrue("refresh resized summary: $card -> $afterRefresh",
+            kotlin.math.abs(card.height() - afterRefresh.height()) <= 8)
+        assertTrue("refresh overlaid the readable text with a response score",
+            E2E.find("checkClock", 250) == null)
         assertTrue("persistent receipt still pushes the route down",
             E2E.find("refreshFeedback", 250) == null)
         assertTrue("no route after refresh", E2E.count(stopsBy) > 0)
@@ -148,9 +150,17 @@ class TrackingFlowTest {
             E2E.ui.wait(Until.gone(By.res(E2E.PKG, "headline")), E2E.LOCAL_MS))
         assertNotNull("collapsed card lost source", E2E.find("sourceSpinner"))
         assertTrue("More label not visible", E2E.text("heroToggle").contains("More"))
+        Thread.sleep(350) // wait for the 240 ms measured-height animation
+        val compact = E2E.find("trackingSummaryCard")!!.visibleBounds
+        assertTrue("Less left an empty fixed-height card: $afterRefresh -> $compact",
+            compact.height() + 30 < afterRefresh.height())
         assertTrue("expand handle missing", E2E.tap("heroToggle"))
         assertNotNull("expanded headline missing", E2E.find("headline"))
         assertTrue("Less label not visible", E2E.text("heroToggle").contains("Less"))
+        Thread.sleep(350)
+        val restored = E2E.find("trackingSummaryCard")!!.visibleBounds
+        assertTrue("More did not restore the evidence height: $compact -> $restored",
+            restored.height() >= compact.height() + 30)
         E2E.shot("summary-stable-refresh")
     }
 

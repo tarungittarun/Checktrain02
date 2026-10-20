@@ -218,22 +218,11 @@ class ScreenRenderTest {
         // and two casings on one screen is how an app starts to look untrustworthy.
         assertTrue("the headline should follow the table's casing: '$headline'",
             headline.contains("Dobetakapur") && !headline.contains("DOBETAKAPUR"))
-        assertEquals("response receipt separates duration, event age and device check time",
-            "Took: 1.0 sec\nFreshness: 2m old\nChecked: 09:05:01", shot.text(R.id.checkClock))
-        val score = shot.root.findViewById<View>(R.id.checkClock)
-        assertTrue("short-lived score must cover its own ink without resizing the summary",
-            score.background != null && score is TextView &&
-                score.parent is android.widget.FrameLayout)
+        assertEquals("a completed check must never draw a score on top of the journey",
+            null, shot.root.findViewById<View>(R.id.checkClock))
         assertTrue("ripple must overlay ONLY the status table viewport",
             shot.root.findViewById<View>(R.id.statusRipple).parent ===
                 shot.root.findViewById<View>(R.id.routeViewport))
-        val delayBox = shot.bounds(R.id.delay)
-        val checkBox = shot.bounds(R.id.checkClock)
-        val nextBox = shot.bounds(R.id.next)
-        val summaryBox = shot.bounds(R.id.trackingSummaryCard)
-        assertTrue("score must overlay (not displace) the existing delay/next row",
-            checkBox.left <= delayBox.left && checkBox.right >= nextBox.right &&
-                checkBox.top >= summaryBox.top && checkBox.bottom <= summaryBox.bottom)
         assertEquals(m.trainNo, shot.text(R.id.trainNo))
         assertNotClipped(shot.root.findViewById(R.id.headline), "headline")
         // The header line is where the app used to lose a word to an ellipsis; the fix is in the layout, so
@@ -467,21 +456,19 @@ Render.save("02-track-live", shot.bitmap)
     @Test
     fun trackingHasUnboxedBrandAndOnlyTheRefreshGlyphSpins() {
         val shot = Render.render(R.layout.activity_train, widthDp = 411f,
-            heightDp = 760f, textScale = 1.15f) { root ->
-            root.findViewById<TextView>(R.id.checkClock).apply {
-                visibility = View.VISIBLE
-                text = "Took: 2.0 sec\nFreshness: 25m old\nChecked: 13:40:01"
-            }
-        }
+            heightDp = 760f, textScale = 1.15f)
         val button = shot.root.findViewById<View>(R.id.refresh)
         val glyph = shot.root.findViewById<View>(R.id.refreshGlyph)
         assertTrue("refresh target shrank", button.width >= Render.dp(shot.context, 48f))
         assertTrue("refresh icon cannot rotate independently", glyph.parent === button)
         assertTrue("locomotive/title is no longer a usable home target",
             shot.root.findViewById<View>(R.id.back).width >= Render.dp(shot.context, 180f))
-        val score = shot.root.findViewById<TextView>(R.id.checkClock)
-        assertEquals("score needs duration, event age AND checked time", 3, score.layout?.lineCount)
-        Render.assertNothingCut(score, "three-line source response")
+        assertEquals("the response score must not cover the readable summary text",
+            null, shot.root.findViewById<View>(R.id.checkClock))
+        val headline = shot.root.findViewById<TextView>(R.id.headline)
+        assertTrue("summary headline is too small for a phone", headline.textSize >=
+            Render.dp(shot.context, 23f))
+        Render.assertNothingCut(headline, "larger journey headline")
     }
 
     @Test

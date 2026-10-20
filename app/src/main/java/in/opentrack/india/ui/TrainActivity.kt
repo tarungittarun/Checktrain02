@@ -1,10 +1,9 @@
 package `in`.opentrack.india.ui
 
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
 import android.animation.ObjectAnimator
 import android.animation.ValueAnimator
-import android.transition.AutoTransition
-import android.transition.ChangeBounds
-import android.transition.TransitionManager
 import android.view.animation.LinearInterpolator
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -109,7 +108,6 @@ class TrainActivity : AppCompatActivity() {
     private var sourceSelectionTouchedAt = 0L
     private var lastUi: LiveViewModel.Ui? = null
     private var lastScreenLoadKey: Pair<String?, Long?>? = null
-    private var scoreGeneration = 0
     private var lastFlashErrorKey: String? = null
     private var pendingAutoRefresh = false
     private var chainBusy = false
@@ -117,9 +115,10 @@ class TrainActivity : AppCompatActivity() {
     private var heroExpanded = true
     private var sourceSummaryWanted = false
     private var expansionAnimating = false
+    private var expansionAnimator: ValueAnimator? = null
 
-    /** A refresh may replace labels and show a response score, never remeasure this card.
-     * More/Less is the only gesture that releases its current measured height. */
+    /** A refresh may replace labels, never remeasure this card.
+     * More/Less is the only gesture allowed to change its measured height. */
     private fun freezeSummaryHeight() {
         if (expansionAnimating) return
         val card = binding.trackingSummaryCard
@@ -154,18 +153,44 @@ class TrainActivity : AppCompatActivity() {
         connectionCue = ConnectionIssueCue(binding.trackingSummaryCard, binding.connectionAlert)
         heroExpanded = savedInstanceState?.getBoolean("heroExpanded", true) ?: true
         binding.heroToggle.setOnClickListener {
+            // The previous fixed height is *not* the target of More/Less. Measure
+            // the newly selected contents without that constraint, then animate
+            // only the card height. Lock exactly the new natural height at the end.
+            expansionAnimator?.cancel()
             expansionAnimating = true
-            TransitionManager.beginDelayedTransition(binding.contentColumn,
-                AutoTransition().apply { duration = 240L })
-            binding.trackingSummaryCard.layoutParams =
-                binding.trackingSummaryCard.layoutParams.apply { height = android.view.ViewGroup.LayoutParams.WRAP_CONTENT }
+            val card = binding.trackingSummaryCard
+            val from = card.height
+            card.layoutParams = card.layoutParams.apply {
+                height = android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+            }
             heroExpanded = !heroExpanded
             applyHeroExpansion()
-            // Lock the newly chosen state only once the transition has finished.
-            binding.trackingSummaryCard.postDelayed({
+            card.measure(View.MeasureSpec.makeMeasureSpec(card.width, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+            val to = card.measuredHeight
+            card.layoutParams = card.layoutParams.apply { height = from }
+            if (from == to) {
                 expansionAnimating = false
-                freezeSummaryHeight()
-            }, 260L)
+                card.layoutParams = card.layoutParams.apply { height = to }
+            } else {
+                expansionAnimator = ValueAnimator.ofInt(from, to).apply {
+                    duration = 240L
+                    addUpdateListener { animator ->
+                        card.layoutParams = card.layoutParams.apply {
+                            height = animator.animatedValue as Int
+                        }
+                    }
+                    addListener(object : AnimatorListenerAdapter() {
+                        override fun onAnimationEnd(animation: Animator) {
+                            if (expansionAnimator !== animation) return
+                            card.layoutParams = card.layoutParams.apply { height = to }
+                            expansionAnimating = false
+                            expansionAnimator = null
+                        }
+                    })
+                    start()
+                }
+            }
         }
         applyHeroExpansion()
 
@@ -293,15 +318,14 @@ class TrainActivity : AppCompatActivity() {
                 // A fast live receipt may already have cleared focusAfterRefresh. The
                 // latency receipt belongs to this button press either way.
                 showRefreshFeedback()
-                val elapsed = SystemClock.elapsedRealtime() - refreshStartedAt
-                // Also show a receipt when an HTTP check failed and retained old data.
+                // A refreshed headline/source state is the visual answer. The full
+                // duration/event/check receipt stays on the source badge for TalkBack
+                // and Info, never as an opaque score over the journey text.
+                // Also show a fixed-slot warning when HTTP failed and retained old data.
                 val failure = RefreshFlash.connectionError(requestedRefreshSource,
                     lastUi?.sourceStates?.get(requestedRefreshSource), lastUi?.officialRequest,
                     lastUi?.publicSourceAnswered?.get(requestedRefreshSource))
                 if (failure != null) showConnectionError(failure, requestedRefreshSource)
-                else showResponseScore(elapsed, lastUi?.selectedSourceUpdateMillis,
-                    lastUi?.activeSource ?: requestedRefreshSource,
-                    lastUi?.selectedSourceUpdateHasSeconds == true)
                 refreshStartedAt = 0L
             }
             if (wasBusy && !chainBusy && focusAfterRefresh) binding.stops.post {
@@ -410,7 +434,6 @@ class TrainActivity : AppCompatActivity() {
         refreshStartedAt = SystemClock.elapsedRealtime()
         requestedRefreshSource = lastUi?.activeSource ?: "NTES (official)"
         previousRefreshEvent = eventKey(lastUi, requestedRefreshSource)
-        binding.refreshFeedback.visibility = View.GONE
         binding.stops.post { pulseAtVisibleTrain() }
         vm.refresh(manual = true, auto = auto)
     }
@@ -857,12 +880,10 @@ class TrainActivity : AppCompatActivity() {
             val report = ui.orgWebsiteReport!!
             val eventAt = RailTime.railMinuteToEpochMillis(vm.originDate, report.eventMinute)
             val eventAge = TableMarker.elapsedLabel((System.currentTimeMillis() - eventAt).coerceAtLeast(0))
-            binding.refreshFeedback.text = "Site ${RailTime.formatRailMinuteBare(report.eventMinute)} · " +
-                "$eventAge ago · page ${RailTime.formatClockSeconds(report.pageUpdatedAt)}"
-            binding.refreshFeedback.contentDescription = "Website station claim " +
-                "${RailTime.formatRailMinute(report.eventMinute)}, $eventAge old. Page checked " +
-                "${RailTime.formatClockSeconds(report.pageUpdatedAt)}; page clock is not a train movement."
-            binding.refreshFeedback.visibility = View.GONE
+            binding.provenance.contentDescription = binding.provenance.contentDescription.orEmpty().toString() +
+                ". Website station claim ${RailTime.formatRailMinute(report.eventMinute)}, " +
+                "$eventAge old. Page checked ${RailTime.formatClockSeconds(report.pageUpdatedAt)}; " +
+                "page clock is not a train movement."
         }
         // A selected website paints its own parsed past cards, never NTES's cells.
         // An intermediate without a documented stop event stays timetable-only.
@@ -889,15 +910,6 @@ class TrainActivity : AppCompatActivity() {
             } else if (failure == null) {
                 lastFlashErrorKey = null
                 connectionCue.clear()
-            }
-        }
-        if (newReceipt && refreshStartedAt == 0L &&
-            RefreshFlash.connectionError(ui.activeSource.orEmpty(),
-                ui.sourceStates[ui.activeSource], ui.officialRequest,
-                ui.publicSourceAnswered[ui.activeSource]) == null) {
-            ResponseScore.durationMillis(ui.sourceStates[ui.activeSource]?.second)?.let { ms ->
-                showResponseScore(ms, ui.selectedSourceUpdateMillis,
-                    ui.activeSource ?: "Source", ui.selectedSourceUpdateHasSeconds)
             }
         }
         binding.routeArchiveNote.visibility = if (ui.staticRouteSource ==
@@ -1162,58 +1174,16 @@ class TrainActivity : AppCompatActivity() {
             ui?.publicSourceAnswered?.get(requestedRefreshSource),
             cachedResponse, change, switched,
         )
-        binding.refreshFeedback.contentDescription = detail
-        binding.refreshFeedback.text = RefreshReceiptUi.short(
-            source, checked, change, detail, cachedResponse)
+        val receipt = RefreshReceiptUi.short(source, checked, change, detail, cachedResponse)
         Diary.get()?.log("REFRESH") { detail }
-        binding.refreshFeedback.visibility = View.GONE
         binding.provenance.contentDescription = binding.provenance.text.toString() + ". " +
-            binding.refreshFeedback.text + ". " + detail
-    }
-
-    private fun showResponseScore(elapsedMs: Long, updateAt: Long?, source: String,
-                                  hasSeconds: Boolean) {
-        // The update clock can be absent. A retained earlier report is not restamped
-        // by a failed request, and even a valid page clock is not a movement event.
-        val view = binding.checkClock
-        val token = ++scoreGeneration
-        view.animate().cancel()
-        val checkedAt = System.currentTimeMillis()
-        val eventAt = selectedEventAt(lastUi)
-        view.text = ResponseScore.text(elapsedMs, eventAt, checkedAt)
-        view.setTextColor(getColor(when {
-            SourceFreshness.isStale(eventAt, checkedAt) -> R.color.late
-            eventAt == null -> R.color.warn
-            else -> R.color.live
-        }))
-        view.contentDescription = "$source response took $elapsedMs milliseconds; " +
-            "last reported event freshness ${SourceFreshness.label(eventAt, checkedAt)}; " +
-            "device checked at ${RailTime.formatClockSeconds(checkedAt)} IST; " +
-            (updateAt?.let { "source page/feed updated ${if (hasSeconds) RailTime.formatClockSeconds(it) else RailTime.formatClock(it)} IST" }
-                ?: "source page/feed update time unavailable") + "; none of these clocks establishes current position"
-        flash(view, token, 1_000L)
+            receipt + ". " + detail
     }
 
     private fun showConnectionError(reason: String, source: String) {
-        val label = sourceName(source)
-        connectionCue.show(reason, label)
-        val view = binding.checkClock
-        val token = ++scoreGeneration
-        view.animate().cancel()
-        view.text = "$reason\nChange source or retry"
-        view.contentDescription = "$reason from $label. Change source or retry."
-        flash(view, token, 3_000L)
-    }
-
-    private fun flash(view: TextView, token: Int, duration: Long) {
-        view.scaleX = .9f
-        view.scaleY = .9f
-        view.alpha = 1f
-        view.visibility = View.VISIBLE
-        view.animate().scaleX(1.15f).scaleY(1.15f).alpha(0f)
-            .setDuration(duration).withEndAction {
-                if (scoreGeneration == token) view.visibility = View.GONE
-            }.start()
+        // Reserve the warning slot even when clear; do not cover the headline or
+        // replace an earlier report with a page-check timestamp.
+        connectionCue.show(reason, sourceName(source))
     }
 
     /** Locate the drawable's actual centre within the visible route viewport.
@@ -1383,8 +1353,7 @@ class TrainActivity : AppCompatActivity() {
         refreshSpin?.cancel()
         refreshSpin = null
         binding.refreshGlyph.rotation = 0f
-        binding.checkClock.animate().cancel()
-        binding.checkClock.visibility = View.GONE
+        expansionAnimator?.cancel()
         super.onStop()
     }
 

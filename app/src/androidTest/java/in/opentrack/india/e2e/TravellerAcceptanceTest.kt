@@ -76,8 +76,8 @@ class TravellerAcceptanceTest {
         val until = System.currentTimeMillis() + E2E.NETWORK_MS
         var receipt = ""
         while (System.currentTimeMillis() < until) {
-            // Full receipt stays accessible on the source badge; the visible
-            // two-second score floats over the fixed summary, not a table-shifting row.
+            // Full timing and source receipt stays accessible on the badge;
+            // the sighted user sees only the refreshed report text, no score overlay.
             E2E.reveal("provenance", "scroller", swipes = 3, up = false)
             val accessible = E2E.find("provenance", 250)?.contentDescription.orEmpty()
             receipt = Regex("""Checked \d{2}:\d{2}:\d{2} · [^.]+""")

@@ -47,9 +47,15 @@ class VisualContrastTest {
             track.countWith(summary, track.bounds(R.id.trackingSummaryCard)) > 20)
         assertEquals("$mode: refresh glyph does not use the intended ink",
             glyph, track.root.findViewById<android.widget.ImageView>(R.id.refreshGlyph).imageTintList?.defaultColor)
-        assertEquals("$mode: summary label uses a weak colour",
-            ink, track.root.findViewById<TextView>(R.id.summaryBoxLabel).currentTextColor)
-        Render.save("r131-$mode-tracking", track.bitmap)
+        for (id in listOf(R.id.summaryBoxLabel, R.id.headline, R.id.age,
+            R.id.delayLabel, R.id.next, R.id.delay)) {
+            val text = track.root.findViewById<TextView>(id)
+            assertTrue("$mode: $id is too small to read in the summary",
+                text.textSize >= 13f * c.resources.displayMetrics.scaledDensity)
+            assertTrue("$mode: $id lacks legible contrast on the blue summary",
+                ColorUtils.calculateContrast(text.currentTextColor, summary) >= 7.0)
+        }
+        Render.save("r142-$mode-tracking", track.bitmap)
 
         val home = Render.render(R.layout.activity_main) { root ->
             root.findViewById<View>(R.id.searchCardScroll).visibility = View.GONE

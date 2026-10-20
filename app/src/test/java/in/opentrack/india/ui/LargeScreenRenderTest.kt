@@ -237,13 +237,8 @@ class LargeScreenRenderTest {
 
     /** Every header cell on the tracking screen, measured rather than eyeballed. */
     private fun assertHeaderIntact(shot: Render.Shot) {
-        val score = shot.root.findViewById<View>(R.id.checkClock)
-        if (shot.text(R.id.checkClock).isNotBlank()) {
-            assertEquals("response score should be visible in the captured animation frame",
-                View.VISIBLE, score.visibility)
-            Render.assertNothingCut(score, "one-second response score")
-        } else assertEquals("offline screen must not display a network response score",
-            View.GONE, score.visibility)
+        assertEquals("no refresh score should occlude the journey on large-font phones",
+            null, shot.root.findViewById<View>(R.id.checkClock))
         listOf(R.id.trainNo, R.id.routeLabel, R.id.runDate, R.id.headline, R.id.provenance, R.id.age,
             R.id.delay, R.id.next).forEach {
             val value = shot.text(it)
