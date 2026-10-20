@@ -116,6 +116,17 @@ class TrainActivity : AppCompatActivity() {
     private var mirrorBusy = false
     private var heroExpanded = true
     private var sourceSummaryWanted = false
+    private var expansionAnimating = false
+
+    /** A refresh may replace labels and show a response score, never remeasure this card.
+     * More/Less is the only gesture that releases its current measured height. */
+    private fun freezeSummaryHeight() {
+        if (expansionAnimating) return
+        val card = binding.trackingSummaryCard
+        if (card.height > 0 && card.layoutParams.height != card.height) {
+            card.layoutParams = card.layoutParams.apply { height = card.height }
+        }
+    }
 
     private fun applyHeroExpansion() {
         binding.heroToggle.text = if (heroExpanded) "Less  ▴" else "More  ▾"
@@ -143,10 +154,18 @@ class TrainActivity : AppCompatActivity() {
         connectionCue = ConnectionIssueCue(binding.trackingSummaryCard, binding.connectionAlert)
         heroExpanded = savedInstanceState?.getBoolean("heroExpanded", true) ?: true
         binding.heroToggle.setOnClickListener {
+            expansionAnimating = true
             TransitionManager.beginDelayedTransition(binding.contentColumn,
                 AutoTransition().apply { duration = 240L })
+            binding.trackingSummaryCard.layoutParams =
+                binding.trackingSummaryCard.layoutParams.apply { height = android.view.ViewGroup.LayoutParams.WRAP_CONTENT }
             heroExpanded = !heroExpanded
             applyHeroExpansion()
+            // Lock the newly chosen state only once the transition has finished.
+            binding.trackingSummaryCard.postDelayed({
+                expansionAnimating = false
+                freezeSummaryHeight()
+            }, 260L)
         }
         applyHeroExpansion()
 
@@ -171,9 +190,13 @@ class TrainActivity : AppCompatActivity() {
             AlertDialog.Builder(this)
                 .setTitle("No verified map for this leg")
                 .setMessage("The scheduled halts are still shown. " +
-                    (if (historical) "The offline historical corridor does not match this " +
+                    (if (lastUi?.model?.routeLabel?.contains("live source says") == true)
+                        "The live source names different endpoints for this number. " +
+                            "Passing stations from the older timetable cannot safely be attached. "
+                    else if (historical) "The offline historical corridor does not match this " +
                         "pair of current scheduled halts; other legs may have stations. "
-                    else "Neither live map provider supplied a validated route for this run. ") +
+                    else "Neither independent map supplied an ordered route for this run. " +
+                        "A completed journey does not create missing map data. ") +
                     "We cannot invent passing stations or times. The map cannot locate the train.")
                 .setNegativeButton("Close", null)
                 .setPositiveButton("Retry map") { _, _ -> vm.retryIntermediateMap(from) }
@@ -287,6 +310,7 @@ class TrainActivity : AppCompatActivity() {
                 focusCurrentLeg()
                 focusAfterRefresh = false
             }
+            if (wasBusy && !chainBusy) binding.trackingSummaryCard.post { freezeSummaryHeight() }
             if (wasBusy && !chainBusy && pendingAutoRefresh) binding.root.post {
                 if (screenStarted && binding.autoSwitch.isChecked && !chainBusy && pendingAutoRefresh) {
                     pendingAutoRefresh = false
@@ -376,15 +400,17 @@ class TrainActivity : AppCompatActivity() {
 
     private fun requestRefresh(auto: Boolean = false) {
         if (chainBusy) return // never turn a duplicate tap/tick into a misleading receipt
-        TransitionManager.beginDelayedTransition(binding.contentColumn,
-            ChangeBounds().apply { duration = 180L })
+        freezeSummaryHeight()
         connectionCue.clear() // a new request will earn its own result; never blink during checking
         lastFlashErrorKey = null
-        focusAfterRefresh = true
+        // Preserve the traveller's scroll position. A new stop rebinds the rail,
+        // but refreshing the same report never recentres the list.
+        focusAfterRefresh = false
+        receiptReady = false
         refreshStartedAt = SystemClock.elapsedRealtime()
         requestedRefreshSource = lastUi?.activeSource ?: "NTES (official)"
         previousRefreshEvent = eventKey(lastUi, requestedRefreshSource)
-        binding.refreshFeedback.visibility = View.INVISIBLE
+        binding.refreshFeedback.visibility = View.GONE
         binding.stops.post { pulseAtVisibleTrain() }
         vm.refresh(manual = true, auto = auto)
     }
@@ -808,6 +834,22 @@ class TrainActivity : AppCompatActivity() {
                 binding.provenance.text = "NTES · reported stop"
             }
         }
+        // No source event before the origin's scheduled departure: say what the
+        // timetable predicts without asserting that the physical train has not moved.
+        val scheduledStart = JourneyStartUi.scheduledStart(vm.originDate,
+            ui.route.stops.firstOrNull()?.departureMin, System.currentTimeMillis(),
+            ui.answer.perStop.values.any { it.actualArrivalMin != null || it.actualDepartureMin != null } ||
+                ui.orgWebsiteReport != null || m.rows.any {
+                    it.source == TrackModel.MinuteSource.REPORTED ||
+                        it.source == TrackModel.MinuteSource.SITE_REPORTED })
+        if (scheduledStart != null) {
+            binding.headline.text = "Journey not started yet by timetable · no departure reported"
+            binding.headline.contentDescription = "Scheduled journey has not reached its origin " +
+                "departure time. There is no verified departure; an early run is not ruled out."
+            binding.next.text = "Starts at ${RowText.of(ui.route.stops.first().name)} · " +
+                "${RailTime.formatRailMinuteBare(scheduledStart)} (timetable)"
+            binding.delay.text = "— · no departure reported"
+        }
         binding.note.visibility = if (m.note == null || !heroExpanded) View.GONE else View.VISIBLE
         m.note?.let { binding.note.text = it }
 
@@ -820,7 +862,7 @@ class TrainActivity : AppCompatActivity() {
             binding.refreshFeedback.contentDescription = "Website station claim " +
                 "${RailTime.formatRailMinute(report.eventMinute)}, $eventAge old. Page checked " +
                 "${RailTime.formatClockSeconds(report.pageUpdatedAt)}; page clock is not a train movement."
-            binding.refreshFeedback.visibility = View.VISIBLE
+            binding.refreshFeedback.visibility = View.GONE
         }
         // A selected website paints its own parsed past cards, never NTES's cells.
         // An intermediate without a documented stop event stays timetable-only.
@@ -861,6 +903,8 @@ class TrainActivity : AppCompatActivity() {
         binding.routeArchiveNote.visibility = if (ui.staticRouteSource ==
             `in`.opentrack.india.remote.OfflineCorridorMap.SOURCE) View.VISIBLE else View.GONE
         stopAdapter.mapSource = ui.staticRouteSource
+        stopAdapter.mappedAnchorKm = ui.staticRoute?.stops.orEmpty()
+            .associate { it.code.uppercase() to it.schedKm }
         stopAdapter.setRoutePoints(RouteBetween.groupedPoints(ui.staticRoute, ui.route))
         stopAdapter.sourceNameForMarker = if (ui.activeSource == "NTES (official)") "NTES"
             else if (ui.activeSource == "last known") "Saved report"
@@ -910,8 +954,8 @@ class TrainActivity : AppCompatActivity() {
             val anchor = stopAdapter.haltMarker?.code ?: leg?.takeIf {
                 DepartureCue.isCue(it.markerKind) }?.fromCode ?: ui.wimtWebPoint?.precedingHalt
                 ?: ui.orgWebsiteReport?.intermediate?.precedingHalt
-            val focus = anchor != null && (!initialReportedFocusDone || anchor != lastAnchor)
-            if (focus || receiptReady || focusAfterRefresh || newReceipt) binding.stops.post {
+            val focus = anchor != null && !initialReportedFocusDone && refreshStartedAt == 0L
+            if (focus) binding.stops.post {
                 if (lastUi !== ui) return@post
                 focusCurrentLeg()
                 if (anchor != null) initialReportedFocusDone = true
@@ -1122,7 +1166,9 @@ class TrainActivity : AppCompatActivity() {
         binding.refreshFeedback.text = RefreshReceiptUi.short(
             source, checked, change, detail, cachedResponse)
         Diary.get()?.log("REFRESH") { detail }
-        binding.refreshFeedback.visibility = View.VISIBLE
+        binding.refreshFeedback.visibility = View.GONE
+        binding.provenance.contentDescription = binding.provenance.text.toString() + ". " +
+            binding.refreshFeedback.text + ". " + detail
     }
 
     private fun showResponseScore(elapsedMs: Long, updateAt: Long?, source: String,
@@ -1150,8 +1196,6 @@ class TrainActivity : AppCompatActivity() {
 
     private fun showConnectionError(reason: String, source: String) {
         val label = sourceName(source)
-        TransitionManager.beginDelayedTransition(binding.contentColumn,
-            ChangeBounds().apply { duration = 180L })
         connectionCue.show(reason, label)
         val view = binding.checkClock
         val token = ++scoreGeneration

@@ -21,7 +21,10 @@ object TrainResultsDisplay {
     /** An erail listing can revise identity and times, not a weekly calendar. */
     fun withAssetDays(hits: List<TrainHit>, asset: List<TrainHit>): List<TrainHit> {
         val days = asset.associate { it.trainNo to it.runDays }
-        return hits.map { h -> if (days.containsKey(h.trainNo)) h.copy(runDays = days[h.trainNo]) else h }
+        return hits.map { h ->
+            val known = days[h.trainNo]
+            if (h.runDays == null && known != null) h.copy(runDays = known) else h
+        }
     }
 
     /** Timetable mask: Sunday is bit 0; Monday bit 6 through Saturday bit 1. */
@@ -33,7 +36,7 @@ object TrainResultsDisplay {
 
     /** Always show S M T W T F S, with ONLY the operating days underlined. */
     fun frequency(mask: Int?): CharSequence {
-        if (mask == null) return "Runs · days unavailable"
+        if (mask == null) return "Runs · listed for selected date; weekly days unverified"
         val letters = "S M T W T F S"
         val value = SpannableString("Runs · $letters")
         val offset = value.length - letters.length

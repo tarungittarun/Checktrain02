@@ -72,7 +72,8 @@ class TrainHitAdapter(private val onClick: (TrainHit) -> Unit) :
             append(" · ").append(hit.sourceTag ?: "timetable")
         }
         holder.days.text = TrainResultsDisplay.frequency(hit.runDays)
-        holder.days.contentDescription = if (hit.runDays == null) "Operating days unavailable"
+        holder.days.contentDescription = if (hit.runDays == null)
+            "Listed for the selected date; operating weekdays not verified by a schedule"
             else "Runs " + RowText.dayNames(hit.runDays) + "; Sunday through Saturday, underlined days operate"
         val delta = hit.boardEpochMinute - nowMinute
         holder.tag.text = TrackModel.formatGap(delta.toInt())
@@ -118,6 +119,8 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
     var onMapUnavailable: ((String) -> Unit)? = null
     var mapSource: String? = null
     var mappedLegStarts: Set<String> = emptySet()
+    /** Map kilometres are a separate axis from a timetable's kilometres. */
+    var mappedAnchorKm: Map<String, Int> = emptyMap()
 
     private var expandedCode: String? = null
     private var routePoints: Map<String, List<StopRow>> = emptyMap()
@@ -216,6 +219,7 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         val schedDay: TextView = view.findViewById(R.id.schedDay)
         val liveArr: TextView = view.findViewById(R.id.liveArr)
         val liveDep: TextView = view.findViewById(R.id.liveDep)
+        val liveDay: TextView = view.findViewById(R.id.liveDay)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Holder =
@@ -295,9 +299,7 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         val isLast = position == itemCount - 1 && s.schedDep == null
         holder.schedArr.text = if (isFirst) "START" else time(s.schedArr)
         holder.schedDep.text = if (isLast) "END" else time(s.schedDep)
-        val prior = currentList.getOrNull(position - 1)
-        val day = RouteClockUi.dayMarker(s.schedArr ?: s.schedDep,
-            prior?.let { it.schedArr ?: it.schedDep })
+        val day = RouteClockUi.departureDay(s.schedDep, s.schedArr)
         holder.schedDay.text = day.orEmpty()
         holder.schedDay.visibility = if (day == null) View.GONE else View.VISIBLE
         holder.schedDay.contentDescription = day?.let { "Run ${it.replace("day", "day ")}" } ?: ""
@@ -308,6 +310,12 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         holder.liveArr.text = if (isFirst) "START" else time(s.showArr.takeIf { reported })
         holder.liveDep.text = if (isLast) "END" else if (suggestedDep != null)
             "${time(suggestedDep)}?" else time(s.showDep.takeIf { reported })
+        val actualDay = RouteClockUi.departureDay(
+            (suggestedDep ?: s.showDep).takeIf { reported }, s.showArr.takeIf { reported })
+            ?.takeIf { it != day } // one day marker per station when planned/actual agree
+        holder.liveDay.text = actualDay.orEmpty()
+        holder.liveDay.visibility = if (actualDay == null) View.GONE else View.VISIBLE
+        holder.liveDay.contentDescription = actualDay?.let { "Reported run ${it.replace("day", "day ")}" } ?: ""
         DirectionArrowDrawable.attach(holder.liveArr, arriving = true, reported = reported)
         DirectionArrowDrawable.attach(holder.liveDep, arriving = false, reported = reported)
         val evidence = when (s.source) {
@@ -387,7 +395,7 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         }
         holder.eventCaption.visibility = if (captionMinute == null) View.GONE else View.VISIBLE
         holder.eventCaption.text = captionMinute?.let {
-            "At ${RowText.of(s.name)} · ${RailTime.formatRailMinuteBare(it)}"
+            "At ${RowText.of(s.name)} · as on ${RailTime.formatRailMinuteBare(it)}"
         }.orEmpty()
         holder.eventCaption.setTextColor(ctx.getColor(if (marker?.website == true) R.color.warn else R.color.text2))
         holder.eventCaption.contentDescription = captionMinute?.let {
@@ -398,9 +406,11 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         val available = if (points.isEmpty()) leg?.points.orEmpty() else points.mapIndexed { index, point ->
             val matching = leg?.points?.firstOrNull { it.code.equals(point.code, true) }
             val kmFraction = nextStop?.let { next ->
-                val length = next.kmFromOrigin - s.kmFromOrigin
-                if (point.schedKm > s.kmFromOrigin && point.schedKm < next.kmFromOrigin && length > 0)
-                    (point.schedKm - s.kmFromOrigin).toFloat() / length else null
+                val fromKm = mappedAnchorKm[s.code.uppercase()]
+                val toKm = mappedAnchorKm[next.code.uppercase()]
+                if (fromKm != null && toKm != null && toKm > fromKm &&
+                    point.schedKm > fromKm && point.schedKm < toKm)
+                    (point.schedKm - fromKm).toFloat() / (toKm - fromKm) else null
             }
             val fraction = matching?.fraction ?: kmFraction ?: (index + 1f) / (points.size + 1f)
             // Do not give the historical 16227 corridor invented passing clocks.
@@ -424,15 +434,18 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
                 web?.actualDepartureMin.takeIf { stopped })
         }
         if (captionMinute != null) {
-            val firstPoint = available.firstOrNull { it.mapKm > s.kmFromOrigin &&
-                (nextStop == null || it.mapKm < nextStop.kmFromOrigin) }
+            val mapFrom = mappedAnchorKm[s.code.uppercase()]
+            val mapTo = nextStop?.let { mappedAnchorKm[it.code.uppercase()] }
+            val firstPoint = available.firstOrNull { mapFrom != null && mapTo != null &&
+                it.mapKm > mapFrom && it.mapKm < mapTo }
             val boundName = firstPoint?.name ?: nextStop?.name
+            val fromKm = if (firstPoint != null) mapFrom else s.kmFromOrigin
             val boundKm = firstPoint?.mapKm ?: nextStop?.kmFromOrigin
-            val staticKm = boundKm?.takeIf { s.kmFromOrigin >= 0 && it > s.kmFromOrigin }
-                ?.minus(s.kmFromOrigin)
+            val staticKm = if (fromKm != null && fromKm >= 0 && boundKm != null && boundKm > fromKm)
+                boundKm - fromKm else null
             if (boundName != null && staticKm != null) {
                 holder.eventCaption.text = holder.eventCaption.text.toString() +
-                    "\n${staticKm} km → ${RowText.of(boundName)} · static"
+                    "\n$staticKm km route gap to ${RowText.of(boundName)}"
                 holder.eventCaption.contentDescription = holder.eventCaption.contentDescription.toString() +
                     " Static route gap $staticKm kilometres to ${RowText.of(boundName)}, not live remaining distance."
             }
@@ -473,19 +486,26 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             val departureCue = DepartureCue.isCue(leg?.markerKind)
             // The cue is a state, not a kilometre: name the first mapped point
             // while folded. Expanded names make this sentence redundant.
-            val firstPoint = available.firstOrNull { it.fraction > 0f && it.fraction < 1f }
+            val firstPoint = available.firstOrNull { it.fraction > 0f && it.fraction < 1f &&
+                mappedAnchorKm[s.code.uppercase()]?.let { from -> it.mapKm > from } == true }
             val caption = if (departureCue && !disclosed) {
-                val bound = firstPoint?.name ?: nextStop?.name ?: leg!!.to
-                if (holder.inlineLeg.ageSeconds?.let {
+                val bound = firstPoint?.name ?: nextStop?.name
+                val fromKm = if (firstPoint != null) mappedAnchorKm[s.code.uppercase()]
+                    else s.kmFromOrigin
+                val gap = (firstPoint?.mapKm ?: nextStop?.kmFromOrigin)?.let { to ->
+                    fromKm?.let { from -> (to - from).takeIf { from >= 0 && it > 0 } }
+                }
+                MarkerDistanceLabel.next(bound, gap,
+                    // A provisional website departure is not an observed train event.
+                    if (suggestedDep != null) s.showArr else s.showDep ?: s.showArr,
+                    holder.inlineLeg.ageSeconds?.let {
                         it >= SourceFreshness.STALE_AFTER_MS / 1_000L } == true)
-                    "Last departure: ${RowText.of(s.name)} towards ${RowText.of(bound)} · current segment unknown"
-                else DepartureCue.between(s.name, bound, leg!!.to) +
-                    (if (suggestedDep != null) " · website departure unconfirmed; position unknown"
-                    else " · departure reported; position unknown")
             } else ""
             holder.inlineLegCaption.text = caption
             holder.inlineLegCaption.visibility = if (caption.isEmpty()) View.GONE else View.VISIBLE
             holder.inlineLegCaption.setTextColor(ctx.getColor(R.color.text2))
+            holder.inlineLegCaption.contentDescription = if (caption.isEmpty()) "" else
+                "$caption. This is a static station-to-station distance, not live remaining kilometres."
             holder.inlineLegAge.text = holder.inlineLeg.ageSeconds?.let { seconds ->
                 if (seconds < 60) "Just now" else TableMarker.elapsedLabel(seconds * 1_000L) + " ago"
             }.orEmpty()

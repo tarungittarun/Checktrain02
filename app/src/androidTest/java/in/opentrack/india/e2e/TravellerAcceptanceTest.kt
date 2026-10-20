@@ -76,15 +76,19 @@ class TravellerAcceptanceTest {
         val until = System.currentTimeMillis() + E2E.NETWORK_MS
         var receipt = ""
         while (System.currentTimeMillis() < until) {
-            // A source response can return the scrollable card to its top. A person
-            // scrolls to read the receipt; an offscreen accessibility node is blank.
-            E2E.reveal("refreshFeedback", "scroller", swipes = 3)
-            receipt = E2E.text("refreshFeedback", 250).trim()
+            // Full receipt stays accessible on the source badge; the visible
+            // two-second score floats over the fixed summary, not a table-shifting row.
+            E2E.reveal("provenance", "scroller", swipes = 3, up = false)
+            val accessible = E2E.find("provenance", 250)?.contentDescription.orEmpty()
+            receipt = Regex("""Checked \d{2}:\d{2}:\d{2} · [^.]+""")
+                .find(accessible)?.value.orEmpty()
             if (receipt.startsWith("Checked ") && !receipt.contains("Checking", true) &&
                 !receipt.contains("Refreshing", true) && !receipt.contains("Loading", true)) break
             Thread.sleep(250)
         }
-        assertTrue("Refresh never gave a completed, readable receipt: '$receipt'", receipt.startsWith("Checked ") &&
+        assertTrue("Refresh must not leave a persistent receipt below the card",
+            E2E.find("refreshFeedback", 250) == null)
+        assertTrue("Refresh never gave a completed, accessible receipt: '$receipt'", receipt.startsWith("Checked ") &&
             !receipt.contains("Checking", true) && !receipt.contains("Refreshing", true) &&
             !receipt.contains("Loading", true))
         assertEquals("Refresh changed the ticket's train", "12627", E2E.text("trainNo"))

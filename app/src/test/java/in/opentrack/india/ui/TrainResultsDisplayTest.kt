@@ -48,6 +48,6 @@ class TrainResultsDisplayTest {
         assertEquals(listOf(7, 9), spans.map { text.getSpanStart(it) }.sorted())
         assertTrue(TrainResultsDisplay.active(1, 0))
         assertTrue(TrainResultsDisplay.active(1 shl 1, 6))
-        assertEquals("Runs · days unavailable", TrainResultsDisplay.frequency(null))
+        assertEquals("Runs · listed for selected date; weekly days unverified", TrainResultsDisplay.frequency(null))
     }
 }

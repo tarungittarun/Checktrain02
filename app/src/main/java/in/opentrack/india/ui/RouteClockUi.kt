@@ -6,7 +6,14 @@ import `in`.opentrack.india.core.RailTime
 object RouteClockUi {
     fun clock(minute: Int?): String = minute?.let(RailTime::formatRailMinuteBare) ?: "—"
 
-    /** Display only at the first row of a new run day, not next to every clock. */
+    /** One day marker under each day's departure, not `(+1d)` beside the clock.
+     * At the final stop the arrival is the only clock; never display Day 1. */
+    fun departureDay(departure: Int?, arrival: Int?): String? {
+        val day = (departure ?: arrival)?.let(RailTime::dayOffsetOf) ?: return null
+        return if (day > 0) "day${day + 1}" else null
+    }
+
+    /** Historical helper for detecting the first rollover row (not for row labels). */
     fun dayMarker(firstMinute: Int?, previousMinute: Int?): String? {
         val day = firstMinute?.let(RailTime::dayOffsetOf) ?: return null
         val prior = previousMinute?.let(RailTime::dayOffsetOf) ?: -1

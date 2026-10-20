@@ -17,6 +17,9 @@ class RouteActualHeading @JvmOverloads constructor(
     init { setWillNotDraw(false) }
 
     override fun onDraw(canvas: Canvas) {
+        // The framework path is essential on hardware-accelerated phones; the
+        // explicit draw also protects the rendered-pixel regression on Robolectric.
+        super.onDraw(canvas)
         val label = text.toString()
         if (label.isEmpty()) return
         headingPaint.color = currentTextColor

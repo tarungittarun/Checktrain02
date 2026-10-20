@@ -13,6 +13,11 @@ class R140PresentationTest {
         assertEquals(null, RouteClockUi.dayMarker(1500, 1450))
         assertEquals("day3", RouteClockUi.dayMarker(2880, 2879))
         assertEquals(null, RouteClockUi.dayMarker(60, null))
+        assertEquals("day2", RouteClockUi.departureDay(1500, 1430))
+        assertEquals("day2", RouteClockUi.departureDay(1570, 1560)) // every Day 2 station
+        assertEquals("day3", RouteClockUi.departureDay(3000, 2870))
+        assertEquals("day3", RouteClockUi.departureDay(null, 3005)) // final arrival
+        assertEquals(null, RouteClockUi.departureDay(530, null))
         assertEquals("—", RouteClockUi.clock(null))
     }
 

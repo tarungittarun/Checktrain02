@@ -46,7 +46,9 @@ class ConnectionIssueCue(private val card: View, private val alert: TextView) {
         stopMotion()
         reason = null
         alert.text = ""
-        alert.visibility = View.GONE
+        // The warning slot is measured even when hidden: a failed check cannot
+        // stretch the summary or push the route while explaining what happened.
+        alert.visibility = View.INVISIBLE
         card.setBackgroundResource(R.drawable.bg_summary_card)
     }
 

@@ -40,6 +40,7 @@ class InlineRouteRenderTest {
                 null, null, 1230, 1231, 0, 235, true)), emptyList())
         val expanded = halts.copy(stops = listOf(halts.stops[0]) + map + halts.stops[1])
         adapter.setRoutePoints(mapOf("RRB" to map))
+        adapter.mappedAnchorKm = mapOf("RRB" to 211, "TKE" to 235)
         adapter.setProjectedLeg(RouteBetween.departureCueLeg(halts, expanded, "RRB", true))
         adapter.websiteTentativeDeparture = "RRB" to 1221
         adapter.submitList(listOf(birur, tarikere))
@@ -50,7 +51,7 @@ class InlineRouteRenderTest {
         assertEquals(View.GONE, holder.trainMarker.visibility)
         assertEquals(View.VISIBLE, holder.dot.visibility)
         assertTrue(holder.inlineLeg.showTrain)
-        assertTrue(holder.inlineLegCaption.text.toString().contains("Between Birur Jn and Sivapur"))
+        assertTrue(holder.inlineLegCaption.text.toString().contains("4 km route gap to Sivapur"))
         assertEquals(View.VISIBLE, holder.inlineLegCaption.visibility)
         assertFalse(holder.inlineLeg.contentDescription.contains("percent of scheduled leg"))
         holder.inlineLegGroup.performClick()
@@ -94,7 +95,7 @@ class InlineRouteRenderTest {
         assertEquals(View.GONE, holder.trainMarker.visibility)
         assertEquals(View.VISIBLE, holder.dot.visibility)
         assertTrue(holder.inlineLeg.showTrain)
-        assertTrue(holder.inlineLegCaption.text.toString().contains("Between Birur Jn and Tarikere Jn"))
+        assertTrue(holder.inlineLegCaption.text.toString().contains("24 km route gap to Tarikere Jn"))
         assertFalse(holder.inlineLeg.contentDescription.contains("percent of scheduled leg"))
         holder.inlineLeg.measure(View.MeasureSpec.makeMeasureSpec(360, View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
@@ -103,7 +104,7 @@ class InlineRouteRenderTest {
             holder.inlineLeg.trainCenter()!!.second > 24 * ctx.resources.displayMetrics.density)
         adapter.legAgeSeconds = SourceFreshness.STALE_AFTER_MS / 1_000L
         adapter.onBindViewHolder(holder, 0)
-        assertTrue(holder.inlineLegCaption.text.toString().contains("current segment unknown"))
+        assertTrue(holder.inlineLegCaption.text.toString().contains("Last stop reported"))
         assertFalse(holder.inlineLegCaption.text.toString().contains("Between"))
     }
 

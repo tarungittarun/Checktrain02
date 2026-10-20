@@ -12,6 +12,8 @@ object RailGeoRoute {
     private val keys = listOf("STN", "STN_CODE", "stationCode", "station_code", "stnCode",
         "stn", "SC", "code", "station", "station_code_en")
     private val codePattern = Regex("[A-Z0-9]{1,6}")
+    private val nameKeys = listOf("STN_NAME", "STATION_NAME", "stationName", "station_name",
+        "stnName", "name")
 
     fun parse(body: String, official: TrainRoute, nameOf: (String) -> String? = { null }): TrainRoute? {
         val array = runCatching {
@@ -36,8 +38,13 @@ object RailGeoRoute {
         }
         val byCode = official.stops.associateBy { it.code.uppercase() }
         return official.copy(stops = codes.mapIndexed { i, code ->
+            val row = array.optJSONObject(i) ?: return null
+            val providerName = nameKeys.asSequence().map { row.optString(it).trim() }
+                .firstOrNull { it.length in 2..80 && it.none { char -> char == '<' ||
+                    char == '>' || java.lang.Character.isISOControl(char) } }
             byCode[code]?.copy(seq = i + 1) ?: StopRow(
-                seq = i + 1, code = code, name = nameOf(code)?.takeIf { it.isNotBlank() } ?: code,
+                seq = i + 1, code = code, name = nameOf(code)?.takeIf { it.isNotBlank() }
+                    ?: providerName ?: code,
                 state = null, lat = null, lon = null, arrivalMin = null, departureMin = null,
                 journeyDay = 0, schedKm = -1, isHalt = false,
             )

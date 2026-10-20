@@ -31,6 +31,16 @@ class RailGeoRouteTest {
         assertEquals(0, route.segments.size)
     }
 
+    @Test fun namedPassingPointFromOrderedRouteIsNotDroppedWhenOfflineStationDictionaryLacksIt() {
+        val json = """[{"STN":"AAA"},{"STN":"YBP","stationName":"Yesvantpur Bypass Running Line"},
+            {"STN":"BBB"},{"STN":"Q"},{"STN":"CCC"}]"""
+        val route = RailGeoRoute.parse(json, base)!!
+        assertEquals("Yesvantpur Bypass Running Line", route.stops[1].name)
+        assertEquals(-1, route.stops[1].schedKm) // a name does not invent kilometres
+        assertNull(route.stops[1].arrivalMin)
+        assertFalse(route.stops[1].isHalt)
+    }
+
     @Test fun mismatchedEndpointsDuplicatesAndOfficialHaltReorderingAreRefused() {
         assertNull(RailGeoRoute.parse("""[{"STN":"AAA"},{"STN":"CCC"},{"STN":"BBB"},
             {"STN":"Q"},{"STN":"CCC"}]""", base))

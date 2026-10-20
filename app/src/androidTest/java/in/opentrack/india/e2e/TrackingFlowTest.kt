@@ -140,6 +140,8 @@ class TrackingFlowTest {
             assertTrue("response flash resized the summary: $card -> $during",
                 kotlin.math.abs(card.height() - during.height()) <= 8)
         }
+        assertTrue("persistent receipt still pushes the route down",
+            E2E.find("refreshFeedback", 250) == null)
         assertTrue("no route after refresh", E2E.count(stopsBy) > 0)
         assertTrue("collapse handle missing", E2E.tap("heroToggle"))
         assertTrue("collapse did not hide headline",
@@ -529,18 +531,19 @@ class TrackingFlowTest {
             E2E.find("autoSwitch")?.isChecked == true)
         try {
             // The minute tick starts a selected-source request; a slow network
-            // may still be answering at second 80. Also, a layout update can put
-            // the new receipt outside UiAutomator's visible accessibility tree.
-            // Keep revealing the receipt inside the card while allowing one
-            // bounded 50-second response window *after* the one-minute tick.
+            // may still be answering at second 80. Its detailed receipt is in
+            // the provenance's accessible description, NOT a persistent row below
+            // the card (that row used to push the entire timetable down).
             val deadline = System.currentTimeMillis() + 110_000L
             var receipt = ""
             while (System.currentTimeMillis() < deadline && !receipt.startsWith("Checked ")) {
-                if (E2E.reveal("refreshFeedback", "scroller", swipes = 2))
-                    receipt = E2E.text("refreshFeedback", 300)
+                E2E.reveal("provenance", "scroller", swipes = 2, up = false)
+                val accessible = E2E.find("provenance", 300)?.contentDescription.orEmpty()
+                receipt = Regex("""Checked \d{2}:\d{2}:\d{2} · [^.]+""")
+                    .find(accessible)?.value.orEmpty()
                 if (!receipt.startsWith("Checked ")) Thread.sleep(700)
             }
-            if (receipt.isBlank()) E2E.shot("auto-minute-no-visible-receipt")
+            if (receipt.isBlank()) E2E.shot("auto-minute-no-accessible-receipt")
             assertTrue("no refresh receipt after a minute plus bounded source reply", receipt.isNotBlank())
             assertTrue("auto refresh must show check clock and named source: $receipt",
                 Regex("^Checked \\d{2}:\\d{2}:\\d{2} · ").containsMatchIn(receipt) &&
