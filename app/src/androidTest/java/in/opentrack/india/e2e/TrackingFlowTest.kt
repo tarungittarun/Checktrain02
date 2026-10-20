@@ -51,15 +51,22 @@ class TrackingFlowTest {
         return fits
     }
 
-    private fun cardGeometry(): Pair<Int, Int> {
-        var result: Pair<Int, Int>? = null
+    private data class CardGeometry(val height: Int, val specified: Int,
+                                    val detailHeight: Int, val detailSpecified: Int,
+                                    val scrollY: Int)
+
+    private fun cardGeometry(): CardGeometry {
+        var result: CardGeometry? = null
         InstrumentationRegistry.getInstrumentation().runOnMainSync {
             val activity = ActivityLifecycleMonitorRegistry.getInstance()
                 .getActivitiesInStage(Stage.RESUMED)
                 .first { it.packageName == E2E.PKG &&
                     it.findViewById<View>(R.id.trackingSummaryCard) != null }
-            result = activity.findViewById<View>(R.id.trackingSummaryCard).height to
-                activity.findViewById<View>(R.id.scroller).scrollY
+            val card = activity.findViewById<View>(R.id.trackingSummaryCard)
+            val detail = activity.findViewById<View>(R.id.heroDetailsScroll)
+            result = CardGeometry(card.height, card.layoutParams.height,
+                detail.height, detail.layoutParams.height,
+                activity.findViewById<View>(R.id.scroller).scrollY)
         }
         return requireNotNull(result) { "tracking Activity did not expose a laid-out summary" }
     }
@@ -186,9 +193,9 @@ class TrackingFlowTest {
         assertTrue("refresh did not finish", !E2E.visible("checkingBar", 250))
         val afterRefresh = cardGeometry()
         assertTrue("refresh resized summary: $card -> $afterRefresh",
-            kotlin.math.abs(card.first - afterRefresh.first) <= 8)
+            kotlin.math.abs(card.height - afterRefresh.height) <= 8)
         assertTrue("refresh shifted the summary viewport: $card -> $afterRefresh",
-            kotlin.math.abs(card.second - afterRefresh.second) <= 8)
+            kotlin.math.abs(card.scrollY - afterRefresh.scrollY) <= 8)
         assertTrue("Refresh clipped the source chooser at the bottom of the card",
             summaryFooterFits())
         assertTrue("refresh overlaid the readable text with a response score",
@@ -203,25 +210,25 @@ class TrackingFlowTest {
         assertTrue("More label not visible", E2E.text("heroToggle").contains("More"))
         val shrinkDeadline = System.currentTimeMillis() + E2E.LOCAL_MS
         var compact = cardGeometry()
-        while (compact.first + 30 >= afterRefresh.first &&
+        while (compact.height + 30 >= afterRefresh.height &&
             System.currentTimeMillis() < shrinkDeadline) {
             Thread.sleep(100)
             compact = cardGeometry()
         }
         assertTrue("Less left an empty fixed-height card: $afterRefresh -> $compact",
-            compact.first + 30 < afterRefresh.first)
+            compact.height + 30 < afterRefresh.height)
         assertTrue("expand handle missing", E2E.tap("heroToggle"))
         assertNotNull("expanded headline missing", E2E.find("headline"))
         assertTrue("Less label not visible", E2E.text("heroToggle").contains("Less"))
         val growDeadline = System.currentTimeMillis() + E2E.LOCAL_MS
         var restored = cardGeometry()
-        while (restored.first < compact.first + 30 &&
+        while (restored.height < compact.height + 30 &&
             System.currentTimeMillis() < growDeadline) {
             Thread.sleep(100)
             restored = cardGeometry()
         }
         assertTrue("More did not restore the evidence height: $compact -> $restored",
-            restored.first >= compact.first + 30)
+            restored.height >= compact.height + 30)
         assertTrue("More squeezed the source dropdown and Auto switch", summaryFooterFits())
         E2E.shot("summary-stable-refresh")
     }
@@ -498,6 +505,8 @@ class TrackingFlowTest {
         while (System.currentTimeMillis() < deadline && !identified) {
             val badge = E2E.text("provenance", 300)
             val headline = E2E.text("headline", 300)
+            if (E2E.text("sourceSpinner", 300).isBlank())
+                E2E.reveal("sourceSpinner", "scroller", swipes = 3)
             val chooser = E2E.text("sourceSpinner", 300)
             // On API 24 the nested evidence viewport can hide the badge after
             // scrolling. The selected chooser still visibly names the website;
@@ -516,6 +525,8 @@ class TrackingFlowTest {
         }
         if (!identified) E2E.shot("org-website-missing-identity")
         assertTrue("selected site must be visibly website-attributed: badge='${E2E.text("provenance")}'; " +
+            "chooser='${E2E.text("sourceSpinner")}' " +
+            "warning='${E2E.text("connectionAlert")}' " +
             "headline='${E2E.text("headline")}'", identified)
         assertTrue("website selection removed the station table", E2E.count(stopsBy) > 0)
         val sheetVisible = revealTimeSheet()
