@@ -162,6 +162,14 @@ class TrackingFlowTest {
     // @flow summary-stability
     @Test
     fun refreshReceiptOverlaysWithoutMovingTheRouteAndCollapseAnimates() {
+        // Timetable paint precedes the first live response. Do not mistake its
+        // natural growth for a manual Refresh resizing a settled summary.
+        val firstDeadline = System.currentTimeMillis() + E2E.NETWORK_MS
+        while (System.currentTimeMillis() < firstDeadline && E2E.visible("checkingBar", 250)) {
+            Thread.sleep(200)
+        }
+        assertTrue("initial check still busy; cannot measure manual refresh",
+            !E2E.visible("checkingBar", 250))
         val card = cardGeometry()
         assertEquals("ACTUAL", E2E.text("routeHeadActual"))
         val header = E2E.find("routeColumnHeader")!!.visibleBounds
@@ -490,15 +498,20 @@ class TrackingFlowTest {
         while (System.currentTimeMillis() < deadline && !identified) {
             val badge = E2E.text("provenance", 300)
             val headline = E2E.text("headline", 300)
-            identified = badge.contains("WEB", true) &&
+            val warning = E2E.text("connectionAlert", 300)
+            val chooser = E2E.text("sourceSpinner", 300)
+            // A failed site request replaces the badge with a transport warning;
+            // in that state the selected website must remain named in the chooser.
+            val siteVisible = badge.contains("WEB", true) ||
+                (warning.isNotBlank() && chooser.contains("WIMT", true) &&
+                    chooser.contains("website", true))
+            identified = siteVisible &&
                 ((headline.startsWith("Recently reported at ") ||
                     headline.startsWith("Recently reported near ")) && badge.contains("run inferred") ||
                     headline.contains("no qualifying past-stop report") ||
-                    // Before a scheduled origin departure, no website past-card
-                    // event may be assigned to this run. The new first-glance
-                    // notice must remain website-attributed and timetable-only.
+                    // A future origin with no site past card is timetable-only.
                     (headline.startsWith("Journey not started yet by timetable") &&
-                        badge.contains("comparison only", true)))
+                        (badge.contains("comparison only", true) || warning.isNotBlank())))
             if (!identified) Thread.sleep(200)
         }
         if (!identified) E2E.shot("org-website-missing-identity")
@@ -522,7 +535,9 @@ class TrackingFlowTest {
             assertTrue("website reported a past stop but none reached its table rail: $live",
                 live.any { it != "—" && it.isNotBlank() } || inlineClaim)
             assertTrue("website provenance must stay in summary after removing repeated row labels",
-                E2E.text("provenance").contains("WEBSITE") &&
+                (E2E.text("provenance").contains("WEBSITE") ||
+                    E2E.text("connectionAlert").isNotBlank() &&
+                    E2E.text("sourceSpinner").contains("WIMT")) &&
                     rowTexts("stopTimeType").none { it == "WEB" || it == "WEB?" })
             assertTrue("website cells lost source attribution: $spoken",
                 spoken.any { it.startsWith("Website claim arrival") } || inlineClaim)
@@ -601,13 +616,13 @@ class TrackingFlowTest {
         try {
             // The minute tick starts a selected-source request; a slow network
             // may still be answering at second 80. Its detailed receipt is in
-            // the provenance's accessible description, NOT a persistent row below
-            // the card (that row used to push the entire timetable down).
+            // the More/Less control's accessible description, NOT a persistent
+            // row below the card (a warning may cover the provenance badge).
             val deadline = System.currentTimeMillis() + 110_000L
             var receipt = ""
             while (System.currentTimeMillis() < deadline && !receipt.startsWith("Checked ")) {
-                E2E.reveal("provenance", "scroller", swipes = 2, up = false)
-                val accessible = E2E.find("provenance", 300)?.contentDescription.orEmpty()
+                E2E.reveal("heroToggle", "scroller", swipes = 2, up = false)
+                val accessible = E2E.find("heroToggle", 300)?.contentDescription.orEmpty()
                 receipt = Regex("""Checked \d{2}:\d{2}:\d{2} · [^.]+""")
                     .find(accessible)?.value.orEmpty()
                 if (!receipt.startsWith("Checked ")) Thread.sleep(700)
