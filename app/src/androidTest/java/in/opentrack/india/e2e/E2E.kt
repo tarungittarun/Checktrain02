@@ -69,10 +69,11 @@ object E2E {
     fun swipeIn(container: String, up: Boolean = true): Boolean {
         val bounds = find(container, 500)?.visibleBounds ?: return false
         if (bounds.width() < 50 || bounds.height() < 90) return false
-        // The search card nests a suggestion-list ScrollView. A centre swipe lands
-        // inside that child and scrolls only its rows; use the outer card's right
-        // gutter so the entire form moves (including an off-screen second field).
-        val x = if (container == "searchCardScroll") bounds.right - 8 else bounds.centerX()
+        // The search card nests suggestions and the tracking summary nests its
+        // evidence viewport. A centre swipe can scroll only the child; use the
+        // outer viewport's right gutter to reach off-screen form/route controls.
+        val x = if (container == "searchCardScroll" || container == "scroller")
+            bounds.right - 8 else bounds.centerX()
         val top = bounds.top + bounds.height() / 5
         val bottom = bounds.bottom - bounds.height() / 5
         ui.swipe(x, if (up) bottom else top, x, if (up) top else bottom, 28)

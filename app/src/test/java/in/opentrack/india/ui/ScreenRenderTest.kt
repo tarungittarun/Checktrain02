@@ -237,6 +237,11 @@ class ScreenRenderTest {
         assertTrue("a warning must share rather than follow the evidence row",
             shot.root.findViewById<View>(R.id.connectionAlert).parent ===
                 shot.root.findViewById<View>(R.id.heroEvidenceSlot))
+        assertTrue("expanding source text must scroll without clipping source/Auto controls",
+            shot.root.findViewById<View>(R.id.heroEvidenceSlot).parent is android.widget.LinearLayout &&
+                shot.root.findViewById<View>(R.id.heroDetailsScroll) is android.widget.ScrollView &&
+                shot.root.findViewById<View>(R.id.sourceSpinner).parent !==
+                shot.root.findViewById<View>(R.id.heroDetailsScroll))
         val wasted = summary.height - summary.getChildAt(0).height
         assertTrue("summary reserved $wasted px of blank space before the route",
             wasted <= (16 * shot.context.resources.displayMetrics.density).toInt())

@@ -187,6 +187,20 @@
                         android:textColor="@color/text1" />
                 </LinearLayout>
 
+                <!-- The evidence/wording may grow after Refresh. Once a user chooses
+                     the card size, this inner viewport scrolls any longer answer;
+                     delay, source chooser and Auto remain pinned and never clip. -->
+                <ScrollView
+                    android:id="@+id/heroDetailsScroll"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:scrollbars="none"
+                    android:fillViewport="false">
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical">
+
                 <!-- Share the evidence row with a transport warning instead of reserving
                      36dp of blank space above every report. In compact mode the
                      header itself warns of a failed check without growing the card. -->
@@ -266,6 +280,19 @@
                     android:layout_marginTop="4dp"
                     android:textColor="@color/warn"
                     android:visibility="gone" />
+
+                <TextView
+                    android:id="@+id/note"
+                    style="@style/TextMicro"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:background="@drawable/bg_badge_schedule"
+                    android:padding="8dp"
+                    android:textColor="@color/warn"
+                    android:visibility="gone" />
+                    </LinearLayout>
+                </ScrollView>
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -380,16 +407,6 @@
                     android:layout_marginTop="4dp"
                     android:visibility="gone" />
 
-                <TextView
-                    android:id="@+id/note"
-                    style="@style/TextMicro"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
-                    android:background="@drawable/bg_badge_schedule"
-                    android:padding="8dp"
-                    android:textColor="@color/warn"
-                    android:visibility="gone" />
             </LinearLayout>
 
 

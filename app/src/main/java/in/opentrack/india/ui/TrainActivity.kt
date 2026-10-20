@@ -124,6 +124,13 @@ class TrainActivity : AppCompatActivity() {
     private fun freezeSummaryHeight() {
         if (expansionAnimating) return
         val card = binding.trackingSummaryCard
+        val details = binding.heroDetailsScroll
+        // Pin the *text viewport*, not merely the parent. A longer source note
+        // now scrolls inside this region instead of shoving the source/Auto row
+        // below a card whose height was already locked before the request.
+        if (heroExpanded && details.height > 0 && details.layoutParams.height != details.height) {
+            details.layoutParams = details.layoutParams.apply { height = details.height }
+        }
         if (card.height > 0 && card.layoutParams.height != card.height) {
             card.layoutParams = card.layoutParams.apply { height = card.height }
         }
@@ -135,9 +142,7 @@ class TrainActivity : AppCompatActivity() {
             "Collapse journey card to delay, next stop and source" else "Expand journey card"
         binding.heroEyebrow.visibility = if (heroExpanded || connectionCue.reason != null)
             View.VISIBLE else View.INVISIBLE
-        binding.heroEvidenceSlot.visibility = if (heroExpanded) View.VISIBLE else View.GONE
-        binding.headline.visibility = if (heroExpanded) View.VISIBLE else View.GONE
-        binding.heroEvidence.visibility = if (heroExpanded) View.VISIBLE else View.GONE
+        binding.heroDetailsScroll.visibility = if (heroExpanded) View.VISIBLE else View.GONE
         binding.sourceSummary.visibility = if (heroExpanded && sourceSummaryWanted) View.VISIBLE else View.GONE
         binding.note.visibility = if (heroExpanded &&
             (lastUi?.model?.note != null || errorText != null)) View.VISIBLE else View.GONE
@@ -164,7 +169,11 @@ class TrainActivity : AppCompatActivity() {
             expansionAnimator?.cancel()
             expansionAnimating = true
             val card = binding.trackingSummaryCard
+            val details = binding.heroDetailsScroll
             val from = card.height
+            details.layoutParams = details.layoutParams.apply {
+                height = android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+            }
             card.layoutParams = card.layoutParams.apply {
                 height = android.view.ViewGroup.LayoutParams.WRAP_CONTENT
             }
@@ -178,7 +187,10 @@ class TrainActivity : AppCompatActivity() {
                 override fun onPreDraw(): Boolean {
                     if (observer.isAlive) observer.removeOnPreDrawListener(this)
                     val to = card.height
+                    val detailsHeight = details.height
                     card.layoutParams = card.layoutParams.apply { height = from }
+                    if (heroExpanded && detailsHeight > 0) details.layoutParams =
+                        details.layoutParams.apply { height = detailsHeight }
                     if (from == to) {
                         expansionAnimating = false
                         card.layoutParams = card.layoutParams.apply { height = to }
