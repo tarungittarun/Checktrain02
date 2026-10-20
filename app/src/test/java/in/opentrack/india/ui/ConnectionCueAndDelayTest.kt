@@ -63,7 +63,7 @@ class ConnectionCueAndDelayTest {
         assertEquals(1f, card.alpha, .001f)
         assertEquals(0f, card.translationX, .001f)
         cue.clear()
-        assertEquals(View.GONE, label.visibility)
+        assertEquals(View.INVISIBLE, label.visibility) // reserved warning slot never resizes card
         assertEquals(null, cue.reason)
     }
 }

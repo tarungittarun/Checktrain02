@@ -128,7 +128,7 @@ class InlineRouteRenderTest {
         assertEquals("WEB attribution stays in badge/accessibility, not repeated beside clocks",
             View.GONE, holder.timeType.visibility)
         assertEquals(View.VISIBLE, holder.trainMarker.visibility)
-        assertEquals("At Yesvantpur Jn · 11:26",
+        assertEquals("At Yesvantpur Jn · as on 11:26",
             holder.eventCaption.text.toString())
         adapter.haltMarker = null
         // AsyncListDiffer's null-list removal is synchronous; emptyList() is not.
@@ -155,10 +155,12 @@ class InlineRouteRenderTest {
         adapter.haltMarker = TableMarker.Halt("DRU", "Last reported stop", false)
         adapter.setRoutePoints(mapOf("DRU" to listOf(StopRow(3, "MID", "Intermediate",
             null, null, null, 526, null, 0, 185, false))))
+        adapter.mappedAnchorKm = mapOf("DRU" to 167, "ASK" to 206)
         val holder = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
         adapter.onBindViewHolder(holder, 0)
         assertEquals(View.VISIBLE, holder.trainMarker.visibility)
-        assertEquals("At Kadur · 08:44\n18 km → Intermediate · static", holder.eventCaption.text.toString())
+        assertEquals("At Kadur · as on 08:44\n18 km route gap to Intermediate",
+            holder.eventCaption.text.toString())
         holder.inlineLegGroup.performClick()
         adapter.onBindViewHolder(holder, 0)
         assertEquals(View.GONE, holder.eventCaption.visibility)
@@ -175,7 +177,8 @@ class InlineRouteRenderTest {
         adapter.submitList(null)
         adapter.submitList(listOf(main.copy(source = TrackModel.MinuteSource.SITE_REPORTED), next))
         adapter.onBindViewHolder(holder, 0)
-        assertEquals("At Kadur · 08:44\n18 km → Intermediate · static", holder.eventCaption.text.toString())
+        assertEquals("At Kadur · as on 08:44\n18 km route gap to Intermediate",
+            holder.eventCaption.text.toString())
         assertEquals("", holder.timeType.text.toString())
         assertEquals("WEB attribution stays in badge/accessibility, not repeated beside clocks",
             View.GONE, holder.timeType.visibility)
@@ -642,6 +645,7 @@ class InlineRouteRenderTest {
                 null, null, 0, 367, false),
             StopRow(3, "ABC", "Another station", null, null, null,
                 null, null, 0, 370, false))))
+        adapter.mappedAnchorKm = mapOf("YPR" to 366, "AAA" to 372)
         val from = TrackModel.Stop(1, "YPR", "Yesvantpur Jn", 670, 672,
             670, 672, null, TrackModel.MinuteSource.REPORTED, null,
             TrackModel.State.PASSED, true, 366, 0, 6, true, true, false, -20)
