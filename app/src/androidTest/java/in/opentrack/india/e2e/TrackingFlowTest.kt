@@ -502,13 +502,14 @@ class TrackingFlowTest {
         // network error still must be honestly named; it cannot pass as a live Act.
         val deadline = System.currentTimeMillis() + E2E.NETWORK_MS
         var identified = false
+        var warning = ""
         while (System.currentTimeMillis() < deadline && !identified) {
             val badge = E2E.text("provenance", 300)
             val headline = E2E.text("headline", 300)
             if (E2E.text("sourceSpinner", 300).isBlank())
                 E2E.reveal("sourceSpinner", "scroller", swipes = 3)
             val chooser = E2E.text("sourceSpinner", 300)
-            val warning = E2E.text("connectionAlert", 300)
+            warning = E2E.text("connectionAlert", 300)
             // On API 24 the nested evidence viewport can hide the badge after
             // scrolling. The selected chooser still visibly names the website;
             // this asserts source identity, not that it supplied a past card.
