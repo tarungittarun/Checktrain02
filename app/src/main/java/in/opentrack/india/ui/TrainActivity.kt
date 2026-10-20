@@ -109,6 +109,7 @@ class TrainActivity : AppCompatActivity() {
     private var sourceSelectionTouchedAt = 0L
     private var lastUi: LiveViewModel.Ui? = null
     private var lastScreenLoadKey: Pair<String?, Long?>? = null
+    private var completedReceipt: String? = null
     private var lastFlashErrorKey: String? = null
     private var pendingAutoRefresh = false
     private var chainBusy = false
@@ -451,6 +452,7 @@ class TrainActivity : AppCompatActivity() {
         refreshStartedAt = SystemClock.elapsedRealtime()
         requestedRefreshSource = lastUi?.activeSource ?: "NTES (official)"
         previousRefreshEvent = eventKey(lastUi, requestedRefreshSource)
+        completedReceipt = null
         binding.stops.post { pulseAtVisibleTrain() }
         vm.refresh(manual = true, auto = auto)
     }
@@ -999,6 +1001,7 @@ class TrainActivity : AppCompatActivity() {
         }
 
         bindSource(ui)
+        attachCompletedReceipt()
 
         // The frontend captures itself (the owner's ask, 2026-10-12): what this screen shows goes
         // into the diary as elements, and the window photographs itself to the app's own private
@@ -1199,12 +1202,20 @@ class TrainActivity : AppCompatActivity() {
         )
         val receipt = RefreshReceiptUi.short(source, checked, change, detail, cachedResponse)
         Diary.get()?.log("REFRESH") { detail }
-        val spoken = receipt + ". " + detail
+        completedReceipt = receipt + ". " + detail
+        attachCompletedReceipt()
+    }
+
+    private fun attachCompletedReceipt() {
+        val spoken = completedReceipt ?: return
         binding.provenance.contentDescription = binding.provenance.text.toString() + ". " + spoken
-        // On a failed check the warning occupies the evidence slot and hides
-        // the provenance badge. The source chooser remains visible in More AND
-        // Less, so the full receipt must also be reachable there.
+        // renderSourceChips resets the Spinner description on every UI emission.
+        // A late offline fallback can otherwise erase the just-completed receipt.
         binding.sourceSpinner.contentDescription = "Choose tracking source. " + spoken
+        // The toggle stays reachable when a warning covers provenance, even on
+        // devices where a Spinner exposes only its selected child's description.
+        val action = if (heroExpanded) "Collapse journey card" else "Expand journey card"
+        binding.heroToggle.contentDescription = "$action. $spoken"
     }
 
     private fun showConnectionError(reason: String, source: String) {
