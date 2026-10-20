@@ -16,6 +16,7 @@ import android.widget.TextView
 import android.widget.ArrayAdapter
 import android.widget.Toast
 import android.view.View
+import android.view.ViewTreeObserver
 import android.view.MotionEvent
 import android.view.ViewConfiguration
 import `in`.opentrack.india.domain.RouteBetween
@@ -165,32 +166,41 @@ class TrainActivity : AppCompatActivity() {
             }
             heroExpanded = !heroExpanded
             applyHeroExpansion()
-            card.measure(View.MeasureSpec.makeMeasureSpec(card.width, View.MeasureSpec.EXACTLY),
-                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
-            val to = card.measuredHeight
-            card.layoutParams = card.layoutParams.apply { height = from }
-            if (from == to) {
-                expansionAnimating = false
-                card.layoutParams = card.layoutParams.apply { height = to }
-            } else {
-                expansionAnimator = ValueAnimator.ofInt(from, to).apply {
-                    duration = 240L
-                    addUpdateListener { animator ->
-                        card.layoutParams = card.layoutParams.apply {
-                            height = animator.animatedValue as Int
+            // A detached measure with UNSPECIFIED height reused the old fixed
+            // bounds on large-font phones. Let the *attached* ScrollView measure
+            // the new contents first, then animate toward that real layout height.
+            val observer = card.viewTreeObserver
+            observer.addOnPreDrawListener(object : ViewTreeObserver.OnPreDrawListener {
+                override fun onPreDraw(): Boolean {
+                    if (observer.isAlive) observer.removeOnPreDrawListener(this)
+                    val to = card.height
+                    card.layoutParams = card.layoutParams.apply { height = from }
+                    if (from == to) {
+                        expansionAnimating = false
+                        card.layoutParams = card.layoutParams.apply { height = to }
+                    } else {
+                        expansionAnimator = ValueAnimator.ofInt(from, to).apply {
+                            duration = 240L
+                            addUpdateListener { animator ->
+                                card.layoutParams = card.layoutParams.apply {
+                                    height = animator.animatedValue as Int
+                                }
+                            }
+                            addListener(object : AnimatorListenerAdapter() {
+                                override fun onAnimationEnd(animation: Animator) {
+                                    if (expansionAnimator !== animation) return
+                                    card.layoutParams = card.layoutParams.apply { height = to }
+                                    expansionAnimating = false
+                                    expansionAnimator = null
+                                }
+                            })
+                            start()
                         }
                     }
-                    addListener(object : AnimatorListenerAdapter() {
-                        override fun onAnimationEnd(animation: Animator) {
-                            if (expansionAnimator !== animation) return
-                            card.layoutParams = card.layoutParams.apply { height = to }
-                            expansionAnimating = false
-                            expansionAnimator = null
-                        }
-                    })
-                    start()
+                    // Do not show a one-frame jump to the target before animation.
+                    return false
                 }
-            }
+            })
         }
         applyHeroExpansion()
 

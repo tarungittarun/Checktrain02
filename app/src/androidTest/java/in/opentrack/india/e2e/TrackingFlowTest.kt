@@ -150,15 +150,25 @@ class TrackingFlowTest {
             E2E.ui.wait(Until.gone(By.res(E2E.PKG, "headline")), E2E.LOCAL_MS))
         assertNotNull("collapsed card lost source", E2E.find("sourceSpinner"))
         assertTrue("More label not visible", E2E.text("heroToggle").contains("More"))
-        Thread.sleep(350) // wait for the 240 ms measured-height animation
-        val compact = E2E.find("trackingSummaryCard")!!.visibleBounds
+        val shrinkDeadline = System.currentTimeMillis() + E2E.LOCAL_MS
+        var compact = E2E.find("trackingSummaryCard")!!.visibleBounds
+        while (compact.height() + 30 >= afterRefresh.height() &&
+            System.currentTimeMillis() < shrinkDeadline) {
+            Thread.sleep(100)
+            compact = E2E.find("trackingSummaryCard")!!.visibleBounds
+        }
         assertTrue("Less left an empty fixed-height card: $afterRefresh -> $compact",
             compact.height() + 30 < afterRefresh.height())
         assertTrue("expand handle missing", E2E.tap("heroToggle"))
         assertNotNull("expanded headline missing", E2E.find("headline"))
         assertTrue("Less label not visible", E2E.text("heroToggle").contains("Less"))
-        Thread.sleep(350)
-        val restored = E2E.find("trackingSummaryCard")!!.visibleBounds
+        val growDeadline = System.currentTimeMillis() + E2E.LOCAL_MS
+        var restored = E2E.find("trackingSummaryCard")!!.visibleBounds
+        while (restored.height() < compact.height() + 30 &&
+            System.currentTimeMillis() < growDeadline) {
+            Thread.sleep(100)
+            restored = E2E.find("trackingSummaryCard")!!.visibleBounds
+        }
         assertTrue("More did not restore the evidence height: $compact -> $restored",
             restored.height() >= compact.height() + 30)
         E2E.shot("summary-stable-refresh")
