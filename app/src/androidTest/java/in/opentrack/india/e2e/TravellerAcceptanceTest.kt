@@ -76,8 +76,8 @@ class TravellerAcceptanceTest {
         val until = System.currentTimeMillis() + E2E.NETWORK_MS
         var receipt = ""
         while (System.currentTimeMillis() < until) {
-            // Full timing and source receipt stays accessible on the badge;
-            // the sighted user sees only the refreshed report text, no score overlay.
+            // The three-line overlay lasts only two seconds. Its complete
+            // receipt stays accessible on the More/Less control afterward.
             E2E.reveal("heroToggle", "scroller", swipes = 3, up = false)
             // The warning can cover the badge, and Android's Spinner can expose
             // its selected child instead of its own description. The always-

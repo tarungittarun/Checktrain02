@@ -3,6 +3,17 @@ package `in`.opentrack.india.ui
 /** A one-line check receipt. Full evidence stays in TalkBack, Info and the diary.
  * Never use the page-check clock to redate a station event. */
 object RefreshReceiptUi {
+    data class Overlay(val took: String, val checked: String, val freshness: String)
+
+    /** Three transient rows, over the card rather than in its measured contents.
+     * The check clock never pretends to be a station event clock. */
+    fun overlay(source: String, checked: String, tookMillis: Long, age: String,
+                change: RefreshEvidence.Change, detail: String, cached: Boolean): Overlay = Overlay(
+        took = "Took ${java.lang.String.format(java.util.Locale.ROOT, "%.1f", tookMillis.coerceAtLeast(0) / 1000.0)} s",
+        checked = short(source, checked, change, detail, cached),
+        freshness = "Freshness · $age",
+    )
+
     fun short(source: String, checked: String, change: RefreshEvidence.Change,
               detail: String, cached: Boolean): String {
         val result = when {

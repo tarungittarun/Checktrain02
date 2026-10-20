@@ -5,6 +5,9 @@ import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry
 import androidx.test.runner.lifecycle.Stage
 import android.view.View
+import android.view.ViewTreeObserver
+import android.widget.TextView
+import java.util.concurrent.atomic.AtomicReference
 import `in`.opentrack.india.R
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiObject2
@@ -50,6 +53,9 @@ class TrackingFlowTest {
         }
         return fits
     }
+
+    private data class ReceiptPaint(val cardHeight: Int, val shellHeight: Int,
+                                    val took: String, val checked: String, val freshness: String)
 
     private data class CardGeometry(val height: Int, val specified: Int,
                                     val detailHeight: Int, val detailSpecified: Int,
@@ -185,12 +191,60 @@ class TrackingFlowTest {
         assertTrue("source card not expanded at start", E2E.find("headline") != null)
         assertTrue("initial source selector was clipped by a premature height lock",
             summaryFooterFits())
+        // Observe actual pre-draw frames rather than sampling after the receipt's
+        // two-second window has passed on a slow emulator/UIAutomator call.
+        val painted = AtomicReference<ReceiptPaint?>()
+        var drawObserver: ViewTreeObserver? = null
+        var drawListener: ViewTreeObserver.OnPreDrawListener? = null
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            val activity = ActivityLifecycleMonitorRegistry.getInstance()
+                .getActivitiesInStage(Stage.RESUMED).first { it.packageName == E2E.PKG &&
+                    it.findViewById<View>(R.id.summaryShell) != null }
+            val shell = activity.findViewById<View>(R.id.summaryShell)
+            val overlay = activity.findViewById<View>(R.id.refreshReceiptOverlay)
+            val cardView = activity.findViewById<View>(R.id.trackingSummaryCard)
+            val took = activity.findViewById<TextView>(R.id.receiptTook)
+            val checked = activity.findViewById<TextView>(R.id.receiptChecked)
+            val freshness = activity.findViewById<TextView>(R.id.receiptFreshness)
+            drawObserver = shell.viewTreeObserver
+            drawListener = ViewTreeObserver.OnPreDrawListener {
+                if (overlay.visibility == View.VISIBLE && painted.get() == null) {
+                    painted.set(ReceiptPaint(cardView.height, shell.height,
+                        took.text.toString(), checked.text.toString(), freshness.text.toString()))
+                }
+                true
+            }
+            drawObserver!!.addOnPreDrawListener(drawListener!!)
+        }
         assertTrue("Refresh control missing", E2E.tap("refresh"))
         val until = System.currentTimeMillis() + E2E.NETWORK_MS
         while (System.currentTimeMillis() < until && E2E.visible("checkingBar", 250)) {
             Thread.sleep(200)
         }
         assertTrue("refresh did not finish", !E2E.visible("checkingBar", 250))
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            if (drawObserver?.isAlive == true && drawListener != null)
+                drawObserver!!.removeOnPreDrawListener(drawListener!!)
+        }
+        val receiptPaint = painted.get()
+        assertNotNull("no three-line receipt ever painted on top of the summary", receiptPaint)
+        assertTrue("overlay changed shell geometry: $receiptPaint / $card",
+            kotlin.math.abs(receiptPaint!!.cardHeight - card.height) <= 8 &&
+                kotlin.math.abs(receiptPaint.shellHeight - card.height) <= 8)
+        assertTrue("overlay omitted Took/Checked/Freshness: $receiptPaint",
+            receiptPaint.took.startsWith("Took ") &&
+                receiptPaint.checked.startsWith("Checked ") &&
+                receiptPaint.freshness.startsWith("Freshness · "))
+        // It is a two-second flash, never a persistent receipt row.
+        Thread.sleep(2_300)
+        var receiptGone = false
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            val activity = ActivityLifecycleMonitorRegistry.getInstance()
+                .getActivitiesInStage(Stage.RESUMED).first { it.packageName == E2E.PKG &&
+                    it.findViewById<View>(R.id.refreshReceiptOverlay) != null }
+            receiptGone = activity.findViewById<View>(R.id.refreshReceiptOverlay).visibility == View.GONE
+        }
+        assertTrue("receipt covered summary longer than two seconds", receiptGone)
         val afterRefresh = cardGeometry()
         assertTrue("refresh resized summary: $card -> $afterRefresh",
             kotlin.math.abs(card.height - afterRefresh.height) <= 8)
@@ -198,7 +252,7 @@ class TrackingFlowTest {
             kotlin.math.abs(card.scrollY - afterRefresh.scrollY) <= 8)
         assertTrue("Refresh clipped the source chooser at the bottom of the card",
             summaryFooterFits())
-        assertTrue("refresh overlaid the readable text with a response score",
+        assertTrue("an obsolete persistent response-score widget returned",
             E2E.find("checkClock", 250) == null)
         assertTrue("persistent receipt still pushes the route down",
             E2E.find("refreshFeedback", 250) == null)

@@ -484,6 +484,34 @@ Render.save("02-track-live", shot.bitmap)
     }
 
     @Test
+    fun twoSecondReceiptFloatsOverCompactCardWithoutMeasuringTheRoute() {
+        fun paint(showReceipt: Boolean) = Render.render(R.layout.activity_train,
+            widthDp = 393f, heightDp = 785f, textScale = 1.15f) { root ->
+            root.findViewById<View>(R.id.heroDetailsScroll).visibility = View.GONE
+            root.findViewById<TextView>(R.id.heroToggle).text = "More  ▾"
+            if (showReceipt) {
+                root.findViewById<TextView>(R.id.receiptTook).text = "Took 1.2 s"
+                root.findViewById<TextView>(R.id.receiptChecked).text =
+                    "Checked 17:29:05 · website · no newer stop"
+                root.findViewById<TextView>(R.id.receiptFreshness).text =
+                    "Freshness · last website stop 2m ago · current position unknown"
+                root.findViewById<View>(R.id.refreshReceiptOverlay).visibility = View.VISIBLE
+            }
+        }
+        val baseline = paint(false)
+        val overlaid = paint(true)
+        assertEquals("receipt grew compact summary shell", baseline.bounds(R.id.summaryShell),
+            overlaid.bounds(R.id.summaryShell))
+        assertEquals("receipt moved the station headings", baseline.bounds(R.id.routeColumnHeader),
+            overlaid.bounds(R.id.routeColumnHeader))
+        assertEquals("overlay is not a sibling that pushes the table", overlaid.bounds(R.id.summaryShell),
+            overlaid.bounds(R.id.refreshReceiptOverlay))
+        assertTrue("missing three visible receipt lines",
+            listOf(R.id.receiptTook, R.id.receiptChecked, R.id.receiptFreshness)
+                .all { overlaid.bounds(it).height() > 0 })
+    }
+
+    @Test
     fun denseWebsiteFailureKeepsSourceNamedHeadlineAboveTheFold() {
         val shot = Render.render(R.layout.activity_train, widthDp = 393f,
             heightDp = 785f, textScale = 1.15f) { root ->

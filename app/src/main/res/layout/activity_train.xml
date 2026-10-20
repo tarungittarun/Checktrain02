@@ -143,7 +143,12 @@
             android:paddingLeft="@dimen/gap"
             android:paddingRight="@dimen/gap">
 
-            <!-- where it is -->
+            <!-- The two-second check receipt overlays the card; it is never a
+                 measured child of the card or an extra row above the route. -->
+            <FrameLayout
+                android:id="@+id/summaryShell"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
             <LinearLayout
                 android:id="@+id/trackingSummaryCard"
                 style="@style/Card"
@@ -409,6 +414,39 @@
 
             </LinearLayout>
 
+            <FrameLayout
+                android:id="@+id/refreshReceiptOverlay"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:elevation="8dp"
+                android:visibility="gone"
+                android:clickable="false"
+                android:focusable="false"
+                android:importantForAccessibility="noHideDescendants">
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="top"
+                    android:layout_margin="8dp"
+                    android:background="@drawable/bg_refresh_receipt"
+                    android:orientation="vertical"
+                    android:padding="12dp">
+                <TextView android:id="@+id/receiptTook"
+                    style="@style/TextBody"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:textColor="@color/summary_ink" android:textSize="16sp" />
+                <TextView android:id="@+id/receiptChecked"
+                    style="@style/TextBody"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="3dp"
+                    android:textColor="@color/summary_ink" android:textSize="16sp" />
+                <TextView android:id="@+id/receiptFreshness"
+                    style="@style/TextBody"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="3dp"
+                    android:textColor="@color/summary_ink" android:textSize="16sp" />
+            </LinearLayout>
+            </FrameLayout>
 
             <TextView
                 android:id="@+id/mirrorState"

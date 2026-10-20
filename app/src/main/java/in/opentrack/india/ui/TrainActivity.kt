@@ -110,6 +110,7 @@ class TrainActivity : AppCompatActivity() {
     private var lastUi: LiveViewModel.Ui? = null
     private var lastScreenLoadKey: Pair<String?, Long?>? = null
     private var completedReceipt: String? = null
+    private val hideRefreshOverlay = Runnable { binding.refreshReceiptOverlay.visibility = View.GONE }
     private var lastFlashErrorKey: String? = null
     private var pendingAutoRefresh = false
     private var chainBusy = false
@@ -121,6 +122,17 @@ class TrainActivity : AppCompatActivity() {
     private var summaryLockedHeight: Int? = null
     private var detailsLockedHeight: Int? = null
 
+    /** A long note from the first checked source must not reserve blank space
+     * forever after a shorter report is selected. Keep the source badge AND the
+     * headline in view, and scroll any extra explanation inside the card. */
+    private fun compactDetailsHeight(measuredHeight: Int): Int {
+        if (measuredHeight <= 0) return measuredHeight
+        val density = resources.displayMetrics.density
+        val leadingReport = binding.heroEvidenceSlot.height + binding.headline.height +
+            (8f * density).toInt()
+        return minOf(measuredHeight, maxOf((124f * density).toInt(), leadingReport))
+    }
+
     /** A refresh may replace labels, never remeasure this card.
      * More/Less is the only gesture allowed to change its measured height. */
     private fun freezeSummaryHeight() {
@@ -129,15 +141,17 @@ class TrainActivity : AppCompatActivity() {
         val details = binding.heroDetailsScroll
         // Store the chosen pixel heights. Never silently re-lock to a larger
         // height after a background source emission; only More/Less resets them.
-        val cardHeight = summaryLockedHeight ?: card.height.takeIf { it > 0 } ?: return
+        val measuredCard = card.height.takeIf { it > 0 } ?: return
+        val measuredDetails = details.height
+        val detailHeight = if (heroExpanded && measuredDetails > 0)
+            detailsLockedHeight ?: compactDetailsHeight(measuredDetails) else null
+        val cardHeight = summaryLockedHeight ?: (measuredCard -
+            (if (detailHeight != null) measuredDetails - detailHeight else 0))
         summaryLockedHeight = cardHeight
-        if (heroExpanded) {
-            val detailHeight = detailsLockedHeight ?: details.height.takeIf { it > 0 }
-            if (detailHeight != null) {
-                detailsLockedHeight = detailHeight
-                if (details.layoutParams.height != detailHeight)
-                    details.layoutParams = details.layoutParams.apply { height = detailHeight }
-            }
+        if (detailHeight != null) {
+            detailsLockedHeight = detailHeight
+            if (details.layoutParams.height != detailHeight)
+                details.layoutParams = details.layoutParams.apply { height = detailHeight }
         }
         if (card.layoutParams.height != cardHeight)
             card.layoutParams = card.layoutParams.apply { height = cardHeight }
@@ -152,7 +166,7 @@ class TrainActivity : AppCompatActivity() {
         binding.heroDetailsScroll.visibility = if (heroExpanded) View.VISIBLE else View.GONE
         binding.sourceSummary.visibility = if (heroExpanded && sourceSummaryWanted) View.VISIBLE else View.GONE
         binding.note.visibility = if (heroExpanded &&
-            (lastUi?.model?.note != null || errorText != null)) View.VISIBLE else View.GONE
+            (SummaryNoteUi.visible(lastUi?.model?.note) != null || errorText != null)) View.VISIBLE else View.GONE
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -195,8 +209,10 @@ class TrainActivity : AppCompatActivity() {
             observer.addOnPreDrawListener(object : ViewTreeObserver.OnPreDrawListener {
                 override fun onPreDraw(): Boolean {
                     if (observer.isAlive) observer.removeOnPreDrawListener(this)
-                    val to = card.height
-                    val detailsHeight = details.height
+                    val measuredDetails = details.height
+                    val detailsHeight = if (heroExpanded)
+                        compactDetailsHeight(measuredDetails) else 0
+                    val to = card.height - (if (heroExpanded) measuredDetails - detailsHeight else 0)
                     summaryLockedHeight = to
                     detailsLockedHeight = if (heroExpanded) detailsHeight else null
                     card.layoutParams = card.layoutParams.apply { height = from }
@@ -355,9 +371,8 @@ class TrainActivity : AppCompatActivity() {
                 // A fast live receipt may already have cleared focusAfterRefresh. The
                 // latency receipt belongs to this button press either way.
                 showRefreshFeedback()
-                // A refreshed headline/source state is the visual answer. The full
-                // duration/event/check receipt stays on the source badge for TalkBack
-                // and Info, never as an opaque score over the journey text.
+                // A two-second check receipt floats OVER the summary without
+                // measuring it; the full details remain accessible afterward.
                 // Also show a fixed-slot warning when HTTP failed and retained old data.
                 val failure = RefreshFlash.connectionError(requestedRefreshSource,
                     lastUi?.sourceStates?.get(requestedRefreshSource), lastUi?.officialRequest,
@@ -469,6 +484,8 @@ class TrainActivity : AppCompatActivity() {
     private fun requestRefresh(auto: Boolean = false) {
         if (chainBusy) return // never turn a duplicate tap/tick into a misleading receipt
         freezeSummaryHeight()
+        binding.refreshReceiptOverlay.removeCallbacks(hideRefreshOverlay)
+        binding.refreshReceiptOverlay.visibility = View.GONE
         connectionCue.clear() // a new request will earn its own result; never blink during checking
         applyHeroExpansion()
         lastFlashErrorKey = null
@@ -525,7 +542,7 @@ class TrainActivity : AppCompatActivity() {
 
     /** One writer for the note line: a live-identity conflict outranks a transient error message. */
     private fun renderNote() {
-        val msg = identityConflict() ?: errorText
+        val msg = identityConflict() ?: errorText ?: SummaryNoteUi.visible(lastUi?.model?.note)
         binding.note.visibility = if (msg == null || !heroExpanded) View.GONE else View.VISIBLE
         if (msg != null) binding.note.text = msg
     }
@@ -924,8 +941,9 @@ class TrainActivity : AppCompatActivity() {
                 "${RailTime.formatRailMinuteBare(scheduledStart)} (timetable)"
             binding.delay.text = "— · no departure reported"
         }
-        binding.note.visibility = if (m.note == null || !heroExpanded) View.GONE else View.VISIBLE
-        m.note?.let { binding.note.text = it }
+        val visibleNote = SummaryNoteUi.visible(m.note)
+        binding.note.visibility = if (visibleNote == null || !heroExpanded) View.GONE else View.VISIBLE
+        visibleNote?.let { binding.note.text = it }
 
         if (WebsiteReportDisplay.selected(ui.activeSource) && ui.orgWebsiteReport != null) {
             val report = ui.orgWebsiteReport!!
@@ -1236,6 +1254,15 @@ class TrainActivity : AppCompatActivity() {
         Diary.get()?.log("REFRESH") { detail }
         completedReceipt = receipt + ". " + detail
         attachCompletedReceipt()
+        val freshness = if (switched) "${sourceName(active)} · $age" else age
+        val overlay = RefreshReceiptUi.overlay(source, checked,
+            SystemClock.elapsedRealtime() - refreshStartedAt, freshness, change, detail, cachedResponse)
+        binding.receiptTook.text = overlay.took
+        binding.receiptChecked.text = overlay.checked
+        binding.receiptFreshness.text = overlay.freshness
+        binding.refreshReceiptOverlay.visibility = View.VISIBLE
+        binding.refreshReceiptOverlay.removeCallbacks(hideRefreshOverlay)
+        binding.refreshReceiptOverlay.postDelayed(hideRefreshOverlay, 2_000L)
     }
 
     private fun attachCompletedReceipt() {
@@ -1425,6 +1452,8 @@ class TrainActivity : AppCompatActivity() {
         binding.stops.removeCallbacks(ageTicker)
         binding.statusRipple.cancelPulse()
         connectionCue.pause()
+        binding.refreshReceiptOverlay.removeCallbacks(hideRefreshOverlay)
+        binding.refreshReceiptOverlay.visibility = View.GONE
         refreshSpin?.cancel()
         refreshSpin = null
         binding.refreshGlyph.rotation = 0f

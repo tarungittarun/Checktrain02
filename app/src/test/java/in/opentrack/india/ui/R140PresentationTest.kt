@@ -33,6 +33,25 @@ class R140PresentationTest {
                 "Cached HTTP body; previous report retained", true))
     }
 
+    @Test fun transientOverlayNamesRequestDurationCheckResultAndEventAgeSeparately() {
+        val lines = RefreshReceiptUi.overlay("website", "17:29:05", 1_260L,
+            "last website stop 2m ago · current position unknown",
+            RefreshEvidence.Change.UNCHANGED, "same last site stop, no newer event", false)
+        assertEquals("Took 1.3 s", lines.took)
+        assertEquals("Checked 17:29:05 · website · no newer stop", lines.checked)
+        assertEquals("Freshness · last website stop 2m ago · current position unknown", lines.freshness)
+        assertEquals("Checked 17:29:05 · website · check failed · last report retained",
+            RefreshReceiptUi.overlay("website", "17:29:05", 70L, "no newly reported stop time",
+                RefreshEvidence.Change.UNCHANGED, "request failed", false).checked)
+    }
+
+    @Test fun routineWebsiteParagraphDisappearsButExceptionalWarningsRemain() {
+        assertEquals(null, SummaryNoteUi.visible("Website past-card times shown in the station table; " +
+            "origin run inferred from the timetable. Last site report is not a current GPS position."))
+        assertEquals("Website request failed. Previous report retained.",
+            SummaryNoteUi.visible("Website request failed. Previous report retained."))
+    }
+
     @Test fun firstIntermediateGapIsExactlyFifthShorterWithoutMovingOtherPoints() {
         val points = listOf(
             `in`.opentrack.india.domain.RouteBetween.LegPoint("A", "A", 12, .2f),
