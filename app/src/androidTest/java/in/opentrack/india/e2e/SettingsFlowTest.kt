@@ -26,13 +26,22 @@ class SettingsFlowTest {
         E2E.awaitSearchScreen()
     }
 
-    private fun saveSettings(): Boolean {
-        // A text field can leave the keyboard covering Save on API 24. Scroll the
-        // Settings viewport first; if the IME still intercepts it, dismiss the IME
-        // as a traveller would and require a real tap on the button.
-        if (E2E.reveal("save", "settingsScroll") && E2E.tap("save", 500)) return true
-        E2E.ui.pressBack()
-        return E2E.reveal("save", "settingsScroll") && E2E.tap("save")
+    private fun saveSettings(expectFinish: Boolean = true): Boolean {
+        // UiAutomator can report a click while the keyboard/scroll intercepts it
+        // on a 440dpi large-font phone. Success is the destination screen, not a
+        // tapped pixel. The invalid-endpoint flow intentionally stays in Settings.
+        repeat(2) { attempt ->
+            if (E2E.reveal("save", "settingsScroll") && E2E.tap("save", 500)) {
+                if (!expectFinish) return true
+                if (E2E.visible("settings", E2E.LOCAL_MS)) return true
+            }
+            if (attempt == 0 && E2E.visible("overrideUrl", 500)) {
+                // Retry the gesture only if still on the editable form. Never
+                // count an unexplained validation failure as a saved endpoint.
+                E2E.shot("settings-save-still-on-form")
+            }
+        }
+        return false
     }
 
     private fun openSettings(): Boolean {
@@ -200,7 +209,7 @@ class SettingsFlowTest {
     fun junkEndpointSaysSo() {
         assertTrue(openSettings())
         assertTrue(typeInBoxField("overrideUrl", "not-a-url"))
-        assertTrue("save could not be tapped", saveSettings())
+        assertTrue("save could not be tapped", saveSettings(expectFinish = false))
         // Invalid input must keep this screen open with visible feedback, not silently persist
         // a broken live source. The old test pressed Back before reading this screen's state.
         assertTrue("the invalid-endpoint explanation is not reachable",
