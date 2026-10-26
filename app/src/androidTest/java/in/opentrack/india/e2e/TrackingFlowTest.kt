@@ -558,16 +558,25 @@ class TrackingFlowTest {
         var identified = false
         var warning = ""
         while (System.currentTimeMillis() < deadline && !identified) {
-            val badge = E2E.text("provenance", 300)
+            var badge = E2E.text("provenance", 300)
             val headline = E2E.text("headline", 300)
             if (E2E.find("sourceSpinner", 300) == null &&
                 !E2E.reveal("sourceSpinner", "scroller", swipes = 3))
                 E2E.reveal("sourceSpinner", "scroller", swipes = 5, up = false)
             val chooser = E2E.find("sourceSpinner", 300)?.contentDescription.orEmpty()
             warning = E2E.text("connectionAlert", 300)
-            // On API 24 the nested evidence viewport can hide the badge after
-            // scrolling. The selected chooser still visibly names the website;
-            // this asserts source identity, not that it supplied a past card.
+            // On a narrow/tall-font phone the source chooser is below the
+            // viewport while the run-inference badge is above it. Capture the
+            // selected choice, then physically scroll to see the badge; do not
+            // waive the inference disclosure for a reported website position.
+            if (badge.isBlank() && (headline.startsWith("Recently reported at ") ||
+                    headline.startsWith("Recently reported near "))) {
+                E2E.reveal("heroToggle", "scroller", swipes = 5, up = false)
+                E2E.reveal("provenance", "heroDetailsScroll", swipes = 4, up = false)
+                badge = E2E.text("provenance", 300)
+            }
+            // The selected chooser visibly names the site; a *reported* headline
+            // additionally requires the painted run-inferred badge.
             val siteVisible = badge.contains("WEB", true) ||
                 chooser.contains("Selected Where Is My Train · website", true) ||
                 warning.contains("whereismytrain.org.in (website)", true)
