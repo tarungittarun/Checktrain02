@@ -15,18 +15,14 @@
 #
 # The "100 % coverage" claim is two gates, not a vibe:
 #   * `plan` — every flow in docs/E2E_FLOWS.md must be claimed by a device test, and every `Class#method`
-#     the table cites must exist. Runs in ~20 s, on every push, with no emulator.
+#     the table cites must exist. Runs only on a manually requested E2E dispatch.
 #   * `report` — JaCoCo line coverage of the app, measured from the device runs, against a floor.
 name: e2e
 
+# User opt-in only. No push, PR, schedule, workflow_run or commit-message path:
+# a change to app code must NEVER start an E2E run without the user's explicit request.
+# Keep the workflow present and manual; do not dispatch it merely to verify this change.
 on:
-  push:
-    branches: [main, 'arena/**']
-  # Push events create only a skipped shell unless the commit explicitly contains
-  # [e2e-request] (full) or [e2e-smoke-request] (one device row).
-  # No emulators or builds run on ordinary pushes. A workflow_dispatch
-  # is also an explicit request. Preserve push as a one-shot path where API dispatch
-  # is unavailable to this integration; never infer permission from a normal push.
   workflow_dispatch:
     inputs:
       full:
@@ -56,7 +52,7 @@ concurrency:
   # Keep distinct SHAs independent so a slow composite cancellation cannot block
   # the new plan. That plan requests cancellation of obsolete runs via its narrowly
   # scoped actions:write token, freeing queued device runners for the new head.
-  group: e2e-${{ github.sha }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || 'push' }}
+  group: e2e-${{ github.sha }}-${{ github.run_id }}
   cancel-in-progress: false
 
 env:
@@ -72,8 +68,8 @@ jobs:
   # source without anyone having to sniff a packet capture by hand. It never fails the build: its output
   # is information, and a probe that can break a release is a probe nobody runs twice.
   probe:
-    # Nine-minute live-source reconnaissance is useful on main, explicit sweeps and source changes,
-    # not on every UI/test-only push. It runs in parallel and does not gate device evidence.
+    # Optional live-source reconnaissance has a separate research workflow;
+    # this legacy job cannot be reached by an E2E manual dispatch without a push event.
     if: contains(github.event.head_commit.message, '[probe]')
     runs-on: ubuntu-latest
     permissions:
@@ -129,7 +125,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
   plan:
-    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[e2e-request]') || contains(github.event.head_commit.message, '[e2e-smoke-request]')
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     outputs:
       full: ${{ steps.scope.outputs.full }}
@@ -172,38 +168,20 @@ jobs:
           python-version: '3.11'
       - name: Decide how much of the device matrix this event deserves
         id: scope
-        # The commit message is the third way in, and the one that works where the workflow_dispatch API
-        # does not: [e2e-request] runs all rows; [e2e-smoke-request] runs the core row without
-        # disabling any assertions. `[e2e-full]` runs all four rows, `[e2e-focus: TrackingFlowTest]` narrows the suite to one
-        # class, `[e2e-boot: 2700]` raises the boot budget. Values arrive through env, never interpolated into
-        # the script - a commit message is arbitrary text and a quote in it should not be able to run anything.
+        # Dispatch inputs alone control scope. A commit title is not user permission.
         env:
-          HEAD_MSG: ${{ github.event.head_commit.message }}${{ github.event.pull_request.title }}
           DISPATCH_FULL: ${{ inputs.full }}
           DISPATCH_FOCUS: ${{ inputs.focus }}
           DISPATCH_MONKEY: ${{ inputs.monkey_events }}
           DISPATCH_BOOT: ${{ inputs.boot_timeout }}
         run: |
-          # The plan only runs after an explicit request. A request-tagged push
-          # runs the complete API 24, API 34, density and release matrix.
+          # Only a manually dispatched run reaches this plan. The full matrix is
+          # the default; the user can explicitly request a narrower focus.
           full=false
-          case "${{ github.event_name }}" in
-            workflow_dispatch) [ "$DISPATCH_FULL" = "true" ] && full=true ;;
-            push) [ "${{ github.ref }}" = "refs/heads/main" ] && full=true ;;
-          esac
-          case "$HEAD_MSG" in *'[e2e-full]'*|*'[e2e-request]'*) full=true ;; esac
+          [ "$DISPATCH_FULL" = "true" ] && full=true
           focus="$DISPATCH_FOCUS"
-          case "$HEAD_MSG" in *'[e2e-focus: '*)
-            focus=$(printf '%s\n' "$HEAD_MSG" | sed -n 's/.*\[e2e-focus: \([^]]*\)\].*/\1/p' | head -1) ;;
-          esac
           monkey="$DISPATCH_MONKEY"
-          case "$HEAD_MSG" in *'[e2e-monkey: '*)
-            monkey=$(printf '%s\n' "$HEAD_MSG" | sed -n 's/.*\[e2e-monkey: \([^]]*\)\].*/\1/p' | head -1) ;;
-          esac
           boot="$DISPATCH_BOOT"
-          case "$HEAD_MSG" in *'[e2e-boot: '*)
-            boot=$(printf '%s\n' "$HEAD_MSG" | sed -n 's/.*\[e2e-boot: \([^]]*\)\].*/\1/p' | head -1) ;;
-          esac
           printf 'scope: full=%s focus=%s monkey=%s boot=%s\n' "$full" "${focus:-whole suite}" "${monkey:-default}" "${boot:-default}"
           {
             echo "full=$full"
@@ -214,7 +192,7 @@ jobs:
           if [ "$full" = true ]; then
             echo "::notice::device rows: all four (api34, min24, density, release); focus=${focus:-whole suite}"
           else
-            echo "::notice::device rows: core (api34); full sweeps add min24, density and release - add [e2e-full] to the commit message, or the "full" checkbox on a dispatch, for the other two"
+            echo "::notice::device rows: core (api34); the dispatch full checkbox enables min24, density and release"
           fi
       - name: Flow manifest vs the tests that claim it
         run: |
@@ -427,9 +405,9 @@ jobs:
 
   # ----------------------------------------------------------------------------------- the device matrix
   #
-  # One required API 34 row per branch push; full sweeps add minSdk 24, density/font scale and the
-  # R8-shrunk APK. `plan` enables the sweep for main, dispatch with `full`, or [e2e-full] in a commit.
-  # A branch result does NOT claim API 24/release coverage; those require a full sweep before shipping.
+  # A manually requested core sweep uses API 34; full dispatches add minSdk 24, density/font scale and the
+  # R8-shrunk APK. `plan` enables this sweep only for a manually dispatched full run.
+  # A core-only result does NOT claim API 24/release coverage; those require a full manual sweep.
   e2e:
     needs: [build, instrument, plan]
     runs-on: ubuntu-latest
@@ -969,7 +947,7 @@ jobs:
 
   # ---------------------------------------------------------------------------------------- the summary
   report:
-    # `always()` because `e2e_full` is legitimately skipped on an ordinary push, and a skipped dependency
+    # `always()` because `e2e_full` is legitimately skipped by a core-only dispatch, and a skipped dependency
     # would otherwise skip this job - which is the job that tells you what was and was not tested.
     needs: [e2e, e2e_full, release_smoke, source_integrity, plan]
     if: always() && needs.plan.result == 'success'

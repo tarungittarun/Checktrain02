@@ -21,10 +21,13 @@ class OptInMatrixTest(unittest.TestCase):
 
     def test_emulator_jobs_are_opt_in_but_requested_sweep_is_full(self):
         workflow = (ROOT / ".github/workflows/e2e.yml").read_text()
-        self.assertIn("  plan:\n    if: github.event_name == 'workflow_dispatch' || "
-                      "contains(github.event.head_commit.message, '[e2e-request]')", workflow)
-        self.assertIn("*'[e2e-request]'*) full=true", workflow)
-        self.assertIn("contains(github.event.head_commit.message, '[e2e-smoke-request]')", workflow)
+        event_block = workflow.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
+        self.assertEqual(["workflow_dispatch"],
+                         re.findall(r"^  ([a-z_]+):", event_block, re.M),
+                         "no automatic or alternate E2E triggers")
+        self.assertIn("  plan:\n    if: github.event_name == 'workflow_dispatch'", workflow)
+        self.assertNotIn("github.event.head_commit.message", workflow.split("  plan:\n", 1)[1])
+        self.assertNotIn("'[e2e-request]'", workflow)
         self.assertIn("if: always() && needs.plan.result == 'success'", workflow)
         self.assertIn("if: always() && needs.plan.outputs.full == 'true'", workflow)
 
