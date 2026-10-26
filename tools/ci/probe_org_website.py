@@ -15,7 +15,7 @@ import urllib.parse
 import urllib.request
 
 ROOT = "https://whereismytrain.org.in/"
-TRAIN = re.fullmatch(r"\d{5}", sys.argv[1] if len(sys.argv) > 1 else "20689")
+TRAIN = re.fullmatch(r"\d{5}", sys.argv[1] if len(sys.argv) > 1 else "16227")
 if TRAIN is None:
     raise SystemExit("train number must be five digits")
 TRAIN = TRAIN.group()
@@ -101,9 +101,20 @@ def inspect(tag, params):
     print("  cards=%d, codes=%d, shown(last six)=%s" % (sum(map(len, rows.values())), len(rows),
         {k: v for k, v in list(rows.items())[-6:]}), flush=True)
     for code, cards in rows.items():
-        if code in ("KMSI", "SMET", "SME", "BEI", "BDVT", "MSS") or any(
+        if code in ("KMSI", "SMET", "SME", "HNHL", "BEI", "BDVT", "MSS") or any(
                 "bg-blue" in c[0] for c in cards):
             print("  focus %s: %s" % (code, cards), flush=True)
+    # Preserve bounded source markup for a real parser fixture. This is public
+    # station-card HTML only, not scripts, cookies, identifiers or phone-app data.
+    # A screenshot cannot tell whether the server sent two clock spans, or if a
+    # green card's first time is just the timetable echoed back as an estimate.
+    if TRAIN == "16227" and tag == "baseline":
+        for piece in CARD.split(body)[1:]:
+            match = HEADING.search(piece)
+            if match and match.group(1) in {"SME", "SMET", "HNHL", "KMSI"}:
+                clean = re.sub(r"<script\b[^>]*>.*?</script>", "", piece, flags=re.I | re.S)
+                print("  RAW-CARD %s <!-- Station Details Card -->%s" %
+                      (match.group(1), clean[:2400].replace("\n", " ")), flush=True)
     return rows
 
 
