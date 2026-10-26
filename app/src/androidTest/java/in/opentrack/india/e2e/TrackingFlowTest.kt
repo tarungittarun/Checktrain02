@@ -54,6 +54,24 @@ class TrackingFlowTest {
         return fits
     }
 
+    /** Read the installed screen's selected source, not a test default or a cached preference. */
+    private fun selectedClockHeading(): String {
+        var source: String? = null
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            val activity = ActivityLifecycleMonitorRegistry.getInstance()
+                .getActivitiesInStage(Stage.RESUMED)
+                .first { it.packageName == E2E.PKG &&
+                    it.findViewById<View>(R.id.sourceSpinner) != null }
+            source = activity.findViewById<android.widget.Spinner>(R.id.sourceSpinner)
+                .selectedItem?.toString()
+        }
+        return when (source) {
+            `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG -> "WEBSITE"
+            "NTES (official)" -> "ACTUAL"
+            else -> error("unexpected selected source for clock heading: $source")
+        }
+    }
+
     private data class ReceiptPaint(val cardHeight: Int, val shellHeight: Int,
                                     val took: String, val checked: String, val freshness: String)
 
@@ -184,9 +202,9 @@ class TrackingFlowTest {
         assertTrue("initial check still busy; cannot measure manual refresh",
             !E2E.visible("checkingBar", 250))
         val card = cardGeometry()
-        assertEquals("ACTUAL", E2E.text("routeHeadActual"))
+        assertEquals(selectedClockHeading(), E2E.text("routeHeadActual"))
         val header = E2E.find("routeColumnHeader")!!.visibleBounds
-        assertTrue("ACTUAL header is outside the table viewport",
+        assertTrue("clock header is outside the table viewport",
             header.bottom <= E2E.find("routeViewport")!!.visibleBounds.top)
         assertTrue("source card not expanded at start", E2E.find("headline") != null)
         assertTrue("initial source selector was clipped by a premature height lock",
@@ -730,7 +748,7 @@ class TrackingFlowTest {
         // The three headings must stay outside the RecyclerView while the stops move.
         assertEquals("TIMETABLE", E2E.text("routeHeadTimetable"))
         assertEquals("STATIONS", E2E.text("routeHeadStations"))
-        assertEquals("ACTUAL", E2E.text("routeHeadActual"))
+        assertEquals(selectedClockHeading(), E2E.text("routeHeadActual"))
         // The full route is the default; there is no segment/full toggle to open first.
         assertTrue("the table has no rendered halt", E2E.count(stopsBy) >= 1)
         val bar = E2E.find("stops") ?: error("station table is not visible")

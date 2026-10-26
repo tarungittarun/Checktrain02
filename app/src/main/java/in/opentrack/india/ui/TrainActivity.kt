@@ -1089,7 +1089,7 @@ class TrainActivity : AppCompatActivity() {
             WebsiteReportDisplay.selected(ui.activeSource) &&
                 ui.orgWebsiteReport != null && elapsed != null -> {
                 binding.age.text = "Site arrival · $elapsed"
-                binding.age.contentDescription = "Website station event " +
+                binding.age.contentDescription = "Website last mapped arrival " +
                     "${RailTime.formatRailMinute(ui.orgWebsiteReport!!.eventMinute)}; " +
                     "page update ${RailTime.formatClock(ui.orgWebsiteReport!!.pageUpdatedAt)} is not movement"
             }
