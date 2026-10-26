@@ -127,7 +127,12 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
     private var projectedLeg: RouteBetween.LegProjection? = null
     /** Only the selected website's validated past cards, never a background comparison. */
     var websiteIntermediateReports: Map<String, LiveStopFields> = emptyMap()
-    /** Tentative last website departure: separately marked, never a reported Act. */
+    /** Last page's departure suggestion is a labelled note, not an ACTUAL clock. */
+    var websitePendingDeparture: Pair<String, Int>? = null
+        set(value) {
+            if (field != value) { field = value; notifyDataSetChanged() }
+        }
+    /** Only a later-published, retained suggestion may trigger a route cue. */
     var websiteTentativeDeparture: Pair<String, Int>? = null
         set(value) {
             if (field != value) { field = value; notifyDataSetChanged() }
@@ -267,9 +272,11 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         val website = s.source == TrackModel.MinuteSource.SITE_REPORTED
         val suggestedDep = websiteTentativeDeparture?.takeIf { website &&
             it.first.equals(s.code, true) }?.second
+        val pendingDep = websitePendingDeparture?.takeIf { website &&
+            it.first.equals(s.code, true) }?.second
         val stationClaim = reports[s.code]?.startsWith("RailYatri root claims") == true
         holder.status.text = when {
-            suggestedDep != null -> "Website suggests departure · unconfirmed"
+            pendingDep != null -> "Site dep ${RouteClockUi.clock(pendingDep)}? · unconfirmed"
             website && s.showDep != null && s.showArr == null ->
                 "Website arrival not validated · departure shown"
             website && s.showDep != null -> "Departed · later position unknown"
@@ -290,10 +297,13 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         // Reported clocks have provenance in their content descriptions. Do not
         // repeat unhelpful prose below every halt; preserve exceptional warnings.
         holder.status.visibility = if (s.state == TrackModel.State.CANCELLED ||
-            s.state == TrackModel.State.SKIPPED || stationClaim || suggestedDep != null)
+            s.state == TrackModel.State.SKIPPED || stationClaim || pendingDep != null)
             View.VISIBLE else View.GONE
+        holder.status.contentDescription = if (pendingDep != null)
+            "Website suggests departure ${RouteClockUi.clock(pendingDep)}; unconfirmed, not an actual departure"
+        else holder.status.text.toString()
         holder.status.setTextColor(ctx.getColor(when {
-            suggestedDep != null -> R.color.warn
+            pendingDep != null -> R.color.warn
             stationClaim || website || verified -> R.color.live
             s.source == TrackModel.MinuteSource.PROJECTED -> R.color.warn
             else -> R.color.text3

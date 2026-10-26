@@ -8,13 +8,22 @@ import `in`.opentrack.india.v2.mirror.OrgWebsiteStatus
  * since the suggested departure, and a recent page for the selected origin run.
  * The page's clock establishes publication, not motion. */
 object DepartureCue {
-    fun websiteSuggestion(report: OrgWebsiteStatus.Report?, originDay: Long,
-                          now: Long): Int? {
+    /** Show the page's revisable departure beside the station immediately, but
+     * outside ACTUAL. This is neither a departure event nor permission to move the marker. */
+    fun websitePending(report: OrgWebsiteStatus.Report?, now: Long): Int? {
         if (report == null || report.intermediate != null ||
             now - report.pageUpdatedAt !in 0L..300_000L) return null
         val departure = report.provisionalDeparture ?: return null
         val arrival = report.rows[report.anchorCode]?.actualArrivalMin ?: return null
-        if (departure <= arrival) return null
+        return departure.takeIf { it > arrival }
+    }
+
+    fun websiteSuggestion(report: OrgWebsiteStatus.Report?, originDay: Long,
+                          now: Long): Int? {
+        val departure = websitePending(report, now) ?: return null
+        // Only a later website publication that retains this earlier minute can
+        // yield even an unconfirmed outbound cue. Ageing the phone clock is not enough.
+        report ?: return null
         val stamp = RailTime.railMinuteToEpochMillis(originDay, departure)
         if (report.pageUpdatedAt - stamp < 120_000L || now - stamp !in 0L..600_000L)
             return null

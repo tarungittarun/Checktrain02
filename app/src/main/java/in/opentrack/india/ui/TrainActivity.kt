@@ -1128,6 +1128,13 @@ class TrainActivity : AppCompatActivity() {
         val fromOfficial = ui.activeSource in listOf("NTES (official)", "erail", "last known")
         val anchor = ui.anchorCode ?: if (fromOfficial) ui.answer.anchorStopCode else null
         val now = System.currentTimeMillis()
+        val pendingSiteDep = if (WebsiteReportDisplay.selected(ui.activeSource))
+            DepartureCue.websitePending(ui.orgWebsiteReport, now) else null
+        // This also runs on the age ticker: a five-minute-old page cannot keep
+        // advertising a freshly pending departure without another website check.
+        stopAdapter.websitePendingDeparture = pendingSiteDep?.let { pending ->
+            ui.orgWebsiteReport?.anchorCode?.let { it to pending }
+        }
         val lastStopMarker = if (WebsiteReportDisplay.selected(ui.activeSource) &&
             ui.orgWebsiteReport?.intermediate == null)
             TableMarker.atHalt(rows, ui.orgWebsiteReport?.anchorCode, vm.originDate, now)

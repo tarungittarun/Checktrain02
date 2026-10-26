@@ -125,6 +125,46 @@ class OrgWebsiteStatusTest {
         assertEquals(1723, report.rows["SME"]?.actualArrivalMin)
     }
 
+    @Test fun `later 0534 browser clocks revise same website arrival but not actual departure`() {
+        val captured = javaClass.classLoader!!.getResourceAsStream(
+            "org-site/16227-2026-10-26-0536.html")!!.bufferedReader().use { it.readText() }
+        val run = SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).apply {
+            timeZone = TimeZone.getTimeZone("UTC")
+        }.parse("2026-10-25")!!.time / 86_400_000L
+        val time = SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z", Locale.ROOT)
+        val halts = route.copy(stops = listOf(
+            stop(1, "MYS", null, 1180, 0),
+            stop(2, "SME", 1724, 1726, 410),
+            stop(3, "SMET", 1740, 1745, 412),
+            stop(4, "KMSI", 1769, 1770, 437),
+            stop(5, "TLGP", 1910, null, 510)), segments = emptyList())
+        // Controlled replay: 05:31 arrival was in the public capture; the
+        // synthetic 05:33 page label and departure make that card usable at the
+        // app screenshot's check time. The 05:32/05:34 revision comes from the
+        // owner's later Chrome SCREENSHOT, not captured phone-side HTML or an app feed.
+        val earlier = captured.replace("05:35:56", "05:33:14")
+            .replace("05:35 AM", "05:33 AM")
+        val first = OrgWebsiteStatus.parse(earlier, "16227", run,
+            time.parse("2026-10-26 05:33:23 +0530")!!.time, halts).report!!
+        val revised = captured.replace("05:35:56", "05:34:17")
+            .replace("05:31 AM", "05:32 AM")
+            .replace("05:35 AM", "05:34 AM")
+        val second = OrgWebsiteStatus.parse(revised, "16227", run,
+            time.parse("2026-10-26 05:34:22 +0530")!!.time, halts).report!!
+        assertEquals(1771, first.rows["KMSI"]?.actualArrivalMin)
+        assertEquals(1772, second.rows["KMSI"]?.actualArrivalMin)
+        assertEquals(1774, second.provisionalDeparture)
+        assertNull("05:34 is the current last-card suggestion, not settled Act",
+            second.rows["KMSI"]?.actualDepartureMin)
+        assertEquals(second, OrgWebsiteStatus.forwardOnly(first, second,
+            OrgWebsiteStatus.progress(first, halts), halts,
+            time.parse("2026-10-26 05:34:22 +0530")!!.time))
+        assertEquals(`in`.opentrack.india.ui.RefreshEvidence.Change.REVISED_AT_SAME_STOP,
+            `in`.opentrack.india.ui.RefreshEvidence.compare(
+                "${first.anchorCode}:${first.eventMinute}",
+                "${second.anchorCode}:${second.eventMinute}"))
+    }
+
     @Test fun `website marks past card but future first clock is still a prediction`() {
         val out = OrgWebsiteStatus.parse(page, "16227", day, now, route)
         val report = out.report ?: error(out.reason)

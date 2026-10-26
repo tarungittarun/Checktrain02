@@ -21,6 +21,29 @@ import org.robolectric.annotation.GraphicsMode
 @Config(sdk = [34])
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class InlineRouteRenderTest {
+    @Test fun freshLastWebsiteDepartureIsLabelledOutsideActualBeforeAnyMovementCue() {
+        val ctx = RuntimeEnvironment.getApplication()
+        val adapter = StopAdapter()
+        val arrived = TrackModel.Stop(1, "KMSI", "Kumsi", 1769, 1770, 1772,
+            null, 10, TrackModel.MinuteSource.SITE_REPORTED, null,
+            TrackModel.State.HERE, true, 437, 0, 25, false, false, false, 3)
+        adapter.websitePendingDeparture = "KMSI" to 1774
+        adapter.haltMarker = TableMarker.Halt("KMSI", "Site's last past stop", true)
+        adapter.submitList(listOf(arrived))
+        val holder = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
+        adapter.onBindViewHolder(holder, 0)
+        assertEquals("05:32", holder.liveArr.text.toString())
+        assertEquals("—", holder.liveDep.text.toString())
+        assertEquals(View.VISIBLE, holder.status.visibility)
+        assertTrue(holder.status.text.toString().contains("05:34? · unconfirmed"))
+        assertTrue(holder.status.contentDescription.contains("not an actual departure"))
+        assertEquals(View.VISIBLE, holder.trainMarker.visibility)
+        assertFalse(holder.inlineLeg.showTrain)
+        adapter.websitePendingDeparture = null
+        adapter.onBindViewHolder(holder, 0)
+        assertEquals(View.GONE, holder.status.visibility)
+    }
+
     @Test fun birurDepartureSuggestionUsesOneSeparatedSymbolAndFoldedBetweenCaption() {
         val ctx = RuntimeEnvironment.getApplication()
         val adapter = StopAdapter()
