@@ -101,7 +101,7 @@ def inspect(tag, params):
     print("  cards=%d, codes=%d, shown(last six)=%s" % (sum(map(len, rows.values())), len(rows),
         {k: v for k, v in list(rows.items())[-6:]}), flush=True)
     for code, cards in rows.items():
-        if code in ("KMSI", "SMET", "SME", "HNHL", "BEI", "BDVT", "MSS") or any(
+        if code in ("KMSI", "SMET", "SME", "HNHL", "BEI", "BDVT", "MSS", "ANF", "SRF", "TLGP") or any(
                 "bg-blue" in c[0] for c in cards):
             print("  focus %s: %s" % (code, cards), flush=True)
     # Preserve bounded source markup for a real parser fixture. This is public
@@ -111,7 +111,7 @@ def inspect(tag, params):
     if TRAIN == "16227" and tag == "baseline":
         for piece in CARD.split(body)[1:]:
             match = HEADING.search(piece)
-            if match and match.group(1) in {"SME", "SMET", "HNHL", "KMSI"}:
+            if match and match.group(1) in {"SME", "SMET", "HNHL", "KMSI", "ANF", "SRF"}:
                 clean = re.sub(r"<script\b[^>]*>.*?</script>", "", piece, flags=re.I | re.S)
                 print("  RAW-CARD %s <!-- Station Details Card -->%s" %
                       (match.group(1), clean[:2400].replace("\n", " ")), flush=True)
