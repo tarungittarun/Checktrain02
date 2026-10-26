@@ -23,11 +23,6 @@ name: e2e
 # a change to app code must NEVER start an E2E run without the user's explicit request.
 # Keep the workflow present and manual; do not dispatch it merely to verify this change.
 on:
-  # One-time owner-requested sweep. Revert this path-specific trigger immediately
-  # after GitHub registers the run; future changes stay manual-only.
-  push:
-    branches: ['arena/6f68e526-checktrain02']
-    paths: ['.github/workflows/e2e.yml']
   workflow_dispatch:
     inputs:
       full:
@@ -130,7 +125,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
   plan:
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[e2e-request]'))
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     outputs:
       full: ${{ steps.scope.outputs.full }}
@@ -184,7 +179,6 @@ jobs:
           # the default; the user can explicitly request a narrower focus.
           full=false
           [ "$DISPATCH_FULL" = "true" ] && full=true
-          [ "${{ github.event_name }}" = "push" ] && full=true
           focus="$DISPATCH_FOCUS"
           monkey="$DISPATCH_MONKEY"
           boot="$DISPATCH_BOOT"
