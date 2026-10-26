@@ -1881,9 +1881,13 @@ class LiveViewModel(
             orgWebsiteDistanceProbe = publicChecks[PublicPageChecks.ORG]?.orgDistanceProbe
                 ?.takeIf { selected == PublicPageChecks.ORG },
             alternateSiteHint = alternateSiteHint,
-            websiteGap = if (selected == "NTES (official)" || selected == PublicPageChecks.ORG)
-                PublicPageChecks.websiteGap(publicChecks[PublicPageChecks.ORG], route.dstCode)
-            else null,
+            websiteGap = when (selected) {
+                PublicPageChecks.ORG -> publicChecks[PublicPageChecks.ORG]?.orgQualificationNote
+                    ?: PublicPageChecks.websiteGap(publicChecks[PublicPageChecks.ORG], route.dstCode)
+                "NTES (official)" ->
+                    PublicPageChecks.websiteGap(publicChecks[PublicPageChecks.ORG], route.dstCode)
+                else -> null
+            },
         )
     }
 

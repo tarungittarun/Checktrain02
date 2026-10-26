@@ -22,6 +22,7 @@ object RefreshReceiptUi {
             detail.contains("no validated", true) -> "no validated stop"
             change == RefreshEvidence.Change.NEW_STOP -> "new stop reported"
             change == RefreshEvidence.Change.REVISED_AT_SAME_STOP -> "stop time revised"
+            source == "website" -> "no newer qualified stop"
             else -> "no newer stop"
         }
         return "Checked $checked · $source · $result"

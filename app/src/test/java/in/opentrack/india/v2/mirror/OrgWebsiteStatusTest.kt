@@ -92,6 +92,39 @@ class OrgWebsiteStatusTest {
         assertEquals(0, PublicPageChecks.retriesFor(PublicPageChecks.IXIGO))
     }
 
+    @Test fun `real 26 Oct same-website cards update Kumsi but cannot invent Shimoga Town actuals`() {
+        // Captured verbatim public station-card excerpts from the runner's 05:36:52
+        // GET, not hand-transcribed screenshot clocks. The owner at 05:26 saw
+        // HNHL in Chrome; it was absent from this runner's returned HTML.
+        val html = javaClass.classLoader!!.getResourceAsStream(
+            "org-site/16227-2026-10-26-0536.html")!!.bufferedReader().use { it.readText() }
+        val run = SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).apply {
+            timeZone = TimeZone.getTimeZone("UTC")
+        }.parse("2026-10-25")!!.time / 86_400_000L
+        val checked = SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z", Locale.ROOT)
+            .parse("2026-10-26 05:36:52 +0530")!!.time
+        val halts = route.copy(stops = listOf(
+            stop(1, "MYS", null, 1180, 0),
+            stop(2, "SME", 1724, 1726, 410),
+            stop(3, "SMET", 1740, 1745, 412),
+            stop(4, "KMSI", 1769, 1770, 437),
+            stop(5, "TLGP", 1910, null, 510),
+        ), segments = emptyList())
+        val outcome = OrgWebsiteStatus.parse(html, "16227", run, checked, halts)
+        val report = outcome.report ?: error(outcome.reason)
+        assertEquals("KMSI", report.anchorCode)
+        assertEquals(1771, report.eventMinute) // 05:31, NOT the 05:35 page check
+        assertEquals(1771, report.rows["KMSI"]?.actualArrivalMin)
+        assertNull("latest green card's 05:35 departure is still provisional",
+            report.rows["KMSI"]?.actualDepartureMin)
+        assertEquals(1775, report.provisionalDeparture)
+        assertNull("SMET 05:00/05:05 copied its timetable; not actual minutes",
+            report.rows["SMET"])
+        assertNull("runner response did not include HNHL, despite Chrome screenshot",
+            report.rows["HNHL"])
+        assertEquals(1723, report.rows["SME"]?.actualArrivalMin)
+    }
+
     @Test fun `website marks past card but future first clock is still a prediction`() {
         val out = OrgWebsiteStatus.parse(page, "16227", day, now, route)
         val report = out.report ?: error(out.reason)
@@ -104,6 +137,51 @@ class OrgWebsiteStatusTest {
         assertEquals("1", report.rows["ARU"]?.platform)
         assertNull(report.rows["ANF"])
         assertTrue(out.reason.contains("origin day inferred"))
+    }
+
+    @Test fun `past-marked timetable echo explains empty actuals without moving the train`() {
+        val captured = javaClass.classLoader!!.getResourceAsStream(
+            "org-site/16227-2026-10-26-0536.html")!!.bufferedReader().use { it.readText() }
+        // A controlled earlier-page case using captured SME/SMET markup; KMSI's
+        // later card is removed, not claimed as a second real network response.
+        val beforeKumsi = captured.substringBeforeLast("<!-- Station Details Card -->") + "</html>"
+        val run = SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).apply {
+            timeZone = TimeZone.getTimeZone("UTC")
+        }.parse("2026-10-25")!!.time / 86_400_000L
+        val checked = SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z", Locale.ROOT)
+            .parse("2026-10-26 05:26:36 +0530")!!.time
+        val halts = route.copy(stops = listOf(
+            stop(1, "MYS", null, 1180, 0),
+            stop(2, "SME", 1724, 1726, 410),
+            stop(3, "SMET", 1740, 1745, 412),
+            stop(4, "KMSI", 1769, 1770, 437),
+            stop(5, "TLGP", 1910, null, 510)), segments = emptyList())
+        val outcome = OrgWebsiteStatus.parse(beforeKumsi.replace("05:35:56", "05:26:19"),
+            "16227", run, checked, halts)
+        assertEquals("SME", outcome.report?.anchorCode)
+        assertNull("a green on-time card with only schedule clocks is not an actual",
+            outcome.report?.rows?.get("SMET"))
+        assertTrue("explain why the site looks newer than the last admitted stop",
+            outcome.qualificationNote.orEmpty().contains("SMET past") &&
+                outcome.qualificationNote.orEmpty().contains("do not distinguish report"))
+        val printed = PublicPageChecks.parse(PublicPageChecks.ORG,
+            beforeKumsi.replace("05:35:56", "05:26:19"), "16227", run, checked,
+            route = halts)
+        assertEquals(outcome.qualificationNote, printed.orgQualificationNote)
+        assertTrue(printed.detail.contains("Unqualified later card: Website marks SMET past"))
+        // A hypothetical unmapped green card is comparison text ONLY. This markup
+        // is constructed for the rejection test, not transcribed from the owner's
+        // screenshot or asserted to occur in the captured runner response.
+        val unknown = beforeKumsi.replace("</html>", """<!-- Station Details Card -->
+            <div class="bg-green-50 opacity-90"><h3>Harnahalli (HNHL)</h3>
+            <!-- Arrival -->05:23 AM 05:23 AM
+            <!-- Departure -->05:25 AM 05:23 AM</div></html>""")
+        val unmapped = OrgWebsiteStatus.parse(unknown.replace("05:35:56", "05:26:19"),
+            "16227", run, checked, halts)
+        assertEquals("SME", unmapped.report?.anchorCode)
+        assertNull(unmapped.report?.rows?.get("HNHL"))
+        assertTrue(unmapped.qualificationNote.orEmpty().contains("HNHL past"))
+        assertTrue(unmapped.qualificationNote.orEmpty().contains("route position unverified"))
     }
 
     @Test fun `website update precision is preserved without inventing seconds`() {

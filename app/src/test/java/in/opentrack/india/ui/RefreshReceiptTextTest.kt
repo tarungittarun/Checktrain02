@@ -61,8 +61,20 @@ class RefreshReceiptTextTest {
         val same = RefreshReceiptText.format(PublicPageChecks.ORG, "website", "website",
             "11:28:54", "last website stop 2 min ago", "comparison" to "15 past cards",
             null, true, false, RefreshEvidence.Change.UNCHANGED, false)
-        assertTrue(same.contains("same last site stop, no newer event"))
+        assertTrue(same.contains("same last qualifying site stop, no newer event"))
         assertFalse(same.contains("new site-reported stop"))
+    }
+
+    @Test fun websiteNewerGreenCardWithoutActualTimeIsNamedNotCalledNewMovement() {
+        val text = RefreshReceiptText.format(PublicPageChecks.ORG, "website", "website",
+            "05:26:36", "last website stop 43 min ago",
+            "comparison" to "23 website rows · Unqualified later card: Website marks SMET past; " +
+                "clocks do not distinguish report from timetable. · from site",
+            null, true, false, unchanged, false)
+        assertTrue(text.contains("same last qualifying site stop"))
+        assertTrue(text.contains("Website marks SMET past"))
+        assertTrue(text.contains("clocks do not distinguish report from timetable"))
+        assertFalse(text.contains("new site-reported stop"))
     }
 
     @Test fun answeredWebsiteWithoutQualifyingStopNeverClaimsSameOldSiteEvent() {

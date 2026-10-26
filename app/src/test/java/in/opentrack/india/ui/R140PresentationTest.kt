@@ -26,7 +26,7 @@ class R140PresentationTest {
             RefreshEvidence.Change.UNCHANGED,
             "Website answered at 01:43:27 · same last site stop, no newer event · position unknown",
             false)
-        assertEquals("Checked 01:43:27 · website · no newer stop", short)
+        assertEquals("Checked 01:43:27 · website · no newer qualified stop", short)
         assertFalse(short.contains("position"))
         assertEquals("Checked 01:43:27 · website · cached reply · no new event",
             RefreshReceiptUi.short("website", "01:43:27", RefreshEvidence.Change.NEW_STOP,
@@ -38,7 +38,7 @@ class R140PresentationTest {
             "last website stop 2m ago · current position unknown",
             RefreshEvidence.Change.UNCHANGED, "same last site stop, no newer event", false)
         assertEquals("Took 1.3 s", lines.took)
-        assertEquals("Checked 17:29:05 · website · no newer stop", lines.checked)
+        assertEquals("Checked 17:29:05 · website · no newer qualified stop", lines.checked)
         assertEquals("Freshness · last website stop 2m ago · current position unknown", lines.freshness)
         assertEquals("Checked 17:29:05 · website · check failed · last report retained",
             RefreshReceiptUi.overlay("website", "17:29:05", 70L, "no newly reported stop time",

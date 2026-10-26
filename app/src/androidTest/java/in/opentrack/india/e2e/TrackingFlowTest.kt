@@ -703,7 +703,7 @@ class TrackingFlowTest {
                 listOf("NTES", "erail", "website", "WIMT", "ConfirmTkt", "runningstatus")
                     .any { receipt.contains(it, true) })
             assertTrue("auto refresh must distinguish new, unchanged, revised and failed: $receipt",
-                listOf("new stop reported", "stop time revised", "no newer stop",
+                listOf("new stop reported", "stop time revised", "no newer stop", "no newer qualified stop",
                     "no validated stop", "check failed", "cached reply")
                     .any { receipt.contains(it, true) })
         } finally {

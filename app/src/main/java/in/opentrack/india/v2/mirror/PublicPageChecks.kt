@@ -24,6 +24,8 @@ object PublicPageChecks {
         val stationClaim: StationClaim? = null,
         /** The other website's labelled, past-card station claims. Not independently verified Act. */
         val orgReport: OrgWebsiteStatus.Report? = null,
+        /** A later page card that was excluded from Actual/position, with its reason. */
+        val orgQualificationNote: String? = null,
         /** Page excerpts for comparison only. Never feed these into Act or position. */
         val lines: Map<String, String> = emptyMap(),
         /** The website's printed publication label; never a station-event timestamp. */
@@ -103,7 +105,7 @@ object PublicPageChecks {
                 if (reply.fromCache) answer.copy(
                     detail = "Cached HTTP body (${reply.ageMillis / 60_000} min old); " +
                         answer.detail + " No fresh observation.", pageAnswered = false,
-                    stationClaim = null, orgReport = null,
+                    stationClaim = null, orgReport = null, orgQualificationNote = null,
                     orgDistanceProbe = "cached HTTP page; no same-page distance accepted")
                 else answer
             }
@@ -215,12 +217,14 @@ object PublicPageChecks {
         return Result("$title: train $number · $runLabel (requested origin $date) · $status" +
             (updated?.let { " · page update label $it" } ?: "") +
             "; " + (org?.reason ?: if (wrong) "wrong origin run" else "no event-level dated observation") +
+            (org?.qualificationNote?.let { " · Unqualified later card: $it" } ?: "") +
             ". ${lines.size} displayed station excerpts for comparison" +
             (if (org?.report != null) "; source-marked past rows are website claims, NOT independently verified Act/GPS."
                 else "; NOT Act or measured position.") +
             (if (name == ORG) " not Google's WIMT phone app." else "") +
             (distanceNote?.let { " Same-page distance probe: $it; no extra request." } ?: ""),
-            now, true, orgReport = org?.report, lines = lines,
+            now, true, orgReport = org?.report,
+            orgQualificationNote = org?.qualificationNote, lines = lines,
             pageUpdateLabel = if (name == ORG) updated else null,
             orgDistanceProbe = distanceNote)
     }

@@ -492,7 +492,7 @@ Render.save("02-track-live", shot.bitmap)
             if (showReceipt) {
                 root.findViewById<TextView>(R.id.receiptTook).text = "Took 1.2 s"
                 root.findViewById<TextView>(R.id.receiptChecked).text =
-                    "Checked 17:29:05 · website · no newer stop"
+                    "Checked 17:29:05 · website · no newer qualified stop"
                 root.findViewById<TextView>(R.id.receiptFreshness).text =
                     "Freshness · last website stop 2m ago · current position unknown"
                 root.findViewById<View>(R.id.refreshReceiptOverlay).visibility = View.VISIBLE

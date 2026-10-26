@@ -31,7 +31,9 @@ object OrgWebsiteStatus {
         /** True only when the source's own update label actually contained seconds. */
         val pageClockHasSeconds: Boolean = false,
     )
-    data class Outcome(val report: Report?, val reason: String)
+    data class Outcome(val report: Report?, val reason: String,
+                       /** A source-marked card not admitted as an actual clock or map position. */
+                       val qualificationNote: String? = null)
 
     /** Ordered route progress, NOT an absolute km. Map intermediate km and dated halt km
      * can be on different static axes; BEI 905 in a separately mapped leg must still
@@ -150,10 +152,10 @@ object OrgWebsiteStatus {
         var previousSeq = -1
         var intermediate: Intermediate? = null
         var laterThanPage = 0
-        for (part in card.split(html).drop(1)) {
+        val excluded = mutableListOf<Pair<Int, String>>()
+        var lastAcceptedCard = -1
+        for ((cardIndex, part) in card.split(html).drop(1).withIndex()) {
             val code = heading.find(part)?.groupValues?.get(1)?.uppercase(Locale.ROOT) ?: continue
-            val stop = byCode[code] ?: continue
-            val leg = if (stop.isHalt) null else (inLeg[code] ?: continue)
             // Green is a past card. The owner's 16205 screenshots and a read-only
             // 17:20 HTML trial also show a BLUE SMET card with a past 16:48 arrival,
             // even after later BDVT/MSS cards are green. Blue is not proof by itself:
@@ -164,6 +166,18 @@ object OrgWebsiteStatus {
             val pastCard = className.contains("bg-green-50") && className.contains("opacity-90")
             val highlightedCard = className.contains("bg-blue-50")
             if (!pastCard && !highlightedCard) continue
+            val stop = byCode[code]
+            if (stop == null) {
+                if (pastCard) excluded += cardIndex to
+                    "Website marks $code past; route position unverified."
+                continue
+            }
+            val leg = if (stop.isHalt) null else inLeg[code]
+            if (!stop.isHalt && leg == null) {
+                if (pastCard) excluded += cardIndex to
+                    "Website marks $code past; intermediate leg unverified."
+                continue
+            }
             if (stop.seq <= previousSeq) continue
             val arrSection = part.substringAfter("<!-- Arrival -->", "").substringBefore("<!-- Departure -->")
             val depSection = part.substringAfter("<!-- Departure -->", "").take(900)
@@ -209,13 +223,22 @@ object OrgWebsiteStatus {
             if (arr != null && dep != null && dep < arr) dep = null
             // A passing point with a departure-only clock could be the site's
             // moving/current estimate; require its own past-marked arrival claim.
-            if (leg != null && arr == null) continue
-            if (arr == null && dep == null) continue
+            if (leg != null && arr == null) {
+                if (pastCard) excluded += cardIndex to
+                    "Website marks $code past; departure-only clock cannot establish passage."
+                continue
+            }
+            if (arr == null && dep == null) {
+                if (pastCard) excluded += cardIndex to
+                    "Website marks $code past; clocks do not distinguish report from timetable."
+                continue
+            }
             val platform = Regex("(?i)\\bPF\\s*([A-Z0-9]{1,3})\\b")
                 .find(part.substringBefore("<!-- Arrival -->"))?.groupValues?.get(1)
             rows[code] = LiveStopFields(actualArrivalMin = arr, actualDepartureMin = dep,
                 platform = platform)
             previousSeq = stop.seq
+            lastAcceptedCard = cardIndex
             anchorCode = code
             anchorDep = dep != null
             eventMinute = dep ?: arr!!
@@ -224,8 +247,12 @@ object OrgWebsiteStatus {
                     (arrival ?: departure)?.second ?: return@let null)
             }
         }
+        val qualification = excluded.lastOrNull { it.first > lastAcceptedCard }?.second
+        val omitted = if (excluded.isEmpty()) "" else
+            "; ${excluded.size} source-coloured past card(s) omitted from Actual (timetable echo or unmapped station)"
         if (anchorCode == null) return Outcome(null, "no past-marked, schedule-paired website station minute for this run" +
-            if (laterThanPage > 0) "; $laterThanPage claimed event(s) later than the page update clock rejected" else "")
+            if (laterThanPage > 0) "; $laterThanPage claimed event(s) later than the page update clock rejected" else "",
+            qualification)
         // The owner's 20689 diary shows the last green card's BDVT departure
         // changing 13:47→13:48→13:51→13:52 as the page clock advanced. It is
         // NOT a settled historic departure until another station has been reached.
@@ -244,6 +271,7 @@ object OrgWebsiteStatus {
         return Outcome(report,
             "${rows.size} website-published past station rows; " +
                 (if (laterThanPage > 0) "$laterThanPage claimed event(s) later than the page update clock rejected; " else "") +
-                "origin day inferred from timetable, not stated by site; clocks are site claims, not independently verified observations")
+                "origin day inferred from timetable, not stated by site; clocks are site claims, not independently verified observations" + omitted,
+            qualification)
     }
 }

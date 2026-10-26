@@ -48,9 +48,12 @@ object RefreshReceiptText {
                 val finding = when (change) {
                     RefreshEvidence.Change.NEW_STOP -> "new site-reported stop"
                     RefreshEvidence.Change.REVISED_AT_SAME_STOP -> "revised site stop time"
-                    RefreshEvidence.Change.UNCHANGED -> "same last site stop, no newer event"
+                    RefreshEvidence.Change.UNCHANGED -> "same last qualifying site stop, no newer event"
                 }
-                return "Website answered at $checked · $finding · $age"
+                val omission = if (change == RefreshEvidence.Change.UNCHANGED &&
+                    detail.contains("Unqualified later card:"))
+                    " · ${detail.substringAfter("Unqualified later card:").substringBefore(" · ").trim()}" else ""
+                return "Website answered at $checked · $finding$omission · $age"
             }
         }
         if (switched) return "Checked $checked · $sourceLabel has no usable report; $context"
