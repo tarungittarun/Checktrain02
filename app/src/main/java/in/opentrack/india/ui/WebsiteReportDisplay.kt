@@ -8,10 +8,16 @@ import `in`.opentrack.india.v2.mirror.PublicPageChecks
  * It is not an independently run-verified NTES actual, and a page clock is not
  * a train event. Only [OrgWebsiteStatus.parse]'s guarded cells may be painted. */
 object WebsiteReportDisplay {
-    const val STALE_BADGE = "WEBSITE · last site stop · stale · run inferred"
+    const val STALE_BADGE = "WEBSITE · mapped arrival · stale · run inferred"
 
     fun usable(state: String?, answered: Boolean, report: OrgWebsiteStatus.Report?): Boolean =
         state == "comparison" && answered && report != null && report.rows.isNotEmpty()
+
+    /** Stale past cards remain labelled as old site data; stale white forecasts vanish. */
+    fun displayedClocks(report: OrgWebsiteStatus.Report?, now: Long):
+        Map<String, OrgWebsiteStatus.SiteClocks> = report?.siteClocks.orEmpty().filterValues {
+            !it.forecast || now - (report?.pageUpdatedAt ?: 0L) in 0L..300_000L
+        }
 
     fun rows(model: TrackModel.View, report: OrgWebsiteStatus.Report): TrackModel.View =
         model.copy(rows = model.rows.map { row ->

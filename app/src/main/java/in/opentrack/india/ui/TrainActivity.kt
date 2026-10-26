@@ -17,8 +17,6 @@ import android.widget.ArrayAdapter
 import android.widget.Toast
 import android.view.View
 import android.view.ViewTreeObserver
-import android.view.MotionEvent
-import android.view.ViewConfiguration
 import `in`.opentrack.india.domain.RouteBetween
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -61,6 +59,12 @@ class TrainActivity : AppCompatActivity() {
     /** A completed HTTP request is not a new train event. Compare station+minute,
      * not the site's page-update clock or the time of our own button tap. */
     private var previousRefreshEvent: String? = null
+    private var previousWebsiteClockKey: String? = null
+
+    private fun websiteClockKey(ui: LiveViewModel.Ui?): String? =
+        ui?.orgWebsiteReport?.siteClocks?.toSortedMap()?.entries?.joinToString("|") { (code, value) ->
+            "$code:${value.arrivalMin}:${value.departureMin}:${value.forecast}"
+        }
 
     private fun selectedEventAt(ui: LiveViewModel.Ui?): Long? {
         if (ui == null) return null
@@ -291,7 +295,6 @@ class TrainActivity : AppCompatActivity() {
         }
 
         binding.refresh.setOnClickListener { requestRefresh() }
-        installFloatingRefresh()
         val refreshPrefs = getSharedPreferences("tracking_refresh", Context.MODE_PRIVATE)
         binding.autoSwitch.isChecked = refreshPrefs.getBoolean("every_minute", false)
         binding.autoSwitch.setOnCheckedChangeListener { _, enabled ->
@@ -424,63 +427,6 @@ class TrainActivity : AppCompatActivity() {
         }
     }
 
-    /** One-hand default: 1/8 screen from the right, 1/5 above the bottom.
-     * Dragging cannot cover the source card in the upper half. A short touch
-     * calls performClick so accessibility and the ordinary refresh share a path. */
-    private fun installFloatingRefresh() {
-        val prefs = getSharedPreferences("tracking_refresh", Context.MODE_PRIVATE)
-        val button = binding.refresh
-        val inset = (12f * resources.displayMetrics.density).toInt()
-        binding.root.addOnLayoutChangeListener { root, left, top, right, bottom, _, _, _, _ ->
-            val w = right - left
-            val h = bottom - top
-            if (w > 0 && h > 0) {
-                val point = RefreshPlacement.at(w, h, button.width, button.height, inset,
-                    prefs.getFloat("float_x", 0.875f), prefs.getFloat("float_y", 0.8f))
-                button.x = point.x
-                button.y = point.y
-            }
-        }
-        val slop = ViewConfiguration.get(this).scaledTouchSlop
-        var downX = 0f
-        var downY = 0f
-        var originX = 0f
-        var originY = 0f
-        var dragging = false
-        button.setOnTouchListener { v, event ->
-            when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    downX = event.rawX; downY = event.rawY
-                    originX = v.x; originY = v.y
-                    dragging = false
-                    true
-                }
-                MotionEvent.ACTION_MOVE -> {
-                    val dx = event.rawX - downX
-                    val dy = event.rawY - downY
-                    if (!dragging && dx * dx + dy * dy > slop * slop) dragging = true
-                    if (dragging) {
-                        v.parent.requestDisallowInterceptTouchEvent(true)
-                        val point = RefreshPlacement.drag(binding.root.width, binding.root.height,
-                            v.width, v.height, inset, originX + dx, originY + dy)
-                        v.x = point.x; v.y = point.y
-                    }
-                    true
-                }
-                MotionEvent.ACTION_UP -> {
-                    if (dragging) {
-                        prefs.edit().putFloat("float_x", (v.x + v.width / 2f) /
-                            binding.root.width.coerceAtLeast(1)).putFloat("float_y",
-                            (v.y + v.height / 2f) / binding.root.height.coerceAtLeast(1)).apply()
-                    } else v.performClick()
-                    true
-                }
-                MotionEvent.ACTION_CANCEL -> true
-                else -> false
-            }
-        }
-    }
-
     private fun requestRefresh(auto: Boolean = false) {
         if (chainBusy) return // never turn a duplicate tap/tick into a misleading receipt
         freezeSummaryHeight()
@@ -496,6 +442,8 @@ class TrainActivity : AppCompatActivity() {
         refreshStartedAt = SystemClock.elapsedRealtime()
         requestedRefreshSource = lastUi?.activeSource ?: "NTES (official)"
         previousRefreshEvent = eventKey(lastUi, requestedRefreshSource)
+        previousWebsiteClockKey = if (WebsiteReportDisplay.selected(requestedRefreshSource))
+            websiteClockKey(lastUi) else null
         completedReceipt = null
         binding.stops.post { pulseAtVisibleTrain() }
         vm.refresh(manual = true, auto = auto)
@@ -722,6 +670,8 @@ class TrainActivity : AppCompatActivity() {
             else -> "${sourceName(ui.activeSource.orEmpty())}: $selectedReason$response. Timetable shown."
         }
         binding.headline.text = m.headline
+        binding.routeHeadActual.text = if (WebsiteReportDisplay.selected(ui.activeSource))
+            "WEBSITE" else "ACTUAL"
         binding.heroEyebrow.text = when {
             ui.wimtWebPoint != null -> "WEB CACHE · COMPARISON"
             ui.orgWebsiteReport != null -> "WEBSITE REPORT"
@@ -731,27 +681,16 @@ class TrainActivity : AppCompatActivity() {
         }
         binding.heroEyebrow.setTextColor(getColor(if (ui.wimtWebPoint != null ||
             ui.orgWebsiteReport != null || ui.railYatriClaim != null) R.color.warn else R.color.live))
-        // A reported departure may earn a symbolic cue just off the last stop;
-        // the fraction is NEVER a measured distance. The latest website card's
-        // revisable departure is only an amber suggestion, not a Web Act cell.
-        val tentativeSiteDep = ui.orgWebsiteReport?.let { report ->
-            if (m.rows.any { it.code.equals(report.anchorCode, true) &&
-                    it.source == TrackModel.MinuteSource.SITE_REPORTED })
-                DepartureCue.websiteSuggestion(report, vm.originDate, System.currentTimeMillis())
-            else null
-        }
+        // Site first clocks belong in the WEBSITE column. Neither their page age
+        // nor a revisable last-card departure moves the train out of this halt.
         val leg = ui.orgWebsiteReport?.let { report ->
             report.intermediate?.let { p ->
                 RouteBetween.siteIntermediateLeg(ui.route, ui.staticRoute,
                     p.precedingHalt, p.followingHalt, p.code, p.mapKm)
             } ?: if (m.rows.any { it.code.equals(report.anchorCode, true) &&
-                    it.source == TrackModel.MinuteSource.SITE_REPORTED }) {
-                if (tentativeSiteDep != null || report.departed &&
-                    m.rows.any { it.code.equals(report.anchorCode, true) && it.showDep != null })
-                    RouteBetween.departureCueLeg(ui.route, ui.staticRoute, report.anchorCode,
-                        websiteSuggestion = true)
-                else RouteBetween.siteLastStopLeg(ui.route, ui.staticRoute, report.anchorCode)
-            } else null
+                    it.source == TrackModel.MinuteSource.SITE_REPORTED })
+                RouteBetween.siteLastStopLeg(ui.route, ui.staticRoute, report.anchorCode)
+            else null
         } ?: if (SourceEvidencePolicy.comparisonOnly(ui.activeSource)) null
             else if (ui.activeSource in setOf("NTES (official)", "erail", "last known",
                 `in`.opentrack.india.v2.mirror.RunningStatusMirror.SOURCE,
@@ -860,7 +799,7 @@ class TrainActivity : AppCompatActivity() {
                 it.code.equals(report.anchorCode, true) } }
             val place = org?.intermediate?.name ?: station?.name ?: org?.anchorCode
             binding.headline.text = when {
-                org != null -> "Recently reported at ${RowText.of(place ?: org.anchorCode)} · " +
+                org != null -> "Last mapped website card · ${RowText.of(place ?: org.anchorCode)} " +
                     "${RailTime.formatRailMinuteBare(org.eventMinute)}"
                 claim != null -> "RailYatri comparison: ${claim.code} · passage time unverified"
                 else -> "${sourceName(publicCheck)}: no qualifying past-stop report"
@@ -887,9 +826,6 @@ class TrainActivity : AppCompatActivity() {
                     siteDelay < 0 -> "${-siteDelay}m early · ${RailTime.formatRailMinuteBare(org.eventMinute)}"
                     else -> "On time · ${RailTime.formatRailMinuteBare(org.eventMinute)}"
                 }
-            if (org != null && tentativeSiteDep == null && siteDelay == 0) {
-                binding.headline.text = binding.headline.text.toString() + " · on time at stop"
-            }
             binding.delay.contentDescription = if (siteDelay == null) "No site delay at last stop"
                 else "Website arrival delay $siteDelay minutes at ${RowText.of(place ?: org!!.anchorCode)}; " +
                     "current delay unknown"
@@ -898,20 +834,10 @@ class TrainActivity : AppCompatActivity() {
             val next = org?.intermediate?.let { p -> ui.route.stops.firstOrNull {
                 it.code.equals(p.followingHalt, true) } } ?: station?.let {
                 ui.route.stops.getOrNull(ui.route.stops.indexOf(it) + 1) }
-            binding.next.text = next?.let { RowText.of(it.name) + " · " +
+            binding.next.text = next?.let { "Following halt · ${RowText.of(it.name)}" +
+                "\nTimetable " +
                 ((it.arrivalMin ?: it.departureMin)?.let(RailTime::formatRailMinuteBare) ?: "—") +
-                "\nTimetable · not ETA" } ?: "Next stop unknown · timetable below"
-            if (org != null && tentativeSiteDep != null) {
-                binding.headline.text = "Recently reported at ${RowText.of(place ?: org.anchorCode)} · " +
-                    "departure suggested, unconfirmed"
-                binding.provenance.text = "WEBSITE · departure suggestion · run inferred"
-                binding.headline.contentDescription = binding.headline.text.toString() +
-                    ". The website's last-card departure can change; not verified train position."
-            } else if (org?.departed == true && leg?.markerKind ==
-                RouteBetween.MarkerKind.SITE_DEPARTURE_SUGGESTION) {
-                binding.headline.text = "Recently reported near ${RowText.of(place ?: org.anchorCode)} · " +
-                    "later position unknown"
-            }
+                " · not ETA" } ?: "Following halt unknown · timetable below"
         }
         // The first glance is a report, not a paragraph. Keep the complete model
         // sentence available to TalkBack / Info, but present the event, delay and
@@ -959,8 +885,10 @@ class TrainActivity : AppCompatActivity() {
         stopAdapter.reports = ui.sourceLines[ui.activeSource] ?: ui.reports
         stopAdapter.websiteIntermediateReports = if (WebsiteReportDisplay.selected(ui.activeSource))
             ui.orgWebsiteReport?.rows.orEmpty() else emptyMap()
-        stopAdapter.websiteTentativeDeparture = if (tentativeSiteDep != null)
-            ui.orgWebsiteReport?.anchorCode?.let { it to tentativeSiteDep } else null
+        stopAdapter.websiteTentativeDeparture = null
+        stopAdapter.websiteCardTimes = if (WebsiteReportDisplay.selected(ui.activeSource))
+            WebsiteReportDisplay.displayedClocks(ui.orgWebsiteReport, System.currentTimeMillis())
+            else emptyMap()
         stopAdapter.mappedLegStarts = ui.staticMappedLegStarts
         // A new response can repeat the same stop. Only show its receipt once;
         // neither the score nor the pulse changes a train's reported position.
@@ -999,15 +927,6 @@ class TrainActivity : AppCompatActivity() {
             // The station keeps its dot. The only train glyph is in the outbound
             // leg, never simultaneously pinned to the station and the leg.
             stopAdapter.haltMarker = null
-            if (tentativeSiteDep != null) {
-                // Do not apply the arrived-at-station age to an unconfirmed
-                // departure; its minute is visibly marked WEB? in the table.
-                stopAdapter.legAgeSeconds = null
-                val report = ui.orgWebsiteReport!!
-                binding.age.text = "Site arrival ${RailTime.formatRailMinute(report.eventMinute)} · " +
-                    "departure suggestion ${RailTime.formatRailMinute(tentativeSiteDep)} · " +
-                    "page checked ${RailTime.formatClock(report.pageUpdatedAt)} (not movement)"
-            }
         }
         applyHeroExpansion()
         stopAdapter.highlightCode = stopAdapter.haltMarker?.code ?: ui.anchorCode
@@ -1128,13 +1047,10 @@ class TrainActivity : AppCompatActivity() {
         val fromOfficial = ui.activeSource in listOf("NTES (official)", "erail", "last known")
         val anchor = ui.anchorCode ?: if (fromOfficial) ui.answer.anchorStopCode else null
         val now = System.currentTimeMillis()
-        val pendingSiteDep = if (WebsiteReportDisplay.selected(ui.activeSource))
-            DepartureCue.websitePending(ui.orgWebsiteReport, now) else null
-        // This also runs on the age ticker: a five-minute-old page cannot keep
-        // advertising a freshly pending departure without another website check.
-        stopAdapter.websitePendingDeparture = pendingSiteDep?.let { pending ->
-            ui.orgWebsiteReport?.anchorCode?.let { it to pending }
-        }
+        stopAdapter.websitePendingDeparture = null
+        if (WebsiteReportDisplay.selected(ui.activeSource))
+            stopAdapter.websiteCardTimes = WebsiteReportDisplay.displayedClocks(
+                ui.orgWebsiteReport, now)
         val lastStopMarker = if (WebsiteReportDisplay.selected(ui.activeSource) &&
             ui.orgWebsiteReport?.intermediate == null)
             TableMarker.atHalt(rows, ui.orgWebsiteReport?.anchorCode, vm.originDate, now)
@@ -1172,7 +1088,7 @@ class TrainActivity : AppCompatActivity() {
         when {
             WebsiteReportDisplay.selected(ui.activeSource) &&
                 ui.orgWebsiteReport != null && elapsed != null -> {
-                binding.age.text = "Site stop · $elapsed"
+                binding.age.text = "Site arrival · $elapsed"
                 binding.age.contentDescription = "Website station event " +
                     "${RailTime.formatRailMinute(ui.orgWebsiteReport!!.eventMinute)}; " +
                     "page update ${RailTime.formatClock(ui.orgWebsiteReport!!.pageUpdatedAt)} is not movement"
@@ -1219,7 +1135,7 @@ class TrainActivity : AppCompatActivity() {
                 ui?.orgWebsiteReport != null -> {
                 val eventMillis = RailTime.railMinuteToEpochMillis(vm.originDate,
                     ui.orgWebsiteReport!!.eventMinute)
-                "last website stop ${TableMarker.elapsedLabel((now - eventMillis).coerceAtLeast(0))} ago" +
+                "last website arrival ${TableMarker.elapsedLabel((now - eventMillis).coerceAtLeast(0))} ago" +
                     " · current position unknown"
             }
             active == `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE &&
@@ -1256,6 +1172,8 @@ class TrainActivity : AppCompatActivity() {
             status, ui?.officialRequest,
             ui?.publicSourceAnswered?.get(requestedRefreshSource),
             cachedResponse, change, switched,
+            websiteClocksChanged = source == "website" &&
+                previousWebsiteClockKey != null && websiteClockKey(ui) != previousWebsiteClockKey,
         )
         val receipt = RefreshReceiptUi.short(source, checked, change, detail, cachedResponse)
         Diary.get()?.log("REFRESH") { detail }

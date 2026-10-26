@@ -21,6 +21,37 @@ import org.robolectric.annotation.GraphicsMode
 @Config(sdk = [34])
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class InlineRouteRenderTest {
+    @Test fun websiteColumnShowsPrintedClocksWithoutTurningForecastIntoPosition() {
+        val ctx = RuntimeEnvironment.getApplication()
+        val adapter = StopAdapter()
+        val anf = TrackModel.Stop(1, "ANF", "Anandapuram", 1800, 1802, 1813,
+            null, 13, TrackModel.MinuteSource.SITE_REPORTED, "2",
+            TrackModel.State.HERE, true, 468, 0, 25, false, false, false, -41)
+        val srf = anf.copy(seq = 2, code = "SRF", name = "Sagar Jambagaru",
+            schedArr = 1827, schedDep = 1829, showArr = null, showDep = null,
+            source = TrackModel.MinuteSource.SCHEDULE, isAnchor = false, kmFromOrigin = 482)
+        adapter.websiteCardTimes = mapOf(
+            "ANF" to `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.SiteClocks(1813, 1850, false),
+            "SRF" to `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.SiteClocks(1869, 1871, true))
+        adapter.haltMarker = TableMarker.Halt("ANF", "Last mapped website arrival", true)
+        adapter.submitList(listOf(anf, srf))
+        val at = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
+        adapter.onBindViewHolder(at, 0)
+        assertEquals("06:13", at.liveArr.text.toString())
+        assertEquals("06:50", at.liveDep.text.toString())
+        assertEquals("day2", at.liveDay.text.toString())
+        assertTrue(at.liveDep.contentDescription.contains("Website displayed departure"))
+        assertTrue(at.liveDep.contentDescription.contains("not a current position"))
+        assertEquals(View.GONE, at.status.visibility)
+        assertEquals(View.VISIBLE, at.trainMarker.visibility)
+        val next = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
+        adapter.onBindViewHolder(next, 1)
+        assertEquals("~07:09", next.liveArr.text.toString())
+        assertEquals("~07:11", next.liveDep.text.toString())
+        assertTrue(next.liveArr.contentDescription.contains("Website forecast"))
+        assertEquals(View.GONE, next.trainMarker.visibility)
+    }
+
     @Test fun freshLastWebsiteDepartureIsLabelledOutsideActualBeforeAnyMovementCue() {
         val ctx = RuntimeEnvironment.getApplication()
         val adapter = StopAdapter()

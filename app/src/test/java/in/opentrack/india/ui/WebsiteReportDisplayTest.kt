@@ -28,6 +28,19 @@ class WebsiteReportDisplayTest {
         "YPR" to LiveStopFields(actualArrivalMin = 686),
     ), "YPR", false, 686, 1_792_389_499_000L)
 
+    @Test fun whiteCardForecastExpiresWithoutErasingThePastWebsiteCard() {
+        val displayed = report.copy(siteClocks = mapOf(
+            "YPR" to OrgWebsiteStatus.SiteClocks(686, 690, false),
+            "SBC" to OrgWebsiteStatus.SiteClocks(740, 743, true)))
+        assertEquals(2, WebsiteReportDisplay.displayedClocks(displayed,
+            displayed.pageUpdatedAt + 120_000L).size)
+        val expired = WebsiteReportDisplay.displayedClocks(displayed,
+            displayed.pageUpdatedAt + 300_001L)
+        assertEquals(1, expired.size)
+        assertEquals(OrgWebsiteStatus.SiteClocks(686, 690, false), expired["YPR"])
+        assertNull(expired["SBC"])
+    }
+
     @Test fun staleWebsiteBadgeRetainsInferredRunWarning() {
         assertTrue(WebsiteReportDisplay.STALE_BADGE.contains("stale"))
         assertTrue(WebsiteReportDisplay.STALE_BADGE.contains("run inferred"))

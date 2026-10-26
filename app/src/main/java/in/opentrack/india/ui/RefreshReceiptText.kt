@@ -8,6 +8,7 @@ object RefreshReceiptText {
         checked: String, age: String, status: Pair<String, String>?,
         official: OfficialRequestReceipt?, websiteAnswered: Boolean?,
         cachedBody: Boolean, change: RefreshEvidence.Change, switched: Boolean,
+        websiteClocksChanged: Boolean = false,
     ): String {
         val context = if (switched) "showing $activeLabel · $age" else "keeping last data · $age"
         if (source == "NTES (official)") {
@@ -48,7 +49,9 @@ object RefreshReceiptText {
                 val finding = when (change) {
                     RefreshEvidence.Change.NEW_STOP -> "new site-reported stop"
                     RefreshEvidence.Change.REVISED_AT_SAME_STOP -> "revised site stop time"
-                    RefreshEvidence.Change.UNCHANGED -> "same last qualifying site stop, no newer event"
+                    RefreshEvidence.Change.UNCHANGED -> if (websiteClocksChanged)
+                        "site clocks changed; no newer mapped arrival" else
+                        "same last qualifying site stop, no newer event"
                 }
                 val omission = if (change == RefreshEvidence.Change.UNCHANGED &&
                     detail.contains("Unqualified later card:"))

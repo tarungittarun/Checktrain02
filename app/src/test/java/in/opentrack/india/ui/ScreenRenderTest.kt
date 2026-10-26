@@ -248,11 +248,9 @@ class ScreenRenderTest {
         assertTrue("opt-in one-minute Auto must stay in the source row",
             shot.root.findViewById<View>(R.id.autoSwitch).parent ===
                 shot.root.findViewById<View>(R.id.sourceSpinner).parent)
-        val trackingContent = (shot.root as android.view.ViewGroup).getChildAt(0)
-        assertTrue("Refresh must overlay the tracking content, not reserve a card row",
-            shot.root.findViewById<View>(R.id.refresh).parent === trackingContent &&
-                trackingContent is android.widget.FrameLayout &&
-                trackingContent.getChildAt(0) is android.widget.LinearLayout &&
+        val dock = shot.root.findViewById<View>(R.id.refreshDock)
+        assertTrue("Refresh must be in the dock, never above any station clock",
+            shot.root.findViewById<View>(R.id.refresh).parent === dock &&
                 shot.root.findViewById<View>(R.id.refresh).height > 0)
         assertEquals("the separate route button must not exist", 0,
             shot.context.resources.getIdentifier("betweenStations", "id", shot.context.packageName))
@@ -278,11 +276,9 @@ class ScreenRenderTest {
                 shot.context.resources.displayMetrics.density).toInt())
         val floating = shot.bounds(R.id.refresh)
         val full = shot.bounds(R.id.routeViewport)
-        assertTrue("Refresh should be in the lower half, inset from the right and bottom",
-            floating.centerY() > shot.root.height / 2 &&
-                floating.centerX() > shot.root.width * 3 / 4 &&
-                floating.right < shot.root.width && floating.bottom < shot.root.height &&
-                floating.top < full.bottom)
+        assertTrue("Refresh must never cover ANY station's source-time column: $floating / $full",
+            floating.top >= full.bottom && floating.centerX() > shot.root.width * 3 / 4 &&
+                floating.right < shot.root.width && floating.bottom <= shot.root.height)
         assertEquals("every stop must be in the list", 9, Render.rowCount(shot.root))
         val list = shot.root.findViewById<RecyclerView>(R.id.stops)!!
         assertEquals("TIMETABLE", shot.text(R.id.routeHeadTimetable))

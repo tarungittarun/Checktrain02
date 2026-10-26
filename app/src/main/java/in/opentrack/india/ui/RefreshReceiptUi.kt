@@ -20,6 +20,7 @@ object RefreshReceiptUi {
             cached -> "cached reply · no new event"
             detail.contains("failed", true) || detail.contains("no usable", true) -> "check failed · last report retained"
             detail.contains("no validated", true) -> "no validated stop"
+            detail.contains("site clocks changed", true) -> "site times revised"
             change == RefreshEvidence.Change.NEW_STOP -> "new stop reported"
             change == RefreshEvidence.Change.REVISED_AT_SAME_STOP -> "stop time revised"
             source == "website" -> "no newer qualified stop"

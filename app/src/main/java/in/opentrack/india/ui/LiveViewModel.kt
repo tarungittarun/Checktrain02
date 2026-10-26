@@ -1637,7 +1637,7 @@ class LiveViewModel(
             note = (if (orgReport != null && publicChecks[PublicPageChecks.ORG]?.pageAnswered == false)
                     "Website request failed. Keeping the previous site report at its original event time; " +
                         "position since then unknown."
-                else if (orgReport != null) "Website past-card times shown in the station table; origin run inferred from the timetable. Last site report is not a current GPS position."
+                else if (orgReport != null) "Website card clocks shown in the WEBSITE column; ~ means site forecast. Run day inferred from timetable; last mapped arrival is not current GPS."
                 else if (publicSelected) "No confirmed times from this site; timetable shown."
                 else if (mirrorSelected && !selectedMirrorForTable ||
                     erailSelected && erailAnswer == null || officialUnavailable)

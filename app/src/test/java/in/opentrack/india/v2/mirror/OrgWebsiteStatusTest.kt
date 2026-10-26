@@ -165,6 +165,42 @@ class OrgWebsiteStatusTest {
                 "${second.anchorCode}:${second.eventMinute}"))
     }
 
+    @Test fun `0701 public cards keep site departure and white forecast separate from admitted events`() {
+        val html = javaClass.classLoader!!.getResourceAsStream(
+            "org-site/16227-2026-10-26-0701.html")!!.bufferedReader().use { it.readText() }
+        val run = SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).apply {
+            timeZone = TimeZone.getTimeZone("UTC")
+        }.parse("2026-10-25")!!.time / 86_400_000L
+        val checked = SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z", Locale.ROOT)
+            .parse("2026-10-26 07:01:06 +0530")!!.time
+        val halts = route.copy(stops = listOf(
+            stop(1, "MYS", null, 1180, 0),
+            stop(2, "ARU", 1783, 1784, 453),
+            stop(3, "ANF", 1800, 1802, 468),
+            stop(4, "SRF", 1827, 1829, 482),
+            stop(5, "TLGP", 1910, null, 510)), segments = emptyList())
+        val out = OrgWebsiteStatus.parse(html, "16227", run, checked, halts)
+        val report = out.report ?: error(out.reason)
+        assertEquals("ANF", report.anchorCode)
+        assertEquals(1813, report.rows["ANF"]?.actualArrivalMin)
+        assertNull("last station's first-clock departure does not move the train",
+            report.rows["ANF"]?.actualDepartureMin)
+        assertNull("white card forecast is not a reached station", report.rows["SRF"])
+        assertEquals(1850, report.provisionalDeparture)
+        assertEquals(OrgWebsiteStatus.SiteClocks(1813, 1850, false), report.siteClocks["ANF"])
+        assertEquals(OrgWebsiteStatus.SiteClocks(1869, 1871, true), report.siteClocks["SRF"])
+        assertEquals(2, report.siteClocks.size)
+        val later = OrgWebsiteStatus.parse(html.replace("07:09 AM", "07:08 AM")
+            .replace("07:11 AM", "07:10 AM").replace("07:00:34", "07:01:11"),
+            "16227", run, checked + 48_000L, halts).report!!
+        assertEquals(report.anchorCode, later.anchorCode)
+        assertEquals(report.eventMinute, later.eventMinute)
+        assertEquals(report.rows, later.rows)
+        assertEquals(OrgWebsiteStatus.SiteClocks(1868, 1870, true), later.siteClocks["SRF"])
+        assertFalse("a changed white-card estimate does not become a new arrival",
+            report.siteClocks == later.siteClocks)
+    }
+
     @Test fun `website marks past card but future first clock is still a prediction`() {
         val out = OrgWebsiteStatus.parse(page, "16227", day, now, route)
         val report = out.report ?: error(out.reason)

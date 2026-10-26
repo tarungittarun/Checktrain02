@@ -18,6 +18,9 @@ object OrgWebsiteStatus {
     /** A station in the independent STATIC map, not a measured GPS point or live route km. */
     data class Intermediate(val code: String, val name: String, val precedingHalt: String,
                             val followingHalt: String, val mapKm: Int, val scheduledMinute: Int)
+    /** First clocks printed in a route-matched website card. White cards are forecasts;
+     * these are display-only and MUST NOT be fed into TrackModel or a train marker. */
+    data class SiteClocks(val arrivalMin: Int?, val departureMin: Int?, val forecast: Boolean)
     data class Report(
         val rows: Map<String, LiveStopFields>,
         val anchorCode: String,
@@ -30,6 +33,7 @@ object OrgWebsiteStatus {
         val provisionalDeparture: Int? = null,
         /** True only when the source's own update label actually contained seconds. */
         val pageClockHasSeconds: Boolean = false,
+        val siteClocks: Map<String, SiteClocks> = emptyMap(),
     )
     data class Outcome(val report: Report?, val reason: String,
                        /** A source-marked card not admitted as an actual clock or map position. */
@@ -146,6 +150,7 @@ object OrgWebsiteStatus {
         val byCode = (map?.let { RouteBetween.withVerifiedHalts(it, route) }?.stops
             ?: route.stops).associateBy { it.code.uppercase(Locale.ROOT) }
         val rows = linkedMapOf<String, LiveStopFields>()
+        val siteClocks = linkedMapOf<String, SiteClocks>()
         var anchorCode: String? = null
         var anchorDep = false
         var eventMinute = -1
@@ -165,6 +170,34 @@ object OrgWebsiteStatus {
                 ?.groupValues?.get(1).orEmpty()
             val pastCard = className.contains("bg-green-50") && className.contains("opacity-90")
             val highlightedCard = className.contains("bg-blue-50")
+            // Preserve what the site actually printed in the selected-source
+            // column, including timetable-equal clocks and white-card forecasts.
+            // This is a separate representation from the guarded event rows.
+            val halt = route.stops.firstOrNull { it.code.equals(code, true) }
+            if (halt != null) {
+                fun firstClock(section: String, scheduled: Int?): Int? {
+                    if (scheduled == null) return null
+                    val clocks = clock.findAll(section.take(650)).take(2).map { it.value }.toList()
+                    val first = clocks.firstOrNull()?.let(::minute) ?: return null
+                    val aligned = RailTime.alignClock(first, scheduled) ?: return null
+                    if (clocks.size == 2) {
+                        val grey = RailTime.alignClock(minute(clocks[1]), scheduled) ?: return null
+                        if (abs(grey - scheduled) > 3) return null
+                    } else if (abs(aligned - scheduled) > 3) return null
+                    return aligned.takeIf { it in originDep..(originDep + 1440) &&
+                        abs(it - scheduled) <= 360 }
+                }
+                val shownArr = firstClock(part.substringAfter("<!-- Arrival -->", "")
+                    .substringBefore("<!-- Departure -->"), halt.arrivalMin)
+                val shownDep = firstClock(part.substringAfter("<!-- Departure -->", "")
+                    .take(900), halt.departureMin)
+                val candidate = SiteClocks(shownArr, shownDep, !pastCard && !highlightedCard)
+                val previous = siteClocks[code]
+                if ((shownArr != null || shownDep != null) &&
+                    (previous == null || listOfNotNull(shownArr, shownDep).size >
+                        listOfNotNull(previous.arrivalMin, previous.departureMin).size))
+                    siteClocks[code] = candidate
+            }
             if (!pastCard && !highlightedCard) continue
             val stop = byCode[code]
             if (stop == null) {
@@ -267,7 +300,7 @@ object OrgWebsiteStatus {
             true, intermediate, provisional,
             updated.find(body)?.groupValues?.get(1)?.let {
                 Regex("\\d{1,2}:\\d{2}:\\d{2}").containsMatchIn(it)
-            } == true)
+            } == true, siteClocks)
         return Outcome(report,
             "${rows.size} website-published past station rows; " +
                 (if (laterThanPage > 0) "$laterThanPage claimed event(s) later than the page update clock rejected; " else "") +

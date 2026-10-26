@@ -5,6 +5,7 @@ package `in`.opentrack.india.ui
  * exceptional warnings, and retain the full model note in the copied report. */
 object SummaryNoteUi {
     fun visible(note: String?): String? = note?.takeUnless {
-        it.startsWith("Website past-card times shown in the station table;")
+        it.startsWith("Website past-card times shown in the station table;") ||
+            it.startsWith("Website card clocks shown in the WEBSITE column;")
     }
 }

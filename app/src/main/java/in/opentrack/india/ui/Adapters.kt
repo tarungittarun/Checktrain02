@@ -20,6 +20,7 @@ import `in`.opentrack.india.model.StationHit
 import `in`.opentrack.india.model.LiveStopFields
 import `in`.opentrack.india.model.TrainHit
 import `in`.opentrack.india.model.TrainSummary
+import `in`.opentrack.india.v2.mirror.OrgWebsiteStatus
 
 /**
  * Search results. Two rows of information per hit and nothing else — the decision a traveller makes
@@ -127,6 +128,11 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
     private var projectedLeg: RouteBetween.LegProjection? = null
     /** Only the selected website's validated past cards, never a background comparison. */
     var websiteIntermediateReports: Map<String, LiveStopFields> = emptyMap()
+    /** Selected site's printed clocks, separate from qualified train events. */
+    var websiteCardTimes: Map<String, OrgWebsiteStatus.SiteClocks> = emptyMap()
+        set(value) {
+            if (field != value) { field = value; notifyDataSetChanged() }
+        }
     /** Last page's departure suggestion is a labelled note, not an ACTUAL clock. */
     var websitePendingDeparture: Pair<String, Int>? = null
         set(value) {
@@ -274,9 +280,10 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             it.first.equals(s.code, true) }?.second
         val pendingDep = websitePendingDeparture?.takeIf { website &&
             it.first.equals(s.code, true) }?.second
+        val siteCard = websiteCardTimes[s.code]
         val stationClaim = reports[s.code]?.startsWith("RailYatri root claims") == true
         holder.status.text = when {
-            pendingDep != null -> "Site dep ${RouteClockUi.clock(pendingDep)}? · unconfirmed"
+            pendingDep != null && siteCard == null -> "Site dep ${RouteClockUi.clock(pendingDep)}? · unconfirmed"
             website && s.showDep != null && s.showArr == null ->
                 "Website arrival not validated · departure shown"
             website && s.showDep != null -> "Departed · later position unknown"
@@ -297,7 +304,8 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         // Reported clocks have provenance in their content descriptions. Do not
         // repeat unhelpful prose below every halt; preserve exceptional warnings.
         holder.status.visibility = if (s.state == TrackModel.State.CANCELLED ||
-            s.state == TrackModel.State.SKIPPED || stationClaim || pendingDep != null)
+            s.state == TrackModel.State.SKIPPED || stationClaim ||
+            pendingDep != null && siteCard == null)
             View.VISIBLE else View.GONE
         holder.status.contentDescription = if (pendingDep != null)
             "Website suggests departure ${RouteClockUi.clock(pendingDep)}; unconfirmed, not an actual departure"
@@ -325,12 +333,19 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         DirectionArrowDrawable.attach(holder.schedDep, arriving = false, reported = false)
         val reported = s.source != TrackModel.MinuteSource.SCHEDULE
         val late: Boolean = (s.delay ?: 0) >= 3
-        holder.liveArr.text = if (isFirst) "START" else time(s.showArr.takeIf { reported })
-        holder.liveDep.text = if (isLast) "END" else if (suggestedDep != null)
+        fun siteTime(minute: Int?): String = when {
+            minute == null -> "—"
+            siteCard?.forecast == true -> "~${time(minute)}"
+            else -> time(minute)
+        }
+        holder.liveArr.text = if (isFirst) "START" else if (siteCard != null)
+            siteTime(siteCard.arrivalMin) else time(s.showArr.takeIf { reported })
+        holder.liveDep.text = if (isLast) "END" else if (siteCard != null)
+            siteTime(siteCard.departureMin) else if (suggestedDep != null)
             "${time(suggestedDep)}?" else time(s.showDep.takeIf { reported })
         val actualDay = RouteClockUi.departureDay(
-            (suggestedDep ?: s.showDep).takeIf { reported }, s.showArr.takeIf { reported })
-            ?.takeIf { it != day } // one day marker per station when planned/actual agree
+            siteCard?.departureMin ?: (suggestedDep ?: s.showDep).takeIf { reported },
+            siteCard?.arrivalMin ?: s.showArr.takeIf { reported })
         holder.liveDay.text = actualDay.orEmpty()
         holder.liveDay.visibility = if (actualDay == null) View.GONE else View.VISIBLE
         holder.liveDay.contentDescription = actualDay?.let { "Reported run ${it.replace("day", "day ")}" } ?: ""
@@ -347,8 +362,13 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         holder.schedDep.contentDescription = if (isLast) "End of route, scheduled arrival ${s.schedArr?.let(RailTime::formatRailMinute) ?: "unknown"}"
             else "Scheduled departure ${s.schedDep?.let(RailTime::formatRailMinute) ?: "unknown"}"
         holder.liveArr.contentDescription = if (isFirst) "Start of route; $evidence departure ${s.showDep?.let(RailTime::formatRailMinute) ?: "unknown"}"
+            else if (siteCard != null) "Website ${if (siteCard.forecast) "forecast" else "displayed"} arrival " +
+                (siteCard.arrivalMin?.let(RailTime::formatRailMinute) ?: "unknown")
             else "$evidence arrival ${s.showArr?.takeIf { reported }?.let(RailTime::formatRailMinute) ?: "unknown"}"
         holder.liveDep.contentDescription = if (isLast) "End of route; $evidence arrival ${s.showArr?.let(RailTime::formatRailMinute) ?: "unknown"}"
+            else if (siteCard != null) "Website ${if (siteCard.forecast) "forecast" else "displayed"} departure " +
+                (siteCard.departureMin?.let(RailTime::formatRailMinute) ?: "unknown") +
+                "; last card is not a current position"
             else if (suggestedDep != null)
             "Unconfirmed website departure suggestion ${time(suggestedDep)}; not actual"
             else "$evidence departure ${s.showDep?.takeIf { reported }?.let(RailTime::formatRailMinute) ?: "unknown"}"
@@ -360,9 +380,10 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
                 s.source == TrackModel.MinuteSource.SITE_REPORTED -> R.color.warn
             else -> R.color.live
         }
-        holder.liveArr.setTextColor(ctx.getColor(color))
-        holder.liveDep.setTextColor(ctx.getColor(color))
-        val hasShownTime = reported && (s.showArr != null || s.showDep != null)
+        holder.liveArr.setTextColor(ctx.getColor(if (siteCard != null) R.color.warn else color))
+        holder.liveDep.setTextColor(ctx.getColor(if (siteCard != null) R.color.warn else color))
+        val hasShownTime = (reported && (s.showArr != null || s.showDep != null)) ||
+            siteCard?.arrivalMin != null || siteCard?.departureMin != null
         val primary = if (hasShownTime) s.showDep ?: s.showArr else s.schedArr ?: s.schedDep
         holder.primaryTime.text = primary?.let(RailTime::formatRailMinute) ?: "—"
         // Source attribution stays in the selector/badge and each clock's accessibility text.

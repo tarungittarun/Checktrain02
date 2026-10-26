@@ -10,8 +10,7 @@
     android:layout_height="match_parent"
     android:background="@color/bg">
 
-    <!-- The route retains the reclaimed vertical space. Refresh floats above it,
-         so the table never reserves an empty 48dp row for the button. -->
+    <!-- Reserve a bottom control dock: Refresh must NEVER hide a printed clock. -->
     <LinearLayout
         android:id="@+id/contentColumn"
         android:layout_width="match_parent"
@@ -552,31 +551,34 @@
                 android:text="Older offline corridor: approximate km only, not a current route or train position. Missing legs have no verified intermediate map."
                 android:visibility="gone" />
 
+            <!-- Fixed outside the table viewport. Neither a floating button nor a
+                 drag target may obscure an arrival/departure minute. -->
+            <FrameLayout
+                android:id="@+id/refreshDock"
+                android:layout_width="match_parent"
+                android:layout_height="60dp"
+                android:paddingEnd="20dp">
+                <FrameLayout
+                    android:id="@+id/refresh"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:layout_gravity="end|center_vertical"
+                    android:background="@drawable/ripple_refresh_fab"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:contentDescription="Refresh selected source">
+                    <ImageView
+                        android:id="@+id/refreshGlyph"
+                        android:layout_width="28dp"
+                        android:layout_height="28dp"
+                        android:layout_gravity="center"
+                        android:src="@drawable/ic_refresh"
+                        android:tint="@color/refresh_ink"
+                        android:contentDescription="@null" />
+                </FrameLayout>
+            </FrameLayout>
+
     </LinearLayout>
     </LinearLayout>
 
-    <!-- Draggable lower-half overlay. The activity positions its centre at 7/8
-         of the screen width and 4/5 of its height, then clamps drag to the lower
-         half. No list height is reserved for this independent 48dp target. -->
-    <FrameLayout
-        android:id="@+id/refresh"
-        android:layout_width="48dp"
-        android:layout_height="48dp"
-        android:layout_gravity="bottom|end"
-        android:layout_marginEnd="24dp"
-        android:layout_marginBottom="120dp"
-        android:elevation="12dp"
-        android:background="@drawable/ripple_refresh_fab"
-        android:clickable="true"
-        android:focusable="true"
-        android:contentDescription="Refresh. Drag to move within the lower half of the screen">
-        <ImageView
-            android:id="@+id/refreshGlyph"
-            android:layout_width="28dp"
-            android:layout_height="28dp"
-            android:layout_gravity="center"
-            android:src="@drawable/ic_refresh"
-            android:tint="@color/refresh_ink"
-            android:contentDescription="@null" />
-    </FrameLayout>
 </FrameLayout>
