@@ -519,7 +519,10 @@ jobs:
     if: github.ref_type == 'branch'
     name: traveller / published APK / ${{ matrix.profile }} / ${{ matrix.group }}
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    # SDK/emulator download can retry for 120s before a 240s bounded device
+    # method starts. Do not kill a still-running assertion at the runner limit.
+    # The per-method adb timeout and every acceptance assertion remain unchanged.
+    timeout-minutes: 15
     permissions:
       actions: read
       contents: write # post the exact failing user journey to this commit
