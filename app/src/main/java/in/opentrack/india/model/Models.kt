@@ -157,6 +157,9 @@ data class LiveSnapshot(
     val feedStampMillis: Long? = null,
     /** Validated NTES schedule for this run; ephemeral, never silently persisted as offline data. */
     val reportedRoute: TrainRoute? = null,
+    /** Per-cell NTES clocks retained from an earlier accepted reply for this exact run/route.
+     * These are history, NEVER a new position, receipt or event-age reset. */
+    val savedOfficialClocks: Set<String> = emptySet(),
 ) {
     companion object {
         fun empty(trainNo: String, kind: SourceKind) = LiveSnapshot(

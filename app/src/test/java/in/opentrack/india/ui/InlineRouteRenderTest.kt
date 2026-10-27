@@ -82,6 +82,10 @@ class InlineRouteRenderTest {
                 "RRB" to `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.SiteClocks(1612, 1615, true)))
         adapter.websiteComparisonTimes = WebsiteReportDisplay.displayedClocks(site, day,
             listOf("TTR", "ASK", "RRB"), pageAt + 60_000)
+        // A later site timeout/stale page leaves only this separately labelled
+        // historical comparison, never an official Act or a renewed page clock.
+        assertTrue(WebsiteGapUi.caption(ttr, site.siteClocks["TTR"], saved = true)!!
+            .startsWith("Web past (saved) · arr 01:17"))
         adapter.haltMarker = TableMarker.Halt("ASK", "Last NTES arrival", false)
         adapter.submitList(listOf(ttr, ask, rrb))
         val past = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
@@ -99,6 +103,12 @@ class InlineRouteRenderTest {
         assertEquals("—", at.liveDep.text.toString())
         assertEquals(View.GONE, at.websitePastComparison.visibility)
         assertEquals(View.VISIBLE, at.trainMarker.visibility)
+        adapter.savedOfficialClocks = setOf("ASK:arr")
+        adapter.onBindViewHolder(at, 1)
+        assertEquals("01:38", at.liveArr.text.toString())
+        assertTrue(at.meta.text.toString().contains("NTES saved arr"))
+        assertTrue(at.liveArr.contentDescription.contains("saved for this run, not a new event"))
+        adapter.savedOfficialClocks = emptySet()
         val future = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
         adapter.onBindViewHolder(future, 2)
         assertEquals(View.GONE, future.websitePastComparison.visibility)

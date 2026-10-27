@@ -80,6 +80,8 @@ object PositionEngine {
         /** the feed's last station was not on the scheduled route (diversion / coverage gap) */
         val unresolved: Boolean = false,
         val perStop: Map<String, LiveStopFields> = emptyMap(),
+        /** An earlier accepted official clock carried on this exact run, never a new event. */
+        val savedOfficialClocks: Set<String> = emptySet(),
         /** true when rule 3 or 4 replaced the raw estimate */
         val held: Boolean = false,
     )
@@ -201,6 +203,7 @@ object PositionEngine {
                     anchorStopName = route.stopAtSeq(prev.anchorSeq)?.name,
                     note = "holding the last position: the feed re-reported an earlier stop",
                     perStop = snap.perStop,
+                    savedOfficialClocks = snap.savedOfficialClocks,
                     held = true,
                 )
             }
@@ -247,6 +250,7 @@ object PositionEngine {
             anchorStopName = route.stopAtSeq(anchorSeq)?.name,
             note = note,
             perStop = snap.perStop,
+            savedOfficialClocks = snap.savedOfficialClocks,
         )
     }
 
@@ -334,6 +338,7 @@ object PositionEngine {
             },
             unresolved = true,
             perStop = snap.perStop,
+            savedOfficialClocks = snap.savedOfficialClocks,
         )
     }
 

@@ -1058,11 +1058,15 @@ class TrainActivity : AppCompatActivity() {
         // NTES may have a later last halt yet no accepted actual at an earlier
         // stop. Show the site's parsed *past* card beside that stop, not as an
         // official Act or a second train icon. Discard old/foreign-run pages.
-        stopAdapter.websiteComparisonTimes = if (ui.activeSource == "NTES (official)" &&
-            ui.orgWebsiteReport?.pageUpdatedAt?.let { siteNow - it in 0L..43_200_000L } == true)
-            WebsiteReportDisplay.displayedClocks(ui.orgWebsiteReport, vm.originDate,
+        stopAdapter.websiteComparisonTimes = if (ui.activeSource == "NTES (official)")
+            WebsiteReportDisplay.displayedClocks(ui.orgWebsiteComparisonReport, vm.originDate,
                 ui.model.rows.map { it.code }, siteNow)
             else emptyMap()
+        stopAdapter.websiteComparisonSaved = ui.orgWebsiteComparisonReport?.let {
+            siteNow - it.pageUpdatedAt > 300_000L
+        } == true
+        stopAdapter.savedOfficialClocks = if (ui.activeSource == "NTES (official)")
+            ui.answer.savedOfficialClocks else emptySet()
         stopAdapter.mappedLegStarts = ui.staticMappedLegStarts
         // A new response can repeat the same stop. Only show its receipt once;
         // neither the score nor the pulse changes a train's reported position.

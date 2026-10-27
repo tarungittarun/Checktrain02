@@ -122,6 +122,19 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
     /** Set only on the opt-in path. Standard row binding is otherwise unchanged. */
     var batteryMode: Boolean = false
 
+    var savedOfficialClocks: Set<String> = emptySet()
+        set(value) {
+            if (field != value) {
+                val changed = (field + value).map { it.substringBefore(':') }.toSet()
+                field = value
+                rebindCodes(*changed.toTypedArray())
+            }
+        }
+    var websiteComparisonSaved: Boolean = false
+        set(value) {
+            if (field != value) { field = value; rebindCodes(*websiteComparisonTimes.keys.toTypedArray()) }
+        }
+
     /** Activity supplies the explanation/retry; this adapter never invents map dots. */
     var onMapUnavailable: ((String) -> Unit)? = null
     var mapSource: String? = null
@@ -287,6 +300,12 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         holder.name.setTextColor(ctx.getColor(colorFor(s)))
         holder.meta.text = buildString {
             append(s.code)
+            if (s.source == TrackModel.MinuteSource.REPORTED) {
+                val saved = listOfNotNull(
+                    "arr".takeIf { "${s.code}:arr" in savedOfficialClocks },
+                    "dep".takeIf { "${s.code}:dep" in savedOfficialClocks })
+                if (saved.isNotEmpty()) append(" · NTES saved ").append(saved.joinToString("/"))
+            }
             if (s.showKm) append(" · ").append(s.kmFromOrigin).append(" km")
             if (s.isBoarding) append(" · ").append(ctx.getString(R.string.tag_board))
             else if (s.isAlighting) append(" · ").append(ctx.getString(R.string.tag_alight))
@@ -352,7 +371,7 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             s.source == TrackModel.MinuteSource.PROJECTED -> R.color.warn
             else -> R.color.text3
         }))
-        val siteComparison = WebsiteGapUi.caption(s, websiteComparisonTimes[s.code])
+        val siteComparison = WebsiteGapUi.caption(s, websiteComparisonTimes[s.code], websiteComparisonSaved)
         holder.websitePastComparison.text = siteComparison.orEmpty()
         holder.websitePastComparison.visibility = if (siteComparison == null) View.GONE else View.VISIBLE
         holder.websitePastComparison.contentDescription = siteComparison?.let {
@@ -407,11 +426,15 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             else "Scheduled arrival ${s.schedArr?.let(RailTime::formatRailMinute) ?: "unknown"}"
         holder.schedDep.contentDescription = if (isLast) "End of route, scheduled arrival ${s.schedArr?.let(RailTime::formatRailMinute) ?: "unknown"}"
             else "Scheduled departure ${s.schedDep?.let(RailTime::formatRailMinute) ?: "unknown"}"
-        holder.liveArr.contentDescription = if (isFirst) "Start of route; $evidence departure ${s.showDep?.let(RailTime::formatRailMinute) ?: "unknown"}"
+        holder.liveArr.contentDescription = if ("${s.code}:arr" in savedOfficialClocks && reported)
+            "Earlier accepted NTES arrival ${s.showArr?.let(RailTime::formatRailMinute) ?: "unknown"}; saved for this run, not a new event"
+            else if (isFirst) "Start of route; $evidence departure ${s.showDep?.let(RailTime::formatRailMinute) ?: "unknown"}"
             else if (siteCard != null) "Website ${if (siteCard.forecast) "forecast" else "displayed"} arrival " +
                 (siteCard.arrivalMin?.let(RailTime::formatRailMinute) ?: "unknown")
             else "$evidence arrival ${s.showArr?.takeIf { reported }?.let(RailTime::formatRailMinute) ?: "unknown"}"
-        holder.liveDep.contentDescription = if (isLast) "End of route; $evidence arrival ${s.showArr?.let(RailTime::formatRailMinute) ?: "unknown"}"
+        holder.liveDep.contentDescription = if ("${s.code}:dep" in savedOfficialClocks && reported)
+            "Earlier accepted NTES departure ${s.showDep?.let(RailTime::formatRailMinute) ?: "unknown"}; saved for this run, not a new event"
+            else if (isLast) "End of route; $evidence arrival ${s.showArr?.let(RailTime::formatRailMinute) ?: "unknown"}"
             else if (siteCard != null) "Website ${if (siteCard.forecast) "forecast" else "displayed"} departure " +
                 (siteCard.departureMin?.let(RailTime::formatRailMinute) ?: "unknown") +
                 "; last card is not a current position"

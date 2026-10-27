@@ -155,6 +155,8 @@ class LiveViewModel(
         val railYatriClaim: PublicPageChecks.StationClaim? = null,
         /** The .org.in site's own past-card claims, not Google's app or verified GPS. */
         val orgWebsiteReport: `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.Report? = null,
+        /** Last eligible site past card beside *missing* NTES clocks. Never selects that site. */
+        val orgWebsiteComparisonReport: `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.Report? = null,
         /** R139 diagnostic from that *same* reply; never drives the marker or Actual cells. */
         val orgWebsiteDistanceProbe: String? = null,
         /** A newer unverified comparison, not a silent switch away from NTES. */
@@ -1634,6 +1636,14 @@ class LiveViewModel(
                             it.schedKm == point.mapKm } == true
                 } == true)
         }
+        // The website may fall outside its five-minute *current* window while its
+        // original past cards are still worth a source-labelled historical comparison.
+        // Never use them as the selected NTES event/marker or redate the page clock.
+        val oldWebsiteComparison = if (mirrorActiveSource == "NTES (official)")
+            (publicChecks[PublicPageChecks.ORG]?.orgReport ?: maxOrgWebsiteReport)?.takeIf { report ->
+                now - report.pageUpdatedAt in 0L..43_200_000L &&
+                    route.stops.any { it.code.equals(report.anchorCode, true) }
+            } else null
         val orgStop = orgReport?.let { report -> route.stops.firstOrNull {
             it.code.equals(report.intermediate?.precedingHalt ?: report.anchorCode, true) } }
         val tablePos = if (orgReport != null && orgStop != null) pos.copy(
@@ -1917,6 +1927,7 @@ class LiveViewModel(
             wimtWebPoint = webPoint,
             railYatriClaim = railClaim,
             orgWebsiteReport = orgReport,
+            orgWebsiteComparisonReport = oldWebsiteComparison,
             orgWebsiteDistanceProbe = publicChecks[PublicPageChecks.ORG]?.orgDistanceProbe
                 ?.takeIf { selected == PublicPageChecks.ORG },
             alternateSiteHint = alternateSiteHint,

@@ -30,6 +30,7 @@ internal object OfficialRunCache {
             put("name", route.trainName)
             put("stops", stops)
             put("snapshot", JSONObject(SnapshotCodec.encode(snapshot)))
+            put("savedClocks", JSONArray(snapshot.savedOfficialClocks.sorted()))
         }.toString()
     }
 
@@ -77,10 +78,62 @@ internal object OfficialRunCache {
             return null
         val stamp = root.optLong("stamp", 0L).takeIf { it > 0L }
         if (stamp != null && (stamp > nowMillis + 120_000L || stamp < saved - MAX_AGE_MS)) return null
+        val savedClocks = root.optJSONArray("savedClocks")?.let { cells ->
+            (0 until cells.length()).mapNotNull { cells.optString(it).takeIf { key ->
+                key.matches(Regex("[A-Z0-9]{1,6}:(arr|dep)"))
+            } }.toSet()
+        }.orEmpty()
         snap.copy(sourceKind = SourceKind.CACHED, fetchedAtMillis = saved,
-            feedStampMillis = stamp, reportedRoute = route,
+            feedStampMillis = stamp, reportedRoute = route, savedOfficialClocks = savedClocks,
             rawNote = "Last known official NTES report; not a current observation")
     }.getOrNull()
+
+    /** Carry only ALREADY ACCEPTED official per-stop minutes when a later official
+     * reply omits that cell. No interpolation, website minute, schedule or ETA is
+     * admitted here. Never let a historical cell set the latest anchor/event age.
+     * A changed official route or newer conflicting actual invalidates the old cell. */
+    fun retainAccepted(fresh: LiveSnapshot, previous: LiveSnapshot?): LiveSnapshot {
+        val currentRoute = fresh.reportedRoute ?: return fresh
+        val oldRoute = previous?.reportedRoute ?: return fresh
+        if (previous.sourceKind != SourceKind.CACHED ||
+            previous.trainNo != fresh.trainNo || previous.journeyEpochDay == null ||
+            previous.journeyEpochDay != fresh.journeyEpochDay ||
+            previous.fetchedAtMillis > fresh.fetchedAtMillis ||
+            fresh.fetchedAtMillis - previous.fetchedAtMillis > MAX_AGE_MS ||
+            oldRoute.stops.map { Triple(it.code.uppercase(), it.arrivalMin, it.departureMin) } !=
+            currentRoute.stops.map { Triple(it.code.uppercase(), it.arrivalMin, it.departureMin) } ||
+            (previous.feedStampMillis != null && fresh.feedStampMillis != null &&
+                previous.feedStampMillis > fresh.feedStampMillis)) return fresh
+        val anchorIndex = currentRoute.stops.indexOfFirst { it.code.equals(fresh.atCode, true) }
+        val event = fresh.eventMinute ?: return fresh
+        if (anchorIndex < 0) return fresh
+        val merged = fresh.perStop.toMutableMap()
+        val saved = mutableSetOf<String>()
+        for ((index, stop) in currentRoute.stops.withIndex()) {
+            if (index > anchorIndex) break
+            val code = stop.code.uppercase()
+            val old = previous.perStop[code] ?: continue
+            val now = merged[code]
+            if (now?.cancelled == true || old.cancelled) continue
+            fun retain(clock: Int?, scheduled: Int?): Int? = clock?.takeIf {
+                scheduled != null && it - scheduled in -10..180 && it <= event
+            }
+            val arr = if (now?.actualArrivalMin == null)
+                retain(old.actualArrivalMin, stop.arrivalMin) else null
+            val dep = if (now?.actualDepartureMin == null)
+                retain(old.actualDepartureMin, stop.departureMin) else null
+            if (arr == null && dep == null) continue
+            if (arr != null) saved += "$code:arr"
+            if (dep != null) saved += "$code:dep"
+            merged[code] = (now ?: `in`.opentrack.india.model.LiveStopFields()).copy(
+                actualArrivalMin = now?.actualArrivalMin ?: arr,
+                actualDepartureMin = now?.actualDepartureMin ?: dep,
+                delayArrivalMin = now?.delayArrivalMin ?: old.delayArrivalMin.takeIf { arr != null },
+                delayDepartureMin = now?.delayDepartureMin ?: old.delayDepartureMin.takeIf { dep != null },
+            )
+        }
+        return fresh.copy(perStop = merged, savedOfficialClocks = saved)
+    }
 
     const val MAX_AGE_MS = 24 * 60 * 60_000L
 }

@@ -359,14 +359,46 @@ class NtesProvider(
         // different support conversation from "live, via the shipped request".
         // `adopted.name` is only reachable in the else branch, where the null check above has already excluded
         // the case - `adopted` is nullable, so hoisting that read out here would not compile.
+        // Small, station-scoped evidence for the gaps the traveller can see. The
+        // encrypted body itself is never logged; even an answered NTES row may
+        // contain only an ETA or an echoed timetable, not an observed Act clock.
+        if (stns && officialRoute != null && rawParsed != null) Diary.get()?.log("NTES_GAPS") {
+            val limit = rawParsed.rows.indexOfFirst { it.code.equals(snap.atCode, true) }
+            val rawRows = doc.optJSONArray("STNS")
+            if (limit < 0) "no accepted anchor on STNS route"
+            else (0..limit).filter { i ->
+                val accepted = parsed.rows[i]
+                val scheduled = officialRoute.stops[i]
+                (scheduled.arrivalMin != null && accepted.actArr == null ||
+                 scheduled.departureMin != null && accepted.actDep == null)
+            }.takeLast(10).joinToString(" ; ") { i ->
+                val row = rawRows?.optJSONObject(i)
+                val code = rawParsed.rows[i].code.orEmpty()
+                val accepted = parsed.rows[i]
+                fun field(key: String) = row?.optString(key).orEmpty().take(26).ifBlank { "—" }
+                "$code accepted=${accepted.actArr ?: "—"}/${accepted.actDep ?: "—"} " +
+                    "STA=${field("STA")} STD=${field("STD")} " +
+                    "ETA=${field("ETA")} ETD=${field("ETD")} " +
+                    "DARR=${field("DARR")} DDEP=${field("DDEP")} " +
+                    "ATA=${field("ATA")} ATD=${field("ATD")}"
+            }
+        }
         val routed = snap.copy(reportedRoute = officialRoute)
         val shaped = if (adopted == null || routed.rawNote.isNullOrBlank()) routed
         else routed.copy(rawNote = (routed.rawNote ?: "live") + " · via " + adopted.name)
         // The cache codec stores stops but not the authoritative route. Replaying these
         // observations against an unrelated device route would misidentify the train.
-        if (officialRoute == null) store?.save(trainNo, shaped)
-        else store?.saveOfficial(trainNo, shaped)
-        return shaped
+        val withHistory = if (officialRoute == null) shaped else OfficialRunCache.retainAccepted(
+            shaped, store?.loadOfficial(trainNo, journeyEpochDay,
+                officialRoute.srcCode, officialRoute.dstCode))
+        if (officialRoute == null) store?.save(trainNo, withHistory)
+        else store?.saveOfficial(trainNo, withHistory)
+        if (withHistory.savedOfficialClocks.isNotEmpty()) Diary.get()?.log("NTES") {
+            "retained earlier accepted official cells for same run/route: " +
+                withHistory.savedOfficialClocks.sorted().joinToString(",") +
+                "; latest event remains ${withHistory.atCode}:${withHistory.eventMinute}"
+        }
+        return withHistory
     }
 
     companion object {

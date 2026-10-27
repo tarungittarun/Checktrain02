@@ -8,7 +8,8 @@ import `in`.opentrack.india.v2.mirror.OrgWebsiteStatus
  * NTES view has no accepted actual. Never write these into the Act column, the
  * official snapshot or the marker. The website does not state the run date. */
 internal object WebsiteGapUi {
-    fun caption(stop: TrackModel.Stop, site: OrgWebsiteStatus.SiteClocks?): String? {
+    fun caption(stop: TrackModel.Stop, site: OrgWebsiteStatus.SiteClocks?,
+                saved: Boolean = false): String? {
         if (site == null || site.forecast ||
             !(stop.state == TrackModel.State.PASSED || stop.isAnchor)) return null
         val official = stop.source == TrackModel.MinuteSource.REPORTED
@@ -17,7 +18,7 @@ internal object WebsiteGapUi {
         if (arr == null && dep == null) return null
         val day = RouteClockUi.departureDay(dep, arr)
         return buildString {
-            append("Web past · ")
+            append(if (saved) "Web past (saved) · " else "Web past · ")
             if (arr != null) append("arr ").append(RailTime.formatRailMinuteBare(arr))
             if (dep != null) {
                 if (arr != null) append(" · ")
