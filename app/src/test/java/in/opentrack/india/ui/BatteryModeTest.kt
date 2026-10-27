@@ -66,7 +66,7 @@ class BatteryModeTest {
     @Test fun homeSettingsAndTrackingLayoutsAreBlackWithReadablePrimaryText() {
         Prefs(ctx).batteryMode = true
         for ((layout, labelId) in listOf(
-            R.layout.activity_main to R.id.homeBrand,
+            R.layout.activity_main to R.id.dataChip,
             R.layout.activity_settings to R.id.batteryMode,
             R.layout.activity_train to R.id.delay,
         )) {
