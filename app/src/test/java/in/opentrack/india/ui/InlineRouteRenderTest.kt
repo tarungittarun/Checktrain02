@@ -303,7 +303,7 @@ class InlineRouteRenderTest {
         adapter.submitList(null)
         adapter.submitList(listOf(main.copy(source = TrackModel.MinuteSource.SITE_REPORTED), next))
         adapter.onBindViewHolder(holder, 0)
-        assertEquals("At Kadur · as on 08:44\n18 km route gap to Intermediate",
+        assertEquals("Last site arrival · 08:44\n18 km route gap to Intermediate",
             holder.eventCaption.text.toString())
         assertEquals("", holder.timeType.text.toString())
         assertEquals("WEB attribution stays in badge/accessibility, not repeated beside clocks",
