@@ -55,6 +55,9 @@ class TrainActivity : AppCompatActivity() {
     private var lastAnchor: String? = null
     private var initialReportedFocusDone = false
     private var focusAfterRefresh = false
+    private var focusRequestId = 0L
+    /** The last route actually installed by AsyncListDiffer, not merely a network response. */
+    private var committedRouteUi: LiveViewModel.Ui? = null
     private var receiptReady = false
     private var refreshStartedAt = 0L
     private var requestedRefreshSource = "NTES (official)"
@@ -393,12 +396,7 @@ class TrainActivity : AppCompatActivity() {
                 attachCompletedReceipt()
                 refreshStartedAt = 0L
             }
-            if (wasBusy && !chainBusy && focusAfterRefresh) binding.stops.post {
-                // A failed check may have no new list commit. A successful check has
-                // its own commit callback; both paths centre the glyph, not just the row.
-                focusCurrentLeg()
-                focusAfterRefresh = false
-            }
+            if (wasBusy && !chainBusy) focusManualRefreshWhenReady()
             // Lock once the initial selected-source check completes. A later
             // background mirror answer can add text, but the evidence scrolls
             // inside the locked area instead of growing the whole summary.
@@ -435,8 +433,8 @@ class TrainActivity : AppCompatActivity() {
     }
 
     /** Default in the clock-free bottom dock; long drag moves it within the
-     * lower half. A release (or a route scroll) steers around visible clock
-     * cells without inventing a second network action. */
+     * lower half. Only an explicit drop settles around the clocks: scrolling
+     * the table must NEVER move a button the traveller already placed. */
     private fun installFloatingRefresh() {
         val prefs = getSharedPreferences("tracking_refresh", Context.MODE_PRIVATE)
         val button = binding.refresh
@@ -468,8 +466,11 @@ class TrainActivity : AppCompatActivity() {
                 button.width, button.height, inset, button.x, button.y, boxes)
             button.x = point.x; button.y = point.y
         }
-        binding.root.addOnLayoutChangeListener { root, _, _, right, bottom, _, _, _, _ ->
-            if (button.width == 0 || right <= 0 || bottom <= 0) return@addOnLayoutChangeListener
+        var placedSize: Pair<Int, Int>? = null
+        binding.root.addOnLayoutChangeListener { root, _, _, _, _, _, _, _, _ ->
+            val size = root.width to root.height
+            if (button.width == 0 || size.first <= 0 || size.second <= 0 ||
+                placedSize == size) return@addOnLayoutChangeListener
             val savedX = prefs.getFloat("float_x", -1f)
             val savedY = prefs.getFloat("float_y", -1f)
             val dock = binding.refreshDock
@@ -482,13 +483,8 @@ class TrainActivity : AppCompatActivity() {
                 if (savedY >= 0f) root.height * savedY - button.height / 2f else defaultY)
             button.x = point.x; button.y = point.y
             avoidClocks()
+            placedSize = size
         }
-        binding.stops.addOnScrollListener(object : androidx.recyclerview.widget.RecyclerView.OnScrollListener() {
-            override fun onScrolled(recyclerView: androidx.recyclerview.widget.RecyclerView,
-                                    dx: Int, dy: Int) {
-                if (dx != 0 || dy != 0) avoidClocks()
-            }
-        })
         val slop = ViewConfiguration.get(this).scaledTouchSlop
         var downX = 0f
         var downY = 0f
@@ -538,9 +534,11 @@ class TrainActivity : AppCompatActivity() {
         connectionCue.clear() // a new request will earn its own result; never blink during checking
         applyHeroExpansion()
         lastFlashErrorKey = null
-        // Preserve the traveller's scroll position. A new stop rebinds the rail,
-        // but refreshing the same report never recentres the list.
-        focusAfterRefresh = false
+        // A deliberate tap must return to the last reported locomotive, even
+        // when the response repeats exactly the same stop/time. A background
+        // one-minute tick never steals the traveller's scroll position.
+        focusAfterRefresh = !auto
+        if (!auto) focusRequestId++
         receiptReady = false
         refreshStartedAt = SystemClock.elapsedRealtime()
         requestedRefreshSource = lastUi?.activeSource ?: "NTES (official)"
@@ -550,6 +548,22 @@ class TrainActivity : AppCompatActivity() {
         completedReceipt = null
         binding.stops.post { pulseAtVisibleTrain() }
         vm.refresh(manual = true, auto = auto)
+    }
+
+    /** The check can finish before the route diff has laid out its new marker.
+     * Wait for BOTH edges; a failed request reuses the already committed route.
+     * Neither a timetable-only response nor a page-update clock creates a glyph. */
+    private fun focusManualRefreshWhenReady() {
+        val ui = lastUi ?: return
+        if (!focusAfterRefresh || chainBusy || refreshStartedAt != 0L ||
+            committedRouteUi !== ui) return
+        val request = focusRequestId
+        binding.stops.post {
+            if (!focusAfterRefresh || chainBusy || refreshStartedAt != 0L ||
+                request != focusRequestId || committedRouteUi !== lastUi) return@post
+            focusAfterRefresh = false
+            focusCurrentLeg()
+        }
     }
 
     /** Keep progress visible only while a requested source is actually fetching. */
@@ -1052,6 +1066,8 @@ class TrainActivity : AppCompatActivity() {
         val from = win.first.coerceIn(0, (m.rows.size - 1).coerceAtLeast(0))
         val to = win.last.coerceIn(from, (m.rows.size - 1).coerceAtLeast(0))
         stopAdapter.submitList(m.rows.subList(from, to + 1)) {
+            committedRouteUi = ui
+            focusManualRefreshWhenReady()
             if (newReceipt && refreshStartedAt == 0L) binding.stops.post {
                 pulseAtVisibleTrain()
             }
@@ -1063,11 +1079,9 @@ class TrainActivity : AppCompatActivity() {
                 ?: ui.orgWebsiteReport?.intermediate?.precedingHalt
             val focus = anchor != null && !initialReportedFocusDone && refreshStartedAt == 0L
             if (focus) binding.stops.post {
-                if (lastUi !== ui) return@post
+                if (lastUi !== ui || refreshStartedAt != 0L || focusAfterRefresh) return@post
                 focusCurrentLeg()
-                if (anchor != null) initialReportedFocusDone = true
                 receiptReady = false
-                focusAfterRefresh = false
             }
         }
         val hidden = m.rows.size - (to - from + 1)
@@ -1354,33 +1368,44 @@ class TrainActivity : AppCompatActivity() {
     private fun focusCurrentLeg() {
         val ui = lastUi ?: return
         val anchor = stopAdapter.haltMarker?.code ?: stopAdapter.departureCueAnchor()
-            ?: ui.orgWebsiteReport?.intermediate?.precedingHalt ?: return
+            ?: ui.orgWebsiteReport?.intermediate?.precedingHalt?.takeIf {
+                WebsiteReportDisplay.selected(ui.activeSource)
+            } ?: return
         val idx = stopAdapter.currentList.indexOfFirst { it.code.equals(anchor, true) }
         if (idx < 0) return
         lastAnchor = anchor
+        initialReportedFocusDone = true
         val list = binding.stops
         val manager = list.layoutManager as LinearLayoutManager
         manager.scrollToPositionWithOffset(idx, resources.getDimensionPixelSize(R.dimen.gap_s))
-        list.post {
-            val row = manager.findViewByPosition(idx) as? android.view.ViewGroup ?: return@post
-            val marker = row.findViewById<View>(R.id.stopTrainMarker)
-            val leg = row.findViewById<InlineLegView>(R.id.inlineLeg)
-            val targetView: View
-            val centerY: Float
-            if (marker != null && marker.visibility == View.VISIBLE) {
-                targetView = marker
-                centerY = marker.height / 2f
-            } else if (leg != null && leg.visibility == View.VISIBLE && leg.trainCenter() != null) {
-                targetView = leg
-                centerY = leg.trainCenter()!!.second
-            } else return@post // an untimed map is not a train location
-            val bounds = android.graphics.Rect(0, 0, targetView.width, targetView.height)
-            row.offsetDescendantRectToMyCoords(targetView, bounds)
-            val iconY = bounds.top + centerY
-            manager.scrollToPositionWithOffset(idx,
-                TrainFocus.rowOffset(list.height, iconY))
-            list.post { pulseAtVisibleTrain() }
-        }
+        // View.post may run BEFORE the RecyclerView's requested layout. Wait for
+        // the laid-out row, especially when the locomotive is deep inside an
+        // expanded YPR→Tumkur intermediate leg.
+        val observer = list.viewTreeObserver
+        observer.addOnPreDrawListener(object : ViewTreeObserver.OnPreDrawListener {
+            override fun onPreDraw(): Boolean {
+                if (observer.isAlive) observer.removeOnPreDrawListener(this)
+                if (!screenStarted || lastUi !== ui) return true
+                val row = manager.findViewByPosition(idx) as? android.view.ViewGroup ?: return true
+                val marker = row.findViewById<View>(R.id.stopTrainMarker)
+                val leg = row.findViewById<InlineLegView>(R.id.inlineLeg)
+                val targetView: View
+                val centerY: Float
+                if (marker != null && marker.visibility == View.VISIBLE) {
+                    targetView = marker
+                    centerY = marker.height / 2f
+                } else if (leg != null && leg.visibility == View.VISIBLE && leg.trainCenter() != null) {
+                    targetView = leg
+                    centerY = leg.trainCenter()!!.second
+                } else return true // an untimed map is not a train location
+                val bounds = android.graphics.Rect(0, 0, targetView.width, targetView.height)
+                row.offsetDescendantRectToMyCoords(targetView, bounds)
+                manager.scrollToPositionWithOffset(idx,
+                    TrainFocus.rowOffset(list.height, bounds.top + centerY))
+                list.post { pulseAtVisibleTrain() }
+                return true
+            }
+        })
     }
 
     /** Everything the screen knows about the feed, as text — see the long-press handler above. */

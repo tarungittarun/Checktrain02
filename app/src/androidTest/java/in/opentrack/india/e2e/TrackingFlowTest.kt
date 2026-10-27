@@ -140,6 +140,39 @@ class TrackingFlowTest {
         return emptyList()
     }
 
+    /** Inspect the installed drawable, not a timetable row or a mock position.
+     * An intermediate locomotive lives inside InlineLegView, not at row top. */
+    private fun reportedTrainIsVisible(): Boolean {
+        var found = false
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            val activity = ActivityLifecycleMonitorRegistry.getInstance()
+                .getActivitiesInStage(Stage.RESUMED)
+                .first { it.packageName == E2E.PKG &&
+                    it.findViewById<View>(R.id.routeViewport) != null }
+            val viewport = activity.findViewById<View>(R.id.routeViewport)
+            val origin = IntArray(2)
+            viewport.getLocationOnScreen(origin)
+            val table = activity.findViewById<androidx.recyclerview.widget.RecyclerView>(R.id.stops)
+            for (i in 0 until table.childCount) {
+                val row = table.getChildAt(i)
+                val marker = row.findViewById<View>(R.id.stopTrainMarker)
+                val leg = row.findViewById<`in`.opentrack.india.ui.InlineLegView>(R.id.inlineLeg)
+                val target = when {
+                    marker?.isShown == true -> marker to (marker.width / 2f to marker.height / 2f)
+                    leg?.isShown == true && leg.trainCenter() != null -> leg to leg.trainCenter()!!
+                    else -> null
+                } ?: continue
+                val xy = IntArray(2)
+                target.first.getLocationOnScreen(xy)
+                val x = xy[0] + target.second.first
+                val y = xy[1] + target.second.second
+                if (x >= origin[0] && x <= origin[0] + viewport.width &&
+                    y >= origin[1] && y <= origin[1] + viewport.height) { found = true; break }
+            }
+        }
+        return found
+    }
+
     /** Times are visible without tapping a station; reveal a real onscreen cell
      * rather than accepting an offscreen RecyclerView item as a pass. */
     private fun revealTimeSheet(): Boolean =
@@ -680,6 +713,15 @@ class TrackingFlowTest {
         assertTrue("a refresh hid the age chip in the bounded card",
             E2E.reveal("age", "scroller", up = false))
         assertTrue("a refresh left the age chip blank", E2E.text("age").isNotBlank())
+        val headline = E2E.text("headline")
+        if (headline.startsWith("Last mapped website card") ||
+            headline.startsWith("Last NTES report:")) {
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+            assertTrue("manual Refresh did not focus the last reported locomotive: $headline",
+                reportedTrainIsVisible())
+        } else {
+            assertTrue("no report may fabricate a marker", E2E.find("stopTrainMarker", 200) == null)
+        }
     }
 
     @Test
@@ -697,6 +739,33 @@ class TrackingFlowTest {
         assertTrue("route points must be inside the table, not a separate button",
             E2E.find("betweenStations", 1_000) == null)
         assertTrue("the station table vanished", E2E.count(stopsBy) > 0)
+        // Move the control to both sides of the lower half. The old scroll
+        // listener pushed it elsewhere as clocks passed under the viewport.
+        val original = E2E.find("refresh")!!.visibleBounds
+        try {
+            for (left in listOf(true, false)) {
+                val from = E2E.find("refresh")!!.visibleBounds
+                val route = E2E.find("routeViewport")!!.visibleBounds
+                val x = if (left) route.left + 48 else route.right - 48
+                val y = route.top + route.height() * 2 / 3
+                assertTrue("could not drag Refresh", E2E.ui.swipe(
+                    from.centerX(), from.centerY(), x, y, 28))
+                val parked = E2E.find("refresh")!!.visibleBounds
+                assertTrue("drag to ${if (left) "left" else "right"} did not move control: $parked",
+                    if (left) parked.centerX() < route.centerX()
+                    else parked.centerX() > route.centerX())
+                E2E.ui.swipe(route.centerX(), route.bottom - 32,
+                    route.centerX(), route.top + 32, 28)
+                val after = E2E.find("refresh")!!.visibleBounds
+                assertTrue("route scroll moved the parked Refresh: $parked -> $after",
+                    kotlin.math.abs(parked.centerX() - after.centerX()) <= 3 &&
+                        kotlin.math.abs(parked.centerY() - after.centerY()) <= 3)
+            }
+        } finally {
+            val from = E2E.find("refresh")?.visibleBounds
+            if (from != null) E2E.ui.swipe(from.centerX(), from.centerY(),
+                original.centerX(), original.centerY(), 28)
+        }
     }
 
     // @flow optional-minute-refresh
