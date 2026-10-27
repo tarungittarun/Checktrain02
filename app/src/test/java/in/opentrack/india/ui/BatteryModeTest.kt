@@ -7,6 +7,7 @@ import android.view.View
 import android.widget.FrameLayout
 import android.widget.TextView
 import `in`.opentrack.india.data.Prefs
+import `in`.opentrack.india.R
 import `in`.opentrack.india.domain.TrackModel
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -60,6 +61,21 @@ class BatteryModeTest {
         assertEquals(Color.BLACK, pixel(root, 190, 80))
         assertEquals(Color.WHITE, text.currentTextColor)
         assertEquals("Delay · next · NTES", text.text.toString())
+    }
+
+    @Test fun homeSettingsAndTrackingLayoutsAreBlackWithReadablePrimaryText() {
+        Prefs(ctx).batteryMode = true
+        for ((layout, labelId) in listOf(
+            R.layout.activity_main to R.id.homeBrand,
+            R.layout.activity_settings to R.id.batteryMode,
+            R.layout.activity_train to R.id.delay,
+        )) {
+            val shot = Render.render(layout, prepare = { BatteryMode.paint(it) })
+            assertEquals("$layout left an illuminated corner", Color.BLACK,
+                shot.bitmap.getPixel(2, 2))
+            assertEquals("$layout lost its text contrast", Color.WHITE,
+                shot.root.findViewById<TextView>(labelId).currentTextColor)
+        }
     }
 
     @Test fun batteryRowKeepsScheduleActualProvenanceAndWebsiteGapWithoutAnimatedArrow() {

@@ -332,7 +332,7 @@ class TrainActivity : AppCompatActivity() {
                     "We cannot invent passing stations or times. The map cannot locate the train.")
                 .setNegativeButton("Close", null)
                 .setPositiveButton("Retry map") { _, _ -> vm.retryIntermediateMap(from) }
-                .show()
+                .show().also(::paintBatteryDialog)
         }
         binding.stops.layoutManager = LinearLayoutManager(this)
         binding.stops.adapter = stopAdapter
@@ -377,11 +377,12 @@ class TrainActivity : AppCompatActivity() {
                 .setNeutralButton("Source details") { _, _ ->
                     AlertDialog.Builder(this).setTitle("Source details · ${BuildStamp.ROUND}")
                         .setMessage(sourceDetails)
-                        .setPositiveButton("Close", null).show()
+                        .setPositiveButton("Close", null).show().also(::paintBatteryDialog)
                 }
                 .setPositiveButton("Close", null)
                 .create().also { dialog ->
                     dialog.show()
+                    paintBatteryDialog(dialog)
                     // AOSP's all-caps action looks like a warning label and was
                     // hard to recognise as the second, optional explanation.
                     dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setAllCaps(false)
@@ -1395,6 +1396,10 @@ class TrainActivity : AppCompatActivity() {
             binding.heroEyebrow.setTextColor(getColor(R.color.connection_ink))
         }
         applyHeroExpansion()
+    }
+
+    private fun paintBatteryDialog(dialog: AlertDialog) {
+        if (batteryAtCreate) dialog.window?.let { BatteryMode.paint(it.decorView, it) }
     }
 
     /** Locate the drawable's actual centre within the visible route viewport.
