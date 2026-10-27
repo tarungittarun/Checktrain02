@@ -174,6 +174,27 @@ class TravellerAcceptanceTest {
     @Test fun settingsRoundTripReturnsToUsableSearch() {
         assertTrue("Settings entry does not respond", E2E.tap("settings"))
         assertTrue("Settings opened no usable screen", E2E.visible("settingsScroll"))
+        // Battery mode must be a separate opt-in, and turning it OFF must restore
+        // the ordinary search in this same published APK, without an uninstall.
+        assertTrue("Battery toggle missing or unexpectedly enabled",
+            E2E.find("batteryMode")?.isChecked == false)
+        assertTrue("Battery toggle cannot be enabled", E2E.tap("batteryMode"))
+        assertTrue("Battery toggle did not persist through screen recreation",
+            E2E.ui.wait(Until.hasObject(E2E.res("batteryMode")), E2E.LOCAL_MS) &&
+                E2E.find("batteryMode")?.isChecked == true)
+        var bars = -1
+        androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            val activity = androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry
+                .getInstance().getActivitiesInStage(
+                    androidx.test.runner.lifecycle.Stage.RESUMED).first()
+            bars = activity.window.statusBarColor
+        }
+        assertEquals("Battery mode did not black out system bars", android.graphics.Color.BLACK, bars)
+        E2E.shot("traveller-battery-settings")
+        assertTrue("Battery toggle cannot be disabled", E2E.tap("batteryMode"))
+        assertTrue("Battery mode did not switch off",
+            E2E.ui.wait(Until.hasObject(E2E.res("batteryMode")), E2E.LOCAL_MS) &&
+                E2E.find("batteryMode")?.isChecked == false)
         E2E.ui.pressBack()
         assertTrue("Back from Settings did not return to search", E2E.visible("modeTrain"))
         assertTrue("Search cannot be used after Settings", E2E.tap("modeTrain") &&

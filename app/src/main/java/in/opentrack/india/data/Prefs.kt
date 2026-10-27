@@ -25,11 +25,16 @@ class Prefs(context: Context) {
         get() = sp.getInt("appearance", 0).coerceIn(0, 2)
         set(value) = sp.edit().putInt("appearance", value.coerceIn(0, 2)).apply()
 
-    fun nightMode(): Int = when (appearance) {
+    fun nightMode(): Int = if (batteryMode) AppCompatDelegate.MODE_NIGHT_YES else when (appearance) {
         1 -> AppCompatDelegate.MODE_NIGHT_NO
         2 -> AppCompatDelegate.MODE_NIGHT_YES
         else -> AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
     }
+
+    /** Independent of Appearance. OLED-only visuals and reduced background work; off by default. */
+    var batteryMode: Boolean
+        get() = sp.getBoolean(KEY_BATTERY_MODE, false)
+        set(value) = sp.edit().putBoolean(KEY_BATTERY_MODE, value).apply()
 
     var overrideUrl: String
         get() = sp.getString(KEY_OVERRIDE, "").orEmpty()
@@ -108,6 +113,7 @@ class Prefs(context: Context) {
         .remove(KEY_LAST_FROM).remove(KEY_LAST_TO).remove(KEY_LAST_TRAIN).remove(KEY_RECENT).apply()
 
     companion object {
+        private const val KEY_BATTERY_MODE = "batteryMode"
         private const val KEY_OVERRIDE = "overrideUrl"
         private const val KEY_COLUMN_HINT = "columnHint"
         private const val KEY_DIARY = "diary"

@@ -62,6 +62,20 @@
                 android:contentDescription="Appearance: follow system, light or dark" />
         </LinearLayout>
 
+        <LinearLayout style="@style/Card"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/gap" android:background="@drawable/bg_card"
+            android:orientation="vertical">
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/batteryMode"
+                android:layout_width="match_parent" android:layout_height="48dp"
+                android:gravity="center_vertical" android:text="@string/battery_mode"
+                android:textColor="@color/text1" />
+            <TextView style="@style/TextMeta" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:layout_marginTop="4dp"
+                android:text="@string/battery_mode_hint" />
+        </LinearLayout>
+
         <LinearLayout
             style="@style/Card"
             android:layout_width="match_parent"

@@ -36,6 +36,7 @@ class TrainHitAdapter(private val onClick: (TrainHit) -> Unit) :
 
     /** Minute-of-IST-epoch for "now", carried by the ViewModel. UI never reads the wall clock itself. */
     var nowMinute: Long = 0L
+    var batteryMode: Boolean = false
 
     class Holder(view: View) : RecyclerView.ViewHolder(view) {
         val dep: TextView = view.findViewById(R.id.hitDep)
@@ -93,6 +94,7 @@ class TrainHitAdapter(private val onClick: (TrainHit) -> Unit) :
             }
         ))
         holder.itemView.setOnClickListener { onClick(hit) }
+        if (batteryMode) BatteryMode.paint(holder.itemView)
     }
 
     companion object {
@@ -117,6 +119,9 @@ class TrainHitAdapter(private val onClick: (TrainHit) -> Unit) :
  * of a timetable PDF.
  */
 class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
+    /** Set only on the opt-in path. Standard row binding is otherwise unchanged. */
+    var batteryMode: Boolean = false
+
     /** Activity supplies the explanation/retry; this adapter never invents map dots. */
     var onMapUnavailable: ((String) -> Unit)? = null
     var mapSource: String? = null
@@ -366,8 +371,10 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         holder.schedDay.text = day.orEmpty()
         holder.schedDay.visibility = if (day == null) View.GONE else View.VISIBLE
         holder.schedDay.contentDescription = day?.let { "Run ${it.replace("day", "day ")}" } ?: ""
-        DirectionArrowDrawable.attach(holder.schedArr, arriving = true, reported = false)
-        DirectionArrowDrawable.attach(holder.schedDep, arriving = false, reported = false)
+        if (!batteryMode) {
+            DirectionArrowDrawable.attach(holder.schedArr, arriving = true, reported = false)
+            DirectionArrowDrawable.attach(holder.schedDep, arriving = false, reported = false)
+        }
         val reported = s.source != TrackModel.MinuteSource.SCHEDULE
         val late: Boolean = (s.delay ?: 0) >= 3
         fun siteTime(minute: Int?): String = when {
@@ -386,8 +393,10 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         holder.liveDay.text = actualDay.orEmpty()
         holder.liveDay.visibility = if (actualDay == null) View.GONE else View.VISIBLE
         holder.liveDay.contentDescription = actualDay?.let { "Reported run ${it.replace("day", "day ")}" } ?: ""
-        DirectionArrowDrawable.attach(holder.liveArr, arriving = true, reported = reported)
-        DirectionArrowDrawable.attach(holder.liveDep, arriving = false, reported = reported)
+        if (!batteryMode) {
+            DirectionArrowDrawable.attach(holder.liveArr, arriving = true, reported = reported)
+            DirectionArrowDrawable.attach(holder.liveDep, arriving = false, reported = reported)
+        }
         val evidence = when (s.source) {
             TrackModel.MinuteSource.SITE_REPORTED -> "Website claim"
             TrackModel.MinuteSource.PROJECTED -> "Estimate"
@@ -664,6 +673,32 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         holder.inlineLegGroup.setOnClickListener { onLegTap() }
         holder.inlineLeg.isClickable = hasPoints || mapUnavailable
         holder.inlineLeg.setOnClickListener { onLegTap() }
+        if (batteryMode) {
+            // Keep both arrival/departure rows legible without a four-times-per-row
+            // animated arrow. A/D are literal text, not a moving icon.
+            for (v in listOf(holder.schedArr, holder.liveArr)) {
+                (v.compoundDrawables[0] as? DirectionArrowDrawable)?.stop()
+                v.setCompoundDrawables(null, null, null, null)
+                v.text = "A ${v.text}"
+            }
+            for (v in listOf(holder.schedDep, holder.liveDep)) {
+                (v.compoundDrawables[0] as? DirectionArrowDrawable)?.stop()
+                v.setCompoundDrawables(null, null, null, null)
+                v.text = "D ${v.text}"
+            }
+            holder.inlineLegGroup.visibility = if (holder.inlineLegCaption.text.isNotEmpty())
+                View.VISIBLE else View.GONE
+            holder.routeToggle.visibility = View.GONE
+            holder.inlineLeg.visibility = View.GONE
+            holder.dot.visibility = View.GONE
+            holder.trainMarker.visibility = View.GONE
+            holder.marker.text = marker?.caption.orEmpty()
+            holder.marker.visibility = if (marker == null) View.GONE else View.VISIBLE
+            holder.row.setPadding(holder.row.paddingLeft,
+                ctx.resources.getDimensionPixelSize(R.dimen.gap_xs), holder.row.paddingRight,
+                ctx.resources.getDimensionPixelSize(R.dimen.gap_xs))
+        }
+        if (batteryMode) BatteryMode.paint(holder.itemView)
         holder.row.contentDescription = "${s.name}; " +
             "${holder.schedArr.contentDescription}; ${holder.schedDep.contentDescription}; " +
             "${holder.liveArr.contentDescription}; ${holder.liveDep.contentDescription}" +

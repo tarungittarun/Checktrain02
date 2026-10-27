@@ -9,7 +9,8 @@ import `in`.opentrack.india.R
 /** A short transport-failure cue on the TOP summary, not on the train icon.
  * Six low-contrast dips at three per second, then a persistent, readable reason.
  * The last report's badge is never replaced by the failure warning. */
-class ConnectionIssueCue(private val card: View, private val alert: TextView) {
+class ConnectionIssueCue(private val card: View, private val alert: TextView,
+                         private val batteryMode: Boolean = false) {
     companion object {
         const val PULSE_MILLIS = 333L
         const val PULSES = 6
@@ -26,6 +27,11 @@ class ConnectionIssueCue(private val card: View, private val alert: TextView) {
         reason = "$source:$newReason"
         alert.text = "$newReason · $source. Previous report unchanged; retry or change source."
         alert.visibility = View.VISIBLE
+        if (batteryMode) {
+            BatteryMode.paint(card)
+            BatteryMode.paint(alert)
+            return
+        }
         card.setBackgroundResource(R.drawable.bg_summary_connection)
         val pulse = ObjectAnimator.ofFloat(card, View.ALPHA, 1f, MIN_ALPHA, 1f).apply {
             duration = PULSE_MILLIS
@@ -48,7 +54,7 @@ class ConnectionIssueCue(private val card: View, private val alert: TextView) {
         alert.text = ""
         // GONE leaves no empty warning row above the ordinary report.
         alert.visibility = View.GONE
-        card.setBackgroundResource(R.drawable.bg_summary_card)
+        if (!batteryMode) card.setBackgroundResource(R.drawable.bg_summary_card)
     }
 
     private fun stopMotion() {

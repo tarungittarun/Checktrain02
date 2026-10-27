@@ -24,6 +24,9 @@ def resource_names() -> dict[str, set[str]]:
     out: dict[str, set[str]] = {k: set() for k in KIND_TO_DIR}
     for xml in RES.rglob("*.xml"):
         text = xml.read_text()
+        # AAPT also declares IDs with <item type="id" name="..." /> in values/.
+        for m in re.finditer(r'<item\s+type="id"\s+name="(\w+)"', text):
+            out["id"].add(m.group(1))
         if xml.parent.name == "layout":
             out["layout"].add(xml.stem)
             for m in re.finditer(r'android:id="@\+id/(\w+)"', text):

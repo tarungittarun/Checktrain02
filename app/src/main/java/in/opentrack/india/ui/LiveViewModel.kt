@@ -483,6 +483,9 @@ class LiveViewModel(
     /** First opening asks every configured independent status path. Each result updates its own
      * dropdown state; none switches the selected table or gates the fast official request. */
     private fun surveySourcesOnce() {
+        // Battery mode asks only the selected source and necessary fallback. This survey
+        // used to launch multiple unrelated HTTP probes on every first opening.
+        if (`in`.opentrack.india.data.Prefs(app).batteryMode) return
         if (firstSourceSurveyStarted || _ui.value == null) return
         firstSourceSurveyStarted = true
         Diary.get()?.log("SOURCE", "first load: checking all independent sources without selecting them")
@@ -681,9 +684,17 @@ class LiveViewModel(
                 RunningStatusMirror.SOURCE) }
         // A user-selected source gets the FIRST request. NTES is only a last fallback,
         // never an automatic preflight that delays a 0.4-second website response.
-        if (manual && selected != null) {
+        if ((manual || `in`.opentrack.india.data.Prefs(app).batteryMode) && selected != null) {
             liveRefreshJob = viewModelScope.launch {
                 try {
+                    // A page probe needs the route. In battery mode do NOT silently ask NTES
+                    // first merely to seed the view: paint the cached timetable instead.
+                    if (_ui.value == null && !prepareBatteryRoute()) {
+                        // No offline route covers the passenger span. Only the official
+                        // route bootstrap can recover it; still ask the chosen source next.
+                        refreshBody(previous)
+                        if (_ui.value == null) return@launch
+                    }
                     Diary.get()?.log("SOURCE", "refresh first: $selected; official only if no other usable source")
                     probeSource(selected, select = true)?.join()
                     val current = _ui.value ?: return@launch
@@ -726,7 +737,8 @@ class LiveViewModel(
                         }
                     }
                 }
-                if (manual && (mirrorActiveSource == null || mirrorActiveSource == "NTES (official)") &&
+                if (manual && !`in`.opentrack.india.data.Prefs(app).batteryMode &&
+                    (mirrorActiveSource == null || mirrorActiveSource == "NTES (official)") &&
                     oldEvent != null && oldEvent == officialStopEvent() &&
                     (officialStopAgeMillis() ?: 0L) >= 300_000L) {
                     Diary.get()?.log("SOURCE", "official stop unchanged for 5+ min; checking website comparison, not switching source")
@@ -734,6 +746,28 @@ class LiveViewModel(
                 }
             } finally { _checking.value = false }
         }
+    }
+
+    /** Offline route scaffold for a selected-source first opening. No network request and no
+     * promotion of saved actuals into today's verified position. */
+    private suspend fun prepareBatteryRoute(): Boolean {
+        val repo = repo() ?: return false
+        val saved = repo.lastOfficial(trainNo, fromCode, toCode, originEpochDay)
+        loadConfirmScheduleCache()
+        val static = repo.savedSchedule(trainNo, fromCode, toCode, originEpochDay)
+        val route = listOfNotNull(saved?.route, static,
+            runCatching { repo.queries.route(trainNo) }.getOrNull(), confirmHaltRoute)
+            .firstOrNull { JourneyRouteGate.covers(
+                it.stops.map { stop -> stop.code }, fromCode, toCode) } ?: return false
+        officialStaticKnown = route === saved?.route || route === static
+        loadGeoCache(route, repo)
+        val now = System.currentTimeMillis()
+        val answer = saved?.answer ?: PositionEngine.locate(
+            PositionEngine.Request(route, null, nowMinute(now), now, null))
+        lastAnswer = answer
+        _ui.value = buildUi(route, answer, emptyList(), saved?.notes ?: listOf(
+            "Timetable shown while the selected source is asked."))
+        return true
     }
 
     /** The event fingerprint ignores both HTTP arrival and the provider's page clock. */
@@ -937,7 +971,8 @@ class LiveViewModel(
             _error.value = null
             if (live.answer.position.provenance.live) _liveReceipt.value = System.currentTimeMillis()
             maybeCrowd()
-            if (staticMapMatchesLiveIdentity(live.route)) maybeRailGeo(live.route)
+            if (!`in`.opentrack.india.data.Prefs(app).batteryMode &&
+                staticMapMatchesLiveIdentity(live.route)) maybeRailGeo(live.route)
             surveySourcesOnce()
             if (live.answer.position.provenance != SourceKind.PROVIDER_NTES) {
                 // The first-load survey already asks independent status sources; later manual
@@ -945,7 +980,9 @@ class LiveViewModel(
                 if (firstSourceSurveyStarted && lastMirrorPoll + CROWD_POLL_MIN_MILLIS < System.currentTimeMillis()) maybeMirror()
                 if (!officialStaticKnown) maybeRouteExtent()
             } else {
-                _mirrorState.postValue("Official NTES answered; checking other sources in the background")
+                _mirrorState.postValue(if (`in`.opentrack.india.data.Prefs(app).batteryMode)
+                    "Official NTES answered" else
+                    "Official NTES answered; checking other sources in the background")
             }
         }
     }
@@ -968,6 +1005,8 @@ class LiveViewModel(
         the relay is free but a poll per auto-tick hammers it for data that changes by the minute, not
         by the second. The user's own publish bypasses the throttle - they just acted; they read now. */
     private fun maybeCrowd(force: Boolean = false) {
+        if (`in`.opentrack.india.data.Prefs(app).batteryMode) return
+
         if (!crowdOn) return
         val nowWall = System.currentTimeMillis()
         if (!force && nowWall - lastCrowdPoll < CROWD_POLL_MIN_MILLIS) return

@@ -22,6 +22,7 @@ object UiShot {
     private val last = ConcurrentHashMap<String, Long>()
 
     fun snap(activity: Activity, tag: String) {
+        if (`in`.opentrack.india.data.Prefs(activity).batteryMode) return // no PNG render/compress per bind
         runCatching {
             val now = System.currentTimeMillis()
             if (now - (last[tag] ?: 0L) < MIN_INTERVAL_MILLIS) return

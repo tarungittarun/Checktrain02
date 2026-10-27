@@ -48,6 +48,7 @@ import `in`.opentrack.india.remote.FeedProbe
 class TrainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityTrainBinding
+    private var batteryAtCreate = false
     private lateinit var vm: LiveViewModel
     private lateinit var stopAdapter: StopAdapter
     private lateinit var connectionCue: ConnectionIssueCue
@@ -197,6 +198,8 @@ class TrainActivity : AppCompatActivity() {
             View.VISIBLE else View.INVISIBLE
         binding.heroDetailsScroll.visibility = if (heroExpanded) View.VISIBLE else View.GONE
         binding.compactReport.visibility = if (heroExpanded) View.GONE else View.VISIBLE
+        binding.batteryEvidence.visibility = if (batteryAtCreate && !heroExpanded)
+            View.VISIBLE else View.GONE
         binding.sourceSummary.visibility = if (heroExpanded && sourceSummaryWanted) View.VISIBLE else View.GONE
         binding.note.visibility = if (heroExpanded &&
             (SummaryNoteUi.visible(lastUi?.model?.note) != null || errorText != null)) View.VISIBLE else View.GONE
@@ -213,8 +216,22 @@ class TrainActivity : AppCompatActivity() {
         if (trainNo.length < 4) { finish(); return }
         binding = ActivityTrainBinding.inflate(layoutInflater)
         setContentView(binding.root)
-        connectionCue = ConnectionIssueCue(binding.trackingSummaryCard, binding.connectionAlert)
-        heroExpanded = savedInstanceState?.getBoolean("heroExpanded", true) ?: true
+        batteryAtCreate = `in`.opentrack.india.data.Prefs(this).batteryMode
+        if (batteryAtCreate) {
+            BatteryMode.paint(binding.root, window)
+            binding.refreshGlyph.visibility = View.GONE
+            (binding.refresh as android.widget.FrameLayout).addView(TextView(this).apply {
+                text = "Refresh"
+                setTextColor(android.graphics.Color.WHITE)
+                textSize = 11f
+                gravity = android.view.Gravity.CENTER
+                layoutParams = android.widget.FrameLayout.LayoutParams(-1, -1)
+            })
+        }
+        connectionCue = ConnectionIssueCue(binding.trackingSummaryCard, binding.connectionAlert,
+            batteryAtCreate)
+        heroExpanded = if (batteryAtCreate) false else
+            savedInstanceState?.getBoolean("heroExpanded", true) ?: true
         binding.heroToggle.setOnClickListener {
             // The previous fixed height is *not* the target of More/Less. Measure
             // the newly selected contents without that constraint, then animate
@@ -244,10 +261,10 @@ class TrainActivity : AppCompatActivity() {
                         summaryCapPx())
                     val detailsHeight = fit.detailsPx
                     val to = fit.cardPx
-                    card.layoutParams = card.layoutParams.apply { height = from }
+                    card.layoutParams = card.layoutParams.apply { height = if (batteryAtCreate) to else from }
                     if (heroExpanded && detailsHeight > 0) details.layoutParams =
                         details.layoutParams.apply { height = detailsHeight }
-                    if (from == to) {
+                    if (batteryAtCreate || from == to) {
                         expansionAnimating = false
                         card.layoutParams = card.layoutParams.apply { height = to }
                         scheduleSummaryFit()
@@ -297,7 +314,7 @@ class TrainActivity : AppCompatActivity() {
             }
         )[LiveViewModel::class.java]
 
-        stopAdapter = StopAdapter()
+        stopAdapter = StopAdapter().apply { batteryMode = batteryAtCreate }
         stopAdapter.onMapUnavailable = { from ->
             val historical = lastUi?.staticRouteSource ==
                 `in`.opentrack.india.remote.OfflineCorridorMap.SOURCE
@@ -572,7 +589,7 @@ class TrainActivity : AppCompatActivity() {
         previousWebsiteClockKey = if (WebsiteReportDisplay.selected(requestedRefreshSource))
             websiteClockKey(lastUi) else null
         completedReceipt = null
-        binding.stops.post { pulseAtVisibleTrain() }
+        if (!batteryAtCreate) binding.stops.post { pulseAtVisibleTrain() }
         vm.refresh(manual = true, auto = auto)
     }
 
@@ -595,9 +612,10 @@ class TrainActivity : AppCompatActivity() {
     /** Keep progress visible only while a requested source is actually fetching. */
     private fun renderChecking() {
         val busy = chainBusy || mirrorBusy
-        binding.checkingBar.visibility = if (busy) View.VISIBLE else View.INVISIBLE
+        binding.checkingBar.visibility = if (batteryAtCreate) View.GONE
+            else if (busy) View.VISIBLE else View.INVISIBLE
         binding.firstLoad.visibility = if (busy && lastUi == null) View.VISIBLE else View.GONE
-        if (chainBusy && refreshStartedAt > 0L) {
+        if (!batteryAtCreate && chainBusy && refreshStartedAt > 0L) {
             if (refreshSpin == null) {
                 refreshSpin = ObjectAnimator.ofFloat(binding.refreshGlyph, View.ROTATION, 0f, 360f).apply {
                     duration = 900L
@@ -699,6 +717,7 @@ class TrainActivity : AppCompatActivity() {
                         maxLines = 1
                         setTextColor(getColor(sourceColor(indicator.tone)))
                     }
+                    BatteryMode.paint(view)
                     return view
                 }
 
@@ -716,6 +735,7 @@ class TrainActivity : AppCompatActivity() {
                             (SourceIndicator.seconds(detail)?.let { " · $it" } ?: "")
                         setTextColor(getColor(sourceColor(indicator.tone)))
                     }
+                    BatteryMode.paint(view)
                     return view
                 }
             }
@@ -1138,6 +1158,7 @@ class TrainActivity : AppCompatActivity() {
                 binding.next.text.toString(), m.progressLabel, m.note, m.rows,
             )
         }
+        if (batteryAtCreate) BatteryMode.paint(binding.root)
         UiShot.snap(this, "track")
     }
 
@@ -1275,6 +1296,12 @@ class TrainActivity : AppCompatActivity() {
             binding.provenance.setBackgroundResource(R.drawable.bg_badge_problem)
             binding.provenance.setTextColor(getColor(R.color.late))
         }
+        if (batteryAtCreate) {
+            binding.batteryEvidence.text = "${binding.provenance.text} · ${binding.age.text}"
+            BatteryMode.paint(binding.provenance)
+            BatteryMode.paint(binding.age)
+            BatteryMode.paint(binding.delay)
+        }
     }
 
     private fun showRefreshFeedback() {
@@ -1343,6 +1370,7 @@ class TrainActivity : AppCompatActivity() {
         binding.receiptFreshness.text = overlay.freshness
         binding.refreshReceiptOverlay.visibility = View.VISIBLE
         binding.refreshReceiptOverlay.removeCallbacks(hideRefreshOverlay)
+        if (batteryAtCreate) BatteryMode.paint(binding.refreshReceiptOverlay)
         binding.refreshReceiptOverlay.postDelayed(hideRefreshOverlay, 2_000L)
     }
 
@@ -1372,6 +1400,7 @@ class TrainActivity : AppCompatActivity() {
     /** Locate the drawable's actual centre within the visible route viewport.
      * Do not pulse an offscreen or map-only icon as if it were newly measured. */
     private fun pulseAtVisibleTrain() {
+        if (batteryAtCreate) return
         val list = binding.stops
         val overlay = binding.statusRipple
         val base = IntArray(2).also(overlay::getLocationOnScreen)
@@ -1529,6 +1558,10 @@ class TrainActivity : AppCompatActivity() {
 
     override fun onStart() {
         super.onStart()
+        if (batteryAtCreate != `in`.opentrack.india.data.Prefs(this).batteryMode) {
+            recreate() // returning from Settings: restore the exact original view tree when off
+            return
+        }
         screenStarted = true
         vm.start()
         binding.stops.removeCallbacks(ageTicker)

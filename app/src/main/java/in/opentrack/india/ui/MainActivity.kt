@@ -78,10 +78,14 @@ class MainActivity : AppCompatActivity() {
         (binding.results.layoutManager as? LinearLayoutManager)?.scrollToPositionWithOffset(0, 0)
     }
 
+    private var batteryAtCreate = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        batteryAtCreate = `in`.opentrack.india.data.Prefs(this).batteryMode
+        if (batteryAtCreate) BatteryMode.paint(binding.root, window)
 
         val app = application as App
         vm = ViewModelProvider(
@@ -97,7 +101,7 @@ class MainActivity : AppCompatActivity() {
         adapter = TrainHitAdapter { hit ->
             vm.remember(hit)
             open(hit)
-        }
+        }.apply { batteryMode = batteryAtCreate }
         binding.results.layoutManager = LinearLayoutManager(this)
         binding.results.adapter = adapter
         binding.results.itemAnimator = null // a live-list upgrade should not jump the edited list
@@ -112,9 +116,13 @@ class MainActivity : AppCompatActivity() {
             updateKeyboardLayout(imeHeight > 150f * resources.displayMetrics.density)
         }
         val sorts = TrainResultsDisplay.Sort.entries
-        binding.resultsSort.adapter = ArrayAdapter(this, R.layout.item_sort_selected,
-            listOf("Suggested", "Departure", "Arrival", "Duration")).apply {
-            setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        binding.resultsSort.adapter = object : ArrayAdapter<String>(this, R.layout.item_sort_selected,
+            listOf("Suggested", "Departure", "Arrival", "Duration")) {
+            init { setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
+            override fun getView(position: Int, convertView: View?, parent: android.view.ViewGroup): View =
+                super.getView(position, convertView, parent).also { BatteryMode.paint(it) }
+            override fun getDropDownView(position: Int, convertView: View?, parent: android.view.ViewGroup): View =
+                super.getDropDownView(position, convertView, parent).also { BatteryMode.paint(it) }
         }
         binding.resultsSort.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
@@ -288,6 +296,7 @@ class MainActivity : AppCompatActivity() {
         binding.modeTrain.setBackgroundResource(if (stations) 0 else R.drawable.bg_segment_on)
         binding.modeStations.setTextColor(getColor(if (stations) R.color.text1 else R.color.text3))
         binding.modeTrain.setTextColor(getColor(if (stations) R.color.text3 else R.color.text1))
+        if (batteryAtCreate) BatteryMode.paint(binding.root)
     }
 
     private fun shiftDay(delta: Int) {
@@ -319,6 +328,7 @@ class MainActivity : AppCompatActivity() {
         binding.dayFwd.setBackgroundResource(
             if (vm.targetEpochDay > RailTime.todayEpochDay()) R.drawable.bg_segment_on else 0
         )
+        if (batteryAtCreate) BatteryMode.paint(binding.root)
     }
 
     private fun runSearch() {
@@ -473,6 +483,11 @@ class MainActivity : AppCompatActivity() {
 
     private fun composeStatus(): String =
         statusHead + (vm.liveNote.value?.let { " — $it" } ?: "")
+
+    override fun onStart() {
+        super.onStart()
+        if (batteryAtCreate != `in`.opentrack.india.data.Prefs(this).batteryMode) recreate()
+    }
 
     private fun open(hit: TrainHit) {
         setSearchCollapsed(true)

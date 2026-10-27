@@ -207,6 +207,16 @@
                     android:ellipsize="end"
                     android:visibility="gone" />
 
+                <!-- Battery mode alone: source and original event age remain visible
+                     while the detailed card is folded. No page check becomes movement. -->
+                <TextView
+                    android:id="@+id/batteryEvidence"
+                    style="@style/TextMeta"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="4dp"
+                    android:visibility="gone" />
+
                 <!-- Measure ALL visible report lines before sizing the card. On a
                      genuinely small screen only this details viewport scrolls;
                      a persistent scrollbar makes the remaining text discoverable. -->

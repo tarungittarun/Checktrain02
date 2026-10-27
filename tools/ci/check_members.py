@@ -101,6 +101,8 @@ setBounds sameAs
 offsetDescendantRectToMyCoords
 # Android Paint used for the locomotive age pill width.
 measureText
+# Android TextView's compound drawable accessor/setter for the no-motion battery row.
+compoundDrawables setCompoundDrawables
 # Android View's built-in animator/background, listener and TextView colour accessor;
 # SharedPreferences stores the draggable refresh position as orientation-safe fractions.
 animate background typeface setOnTouchListener currentTextColor getFloat

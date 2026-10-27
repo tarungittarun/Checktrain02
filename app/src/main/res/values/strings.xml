@@ -109,4 +109,6 @@
     <string name="diag_saved">Diagnostic log saved</string>
     <string name="diag_nothing">Nothing collected yet</string>
     <string name="diag_empty_hint">Turn collection on, reproduce the problem, then come back here to share or save it</string>
+    <string name="battery_mode">Battery mode</string>
+    <string name="battery_mode_hint">Black OLED surfaces, plain text route and no motion. Keeps source, delay and next stop. Independent of Appearance; automatic refresh stays your choice.</string>
 </resources>

@@ -76,8 +76,13 @@ class SettingsActivity : AppCompatActivity() {
         setContentView(binding.root)
         prefs = Prefs(this)
         val sources = TrackingSources.options
-        binding.defaultTrackingSource.adapter = ArrayAdapter(this,
-            android.R.layout.simple_spinner_dropdown_item, sources.map(TrackingSources::label))
+        binding.defaultTrackingSource.adapter = object : ArrayAdapter<String>(this,
+            android.R.layout.simple_spinner_dropdown_item, sources.map(TrackingSources::label)) {
+            override fun getView(position: Int, convertView: View?, parent: android.view.ViewGroup): View =
+                super.getView(position, convertView, parent).also { BatteryMode.paint(it) }
+            override fun getDropDownView(position: Int, convertView: View?, parent: android.view.ViewGroup): View =
+                super.getDropDownView(position, convertView, parent).also { BatteryMode.paint(it) }
+        }
         binding.defaultTrackingSource.setSelection(sources.indexOf(
             TrackingSources.valid(prefs.defaultTrackingSource)), false)
         binding.defaultTrackingSource.contentDescription = "Default tracking source · " +
@@ -92,9 +97,27 @@ class SettingsActivity : AppCompatActivity() {
             }
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
+        binding.batteryMode.isChecked = prefs.batteryMode
+        binding.batteryMode.setOnCheckedChangeListener { _, enabled ->
+            if (prefs.batteryMode != enabled) {
+                prefs.batteryMode = enabled
+                // Dark native widgets and popups, but retain the stored Appearance for exit.
+                val mode = prefs.nightMode()
+                if (AppCompatDelegate.getDefaultNightMode() != mode)
+                    AppCompatDelegate.setDefaultNightMode(mode)
+                else recreate()
+            }
+        }
+        if (prefs.batteryMode) BatteryMode.paint(binding.root, window)
+
         val modes = listOf("Follow system", "Light", "Dark")
-        binding.appearance.adapter = ArrayAdapter(this,
-            android.R.layout.simple_spinner_dropdown_item, modes)
+        binding.appearance.adapter = object : ArrayAdapter<String>(this,
+            android.R.layout.simple_spinner_dropdown_item, modes) {
+            override fun getView(position: Int, convertView: View?, parent: android.view.ViewGroup): View =
+                super.getView(position, convertView, parent).also { BatteryMode.paint(it) }
+            override fun getDropDownView(position: Int, convertView: View?, parent: android.view.ViewGroup): View =
+                super.getDropDownView(position, convertView, parent).also { BatteryMode.paint(it) }
+        }
         binding.appearance.setSelection(prefs.appearance, false)
         binding.appearance.contentDescription = "Appearance · ${modes[prefs.appearance]}"
         binding.appearance.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
