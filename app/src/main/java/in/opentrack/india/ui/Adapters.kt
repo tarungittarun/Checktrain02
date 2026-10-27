@@ -151,11 +151,20 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         set(value) {
             if (field != value) { field = value; if (projectedLeg != null) notifyDataSetChanged() }
         }
+    /** Age changes only the marker/leg captions. Rebinding the entire route every
+     * minute spends layout and GPU work on dozens of unchanged stop cells. */
+    private fun rebindCodes(vararg codes: String?) {
+        codes.filterNotNull().distinct().forEach { code ->
+            val index = currentList.indexOfFirst { it.code.equals(code, ignoreCase = true) }
+            if (index >= 0) notifyItemChanged(index)
+        }
+    }
+
     var legAgeSeconds: Long? = null
         set(value) {
             if (field?.div(60) != value?.div(60)) {
                 field = value
-                if (projectedLeg != null || haltMarker != null) notifyDataSetChanged()
+                rebindCodes(projectedLeg?.fromCode, haltMarker?.code)
             } else field = value
         }
 
@@ -190,8 +199,9 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
                     projectedLeg?.fromCode.equals(marker.code, ignoreCase = true)
             }
             if (field != unique) {
+                val old = field?.code
                 field = unique
-                notifyDataSetChanged()
+                rebindCodes(old, unique?.code)
             }
         }
 
@@ -434,7 +444,8 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         }
         holder.eventCaption.visibility = if (captionMinute == null) View.GONE else View.VISIBLE
         holder.eventCaption.text = captionMinute?.let {
-            "At ${RowText.of(s.name)} · as on ${RailTime.formatRailMinuteBare(it)}"
+            if (marker?.website == true) "Last site arrival · ${RailTime.formatRailMinuteBare(it)}"
+            else "At ${RowText.of(s.name)} · as on ${RailTime.formatRailMinuteBare(it)}"
         }.orEmpty()
         holder.eventCaption.setTextColor(ctx.getColor(if (marker?.website == true) R.color.warn else R.color.text2))
         holder.eventCaption.contentDescription = captionMinute?.let {

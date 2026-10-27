@@ -62,7 +62,9 @@ class TrainActivity : AppCompatActivity() {
     private var previousWebsiteClockKey: String? = null
 
     private fun websiteClockKey(ui: LiveViewModel.Ui?): String? =
-        ui?.orgWebsiteReport?.siteClocks?.toSortedMap()?.entries?.joinToString("|") { (code, value) ->
+        WebsiteReportDisplay.displayedClocks(ui?.orgWebsiteReport, vm.originDate,
+            ui?.model?.rows?.map { it.code }.orEmpty(), System.currentTimeMillis())
+            .toSortedMap().entries.joinToString("|") { (code, value) ->
             "$code:${value.arrivalMin}:${value.departureMin}:${value.forecast}"
         }
 
@@ -99,11 +101,12 @@ class TrainActivity : AppCompatActivity() {
             binding.root.postDelayed(this, 60_000L)
         }
     }
-    // Age is a local clock display, NOT a network poll or a projected train movement.
+    // Age is a local minute-granular display, NOT a network poll or a projected movement.
+    // One tick/minute and only affected route rows rebind; opt-in network cadence is unchanged.
     private val ageTicker = object : Runnable {
         override fun run() {
             lastUi?.let(::updateTableMarker)
-            binding.stops.postDelayed(this, 30_000L)
+            binding.stops.postDelayed(this, 60_000L)
         }
     }
     private var refreshSpin: ObjectAnimator? = null
@@ -887,7 +890,8 @@ class TrainActivity : AppCompatActivity() {
             ui.orgWebsiteReport?.rows.orEmpty() else emptyMap()
         stopAdapter.websiteTentativeDeparture = null
         stopAdapter.websiteCardTimes = if (WebsiteReportDisplay.selected(ui.activeSource))
-            WebsiteReportDisplay.displayedClocks(ui.orgWebsiteReport, System.currentTimeMillis())
+            WebsiteReportDisplay.displayedClocks(ui.orgWebsiteReport, vm.originDate,
+                ui.model.rows.map { it.code }, System.currentTimeMillis())
             else emptyMap()
         stopAdapter.mappedLegStarts = ui.staticMappedLegStarts
         // A new response can repeat the same stop. Only show its receipt once;
@@ -1050,7 +1054,7 @@ class TrainActivity : AppCompatActivity() {
         stopAdapter.websitePendingDeparture = null
         if (WebsiteReportDisplay.selected(ui.activeSource))
             stopAdapter.websiteCardTimes = WebsiteReportDisplay.displayedClocks(
-                ui.orgWebsiteReport, now)
+                ui.orgWebsiteReport, vm.originDate, rows.map { it.code }, now)
         val lastStopMarker = if (WebsiteReportDisplay.selected(ui.activeSource) &&
             ui.orgWebsiteReport?.intermediate == null)
             TableMarker.atHalt(rows, ui.orgWebsiteReport?.anchorCode, vm.originDate, now)
@@ -1365,7 +1369,7 @@ class TrainActivity : AppCompatActivity() {
         screenStarted = true
         vm.start()
         binding.stops.removeCallbacks(ageTicker)
-        binding.stops.postDelayed(ageTicker, 30_000L)
+        binding.stops.postDelayed(ageTicker, 60_000L)
         binding.root.removeCallbacks(autoRefreshTicker)
         if (binding.autoSwitch.isChecked) binding.root.postDelayed(autoRefreshTicker, 60_000L)
     }

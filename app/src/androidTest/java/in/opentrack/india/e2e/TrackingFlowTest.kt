@@ -640,8 +640,9 @@ class TrackingFlowTest {
                     E2E.text("sourceSpinner").contains("WIMT")) &&
                     rowTexts("stopTimeType").none { it == "WEB" || it == "WEB?" })
             assertTrue("website cells lost source attribution: $spoken",
-                spoken.any { it.startsWith("Website displayed arrival") ||
-                    it.startsWith("Website forecast arrival") } || inlineClaim)
+                spoken.any { it.startsWith("Website displayed arrival") } || inlineClaim)
+            assertTrue("unreached website estimates must not be painted as station arrivals: $spoken",
+                spoken.none { it.startsWith("Website forecast arrival") })
             val departures = E2E.all(By.res(E2E.PKG, "liveDep"))
                 .map { it.contentDescription.orEmpty() }
             assertTrue("website first clocks may not borrow NTES departure provenance: $departures",

@@ -30,9 +30,15 @@ class InlineRouteRenderTest {
         val srf = anf.copy(seq = 2, code = "SRF", name = "Sagar Jambagaru",
             schedArr = 1827, schedDep = 1829, showArr = null, showDep = null,
             source = TrackModel.MinuteSource.SCHEDULE, isAnchor = false, kmFromOrigin = 482)
-        adapter.websiteCardTimes = mapOf(
-            "ANF" to `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.SiteClocks(1813, 1850, false),
-            "SRF" to `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.SiteClocks(1869, 1871, true))
+        val day = 20751L // 26 Oct page for the 25 Oct originating run
+        val pageAt = `in`.opentrack.india.core.RailTime.railMinuteToEpochMillis(day, 1860)
+        val site = `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.Report(
+            mapOf("ANF" to `in`.opentrack.india.model.LiveStopFields(actualArrivalMin = 1813)),
+            "ANF", false, 1813, pageAt, siteClocks = mapOf(
+                "ANF" to `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.SiteClocks(1813, 1850, false),
+                "SRF" to `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.SiteClocks(1869, 1871, true)))
+        adapter.websiteCardTimes = WebsiteReportDisplay.displayedClocks(site, day,
+            listOf("ANF", "SRF"), pageAt + 10_000L)
         adapter.haltMarker = TableMarker.Halt("ANF", "Last mapped website arrival", true)
         adapter.submitList(listOf(anf, srf))
         val at = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
@@ -46,10 +52,76 @@ class InlineRouteRenderTest {
         assertEquals(View.VISIBLE, at.trainMarker.visibility)
         val next = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
         adapter.onBindViewHolder(next, 1)
-        assertEquals("~07:09", next.liveArr.text.toString())
-        assertEquals("~07:11", next.liveDep.text.toString())
-        assertTrue(next.liveArr.contentDescription.contains("Website forecast"))
+        assertEquals("—", next.liveArr.text.toString())
+        assertEquals("—", next.liveDep.text.toString())
+        assertTrue(next.liveArr.contentDescription.contains("Not reported arrival unknown"))
         assertEquals(View.GONE, next.trainMarker.visibility)
+    }
+
+    @Test fun bengaluruScreenshotLeavesFutureWebsiteCellsBlankOnScreen() {
+        val ctx = RuntimeEnvironment.getApplication()
+        val adapter = StopAdapter()
+        val sbc = TrackModel.Stop(1, "SBC", "KSR Bengaluru", 1385, 1395, 1378,
+            null, -7, TrackModel.MinuteSource.SITE_REPORTED, "10",
+            TrackModel.State.HERE, true, 138, 0, 27, false, false, false, -7)
+        val mwm = sbc.copy(seq = 2, code = "MWM", name = "Malleswaram",
+            schedArr = 1400, schedDep = 1401, showArr = null, showDep = null,
+            source = TrackModel.MinuteSource.SCHEDULE, isAnchor = false)
+        val ypr = mwm.copy(seq = 3, code = "YPR", name = "Yesvantpur Jn",
+            schedArr = 1406, schedDep = 1408)
+        val day = 20753L
+        val stamp = `in`.opentrack.india.core.RailTime.railMinuteToEpochMillis(day, 1390) + 44_000L
+        val site = `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.Report(
+            mapOf("SBC" to `in`.opentrack.india.model.LiveStopFields(actualArrivalMin = 1378)),
+            "SBC", false, 1378, stamp, siteClocks = mapOf(
+                "SBC" to `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.SiteClocks(1378, 1395, false),
+                "MWM" to `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.SiteClocks(1396, 1401, true),
+                "YPR" to `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.SiteClocks(1401, 1408, true)))
+        adapter.websiteCardTimes = WebsiteReportDisplay.displayedClocks(site, day,
+            listOf("SBC", "MWM", "YPR"), stamp + 20_000L)
+        adapter.haltMarker = TableMarker.Halt("SBC", "Last mapped website arrival", true)
+        adapter.submitList(listOf(sbc, mwm, ypr))
+        val sbcHolder = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
+        adapter.onBindViewHolder(sbcHolder, 0)
+        assertEquals("22:58", sbcHolder.liveArr.text.toString())
+        assertEquals("—", sbcHolder.liveDep.text.toString())
+        assertEquals("Last site arrival · 22:58", sbcHolder.eventCaption.text.toString())
+        assertEquals(View.VISIBLE, sbcHolder.trainMarker.visibility)
+        for (index in 1..2) {
+            val next = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
+            adapter.onBindViewHolder(next, index)
+            assertEquals("—", next.liveArr.text.toString())
+            assertEquals("—", next.liveDep.text.toString())
+            assertEquals(View.GONE, next.trainMarker.visibility)
+            assertTrue(next.liveArr.contentDescription.contains("Not reported arrival unknown"))
+        }
+    }
+
+    @Test fun minuteAgeTickRebindsOnlyTheMarkerInsteadOfTheWholeRoute() {
+        val adapter = StopAdapter()
+        val at = TrackModel.Stop(1, "SBC", "KSR Bengaluru", 1385, 1395, 1378,
+            null, -7, TrackModel.MinuteSource.SITE_REPORTED, null,
+            TrackModel.State.HERE, true, 138, 0, 27, false, false, false, -7)
+        adapter.submitList(listOf(at, at.copy(seq = 2, code = "MWM", name = "Malleswaram",
+            source = TrackModel.MinuteSource.SCHEDULE, showArr = null, isAnchor = false),
+            at.copy(seq = 3, code = "YPR", name = "Yesvantpur Jn",
+                source = TrackModel.MinuteSource.SCHEDULE, showArr = null, isAnchor = false)))
+        adapter.haltMarker = TableMarker.Halt("SBC", "Last mapped website arrival", true)
+        var full = 0
+        val changed = mutableListOf<Int>()
+        val observer = object : androidx.recyclerview.widget.RecyclerView.AdapterDataObserver() {
+            override fun onChanged() { full++ }
+            override fun onItemRangeChanged(positionStart: Int, itemCount: Int) {
+                repeat(itemCount) { changed += positionStart + it }
+            }
+        }
+        adapter.registerAdapterDataObserver(observer)
+        adapter.legAgeSeconds = 13 * 60L
+        assertEquals(0, full)
+        assertEquals(listOf(0), changed)
+        adapter.legAgeSeconds = 13 * 60L + 20
+        assertEquals(listOf(0), changed) // no rebind inside the same minute
+        adapter.unregisterAdapterDataObserver(observer)
     }
 
     @Test fun freshLastWebsiteDepartureIsLabelledOutsideActualBeforeAnyMovementCue() {
@@ -182,7 +254,7 @@ class InlineRouteRenderTest {
         assertEquals("WEB attribution stays in badge/accessibility, not repeated beside clocks",
             View.GONE, holder.timeType.visibility)
         assertEquals(View.VISIBLE, holder.trainMarker.visibility)
-        assertEquals("At Yesvantpur Jn · as on 11:26",
+        assertEquals("Last site arrival · 11:26",
             holder.eventCaption.text.toString())
         adapter.haltMarker = null
         // AsyncListDiffer's null-list removal is synchronous; emptyList() is not.

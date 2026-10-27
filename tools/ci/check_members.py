@@ -53,7 +53,7 @@ count groupBy sum average min max require requireNotNull check checkNotNull form
 text set visibility measure layout draw invalidate requestLayout post postDelayed removeCallbacks
 context resources activity findViewById setBackgroundResource setBackgroundColor setTextColor
 setText setAdapter setLayoutManager layoutManager layoutManager itemDecoration addItemDecoration
-adapter notifyDataSetChanged alpha setColorFilter setPadding width height paddingLeft paddingTop
+adapter notifyDataSetChanged registerAdapterDataObserver unregisterAdapterDataObserver alpha setColorFilter setPadding width height paddingLeft paddingTop
 paddingRight paddingBottom measuredWidth measuredHeight isNestedScrollingEnabled setHasFixedSize
 setOnItemClickListener addTextChangedListener afterTextChanged beforeTextChanged text toString textIsSelectable
 getLocationInWindow getPixel drawColor mkdirs compress recycle zipWithNext getChildAt lineCount getEllipsisCount assets idle scrollX scrollY measuredScrollX

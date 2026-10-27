@@ -18,8 +18,9 @@ object OrgWebsiteStatus {
     /** A station in the independent STATIC map, not a measured GPS point or live route km. */
     data class Intermediate(val code: String, val name: String, val precedingHalt: String,
                             val followingHalt: String, val mapKm: Int, val scheduledMinute: Int)
-    /** First clocks printed in a route-matched website card. White cards are forecasts;
-     * these are display-only and MUST NOT be fed into TrackModel or a train marker. */
+    /** First clocks printed in a route-matched website card. White forecasts
+     * remain available for diagnostics but are suppressed from the route table.
+     * These are never TrackModel events or evidence for a train marker. */
     data class SiteClocks(val arrivalMin: Int?, val departureMin: Int?, val forecast: Boolean)
     data class Report(
         val rows: Map<String, LiveStopFields>,
@@ -170,9 +171,9 @@ object OrgWebsiteStatus {
                 ?.groupValues?.get(1).orEmpty()
             val pastCard = className.contains("bg-green-50") && className.contains("opacity-90")
             val highlightedCard = className.contains("bg-blue-50")
-            // Preserve what the site actually printed in the selected-source
-            // column, including timetable-equal clocks and white-card forecasts.
-            // This is a separate representation from the guarded event rows.
+            // Retain printed clocks, including white forecasts, for diagnostics.
+            // WebsiteReportDisplay gates the selected-source column to elapsed,
+            // reached-card times; these never become guarded event rows.
             val halt = route.stops.firstOrNull { it.code.equals(code, true) }
             if (halt != null) {
                 fun firstClock(section: String, scheduled: Int?): Int? {

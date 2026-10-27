@@ -28,17 +28,46 @@ class WebsiteReportDisplayTest {
         "YPR" to LiveStopFields(actualArrivalMin = 686),
     ), "YPR", false, 686, 1_792_389_499_000L)
 
-    @Test fun whiteCardForecastExpiresWithoutErasingThePastWebsiteCard() {
+    @Test fun futureStationEstimatesAndLaterThanPageDepartureDoNotLookLikeArrivals() {
+        // Owner's 23:11 screenshot: last past card SBC 22:58, page 23:10:44;
+        // SBC 23:15 is future even if printed on a green card. White MWM/YPR
+        // are not reached. Neither an arrival clock nor accessibility may imply so.
+        val day = 20753L // run of 27 Oct 2026
+        val stamp = `in`.opentrack.india.core.RailTime.railMinuteToEpochMillis(day, 1390) + 44_000L
+        val screenshot = OrgWebsiteStatus.Report(mapOf(
+            "SBC" to LiveStopFields(actualArrivalMin = 1378)
+        ), "SBC", false, 1378, stamp, siteClocks = mapOf(
+            "SBC" to OrgWebsiteStatus.SiteClocks(1378, 1395, false),
+            "MWM" to OrgWebsiteStatus.SiteClocks(1396, 1401, true),
+            "YPR" to OrgWebsiteStatus.SiteClocks(1401, 1408, true)))
+        val stops = listOf("MYS", "SBC", "MWM", "YPR", "TLGP")
+        val visible = WebsiteReportDisplay.displayedClocks(screenshot, day, stops,
+            stamp + 25_000L)
+        assertEquals(mapOf("SBC" to OrgWebsiteStatus.SiteClocks(1378, null, false)), visible)
+        assertNull("a later fetch must not turn the old page's forecast into an event",
+            WebsiteReportDisplay.displayedClocks(screenshot, day, stops,
+                stamp + 600_000L)["MWM"])
+        assertNull(WebsiteReportDisplay.displayedClocks(screenshot, day, stops,
+            stamp + 600_000L)["SBC"]?.departureMin)
+        assertEquals(emptyMap<String, OrgWebsiteStatus.SiteClocks>(),
+            WebsiteReportDisplay.displayedClocks(screenshot, day, listOf("MYS", "MWM"), stamp))
+        // An actual new page published after 23:15 can show the last site's
+        // departure without promoting that clock into a new station event.
+        val later = screenshot.copy(pageUpdatedAt =
+            `in`.opentrack.india.core.RailTime.railMinuteToEpochMillis(day, 1397))
+        assertEquals(1395, WebsiteReportDisplay.displayedClocks(later, day, stops,
+            later.pageUpdatedAt)["SBC"]?.departureMin)
+    }
+
+    @Test fun olderPastCardClockSurvivesButWhiteNextHaltNeverPaints() {
         val displayed = report.copy(siteClocks = mapOf(
             "YPR" to OrgWebsiteStatus.SiteClocks(686, 690, false),
             "SBC" to OrgWebsiteStatus.SiteClocks(740, 743, true)))
-        assertEquals(2, WebsiteReportDisplay.displayedClocks(displayed,
-            displayed.pageUpdatedAt + 120_000L).size)
-        val expired = WebsiteReportDisplay.displayedClocks(displayed,
-            displayed.pageUpdatedAt + 300_001L)
-        assertEquals(1, expired.size)
-        assertEquals(OrgWebsiteStatus.SiteClocks(686, 690, false), expired["YPR"])
-        assertNull(expired["SBC"])
+        val visible = WebsiteReportDisplay.displayedClocks(displayed, 20745L,
+            route.stops.map { it.code }, displayed.pageUpdatedAt + 120_000L)
+        assertEquals(1, visible.size)
+        assertEquals(OrgWebsiteStatus.SiteClocks(686, null, false), visible["YPR"])
+        assertNull(visible["SBC"])
     }
 
     @Test fun staleWebsiteBadgeRetainsInferredRunWarning() {
