@@ -220,13 +220,14 @@
                         android:layout_height="wrap_content"
                         android:orientation="vertical">
 
-                <!-- Share the evidence row with a transport warning instead of reserving
-                     36dp of blank space above every report. In compact mode the
-                     header itself warns of a failed check without growing the card. -->
-                <FrameLayout
+                <!-- Reserve NO blank warning row when the source works. On a
+                     failure place the warning BELOW the provenance badge, never
+                     over it: both the last report and the failure remain legible. -->
+                <LinearLayout
                     android:id="@+id/heroEvidenceSlot"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:orientation="vertical"
                     android:layout_marginTop="6dp">
 
                 <LinearLayout
@@ -264,14 +265,15 @@
                         style="@style/TextMeta"
                         android:textSize="14sp"
                         android:layout_width="match_parent"
-                        android:layout_height="match_parent"
-                        android:minHeight="38dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:padding="6dp"
+                        android:background="@drawable/bg_summary_connection"
                         android:gravity="center_vertical"
-                        android:maxLines="2" android:ellipsize="end"
                         android:textColor="@color/connection_ink"
                         android:accessibilityLiveRegion="polite"
                         android:visibility="gone" />
-                </FrameLayout>
+                </LinearLayout>
 
                 <TextView
                     android:id="@+id/headline"

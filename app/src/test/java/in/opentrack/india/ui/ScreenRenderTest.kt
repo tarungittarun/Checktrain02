@@ -234,9 +234,11 @@ class ScreenRenderTest {
             shot.bounds(R.id.summaryBoxLabel).bottom
         assertTrue("an invisible connection warning left $topGap px of empty space above the report",
             topGap in 0..Render.dp(shot.context, 39f).toInt())
-        assertTrue("a warning must share rather than follow the evidence row",
+        assertTrue("a warning must live with the evidence without replacing its badge",
             shot.root.findViewById<View>(R.id.connectionAlert).parent ===
-                shot.root.findViewById<View>(R.id.heroEvidenceSlot))
+                shot.root.findViewById<View>(R.id.heroEvidenceSlot) &&
+                shot.root.findViewById<View>(R.id.heroEvidence).parent ===
+                    shot.root.findViewById<View>(R.id.heroEvidenceSlot))
         assertTrue("expanding source text must scroll without clipping source/Auto controls",
             shot.root.findViewById<View>(R.id.heroEvidenceSlot).parent is android.widget.LinearLayout &&
                 shot.root.findViewById<View>(R.id.heroDetailsScroll) is android.widget.ScrollView &&
@@ -528,6 +530,34 @@ Render.save("02-track-live", shot.bitmap)
             badge.height() > 0 && badge.top >= viewport.top && badge.bottom <= viewport.bottom)
         assertTrue("source-specific failure headline was clipped: $headline / $viewport",
             headline.height() > 0 && headline.top >= viewport.top && headline.bottom <= viewport.bottom)
+    }
+
+    @Test
+    fun connectionFailureNeverPaintsOverTheReportBadgeOrHeadline() {
+        val shot = Render.render(R.layout.activity_train, widthDp = 411f,
+            heightDp = 760f, textScale = 1.15f) { root ->
+            root.findViewById<TextView>(R.id.provenance).text = "NTES · reported stop"
+            root.findViewById<TextView>(R.id.age).text = "Freshness: 22 min ago"
+            root.findViewById<TextView>(R.id.connectionAlert).apply {
+                text = "Request failed · NTES · official. Previous report unchanged."
+                visibility = View.VISIBLE
+            }
+            root.findViewById<TextView>(R.id.headline).text =
+                "Last NTES report: Departed Tumkur · now unknown"
+            root.findViewById<TextView>(R.id.delay).text = "+16m late · 00:31 (+1d)"
+            root.findViewById<TextView>(R.id.next).text =
+                "Tiptur · 01:05 (+1d) Timetable · not ETA"
+        }
+        val badge = shot.bounds(R.id.provenance)
+        val alert = shot.bounds(R.id.connectionAlert)
+        val headline = shot.bounds(R.id.headline)
+        val footer = shot.bounds(R.id.delay)
+        assertTrue("warning painted over the last report's source: $badge / $alert",
+            badge.height() > 0 && alert.top >= badge.bottom)
+        assertTrue("warning painted over the report text: $alert / $headline",
+            alert.height() > 0 && alert.bottom <= headline.top)
+        assertTrue("footer painted over the report: $headline / $footer",
+            headline.bottom <= footer.top)
     }
 
     @Test

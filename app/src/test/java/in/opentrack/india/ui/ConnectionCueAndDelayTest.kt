@@ -53,24 +53,25 @@ class ConnectionCueAndDelayTest {
         val card = LinearLayout(ctx)
         val label = TextView(ctx)
         val evidence = LinearLayout(ctx)
-        val cue = ConnectionIssueCue(card, label, evidence)
+        val cue = ConnectionIssueCue(card, label)
         assertEquals(333L, ConnectionIssueCue.PULSE_MILLIS)
         assertEquals(6, ConnectionIssueCue.PULSES)
         cue.show("Source timed out", "NTES · official")
         assertEquals(View.VISIBLE, label.visibility)
-        assertEquals("warning must replace, not push down, the evidence row", 0f,
+        assertEquals("the last report must remain readable during a failure", 1f,
             evidence.alpha, .001f)
-        assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS,
-            evidence.importantForAccessibility)
+        assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO,
+            androidx.core.view.ViewCompat.getImportantForAccessibility(evidence))
         assertTrue(label.text.contains("Source timed out · NTES"))
         assertTrue(label.text.contains("Previous report unchanged"))
         cue.pause()
         assertEquals(1f, card.alpha, .001f)
         assertEquals(0f, card.translationX, .001f)
         cue.clear()
-        assertEquals(View.GONE, label.visibility) // warning shares the evidence slot
+        assertEquals(View.GONE, label.visibility) // warning takes no space after clearing
         assertEquals(1f, evidence.alpha, .001f)
-        assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO, evidence.importantForAccessibility)
+        assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO,
+            androidx.core.view.ViewCompat.getImportantForAccessibility(evidence))
         assertEquals(null, cue.reason)
     }
 }

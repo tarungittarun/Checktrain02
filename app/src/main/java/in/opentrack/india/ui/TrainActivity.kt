@@ -203,8 +203,7 @@ class TrainActivity : AppCompatActivity() {
         if (trainNo.length < 4) { finish(); return }
         binding = ActivityTrainBinding.inflate(layoutInflater)
         setContentView(binding.root)
-        connectionCue = ConnectionIssueCue(binding.trackingSummaryCard, binding.connectionAlert,
-            binding.heroEvidence)
+        connectionCue = ConnectionIssueCue(binding.trackingSummaryCard, binding.connectionAlert)
         heroExpanded = savedInstanceState?.getBoolean("heroExpanded", true) ?: true
         binding.heroToggle.setOnClickListener {
             // The previous fixed height is *not* the target of More/Less. Measure
@@ -1338,8 +1337,8 @@ class TrainActivity : AppCompatActivity() {
     }
 
     private fun showConnectionError(reason: String, source: String) {
-        // Reuse the evidence slot; do not cover the headline or replace an
-        // earlier report with a page-check timestamp.
+        // Put a failure BELOW the badge without covering the last report or
+        // replacing an event time with a page-check timestamp.
         connectionCue.show(reason, sourceName(source))
         if (!heroExpanded) {
             binding.heroEyebrow.text = "CHECK FAILED"
