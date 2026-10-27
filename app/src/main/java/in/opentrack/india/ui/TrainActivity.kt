@@ -17,6 +17,8 @@ import android.widget.ArrayAdapter
 import android.widget.Toast
 import android.view.View
 import android.view.ViewTreeObserver
+import android.view.MotionEvent
+import android.view.ViewConfiguration
 import `in`.opentrack.india.domain.RouteBetween
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -171,6 +173,7 @@ class TrainActivity : AppCompatActivity() {
         binding.heroEyebrow.visibility = if (heroExpanded || connectionCue.reason != null)
             View.VISIBLE else View.INVISIBLE
         binding.heroDetailsScroll.visibility = if (heroExpanded) View.VISIBLE else View.GONE
+        binding.compactReport.visibility = if (heroExpanded) View.GONE else View.VISIBLE
         binding.sourceSummary.visibility = if (heroExpanded && sourceSummaryWanted) View.VISIBLE else View.GONE
         binding.note.visibility = if (heroExpanded &&
             (SummaryNoteUi.visible(lastUi?.model?.note) != null || errorText != null)) View.VISIBLE else View.GONE
@@ -298,6 +301,7 @@ class TrainActivity : AppCompatActivity() {
         }
 
         binding.refresh.setOnClickListener { requestRefresh() }
+        installFloatingRefresh()
         val refreshPrefs = getSharedPreferences("tracking_refresh", Context.MODE_PRIVATE)
         binding.autoSwitch.isChecked = refreshPrefs.getBoolean("every_minute", false)
         binding.autoSwitch.setOnCheckedChangeListener { _, enabled ->
@@ -427,6 +431,102 @@ class TrainActivity : AppCompatActivity() {
         vm.error.observe(this) { msg ->
             errorText = msg
             renderNote()
+        }
+    }
+
+    /** Default in the clock-free bottom dock; long drag moves it within the
+     * lower half. A release (or a route scroll) steers around visible clock
+     * cells without inventing a second network action. */
+    private fun installFloatingRefresh() {
+        val prefs = getSharedPreferences("tracking_refresh", Context.MODE_PRIVATE)
+        val button = binding.refresh
+        val inset = (10f * resources.displayMetrics.density).toInt()
+        fun avoidClocks() {
+            if (button.width <= 0 || binding.root.width <= 0) return
+            val rootLocation = IntArray(2)
+            binding.root.getLocationInWindow(rootLocation)
+            val boxes = mutableListOf<RefreshPlacement.Box>()
+            val viewportLocation = IntArray(2)
+            binding.routeViewport.getLocationInWindow(viewportLocation)
+            val viewTop = viewportLocation[1] - rootLocation[1]
+            val viewBottom = viewTop + binding.routeViewport.height
+            for (index in 0 until binding.stops.childCount) {
+                val row = binding.stops.getChildAt(index)
+                for (id in intArrayOf(R.id.schedArr, R.id.schedDep, R.id.liveArr, R.id.liveDep)) {
+                    val clock = row.findViewById<View>(id) ?: continue
+                    if (clock.visibility != View.VISIBLE || clock.width == 0) continue
+                    val loc = IntArray(2)
+                    clock.getLocationInWindow(loc)
+                    val top = maxOf(loc[1] - rootLocation[1], viewTop)
+                    val bottom = minOf(loc[1] - rootLocation[1] + clock.height, viewBottom)
+                    if (top < bottom) boxes += RefreshPlacement.Box(
+                        (loc[0] - rootLocation[0]).toFloat(), top.toFloat(),
+                        (loc[0] - rootLocation[0] + clock.width).toFloat(), bottom.toFloat())
+                }
+            }
+            val point = RefreshPlacement.settle(binding.root.width, binding.root.height,
+                button.width, button.height, inset, button.x, button.y, boxes)
+            button.x = point.x; button.y = point.y
+        }
+        binding.root.addOnLayoutChangeListener { root, _, _, right, bottom, _, _, _, _ ->
+            if (button.width == 0 || right <= 0 || bottom <= 0) return@addOnLayoutChangeListener
+            val savedX = prefs.getFloat("float_x", -1f)
+            val savedY = prefs.getFloat("float_y", -1f)
+            val dock = binding.refreshDock
+            val defaultX = (root.width - button.width - 20f * resources.displayMetrics.density)
+                .coerceAtLeast(inset.toFloat())
+            val defaultY = dock.top + (dock.height - button.height) / 2f
+            val point = RefreshPlacement.drag(root.width, root.height,
+                button.width, button.height, inset,
+                if (savedX >= 0f) root.width * savedX - button.width / 2f else defaultX,
+                if (savedY >= 0f) root.height * savedY - button.height / 2f else defaultY)
+            button.x = point.x; button.y = point.y
+            avoidClocks()
+        }
+        binding.stops.addOnScrollListener(object : androidx.recyclerview.widget.RecyclerView.OnScrollListener() {
+            override fun onScrolled(recyclerView: androidx.recyclerview.widget.RecyclerView,
+                                    dx: Int, dy: Int) {
+                if (dx != 0 || dy != 0) avoidClocks()
+            }
+        })
+        val slop = ViewConfiguration.get(this).scaledTouchSlop
+        var downX = 0f
+        var downY = 0f
+        var originX = 0f
+        var originY = 0f
+        var dragging = false
+        button.setOnTouchListener { v, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = event.rawX; downY = event.rawY
+                    originX = v.x; originY = v.y
+                    dragging = false
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = event.rawX - downX
+                    val dy = event.rawY - downY
+                    if (!dragging && dx * dx + dy * dy > slop * slop) dragging = true
+                    if (dragging) {
+                        v.parent.requestDisallowInterceptTouchEvent(true)
+                        val point = RefreshPlacement.drag(binding.root.width, binding.root.height,
+                            v.width, v.height, inset, originX + dx, originY + dy)
+                        v.x = point.x; v.y = point.y
+                    }
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    if (dragging) {
+                        avoidClocks()
+                        prefs.edit().putFloat("float_x", (v.x + v.width / 2f) /
+                            binding.root.width.coerceAtLeast(1)).putFloat("float_y",
+                            (v.y + v.height / 2f) / binding.root.height.coerceAtLeast(1)).apply()
+                    } else v.performClick()
+                    true
+                }
+                MotionEvent.ACTION_CANCEL -> true
+                else -> false
+            }
         }
     }
 
@@ -932,6 +1032,9 @@ class TrainActivity : AppCompatActivity() {
             // leg, never simultaneously pinned to the station and the leg.
             stopAdapter.haltMarker = null
         }
+        binding.compactReport.text = binding.headline.text
+        binding.compactReport.contentDescription = binding.headline.contentDescription
+            ?: binding.headline.text
         applyHeroExpansion()
         stopAdapter.highlightCode = stopAdapter.haltMarker?.code ?: ui.anchorCode
         if (ui.reports.isNotEmpty()) {
@@ -1063,7 +1166,7 @@ class TrainActivity : AppCompatActivity() {
                 it.source == TrackModel.MinuteSource.REPORTED
             }?.let { TableMarker.atHalt(rows, it.code, vm.originDate, now) }
         else null
-        // This function also runs every 30 seconds. Re-adding the row locomotive
+        // This function also runs once per minute. Re-adding the row locomotive
         // after bind had already put a departure cue in the outbound leg painted
         // TWO trains on a real phone. Keep the same single-glyph decision on ticks.
         stopAdapter.haltMarker = lastStopMarker?.takeUnless { marker ->

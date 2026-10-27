@@ -279,6 +279,8 @@ class TrackingFlowTest {
         assertTrue("collapse did not hide headline",
             E2E.ui.wait(Until.gone(By.res(E2E.PKG, "headline")), E2E.LOCAL_MS))
         assertNotNull("collapsed card lost source", E2E.find("sourceSpinner"))
+        assertTrue("Less hid the only last-report sentence",
+            E2E.text("compactReport").isNotBlank())
         assertTrue("More label not visible", E2E.text("heroToggle").contains("More"))
         val shrinkDeadline = System.currentTimeMillis() + E2E.LOCAL_MS
         var compact = cardGeometry()
@@ -500,7 +502,7 @@ class TrackingFlowTest {
             "($visibleStations) in $bounds at ${E2E.widthDp()}dp",
             visibleStations.size >= 3)
         val refresh = E2E.find("refresh")?.visibleBounds
-        if (refresh != null) assertTrue("Refresh covered a source clock: $refresh / $bounds",
+        if (refresh != null) assertTrue("Refresh's initial parking spot covered a source clock: $refresh / $bounds",
             refresh.top >= bounds.bottom)
         val summary = E2E.find("scroller")?.visibleBounds
         if (summary != null) assertTrue(

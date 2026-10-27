@@ -128,6 +128,14 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
     private var projectedLeg: RouteBetween.LegProjection? = null
     /** Only the selected website's validated past cards, never a background comparison. */
     var websiteIntermediateReports: Map<String, LiveStopFields> = emptyMap()
+        set(value) {
+            if (field != value) {
+                field = value
+                // A same-anchor page can add an intermediate event while all
+                // scheduled halt rows remain identical. Rebind its mapped leg.
+                rebindCodes(*routePoints.keys.toTypedArray())
+            }
+        }
     /** Selected site's printed clocks, separate from qualified train events. */
     var websiteCardTimes: Map<String, OrgWebsiteStatus.SiteClocks> = emptyMap()
         set(value) {
@@ -475,12 +483,13 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             }
             val web = websiteIntermediateReports[point.code]
             // A timetable's halt flag, or a validated arrival+later departure,
-            // establishes a stop. An arrival-only pass-through never becomes Act.
+            // establishes a stop. An arrival-only non-halt is a website passage
+            // claim, displayed as such, never an independently verified Act.
             val stopped = point.isHalt || (web?.actualArrivalMin != null &&
                 web.actualDepartureMin != null && web.actualDepartureMin > web.actualArrivalMin)
             RouteBetween.LegPoint(point.code, point.name, point.schedKm, fraction,
                 planned, point.arrivalMin == null && planned != null, stopped,
-                web?.actualArrivalMin.takeIf { stopped },
+                web?.actualArrivalMin,
                 web?.actualDepartureMin.takeIf { stopped })
         }
         if (captionMinute != null) {
@@ -580,8 +589,10 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
                     (if (point.approximate) "approximately " else "scheduled ") +
                         RailTime.formatRailMinute(it)
                 } ?: "passage time unavailable"
-                val actual = point.siteArrivalMin?.let { ", website arrival claim " +
-                    RailTime.formatRailMinute(it) } ?: ", no validated stop arrival"
+                val actual = point.siteArrivalMin?.let {
+                    ", website ${if (point.isHalt) "arrival" else "passage"} claim " +
+                        RailTime.formatRailMinute(it)
+                } ?: ", no validated site passage"
                 "${RowText.of(point.name)} (${point.code}), $clock$actual" +
                     (if (point.mapKm >= 0) ", ${point.mapKm} km" else ", distance unavailable")
             }

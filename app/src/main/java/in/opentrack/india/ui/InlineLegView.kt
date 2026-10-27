@@ -126,7 +126,8 @@ class InlineLegView @JvmOverloads constructor(
             canvas.drawText(planned, dp(12f), tickY + dp(4f), paint)
             paint.textAlign = Paint.Align.RIGHT
             val arrived = point.siteArrivalMin?.let {
-                "↘" + `in`.opentrack.india.core.RailTime.formatRailMinuteBare(it)
+                (if (point.isHalt) "↘" else "•") +
+                    `in`.opentrack.india.core.RailTime.formatRailMinuteBare(it)
             } ?: "—"
             paint.color = if (point.siteArrivalMin == null) context.getColor(R.color.text2)
                 else context.getColor(R.color.warn)

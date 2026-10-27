@@ -248,10 +248,13 @@ class ScreenRenderTest {
         assertTrue("opt-in one-minute Auto must stay in the source row",
             shot.root.findViewById<View>(R.id.autoSwitch).parent ===
                 shot.root.findViewById<View>(R.id.sourceSpinner).parent)
-        val dock = shot.root.findViewById<View>(R.id.refreshDock)
-        assertTrue("Refresh must be in the dock, never above any station clock",
-            shot.root.findViewById<View>(R.id.refresh).parent === dock &&
-                shot.root.findViewById<View>(R.id.refresh).height > 0)
+        val refresh = shot.root.findViewById<View>(R.id.refresh)
+        assertTrue("Refresh must park above the separate, clock-free bottom dock",
+            refresh.parent === shot.root && refresh.height > 0 &&
+                shot.bounds(R.id.refresh).top >= shot.bounds(R.id.routeViewport).bottom &&
+                shot.bounds(R.id.refresh).top >= shot.bounds(R.id.refreshDock).top)
+        assertTrue("Less must retain a readable report headline",
+            shot.root.findViewById<android.widget.TextView>(R.id.compactReport).maxLines >= 2)
         assertEquals("the separate route button must not exist", 0,
             shot.context.resources.getIdentifier("betweenStations", "id", shot.context.packageName))
         assertTrue("source dropdown must be visible",

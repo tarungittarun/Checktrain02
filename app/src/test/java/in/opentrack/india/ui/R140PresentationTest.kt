@@ -46,6 +46,8 @@ class R140PresentationTest {
     }
 
     @Test fun routineWebsiteParagraphDisappearsButExceptionalWarningsRemain() {
+        assertEquals(null, SummaryNoteUi.visible("Past website card clocks shown; " +
+            "upcoming site estimates are not arrivals. Run day inferred."))
         assertEquals(null, SummaryNoteUi.visible("Website past-card times shown in the station table; " +
             "origin run inferred from the timetable. Last site report is not a current GPS position."))
         assertEquals("Website request failed. Previous report retained.",

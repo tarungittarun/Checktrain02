@@ -191,6 +191,19 @@
                         android:textColor="@color/text1" />
                 </LinearLayout>
 
+                <!-- In Less mode keep the last report visible, not an empty card. -->
+                <TextView
+                    android:id="@+id/compactReport"
+                    style="@style/TextBody"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="4dp"
+                    android:textColor="@color/summary_ink"
+                    android:textSize="15sp"
+                    android:maxLines="3"
+                    android:ellipsize="end"
+                    android:visibility="gone" />
+
                 <!-- The evidence/wording may grow after Refresh. Once a user chooses
                      the card size, this inner viewport scrolls any longer answer;
                      delay, source chooser and Auto remain pinned and never clip. -->
@@ -551,34 +564,34 @@
                 android:text="Older offline corridor: approximate km only, not a current route or train position. Missing legs have no verified intermediate map."
                 android:visibility="gone" />
 
-            <!-- Fixed outside the table viewport. Neither a floating button nor a
-                 drag target may obscure an arrival/departure minute. -->
+            <!-- Reserved default parking strip; moving the control is optional. -->
             <FrameLayout
                 android:id="@+id/refreshDock"
                 android:layout_width="match_parent"
-                android:layout_height="60dp"
-                android:paddingEnd="20dp">
-                <FrameLayout
-                    android:id="@+id/refresh"
-                    android:layout_width="48dp"
-                    android:layout_height="48dp"
-                    android:layout_gravity="end|center_vertical"
-                    android:background="@drawable/ripple_refresh_fab"
-                    android:clickable="true"
-                    android:focusable="true"
-                    android:contentDescription="Refresh selected source">
-                    <ImageView
-                        android:id="@+id/refreshGlyph"
-                        android:layout_width="28dp"
-                        android:layout_height="28dp"
-                        android:layout_gravity="center"
-                        android:src="@drawable/ic_refresh"
-                        android:tint="@color/refresh_ink"
-                        android:contentDescription="@null" />
-                </FrameLayout>
-            </FrameLayout>
+                android:layout_height="60dp" />
 
     </LinearLayout>
     </LinearLayout>
+
+    <!-- Root overlay: can be dragged in the lower half, parks in the dock by
+         default. On release it avoids visible route clocks. -->
+    <FrameLayout
+        android:id="@+id/refresh"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:layout_gravity="end|bottom"
+        android:background="@drawable/ripple_refresh_fab"
+        android:clickable="true"
+        android:focusable="true"
+        android:contentDescription="Refresh selected source; drag to move in lower half">
+        <ImageView
+            android:id="@+id/refreshGlyph"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:layout_gravity="center"
+            android:src="@drawable/ic_refresh"
+            android:tint="@color/refresh_ink"
+            android:contentDescription="@null" />
+    </FrameLayout>
 
 </FrameLayout>

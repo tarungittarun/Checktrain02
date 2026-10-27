@@ -24,6 +24,16 @@ class RefreshPlacementTest {
         assertTrue(moved.y >= 400f)
     }
 
+    @Test fun `drop moves off a visible departure clock but not off a free location`() {
+        val occupied = listOf(RefreshPlacement.Box(320f, 510f, 390f, 555f))
+        val placed = RefreshPlacement.settle(400, 800, 48, 48, 12, 330f, 520f, occupied)
+        assertTrue("drop obscured a clock: $placed", placed.x + 48 <= 308f ||
+            placed.x >= 402f || placed.y + 48 <= 498f || placed.y >= 567f)
+        assertTrue(placed.y >= 400f)
+        assertEquals(RefreshPlacement.drag(400, 800, 48, 48, 12, 180f, 600f),
+            RefreshPlacement.settle(400, 800, 48, 48, 12, 180f, 600f, occupied))
+    }
+
     @Test fun `saved relative position remains in allowed half after rotation`() {
         val rotated = RefreshPlacement.at(800, 400, 48, 48, 12, 0.75f, 0.68f)
         assertEquals(576f, rotated.x, 0.1f)
