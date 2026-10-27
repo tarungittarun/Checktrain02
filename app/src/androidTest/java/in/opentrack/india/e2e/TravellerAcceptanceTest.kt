@@ -41,6 +41,34 @@ class TravellerAcceptanceTest {
         assertEquals("Track opened a DIFFERENT train from the ticket", "12627", E2E.text("trainNo"))
     }
 
+    /** On a missing badge, distinguish an absent source label from a clipped
+     * details viewport. Keep the traveller assertion; never accept a hidden
+     * badge just because the model populated it internally. */
+    private fun reportGeometry(): String {
+        var result = "not laid out"
+        androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            val activity = androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry
+                .getInstance().getActivitiesInStage(
+                    androidx.test.runner.lifecycle.Stage.RESUMED).first()
+            val badge = activity.findViewById<android.widget.TextView>(
+                `in`.opentrack.india.R.id.provenance)
+            val details = activity.findViewById<android.widget.ScrollView>(
+                `in`.opentrack.india.R.id.heroDetailsScroll)
+            val card = activity.findViewById<android.view.View>(
+                `in`.opentrack.india.R.id.trackingSummaryCard)
+            val scroller = activity.findViewById<android.widget.ScrollView>(
+                `in`.opentrack.india.R.id.scroller)
+            val footer = activity.findViewById<android.view.View>(
+                `in`.opentrack.india.R.id.sourceSpinner).parent as android.view.View
+            result = "badge='${badge.text}' visible=${badge.isShown} " +
+                "alpha=${badge.alpha} badgeHeight=${badge.height} " +
+                "details=${details.height}/${details.getChildAt(0).height} " +
+                "detailsScroll=${details.scrollY} card=${card.height} " +
+                "footerBottom=${footer.bottom} scroller=${scroller.height}/${scroller.scrollY}"
+        }
+        return result
+    }
+
     @Test fun ticketToTimetableHasRealRowsAndClearlyQualifiedPosition() {
         openTicketTrain()
         val route = E2E.text("routeLabel")
@@ -52,7 +80,8 @@ class TravellerAcceptanceTest {
                 .any { Regex("\\d{1,2}:\\d{2}").containsMatchIn(it.text.orEmpty()) })
         val badge = E2E.text("provenance")
         val heading = E2E.text("heroEyebrow")
-        assertTrue("A traveller cannot tell whether the position is measured or only a timetable: $badge / $heading",
+        assertTrue("A traveller cannot tell whether the position is measured or only a timetable: " +
+            "$badge / $heading · ${reportGeometry()}",
             badge.isNotBlank() && heading.isNotBlank())
         assertTrue("Offline screen calls a position live: $badge / $heading",
             !E2E.flag("offline") || (!badge.contains("LIVE", true) &&
