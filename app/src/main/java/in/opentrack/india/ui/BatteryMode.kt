@@ -7,6 +7,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.Window
 import android.widget.ImageView
+import android.widget.ImageButton
 import android.widget.ProgressBar
 import android.widget.Spinner
 import android.widget.TextView
@@ -43,6 +44,10 @@ object BatteryMode {
     private fun paintSubtree(view: View) {
         // Non-text custom canvases and indeterminate progress paint bright fills / run frames.
         // They carry no unique timetable data; the row's labelled clocks and summary remain.
+        if (view is ImageView && view !is ImageButton) {
+            view.visibility = View.GONE // decorative logos/arrows; Refresh has its own text label
+            return
+        }
         if (view is InlineLegView || view is StopRailMarkerView || view is StatusRippleView ||
             view is JourneyProgressView || view is TrackInsightView ||
             view is LegPositionView || view is ScreenLoadGlowView || view is ProgressBar) {
