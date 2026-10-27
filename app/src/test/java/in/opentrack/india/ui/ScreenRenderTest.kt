@@ -250,7 +250,8 @@ class ScreenRenderTest {
                 shot.root.findViewById<View>(R.id.sourceSpinner).parent)
         val refresh = shot.root.findViewById<View>(R.id.refresh)
         assertTrue("Refresh must park above the separate, clock-free bottom dock",
-            refresh.parent === shot.root && refresh.height > 0 &&
+            refresh.parent === shot.root.findViewById<View>(R.id.contentColumn).parent &&
+                refresh.height > 0 &&
                 shot.bounds(R.id.refresh).top >= shot.bounds(R.id.routeViewport).bottom &&
                 shot.bounds(R.id.refresh).top >= shot.bounds(R.id.refreshDock).top)
         assertTrue("Less must retain a readable report headline",
