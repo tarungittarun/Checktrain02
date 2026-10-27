@@ -1378,7 +1378,7 @@ class TrainActivity : AppCompatActivity() {
         val list = binding.stops
         val manager = list.layoutManager as LinearLayoutManager
         manager.scrollToPositionWithOffset(idx, resources.getDimensionPixelSize(R.dimen.gap_s))
-        // View.post may run BEFORE the RecyclerView's requested layout. Wait for
+        // A posted runnable may run BEFORE the RecyclerView's requested layout. Wait for
         // the laid-out row, especially when the locomotive is deep inside an
         // expanded YPR→Tumkur intermediate leg.
         val observer = list.viewTreeObserver
