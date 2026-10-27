@@ -74,7 +74,8 @@ class BatteryModeTest {
         adapter.onBindViewHolder(holder, 0)
         assertEquals("A 01:43", holder.schedArr.text.toString())
         assertEquals("A 01:38", holder.liveArr.text.toString())
-        assertEquals("D END", holder.liveDep.text.toString())
+        // This halt has a scheduled departure, so missing actual stays blank, not END.
+        assertEquals("D —", holder.liveDep.text.toString())
         assertTrue(holder.liveArr.contentDescription.contains("Reported arrival"))
         assertEquals(Color.WHITE, holder.liveArr.currentTextColor)
         assertEquals(View.GONE, holder.trainMarker.visibility)
