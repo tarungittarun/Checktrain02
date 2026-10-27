@@ -795,11 +795,14 @@ class TrackingFlowTest {
             for (left in listOf(true, false)) {
                 val from = E2E.find("refresh")!!.visibleBounds
                 val route = E2E.find("routeViewport")!!.visibleBounds
-                val x = if (left) route.left + 48 else route.right - 48
+                val x = if (left) route.left + from.width() else route.right - from.width()
                 val y = route.top + route.height() * 2 / 3
                 assertTrue("could not drag Refresh", E2E.ui.swipe(
                     from.centerX(), from.centerY(), x, y, 28))
                 val parked = E2E.find("refresh")!!.visibleBounds
+                assertTrue("drop snapped Refresh away from the requested position: $x,$y -> $parked",
+                    kotlin.math.abs(parked.centerX() - x) <= 10 &&
+                        kotlin.math.abs(parked.centerY() - y) <= 10)
                 assertTrue("drag to ${if (left) "left" else "right"} did not move control: $parked",
                     if (left) parked.centerX() < route.centerX()
                     else parked.centerX() > route.centerX())
@@ -807,6 +810,28 @@ class TrackingFlowTest {
                     route.centerX(), route.top + 32, 28)
                 val after = E2E.find("refresh")!!.visibleBounds
                 assertTrue("route scroll moved the parked Refresh: $parked -> $after",
+                    kotlin.math.abs(parked.centerX() - after.centerX()) <= 3 &&
+                        kotlin.math.abs(parked.centerY() - after.centerY()) <= 3)
+            }
+            // An explicit drop over a clock is also the owner's choice. The
+            // safe *default* is different from forcing every drag off clocks.
+            val route = E2E.find("routeViewport")!!.visibleBounds
+            val clock = E2E.all(By.res(E2E.PKG, "schedArr"))
+                .map { it.visibleBounds }.firstOrNull {
+                    it.centerY() > route.centerY() && it.centerY() < route.bottom - 20
+                }
+            if (clock != null) {
+                val from = E2E.find("refresh")!!.visibleBounds
+                E2E.ui.swipe(from.centerX(), from.centerY(),
+                    clock.centerX(), clock.centerY(), 28)
+                val parked = E2E.find("refresh")!!.visibleBounds
+                assertTrue("clock avoidance overrode an explicit drag: $clock -> $parked",
+                    kotlin.math.abs(parked.centerX() - clock.centerX()) <= 10 &&
+                        kotlin.math.abs(parked.centerY() - clock.centerY()) <= 10)
+                E2E.ui.swipe(route.centerX(), route.bottom - 32,
+                    route.centerX(), route.top + 32, 28)
+                val after = E2E.find("refresh")!!.visibleBounds
+                assertTrue("scroll moved a deliberately parked control: $parked -> $after",
                     kotlin.math.abs(parked.centerX() - after.centerX()) <= 3 &&
                         kotlin.math.abs(parked.centerY() - after.centerY()) <= 3)
             }

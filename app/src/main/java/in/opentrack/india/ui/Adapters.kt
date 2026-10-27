@@ -107,8 +107,9 @@ class TrainHitAdapter(private val onClick: (TrainHit) -> Unit) :
 }
 
 /**
- * The route table. Every string on a row comes from [TrackModel.Stop]; the adapter adds no facts, which
- * is what keeps the sentence at the top of the screen and the row it describes in agreement.
+ * The route table. Primary clocks and marker come from [TrackModel.Stop]. A separately
+ * labelled website past-card comparison may fill a gap beside a stop, but never
+ * replaces an NTES actual or moves the selected-source locomotive.
  *
  * Per row: scheduled arrival/departure in the dim column, live-or-expected in the bright one, and a tag
  * naming which of the two the bright column is. A projected minute and a confirmed minute have to be
@@ -140,6 +141,17 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
     var websiteCardTimes: Map<String, OrgWebsiteStatus.SiteClocks> = emptyMap()
         set(value) {
             if (field != value) { field = value; notifyDataSetChanged() }
+        }
+    /** Only a recent, same-route website past card for a *missing* NTES cell.
+     * Never copied to the official column, marker or stored reported minutes. */
+    var websiteComparisonTimes: Map<String, OrgWebsiteStatus.SiteClocks> = emptyMap()
+        set(value) {
+            if (field != value) {
+                val previous = field
+                val changed = (previous.keys + value.keys).filter { previous[it] != value[it] }
+                field = value
+                rebindCodes(*changed.toTypedArray())
+            }
         }
     /** Last page's departure suggestion is a labelled note, not an ACTUAL clock. */
     var websitePendingDeparture: Pair<String, Int>? = null
@@ -251,6 +263,7 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         val meta: TextView = view.findViewById(R.id.stopMeta)
         val status: TextView = view.findViewById(R.id.stopStatus)
         val report: TextView = view.findViewById(R.id.stopReport)
+        val websitePastComparison: TextView = view.findViewById(R.id.websitePastComparison)
         val schedArr: TextView = view.findViewById(R.id.schedArr)
         val schedDep: TextView = view.findViewById(R.id.schedDep)
         val schedDay: TextView = view.findViewById(R.id.schedDay)
@@ -334,6 +347,12 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             s.source == TrackModel.MinuteSource.PROJECTED -> R.color.warn
             else -> R.color.text3
         }))
+        val siteComparison = WebsiteGapUi.caption(s, websiteComparisonTimes[s.code])
+        holder.websitePastComparison.text = siteComparison.orEmpty()
+        holder.websitePastComparison.visibility = if (siteComparison == null) View.GONE else View.VISIBLE
+        holder.websitePastComparison.contentDescription = siteComparison?.let {
+            "$it. Website past card; run date inferred from timetable. Not an NTES actual or current position."
+        } ?: ""
         holder.report.text = reports[s.code].orEmpty()
         holder.report.visibility = View.GONE // Source explanations belong in Source details.
         // Two concise pairs are always present: dim timetable at left, selected

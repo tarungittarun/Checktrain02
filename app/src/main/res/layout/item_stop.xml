@@ -86,6 +86,12 @@
             <TextView android:id="@+id/stopMeta" style="@style/TextMicro"
                 android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:layout_marginTop="3dp" android:maxLines="5" />
+            <!-- Other source's past-card clock is a labelled comparison below
+                 the station, never a substituted NTES actual in the right column. -->
+            <TextView android:id="@+id/websitePastComparison" style="@style/TextMicro"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="3dp" android:textSize="11sp"
+                android:textColor="@color/warn" android:visibility="gone" />
             <TextView android:id="@+id/stopStatus" style="@style/TextMeta"
                 android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:layout_marginTop="4dp" android:maxLines="5" />

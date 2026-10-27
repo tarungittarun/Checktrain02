@@ -455,9 +455,9 @@ class TrainActivity : AppCompatActivity() {
         }
     }
 
-    /** Default in the clock-free bottom dock; long drag moves it within the
-     * lower half. Only an explicit drop settles around the clocks: scrolling
-     * the table must NEVER move a button the traveller already placed. */
+    /** Default in the clock-free bottom dock; a deliberate drag stays anywhere
+     * within the lower half, even over a clock. Scrolling the table must never
+     * move a button the traveller already placed. */
     private fun installFloatingRefresh() {
         val prefs = getSharedPreferences("tracking_refresh", Context.MODE_PRIVATE)
         val button = binding.refresh
@@ -505,7 +505,9 @@ class TrainActivity : AppCompatActivity() {
                 if (savedX >= 0f) root.width * savedX - button.width / 2f else defaultX,
                 if (savedY >= 0f) root.height * savedY - button.height / 2f else defaultY)
             button.x = point.x; button.y = point.y
-            avoidClocks()
+            // Clock avoidance is ONLY for the initial default. Respect a saved
+            // drag even if the table/clock geometry changed since it was placed.
+            if (savedX < 0f || savedY < 0f) avoidClocks()
             placedSize = size
         }
         val slop = ViewConfiguration.get(this).scaledTouchSlop
@@ -536,7 +538,8 @@ class TrainActivity : AppCompatActivity() {
                 }
                 MotionEvent.ACTION_UP -> {
                     if (dragging) {
-                        avoidClocks()
+                        // Deliberate placement wins, including over a clock; do
+                        // not snap to a surprising different screen position.
                         prefs.edit().putFloat("float_x", (v.x + v.width / 2f) /
                             binding.root.width.coerceAtLeast(1)).putFloat("float_y",
                             (v.y + v.height / 2f) / binding.root.height.coerceAtLeast(1)).apply()
@@ -1026,9 +1029,18 @@ class TrainActivity : AppCompatActivity() {
         stopAdapter.websiteIntermediateReports = if (WebsiteReportDisplay.selected(ui.activeSource))
             ui.orgWebsiteReport?.rows.orEmpty() else emptyMap()
         stopAdapter.websiteTentativeDeparture = null
+        val siteNow = System.currentTimeMillis()
         stopAdapter.websiteCardTimes = if (WebsiteReportDisplay.selected(ui.activeSource))
             WebsiteReportDisplay.displayedClocks(ui.orgWebsiteReport, vm.originDate,
-                ui.model.rows.map { it.code }, System.currentTimeMillis())
+                ui.model.rows.map { it.code }, siteNow)
+            else emptyMap()
+        // NTES may have a later last halt yet no accepted actual at an earlier
+        // stop. Show the site's parsed *past* card beside that stop, not as an
+        // official Act or a second train icon. Discard old/foreign-run pages.
+        stopAdapter.websiteComparisonTimes = if (ui.activeSource == "NTES (official)" &&
+            ui.orgWebsiteReport?.pageUpdatedAt?.let { siteNow - it in 0L..43_200_000L } == true)
+            WebsiteReportDisplay.displayedClocks(ui.orgWebsiteReport, vm.originDate,
+                ui.model.rows.map { it.code }, siteNow)
             else emptyMap()
         stopAdapter.mappedLegStarts = ui.staticMappedLegStarts
         // A new response can repeat the same stop. Only show its receipt once;

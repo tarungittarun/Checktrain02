@@ -10,7 +10,8 @@
     android:layout_height="match_parent"
     android:background="@color/bg">
 
-    <!-- Reserve a bottom control dock: Refresh must NEVER hide a printed clock. -->
+    <!-- Clock-free default parking; the user's deliberate drag may cover a clock,
+         so this dock is a starting location, not a release-time snap target. -->
     <LinearLayout
         android:id="@+id/contentColumn"
         android:layout_width="match_parent"

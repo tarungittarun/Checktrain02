@@ -58,6 +58,57 @@ class InlineRouteRenderTest {
         assertEquals(View.GONE, next.trainMarker.visibility)
     }
 
+    @Test fun websitePastTipturFillsOnlyTheLabelledGapBesideNtesNotItsActColumn() {
+        val ctx = RuntimeEnvironment.getApplication()
+        val adapter = StopAdapter()
+        val ttr = TrackModel.Stop(14, "TTR", "Tiptur", 1505, 1506, 1505, 1506, null,
+            TrackModel.MinuteSource.SCHEDULE, "3", TrackModel.State.PASSED,
+            false, 279, 0, 231, false, false, false, null)
+        val ask = ttr.copy(seq = 15, code = "ASK", name = "Arsikere Jn",
+            schedArr = 1543, schedDep = 1545, showArr = 1538, showDep = null,
+            source = TrackModel.MinuteSource.REPORTED, state = TrackModel.State.HERE,
+            isAnchor = true, kmFromOrigin = 304)
+        val rrb = ttr.copy(seq = 16, code = "RRB", name = "Birur Jn",
+            state = TrackModel.State.NEXT, showArr = null, showDep = null)
+        val day = 20753L
+        val pageAt = `in`.opentrack.india.core.RailTime.railMinuteToEpochMillis(day, 1540)
+        val site = `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.Report(
+            mapOf("TTR" to `in`.opentrack.india.model.LiveStopFields(
+                actualArrivalMin = 1517, actualDepartureMin = 1520),
+                "ASK" to `in`.opentrack.india.model.LiveStopFields(actualArrivalMin = 1538)),
+            "ASK", false, 1538, pageAt, siteClocks = mapOf(
+                "TTR" to `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.SiteClocks(1517, 1520, false),
+                "ASK" to `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.SiteClocks(1538, null, false),
+                "RRB" to `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.SiteClocks(1612, 1615, true)))
+        adapter.websiteComparisonTimes = WebsiteReportDisplay.displayedClocks(site, day,
+            listOf("TTR", "ASK", "RRB"), pageAt + 60_000)
+        adapter.haltMarker = TableMarker.Halt("ASK", "Last NTES arrival", false)
+        adapter.submitList(listOf(ttr, ask, rrb))
+        val past = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
+        adapter.onBindViewHolder(past, 0)
+        assertEquals("—", past.liveArr.text.toString())
+        assertEquals("—", past.liveDep.text.toString())
+        assertEquals("Web past · arr 01:17 · dep 01:20 · day2",
+            past.websitePastComparison.text.toString())
+        assertEquals(View.VISIBLE, past.websitePastComparison.visibility)
+        assertTrue(past.websitePastComparison.contentDescription.contains("Not an NTES actual"))
+        assertEquals(View.GONE, past.trainMarker.visibility)
+        val at = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
+        adapter.onBindViewHolder(at, 1)
+        assertEquals("01:38", at.liveArr.text.toString())
+        assertEquals("—", at.liveDep.text.toString())
+        assertEquals(View.GONE, at.websitePastComparison.visibility)
+        assertEquals(View.VISIBLE, at.trainMarker.visibility)
+        val future = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
+        adapter.onBindViewHolder(future, 2)
+        assertEquals(View.GONE, future.websitePastComparison.visibility)
+        assertEquals(null, WebsiteGapUi.caption(rrb,
+            `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.SiteClocks(1612, 1615, false)))
+        adapter.websiteComparisonTimes = emptyMap() // switching away clears the comparison
+        adapter.onBindViewHolder(past, 0)
+        assertEquals(View.GONE, past.websitePastComparison.visibility)
+    }
+
     @Test fun bengaluruScreenshotLeavesFutureWebsiteCellsBlankOnScreen() {
         val ctx = RuntimeEnvironment.getApplication()
         val adapter = StopAdapter()
