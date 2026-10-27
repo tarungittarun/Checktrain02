@@ -116,7 +116,8 @@ internal object OfficialRunCache {
             val now = merged[code]
             if (now?.cancelled == true || old.cancelled) continue
             fun retain(clock: Int?, scheduled: Int?): Int? = clock?.takeIf {
-                scheduled != null && it - scheduled in -10..180 && it <= event
+                scheduled != null && it != scheduled &&
+                    it - scheduled in -10..180 && it <= event
             }
             val arr = if (now?.actualArrivalMin == null)
                 retain(old.actualArrivalMin, stop.arrivalMin) else null
