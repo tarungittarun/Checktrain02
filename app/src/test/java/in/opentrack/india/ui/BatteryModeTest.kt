@@ -71,8 +71,9 @@ class BatteryModeTest {
             R.layout.activity_train to R.id.delay,
         )) {
             val shot = Render.render(layout, prepare = { BatteryMode.paint(it) })
-            assertEquals("$layout left an illuminated corner", Color.BLACK,
-                shot.bitmap.getPixel(2, 2))
+            // The extreme corner can be anti-aliased by the permitted outline.
+            assertEquals("$layout left an illuminated surface", Color.BLACK,
+                shot.bitmap.getPixel(15, 15))
             assertEquals("$layout lost its text contrast", Color.WHITE,
                 shot.root.findViewById<TextView>(labelId).currentTextColor)
         }
