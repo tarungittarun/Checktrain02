@@ -29,6 +29,17 @@ class SummaryCardSizingTest {
             SummaryCardSizing.fit(290, 70, 270))
     }
 
+    @Test fun `a large footer cannot clip the schedule badge on a dense offline phone`() {
+        // Published-APK acceptance observed a 577px card with 542px of footer
+        // and a 75px badge. The old algorithm left 35px of inner viewport.
+        val cap = SummaryCardSizing.readableCap(577, 542, 75 + 95)
+        val fit = SummaryCardSizing.fit(542, 656, cap)
+        assertEquals(712, cap)
+        assertTrue(fit.detailsPx >= 170)
+        assertEquals(cap, fit.cardPx)
+        assertTrue(fit.overflows)
+    }
+
     @Test fun `same source and same number of lines never resize on refresh`() {
         val before = SummaryCardSizing.fit(176, 290, 680)
         val after = SummaryCardSizing.fit(176, 290, 680)

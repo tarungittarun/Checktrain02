@@ -28,6 +28,11 @@ internal object RouteViewportBudget {
 internal object SummaryCardSizing {
     data class Fit(val cardPx: Int, val detailsPx: Int, val overflows: Boolean)
 
+    /** Never trade away even the badge/headline to preserve a footer in an
+     * impossible viewport. The outer card can scroll to the footer instead. */
+    fun readableCap(baseCapPx: Int, chromePx: Int, firstGlancePx: Int): Int =
+        maxOf(baseCapPx, chromePx.coerceAtLeast(0) + firstGlancePx.coerceAtLeast(0))
+
     fun fit(chromePx: Int, contentPx: Int, capPx: Int): Fit {
         val chrome = chromePx.coerceAtLeast(0)
         val content = contentPx.coerceAtLeast(0)

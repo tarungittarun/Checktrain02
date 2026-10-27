@@ -133,7 +133,9 @@
         android:layout_height="wrap_content"
         android:clipToPadding="false"
         android:paddingBottom="@dimen/gap"
-        android:scrollbars="none">
+        android:scrollbars="vertical"
+        android:fadeScrollbars="false"
+        android:scrollbarSize="4dp">
 
         <LinearLayout
             android:layout_width="match_parent"

@@ -143,12 +143,22 @@ class TrainActivity : AppCompatActivity() {
             if (heroExpanded) binding.heroDetailsScroll.height else 0).coerceAtLeast(0)
     }
 
-    private fun summaryCapPx(): Int = RouteViewportBudget.sourceCapPx(
-        (binding.contentColumn.height - binding.scroller.top).takeIf { it > 0 }
-            ?: binding.root.height,
-        resources.displayMetrics.heightPixels, resources.displayMetrics.density,
-        resources.configuration.fontScale,
-    )
+    private fun summaryCapPx(): Int {
+        val bounded = RouteViewportBudget.sourceCapPx(
+            (binding.contentColumn.height - binding.scroller.top).takeIf { it > 0 }
+                ?: binding.root.height,
+            resources.displayMetrics.heightPixels, resources.displayMetrics.density,
+            resources.configuration.fontScale,
+        )
+        if (!heroExpanded) return bounded
+        // At 420 dpi a verbose next-stop footer can consume the whole bounded
+        // card (offline acceptance measured just 35px for a 75px badge). The
+        // outer scroller preserves route space; prioritize badge AND headline
+        // at first glance and make the footer reachable by scrolling the card.
+        val firstGlance = binding.heroEvidenceSlot.height + binding.headline.height +
+            (binding.headline.top - binding.heroEvidenceSlot.bottom).coerceAtLeast(0)
+        return SummaryCardSizing.readableCap(bounded, summaryChromeHeight(), firstGlance)
+    }
 
     /** R150's first-report height was locked at badge+headline (roughly 124dp),
      * so the later website notice and timeout note were painted behind the
