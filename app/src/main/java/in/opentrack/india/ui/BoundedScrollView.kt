@@ -22,6 +22,21 @@ internal object RouteViewportBudget {
     }
 }
 
+/** Keep every measured report line when room exists, while protecting the station
+ * viewport on a small screen. Only the details scroll when the full report cannot
+ * fit; the footer stays below them, never on top of a clipped line. */
+internal object SummaryCardSizing {
+    data class Fit(val cardPx: Int, val detailsPx: Int, val overflows: Boolean)
+
+    fun fit(chromePx: Int, contentPx: Int, capPx: Int): Fit {
+        val chrome = chromePx.coerceAtLeast(0)
+        val content = contentPx.coerceAtLeast(0)
+        val room = (capPx - chrome).coerceAtLeast(0)
+        val details = minOf(content, room)
+        return Fit(chrome + details, details, content > details)
+    }
+}
+
 class BoundedScrollView @JvmOverloads constructor(
     context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0,
 ) : ScrollView(context, attrs, defStyleAttr) {

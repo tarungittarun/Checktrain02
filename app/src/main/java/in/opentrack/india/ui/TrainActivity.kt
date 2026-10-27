@@ -131,42 +131,52 @@ class TrainActivity : AppCompatActivity() {
     private var sourceSummaryWanted = false
     private var expansionAnimating = false
     private var expansionAnimator: ValueAnimator? = null
-    private var summaryLockedHeight: Int? = null
-    private var detailsLockedHeight: Int? = null
 
-    /** A long note from the first checked source must not reserve blank space
-     * forever after a shorter report is selected. Keep the source badge AND the
-     * headline in view, and scroll any extra explanation inside the card. */
-    private fun compactDetailsHeight(measuredHeight: Int): Int {
-        if (measuredHeight <= 0) return measuredHeight
-        val density = resources.displayMetrics.density
-        val leadingReport = binding.heroEvidenceSlot.height + binding.headline.height +
-            (8f * density).toInt()
-        return minOf(measuredHeight, maxOf((124f * density).toInt(), leadingReport))
+    /** Android lays out the footer even when a fixed card clips it. Its last
+     * visible child's bottom includes all preceding margins and wrapped lines;
+     * subtracting the inner details viewport gives the real pinned chrome. */
+    private fun summaryChromeHeight(): Int {
+        val card = binding.trackingSummaryCard
+        val last = (card.childCount - 1 downTo 0).map(card::getChildAt)
+            .firstOrNull { it.visibility != View.GONE } ?: return 0
+        return (last.bottom + card.paddingBottom -
+            if (heroExpanded) binding.heroDetailsScroll.height else 0).coerceAtLeast(0)
     }
 
-    /** A refresh may replace labels, never remeasure this card.
-     * More/Less is the only gesture allowed to change its measured height. */
-    private fun freezeSummaryHeight() {
+    private fun summaryCapPx(): Int = RouteViewportBudget.sourceCapPx(
+        (binding.contentColumn.height - binding.scroller.top).takeIf { it > 0 }
+            ?: binding.root.height,
+        resources.displayMetrics.heightPixels, resources.displayMetrics.density,
+        resources.configuration.fontScale,
+    )
+
+    /** R150's first-report height was locked at badge+headline (roughly 124dp),
+     * so the later website notice and timeout note were painted behind the
+     * Delay row. Fit the FULL measured content, without leaving an empty fixed
+     * slot when a note disappears. The outer card is still capped for the route. */
+    private fun fitSummaryHeight() {
         if (expansionAnimating) return
         val card = binding.trackingSummaryCard
         val details = binding.heroDetailsScroll
-        // Store the chosen pixel heights. Never silently re-lock to a larger
-        // height after a background source emission; only More/Less resets them.
-        val measuredCard = card.height.takeIf { it > 0 } ?: return
-        val measuredDetails = details.height
-        val detailHeight = if (heroExpanded && measuredDetails > 0)
-            detailsLockedHeight ?: compactDetailsHeight(measuredDetails) else null
-        val cardHeight = summaryLockedHeight ?: (measuredCard -
-            (if (detailHeight != null) measuredDetails - detailHeight else 0))
-        summaryLockedHeight = cardHeight
-        if (detailHeight != null) {
-            detailsLockedHeight = detailHeight
-            if (details.layoutParams.height != detailHeight)
-                details.layoutParams = details.layoutParams.apply { height = detailHeight }
+        if (card.height <= 0 || binding.contentColumn.height <= 0) return
+        val chrome = summaryChromeHeight()
+        val content = if (heroExpanded) details.getChildAt(0)?.height ?: 0 else 0
+        if (heroExpanded && content == 0) return // a layout is still pending
+        val fit = SummaryCardSizing.fit(chrome, content, summaryCapPx())
+        if (heroExpanded && details.layoutParams.height != fit.detailsPx)
+            details.layoutParams = details.layoutParams.apply { height = fit.detailsPx }
+        if (card.layoutParams.height != fit.cardPx)
+            card.layoutParams = card.layoutParams.apply { height = fit.cardPx }
+    }
+
+    private var summaryFitPosted = false
+    private fun scheduleSummaryFit() {
+        if (expansionAnimating || summaryFitPosted) return
+        summaryFitPosted = true
+        binding.trackingSummaryCard.post {
+            summaryFitPosted = false
+            fitSummaryHeight()
         }
-        if (card.layoutParams.height != cardHeight)
-            card.layoutParams = card.layoutParams.apply { height = cardHeight }
     }
 
     private fun applyHeroExpansion() {
@@ -202,8 +212,6 @@ class TrainActivity : AppCompatActivity() {
             // only the card height. Lock exactly the new natural height at the end.
             expansionAnimator?.cancel()
             expansionAnimating = true
-            summaryLockedHeight = null
-            detailsLockedHeight = null
             val card = binding.trackingSummaryCard
             val details = binding.heroDetailsScroll
             val from = card.height
@@ -222,18 +230,18 @@ class TrainActivity : AppCompatActivity() {
             observer.addOnPreDrawListener(object : ViewTreeObserver.OnPreDrawListener {
                 override fun onPreDraw(): Boolean {
                     if (observer.isAlive) observer.removeOnPreDrawListener(this)
-                    val measuredDetails = details.height
-                    val detailsHeight = if (heroExpanded)
-                        compactDetailsHeight(measuredDetails) else 0
-                    val to = card.height - (if (heroExpanded) measuredDetails - detailsHeight else 0)
-                    summaryLockedHeight = to
-                    detailsLockedHeight = if (heroExpanded) detailsHeight else null
+                    val fit = SummaryCardSizing.fit(summaryChromeHeight(),
+                        if (heroExpanded) details.getChildAt(0)?.height ?: 0 else 0,
+                        summaryCapPx())
+                    val detailsHeight = fit.detailsPx
+                    val to = fit.cardPx
                     card.layoutParams = card.layoutParams.apply { height = from }
                     if (heroExpanded && detailsHeight > 0) details.layoutParams =
                         details.layoutParams.apply { height = detailsHeight }
                     if (from == to) {
                         expansionAnimating = false
                         card.layoutParams = card.layoutParams.apply { height = to }
+                        scheduleSummaryFit()
                     } else {
                         expansionAnimator = ValueAnimator.ofInt(from, to).apply {
                             duration = 240L
@@ -248,6 +256,7 @@ class TrainActivity : AppCompatActivity() {
                                     card.layoutParams = card.layoutParams.apply { height = to }
                                     expansionAnimating = false
                                     expansionAnimator = null
+                                    scheduleSummaryFit()
                                 }
                             })
                             start()
@@ -259,6 +268,12 @@ class TrainActivity : AppCompatActivity() {
             })
         }
         applyHeroExpansion()
+        // Inner ScrollView content can grow while its own height is fixed. A
+        // source hint or failure note must re-fit the card after layout, not sit
+        // half painted beneath Delay until the traveller toggles More/Less.
+        binding.heroDetailsScroll.getChildAt(0).addOnLayoutChangeListener {
+                _, _, _, _, _, _, _, _, _ -> scheduleSummaryFit()
+        }
 
         val app = application as App
         val from = intent.getStringExtra(EXTRA_FROM).orEmpty()
@@ -373,6 +388,7 @@ class TrainActivity : AppCompatActivity() {
             // checking changed, crushing the route viewport on dense phones.
             renderChecking()
             renderNote()
+            scheduleSummaryFit()
         } }
         vm.checking.observe(this) { busy ->
             val wasBusy = chainBusy
@@ -397,11 +413,9 @@ class TrainActivity : AppCompatActivity() {
                 refreshStartedAt = 0L
             }
             if (wasBusy && !chainBusy) focusManualRefreshWhenReady()
-            // Lock once the initial selected-source check completes. A later
-            // background mirror answer can add text, but the evidence scrolls
-            // inside the locked area instead of growing the whole summary.
-            if (wasBusy && !chainBusy && refreshStartedAt == 0L)
-                binding.trackingSummaryCard.post { if (!chainBusy) freezeSummaryHeight() }
+            // Fit the measured source response once its content is laid out;
+            // follow-up source hints are handled by the details layout listener.
+            if (wasBusy && !chainBusy && refreshStartedAt == 0L) scheduleSummaryFit()
             if (wasBusy && !chainBusy && pendingAutoRefresh) binding.root.post {
                 if (screenStarted && binding.autoSwitch.isChecked && !chainBusy && pendingAutoRefresh) {
                     pendingAutoRefresh = false
@@ -528,7 +542,7 @@ class TrainActivity : AppCompatActivity() {
 
     private fun requestRefresh(auto: Boolean = false) {
         if (chainBusy) return // never turn a duplicate tap/tick into a misleading receipt
-        freezeSummaryHeight()
+        fitSummaryHeight()
         binding.refreshReceiptOverlay.removeCallbacks(hideRefreshOverlay)
         binding.refreshReceiptOverlay.visibility = View.GONE
         connectionCue.clear() // a new request will earn its own result; never blink during checking

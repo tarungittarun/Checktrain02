@@ -204,14 +204,16 @@
                     android:ellipsize="end"
                     android:visibility="gone" />
 
-                <!-- The evidence/wording may grow after Refresh. Once a user chooses
-                     the card size, this inner viewport scrolls any longer answer;
-                     delay, source chooser and Auto remain pinned and never clip. -->
+                <!-- Measure ALL visible report lines before sizing the card. On a
+                     genuinely small screen only this details viewport scrolls;
+                     a persistent scrollbar makes the remaining text discoverable. -->
                 <ScrollView
                     android:id="@+id/heroDetailsScroll"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:scrollbars="none"
+                    android:scrollbars="vertical"
+                    android:fadeScrollbars="false"
+                    android:scrollbarSize="4dp"
                     android:fillViewport="false">
                     <LinearLayout
                         android:layout_width="match_parent"

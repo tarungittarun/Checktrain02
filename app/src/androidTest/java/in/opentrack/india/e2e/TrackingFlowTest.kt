@@ -54,6 +54,38 @@ class TrackingFlowTest {
         return fits
     }
 
+    /** The actual source notice and failure note must not be half painted under
+     * Delay. On a constrained phone the inner viewport may scroll, but its
+     * scrollbar must disclose that report text continues below the fold. */
+    private fun summaryReportFitsOrScrolls(): Boolean {
+        var fits = false
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            val activity = ActivityLifecycleMonitorRegistry.getInstance()
+                .getActivitiesInStage(Stage.RESUMED)
+                .first { it.packageName == E2E.PKG &&
+                    it.findViewById<View>(R.id.heroDetailsScroll) != null }
+            val details = activity.findViewById<android.widget.ScrollView>(R.id.heroDetailsScroll)
+            val content = details.getChildAt(0)
+            val card = activity.findViewById<View>(R.id.trackingSummaryCard)
+            val footer = (activity.findViewById<View>(R.id.delay).parent as View).parent as View
+            val visible = listOf(R.id.sourceSummary, R.id.note).map { activity.findViewById<View>(it) }
+                .filter { it.visibility == View.VISIBLE }
+            val inside = visible.all { child ->
+                val parent = child.parent as View
+                // Both are direct children of the report content column.
+                parent === content && child.top + content.top - details.scrollY >= 0 &&
+                    child.bottom + content.top - details.scrollY <= details.height
+            }
+            val canScroll = content.height > details.height &&
+                details.isVerticalScrollBarEnabled &&
+                (details.canScrollVertically(1) || details.canScrollVertically(-1))
+            fits = footer.top >= details.bottom &&
+                (content.height <= details.height + 2 && inside || canScroll) &&
+                footer.bottom + card.paddingBottom <= card.height + 2
+        }
+        return fits
+    }
+
     /** Read the installed screen's selected source, not a test default or a cached preference. */
     private fun selectedClockHeading(): String {
         var source: String? = null
@@ -77,7 +109,8 @@ class TrackingFlowTest {
 
     private data class CardGeometry(val height: Int, val specified: Int,
                                     val detailHeight: Int, val detailSpecified: Int,
-                                    val scrollY: Int)
+                                    val scrollY: Int, val contentHeight: Int,
+                                    val pinnedHeight: Int)
 
     private fun cardGeometry(): CardGeometry {
         var result: CardGeometry? = null
@@ -88,9 +121,14 @@ class TrackingFlowTest {
                     it.findViewById<View>(R.id.trackingSummaryCard) != null }
             val card = activity.findViewById<View>(R.id.trackingSummaryCard)
             val detail = activity.findViewById<View>(R.id.heroDetailsScroll)
+            val cardChildren = card as android.view.ViewGroup
+            val pinned = (cardChildren.childCount - 1 downTo 0)
+                .map(cardChildren::getChildAt).first { it.visibility != View.GONE }
             result = CardGeometry(card.height, card.layoutParams.height,
                 detail.height, detail.layoutParams.height,
-                activity.findViewById<View>(R.id.scroller).scrollY)
+                activity.findViewById<View>(R.id.scroller).scrollY,
+                (detail as android.view.ViewGroup).getChildAt(0).height,
+                pinned.bottom + card.paddingBottom - detail.height)
         }
         return requireNotNull(result) { "tracking Activity did not expose a laid-out summary" }
     }
@@ -242,6 +280,8 @@ class TrackingFlowTest {
         assertTrue("source card not expanded at start", E2E.find("headline") != null)
         assertTrue("initial source selector was clipped by a premature height lock",
             summaryFooterFits())
+        assertTrue("initial report or warning is cut off behind Delay",
+            summaryReportFitsOrScrolls())
         // Observe actual pre-draw frames rather than sampling after the receipt's
         // two-second window has passed on a slow emulator/UIAutomator call.
         val painted = AtomicReference<ReceiptPaint?>()
@@ -279,9 +319,8 @@ class TrackingFlowTest {
         }
         val receiptPaint = painted.get()
         assertNotNull("no three-line receipt ever painted on top of the summary", receiptPaint)
-        assertTrue("overlay changed shell geometry: $receiptPaint / $card",
-            kotlin.math.abs(receiptPaint!!.cardHeight - card.height) <= 8 &&
-                kotlin.math.abs(receiptPaint.shellHeight - card.height) <= 8)
+        assertTrue("receipt overlay and painted card do not share the same shell: $receiptPaint",
+            kotlin.math.abs(receiptPaint!!.shellHeight - receiptPaint.cardHeight) <= 8)
         assertTrue("overlay omitted Took/Checked/Freshness: $receiptPaint",
             receiptPaint.took.startsWith("Took ") &&
                 receiptPaint.checked.startsWith("Checked ") &&
@@ -297,8 +336,18 @@ class TrackingFlowTest {
         }
         assertTrue("receipt covered summary longer than two seconds", receiptGone)
         val afterRefresh = cardGeometry()
-        assertTrue("refresh resized summary: $card -> $afterRefresh",
-            kotlin.math.abs(card.height - afterRefresh.height) <= 8)
+        if (card.contentHeight == afterRefresh.contentHeight &&
+            card.pinnedHeight == afterRefresh.pinnedHeight) {
+            assertTrue("unchanged report resized summary: $card -> $afterRefresh",
+                kotlin.math.abs(card.height - afterRefresh.height) <= 8)
+        } else {
+            assertTrue("a status/line change resized the card beyond its new content: $card -> $afterRefresh",
+                kotlin.math.abs(card.height - afterRefresh.height) <=
+                    kotlin.math.abs(card.contentHeight - afterRefresh.contentHeight) +
+                    kotlin.math.abs(card.pinnedHeight - afterRefresh.pinnedHeight) + 8)
+        }
+        assertTrue("source notice or warning is hidden behind Delay after refresh: $afterRefresh",
+            summaryReportFitsOrScrolls())
         assertTrue("refresh shifted the summary viewport: $card -> $afterRefresh",
             kotlin.math.abs(card.scrollY - afterRefresh.scrollY) <= 8)
         assertTrue("Refresh clipped the source chooser at the bottom of the card",
