@@ -202,7 +202,7 @@ class TrainActivity : AppCompatActivity() {
             View.VISIBLE else View.GONE
         binding.sourceSummary.visibility = if (heroExpanded && sourceSummaryWanted) View.VISIBLE else View.GONE
         binding.note.visibility = if (heroExpanded &&
-            (SummaryNoteUi.visible(lastUi?.model?.note) != null || errorText != null)) View.VISIBLE else View.GONE
+            (SummaryNoteUi.visible(lastUi?.model?.note, lastUi?.websiteGap != null) != null || errorText != null)) View.VISIBLE else View.GONE
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -479,6 +479,11 @@ class TrainActivity : AppCompatActivity() {
     private fun installFloatingRefresh() {
         val prefs = getSharedPreferences("tracking_refresh", Context.MODE_PRIVATE)
         val button = binding.refresh
+        // A saved drag is a root-overlay position; the original 60dp parking
+        // strip is otherwise empty. Reclaim it before the first layout, without
+        // changing the saved button coordinates or stealing source-clock space.
+        if (prefs.getFloat("float_x", -1f) >= 0f && prefs.getFloat("float_y", -1f) >= 0f)
+            RefreshDockSpace.release(binding.refreshDock)
         val inset = (10f * resources.displayMetrics.density).toInt()
         fun avoidClocks() {
             if (button.width <= 0 || binding.root.width <= 0) return
@@ -561,6 +566,7 @@ class TrainActivity : AppCompatActivity() {
                         prefs.edit().putFloat("float_x", (v.x + v.width / 2f) /
                             binding.root.width.coerceAtLeast(1)).putFloat("float_y",
                             (v.y + v.height / 2f) / binding.root.height.coerceAtLeast(1)).apply()
+                        RefreshDockSpace.release(binding.refreshDock)
                     } else v.performClick()
                     true
                 }
@@ -652,7 +658,7 @@ class TrainActivity : AppCompatActivity() {
 
     /** One writer for the note line: a live-identity conflict outranks a transient error message. */
     private fun renderNote() {
-        val msg = identityConflict() ?: errorText ?: SummaryNoteUi.visible(lastUi?.model?.note)
+        val msg = identityConflict() ?: errorText ?: SummaryNoteUi.visible(lastUi?.model?.note, lastUi?.websiteGap != null)
         binding.note.visibility = if (msg == null || !heroExpanded) View.GONE else View.VISIBLE
         if (msg != null) binding.note.text = msg
     }
@@ -712,7 +718,7 @@ class TrainActivity : AppCompatActivity() {
                         val indicator = SourceIndicator.of(names[position], state, detail)
                         val shortName = if (names[position] ==
                             `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG)
-                            "WIMT · website" else "NTES · official"
+                            "WIMT site" else "NTES"
                         text = "● $shortName  ▾"
                         textSize = 14f
                         maxLines = 1
@@ -828,17 +834,17 @@ class TrainActivity : AppCompatActivity() {
             else null)
         binding.sourceSummary.text = when {
             ui.alternateSiteHint != null -> ui.alternateSiteHint
-            ui.websiteGap != null -> ui.websiteGap
+            ui.websiteGap != null -> WebsiteGapSummaryUi.concise(ui.websiteGap)
             ui.wimtWebPoint != null -> "Site distance claim; not phone GPS."
             selectedPending -> "Checking ${sourceName(ui.activeSource.orEmpty())}…"
-            else -> "${sourceName(ui.activeSource.orEmpty())}: $selectedReason$response. Timetable shown."
+            else -> "$selectedReason$response. Timetable below."
         }
         binding.headline.text = m.headline
         binding.routeHeadActual.text = if (WebsiteReportDisplay.selected(ui.activeSource))
             "WEBSITE" else "ACTUAL"
         binding.heroEyebrow.text = when {
             ui.wimtWebPoint != null -> "WEB CACHE · COMPARISON"
-            ui.orgWebsiteReport != null -> "WEBSITE REPORT"
+            ui.orgWebsiteReport != null -> "SITE REPORT"
             ui.railYatriClaim != null -> "RAILYATRI CLAIM"
             m.rows.any { it.source == TrackModel.MinuteSource.REPORTED } -> "NTES REPORT"
             else -> "TIMETABLE ONLY"
@@ -915,8 +921,8 @@ class TrainActivity : AppCompatActivity() {
                 binding.next.text = nextSchedule?.let {
                     "Scheduled: ${it.name} · " +
                         (it.schedArr ?: it.schedDep)?.let(RailTime::formatRailMinute) +
-                        " (not a live ETA)"
-                } ?: "No live next-stop ETA"
+                        " · timetable"
+                } ?: "Next stop unreported"
             }
             binding.provenance.setBackgroundResource(R.drawable.bg_badge_schedule)
             binding.provenance.setTextColor(getColor(R.color.warn))
@@ -963,15 +969,16 @@ class TrainActivity : AppCompatActivity() {
                 it.code.equals(report.anchorCode, true) } }
             val place = org?.intermediate?.name ?: station?.name ?: org?.anchorCode
             binding.headline.text = when {
-                org != null -> "Last mapped website card · ${RowText.of(place ?: org.anchorCode)} " +
+                org != null -> "Last site card · ${RowText.of(place ?: org.anchorCode)} " +
                     "${RailTime.formatRailMinuteBare(org.eventMinute)}"
                 claim != null -> "RailYatri comparison: ${claim.code} · passage time unverified"
-                else -> "${sourceName(publicCheck)}: no qualifying past-stop report"
+                else -> "No qualifying past-stop report"
             }
             binding.headline.contentDescription = binding.headline.text.toString() +
-                ". Website origin run inferred; this is not independently verified GPS."
-            binding.provenance.text = if (org != null) "WEBSITE · past-card report · run inferred"
-                else "${sourceName(publicCheck)} · comparison only"
+                ". Selected ${sourceName(publicCheck)}. Website origin run inferred; " +
+                "this is not independently verified GPS."
+            binding.provenance.text = if (org != null) "Past site card · run inferred"
+                else "Comparison only"
             binding.provenance.setBackgroundResource(R.drawable.bg_badge_schedule)
             binding.provenance.setTextColor(getColor(R.color.warn))
             binding.age.text = when {
@@ -1007,7 +1014,7 @@ class TrainActivity : AppCompatActivity() {
                 RowText.of(stop.name) +
                     "\nTimetable " + (scheduled?.let(RailTime::formatRailMinuteBare) ?: "—") +
                     if (org != null && scheduled != null && scheduled < org.eventMinute)
-                        " · past, no ETA" else " · not ETA"
+                        " · past clock" else ""
             } ?: "Following halt unknown · timetable below"
         }
         // The first glance is a report, not a paragraph. Keep the complete model
@@ -1019,7 +1026,7 @@ class TrainActivity : AppCompatActivity() {
                 binding.headline.contentDescription = m.headline
                 binding.headline.text = "Last NTES report: ${hero.title} · now unknown"
                 binding.next.text = hero.next
-                binding.provenance.text = "NTES · reported stop"
+                binding.provenance.text = "Reported stop"
             }
         }
         // No source event before the origin's scheduled departure: say what the
@@ -1038,7 +1045,7 @@ class TrainActivity : AppCompatActivity() {
                 "${RailTime.formatRailMinuteBare(scheduledStart)} (timetable)"
             binding.delay.text = "— · no departure reported"
         }
-        val visibleNote = SummaryNoteUi.visible(m.note)
+        val visibleNote = SummaryNoteUi.visible(m.note, ui.websiteGap != null)
         binding.note.visibility = if (visibleNote == null || !heroExpanded) View.GONE else View.VISIBLE
         visibleNote?.let { binding.note.text = it }
 

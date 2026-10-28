@@ -533,7 +533,7 @@ Render.save("02-track-live", shot.bitmap)
                     "Last mapped website card · Bhadravati 10:07"
                 root.findViewById<TextView>(R.id.delay).text = "+159m late · 10:07"
                 root.findViewById<TextView>(R.id.next).text =
-                    "Tarikere Jn\nTimetable 07:47 · past, no ETA"
+                    "Tarikere Jn\nTimetable 07:47 · past clock"
                 root.findViewById<View>(R.id.trackingSummaryCard).layoutParams =
                     root.findViewById<View>(R.id.trackingSummaryCard).layoutParams.apply {
                         height = Render.dp(root.context, if (expanded) 530f else 145f).toInt()
@@ -565,6 +565,38 @@ Render.save("02-track-live", shot.bitmap)
             assertTrue("source row must be above fold ($expanded): $controls",
                 controls.bottom < Render.dp(shot.context, 760f))
         }
+    }
+
+    @Test
+    fun conciseWebsiteGapAndReleasedDockReturnSpaceToTheTable() {
+        fun paint(release: Boolean) = Render.render(R.layout.activity_train,
+            widthDp = 393f, heightDp = 780f, textScale = 1.15f) { root ->
+            Render.text(root, R.id.provenance, "Comparison only")
+            Render.text(root, R.id.age, "No reported event time")
+            Render.text(root, R.id.headline, "No qualifying past-stop report")
+            root.findViewById<TextView>(R.id.sourceSummary).apply {
+                text = "No YPR site arrival · last listed TK (comparison). Position unknown."
+                visibility = View.VISIBLE
+            }
+            root.findViewById<View>(R.id.note).visibility = View.GONE
+            Render.text(root, R.id.next, "Following halt unknown · timetable below")
+            if (release) RefreshDockSpace.release(root.findViewById(R.id.refreshDock))
+        }
+        val parked = paint(false)
+        val moved = paint(true)
+        val route = moved.bounds(R.id.routeViewport)
+        assertTrue("moving Refresh left an empty dock instead of more table",
+            route.height() - parked.bounds(R.id.routeViewport).height() >=
+                Render.dp(moved.context, 59f))
+        assertEquals("released dock must have zero height", 0,
+            moved.bounds(R.id.refreshDock).height())
+        assertTrue("short report still covered Source controls",
+            moved.bounds(R.id.sourceControls).bottom <=
+                moved.bounds(R.id.routeColumnHeader).top)
+        assertTrue("the source explanation must stay below its headline",
+            moved.bounds(R.id.sourceSummary).top >= moved.bounds(R.id.headline).bottom)
+        assertTrue("the table must have at least three compact rows of room: $route",
+            route.height() >= Render.dp(moved.context, 240f))
     }
 
     @Test
@@ -600,7 +632,7 @@ Render.save("02-track-live", shot.bitmap)
                 "Last NTES report: Departed Tumkur · now unknown"
             root.findViewById<TextView>(R.id.delay).text = "+16m late · 00:31 (+1d)"
             root.findViewById<TextView>(R.id.next).text =
-                "Tiptur · 01:05 (+1d) Timetable · not ETA"
+                "Tiptur · 01:05 (+1d)\nTimetable"
         }
         val badge = shot.bounds(R.id.provenance)
         val alert = shot.bounds(R.id.connectionAlert)

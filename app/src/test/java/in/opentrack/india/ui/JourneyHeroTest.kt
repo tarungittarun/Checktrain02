@@ -25,7 +25,7 @@ class JourneyHeroTest {
         val hero = JourneyHero.official(listOf(reported, next), "TK")!!
         assertEquals("Departed Tumkur", hero.title)
         assertTrue(hero.next.startsWith("Tiptur · 01:05"))
-        assertTrue(hero.next.contains("Timetable · not ETA"))
+        assertTrue(hero.next.endsWith("\nTimetable"))
         assertEquals(hero, JourneyHero.official(listOf(reported, next), null))
         assertNull(JourneyHero.official(listOf(reported.copy(source = TrackModel.MinuteSource.SCHEDULE),
             next), "TK"))
