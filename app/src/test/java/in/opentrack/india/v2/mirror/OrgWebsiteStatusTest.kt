@@ -47,6 +47,42 @@ class OrgWebsiteStatusTest {
         ${card("ANF", "bg-white", "06:08 AM", "06:00 AM", "06:10 AM", "06:02 AM")}
         </html>""".trimIndent()
 
+    @Test fun `20652 website arrival after scheduled departure never prints a backwards pair`() {
+        // Diary 09:54: the SMET card printed first arrival 09:37 and first
+        // departure 07:10, identical to STD. SME was the later site card.
+        val run = 20754L
+        val pageAt = `in`.opentrack.india.core.RailTime.railMinuteToEpochMillis(run, 594) + 40_000L
+        val runRoute = TrainRoute("20652", "TLGP SBC", "TLGP", "Talguppa", "SBC", "Bengaluru",
+            372, 400, null, null, listOf(
+                stop(1, "TLGP", null, 320, 0),
+                stop(2, "SMET", 425, 430, 98),
+                stop(3, "SME", 435, 436, 100),
+                stop(4, "BDVT", 448, 450, 116),
+                stop(5, "SBC", 720, null, 372)), emptyList())
+        val smet = card("SMET", "bg-green-50 opacity-90", "09:37 AM", "07:05 AM",
+            "07:10 AM", "07:10 AM")
+        val site = "<html><h1>20652 Running Status</h1><p>Source: TLGP</p>" +
+            "<p>Destination: SBC</p><p>Last Updated: 09:54:40 AM</p>" +
+            smet + card("SME", "bg-blue-50", "09:53 AM", "07:15 AM",
+                "09:54 AM", "07:16 AM") + "</html>"
+        val report = OrgWebsiteStatus.parse(site, "20652", run, pageAt + 5_000L,
+            runRoute).report!!
+        assertEquals("SME", report.anchorCode)
+        assertEquals(577, report.rows["SMET"]?.actualArrivalMin)
+        assertNull(report.rows["SMET"]?.actualDepartureMin)
+        assertEquals(OrgWebsiteStatus.SiteClocks(577, null, false), report.siteClocks["SMET"])
+        val visible = `in`.opentrack.india.ui.WebsiteReportDisplay.displayedClocks(
+            report, run, runRoute.stops.map { it.code }, pageAt + 5_000L)
+        assertEquals(577, visible["SMET"]?.arrivalMin)
+        assertNull(visible["SMET"]?.departureMin)
+        // Not only exact schedule echoes: an early but distinct departure before
+        // arrival must also be rejected rather than joined into a fake event.
+        val backwards = site.replace(smet, card("SMET", "bg-green-50 opacity-90",
+            "09:37 AM", "07:05 AM", "08:59 AM", "07:10 AM"))
+        assertNull(OrgWebsiteStatus.parse(backwards, "20652", run, pageAt + 5_000L,
+            runRoute).report!!.siteClocks["SMET"]?.departureMin)
+    }
+
     @Test fun `same website distance POC finds no km-to-next in the existing time-page fixture`() {
         val report = OrgWebsiteStatus.parse(page, "16227", day, now, route).report!!
         val finding = OrgWebsiteDistanceProbe.inspect(page, report, route, null)

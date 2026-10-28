@@ -188,10 +188,18 @@ object OrgWebsiteStatus {
                     return aligned.takeIf { it in originDep..(originDep + 1440) &&
                         abs(it - scheduled) <= 360 }
                 }
+                // The first clock can be the *timetable echoed in the website's
+                // prominent slot*. In the owner's 20652 card, arrival 09:37 was
+                // followed by a prominent 07:10 departure: 07:10 was exactly STD,
+                // not an observed departure. Do not paint either schedule echo as
+                // a website event, and reject a backwards pair even if both differ.
                 val shownArr = firstClock(part.substringAfter("<!-- Arrival -->", "")
                     .substringBefore("<!-- Departure -->"), halt.arrivalMin)
+                    ?.takeUnless { it == halt.arrivalMin }
                 val shownDep = firstClock(part.substringAfter("<!-- Departure -->", "")
                     .take(900), halt.departureMin)
+                    ?.takeUnless { it == halt.departureMin ||
+                        shownArr != null && it < shownArr }
                 val candidate = SiteClocks(shownArr, shownDep, !pastCard && !highlightedCard)
                 val previous = siteClocks[code]
                 if ((shownArr != null || shownDep != null) &&

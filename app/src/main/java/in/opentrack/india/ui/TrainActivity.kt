@@ -998,10 +998,13 @@ class TrainActivity : AppCompatActivity() {
             val next = org?.intermediate?.let { p -> ui.route.stops.firstOrNull {
                 it.code.equals(p.followingHalt, true) } } ?: station?.let {
                 ui.route.stops.getOrNull(ui.route.stops.indexOf(it) + 1) }
-            binding.next.text = next?.let { "Following halt · ${RowText.of(it.name)}" +
-                "\nTimetable " +
-                ((it.arrivalMin ?: it.departureMin)?.let(RailTime::formatRailMinuteBare) ?: "—") +
-                " · not ETA" } ?: "Following halt unknown · timetable below"
+            binding.next.text = next?.let { stop ->
+                val scheduled = stop.arrivalMin ?: stop.departureMin
+                "Following halt · ${RowText.of(stop.name)}" +
+                    "\nTimetable " + (scheduled?.let(RailTime::formatRailMinuteBare) ?: "—") +
+                    if (org != null && scheduled != null && scheduled < org.eventMinute)
+                        " · past clock, not ETA" else " · not ETA"
+            } ?: "Following halt unknown · timetable below"
         }
         // The first glance is a report, not a paragraph. Keep the complete model
         // sentence available to TalkBack / Info, but present the event, delay and

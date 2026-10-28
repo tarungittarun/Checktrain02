@@ -59,6 +59,19 @@ class WebsiteReportDisplayTest {
             later.pageUpdatedAt)["SBC"]?.departureMin)
     }
 
+    @Test fun legacyReportWithBackwardsDepartureStillPaintsOnlyArrival() {
+        val day = 20754L
+        val at = `in`.opentrack.india.core.RailTime.railMinuteToEpochMillis(day, 594)
+        val legacy = OrgWebsiteStatus.Report(
+            mapOf("SMET" to LiveStopFields(actualArrivalMin = 577)),
+            "SMET", false, 577, at, siteClocks = mapOf(
+                "SMET" to OrgWebsiteStatus.SiteClocks(577, 430, false)))
+        val visible = WebsiteReportDisplay.displayedClocks(legacy, day,
+            listOf("TLGP", "SMET", "SME"), at + 30_000L)
+        assertEquals(577, visible["SMET"]?.arrivalMin)
+        assertNull("07:10 before 09:37 is not a website departure", visible["SMET"]?.departureMin)
+    }
+
     @Test fun olderPastCardClockSurvivesButWhiteNextHaltNeverPaints() {
         val displayed = report.copy(siteClocks = mapOf(
             "YPR" to OrgWebsiteStatus.SiteClocks(686, 690, false),

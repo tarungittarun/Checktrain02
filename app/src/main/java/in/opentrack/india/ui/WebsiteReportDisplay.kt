@@ -34,7 +34,12 @@ object WebsiteReportDisplay {
             val index = haltCodes.indexOfFirst { it.equals(code, ignoreCase = true) }
             if (index !in 0..lastIndex || clocks.forecast) return@mapNotNull null
             val arrival = past(clocks.arrivalMin)
-            val departure = past(clocks.departureMin)
+            val departure = past(clocks.departureMin)?.takeIf { dep ->
+                // Defence against older/injected reports: never display a
+                // departure before the SAME card's arrival, even if the parser
+                // once retained a raw timetable echo in siteClocks.
+                (arrival ?: report.rows[code]?.actualArrivalMin)?.let { dep >= it } ?: true
+            }
             if (arrival == null && departure == null) null
             else code to clocks.copy(arrivalMin = arrival, departureMin = departure)
         }.toMap()
