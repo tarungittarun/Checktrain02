@@ -1,0 +1,32 @@
+name: org-website-source-research
+on:
+  push:
+    branches: ['arena/**']
+    paths:
+      - '.github/workflows/org-source-research.yml'
+      - 'tools/ci/probe_org_website.py'
+  workflow_dispatch:
+    inputs:
+      train_number:
+        description: 'Five-digit train number for the read-only trial'
+        type: string
+        default: '16227'
+permissions:
+  contents: write
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compare page clocks, stop cards, dates and embedded network hooks
+        env:
+          TRAIN_NUMBER: ${{ inputs.train_number || '16227' }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 tools/ci/probe_org_website.py "$TRAIN_NUMBER" | tee org-site-trial.txt
+          { echo 'Read-only website trial (not independent GPS or confirmed actuals):'; echo '```'; cat org-site-trial.txt; echo '```'; } > org-site-comment.txt
+          gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/comments" -f body="$(cat org-site-comment.txt)"
