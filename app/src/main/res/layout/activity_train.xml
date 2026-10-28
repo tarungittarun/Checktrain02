@@ -393,46 +393,6 @@
                     </LinearLayout>
                 </LinearLayout>
 
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal">
-
-                    <TextView
-                        style="@style/TextMicro"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="@string/source_label"
-                        android:textSize="13sp"
-                        android:textColor="@color/summary_ink" />
-
-                    <Spinner
-                        android:id="@+id/sourceSpinner"
-                        android:layout_width="0dp"
-                        android:layout_height="40dp"
-                        android:layout_marginStart="8dp"
-                        android:layout_weight="1"
-                        android:background="@drawable/bg_inset"
-                        android:contentDescription="Choose a timetable or report source"
-                        android:paddingStart="10dp"
-                        android:paddingEnd="6dp"
-                        android:popupBackground="@drawable/bg_inset"
-                        android:spinnerMode="dropdown" />
-
-                    <androidx.appcompat.widget.SwitchCompat
-                        android:id="@+id/autoSwitch"
-                        android:layout_width="wrap_content"
-                        android:layout_height="40dp"
-                        android:layout_marginStart="8dp"
-                        android:gravity="center_vertical"
-                        android:text="@string/auto_refresh_minute"
-                        android:textColor="@color/text2"
-                        android:textSize="12sp"
-                        android:contentDescription="@string/auto_refresh_minute" />
-                </LinearLayout>
-
                 <TextView
                     android:id="@+id/lastUpdated"
                     style="@style/TextMicro"
@@ -490,6 +450,52 @@
 
         </LinearLayout>
     </in.opentrack.india.ui.BoundedScrollView>
+
+    <!-- Source/Auto are controls, not report text: keep their 40dp touch row
+         OUTSIDE the bounded report viewport. The report can scroll/resize on a
+         small or large-font phone without ever hiding the source selector. -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:id="@+id/sourceControls"
+        android:layout_marginStart="@dimen/gap"
+        android:layout_marginEnd="@dimen/gap"
+        android:layout_marginTop="4dp"
+        android:layout_marginBottom="4dp"
+        android:padding="8dp"
+        android:background="@drawable/bg_summary_card"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+        <TextView
+            style="@style/TextMicro"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/source_label"
+            android:textSize="13sp"
+            android:textColor="@color/summary_ink" />
+        <Spinner
+            android:id="@+id/sourceSpinner"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_marginStart="8dp"
+            android:layout_weight="1"
+            android:background="@drawable/bg_inset"
+            android:contentDescription="Choose a timetable or report source"
+            android:paddingStart="10dp"
+            android:paddingEnd="6dp"
+            android:popupBackground="@drawable/bg_inset"
+            android:spinnerMode="dropdown" />
+        <androidx.appcompat.widget.SwitchCompat
+            android:id="@+id/autoSwitch"
+            android:layout_width="wrap_content"
+            android:layout_height="40dp"
+            android:layout_marginStart="8dp"
+            android:gravity="center_vertical"
+            android:text="@string/auto_refresh_minute"
+            android:textColor="@color/text2"
+            android:textSize="12sp"
+            android:contentDescription="@string/auto_refresh_minute" />
+    </LinearLayout>
 
     <LinearLayout
         android:layout_width="match_parent"

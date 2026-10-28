@@ -133,9 +133,9 @@ class TrainActivity : AppCompatActivity() {
     private var expansionAnimating = false
     private var expansionAnimator: ValueAnimator? = null
 
-    /** Android lays out the footer even when a fixed card clips it. Its last
-     * visible child's bottom includes all preceding margins and wrapped lines;
-     * subtracting the inner details viewport gives the real pinned chrome. */
+    /** Android lays out the delay/next footer even when a fixed card clips it.
+     * The source selector is separately pinned below the bounded report and
+     * cannot be pushed out of sight by a changing site message. */
     private fun summaryChromeHeight(): Int {
         val card = binding.trackingSummaryCard
         val last = (card.childCount - 1 downTo 0).map(card::getChildAt)
@@ -152,10 +152,10 @@ class TrainActivity : AppCompatActivity() {
             resources.configuration.fontScale,
         )
         if (!heroExpanded) return bounded
-        // At 420 dpi a verbose next-stop footer can consume the whole bounded
-        // card (offline acceptance measured just 35px for a 75px badge). The
-        // outer scroller preserves route space; prioritize badge AND headline
-        // at first glance and make the footer reachable by scrolling the card.
+        // On a small phone a verbose next-stop footer can consume the bounded
+        // card. Keep the badge and headline in first glance; the outer report
+        // scrolls to its footer. Source/Auto stay pinned below it and the table
+        // retains its independent viewport.
         val firstGlance = binding.heroEvidenceSlot.height + binding.headline.height +
             (binding.headline.top - binding.heroEvidenceSlot.bottom).coerceAtLeast(0)
         return SummaryCardSizing.readableCap(bounded, summaryChromeHeight(), firstGlance)
@@ -1000,10 +1000,14 @@ class TrainActivity : AppCompatActivity() {
                 ui.route.stops.getOrNull(ui.route.stops.indexOf(it) + 1) }
             binding.next.text = next?.let { stop ->
                 val scheduled = stop.arrivalMin ?: stop.departureMin
-                "Following halt · ${RowText.of(stop.name)}" +
+                // "Next stop" is already the label above this value. Avoid
+                // repeating "Following halt" inside a half-width column: on
+                // the owner's phone it wrapped to four lines and pushed Source
+                // below the summary viewport. Do not turn timetable into ETA.
+                RowText.of(stop.name) +
                     "\nTimetable " + (scheduled?.let(RailTime::formatRailMinuteBare) ?: "—") +
                     if (org != null && scheduled != null && scheduled < org.eventMinute)
-                        " · past clock, not ETA" else " · not ETA"
+                        " · past, no ETA" else " · not ETA"
             } ?: "Following halt unknown · timetable below"
         }
         // The first glance is a report, not a paragraph. Keep the complete model

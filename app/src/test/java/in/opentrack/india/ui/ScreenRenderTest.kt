@@ -514,6 +514,55 @@ Render.save("02-track-live", shot.bitmap)
     }
 
     @Test
+    fun screenshotSizedWebsiteReportCannotPushSourcePickerUnderTheCard() {
+        // 20652, 28 Oct at 10:09: the R157 report's long following-halt
+        // sentence put Source/Auto below the top bounded viewport on the phone.
+        // Include a genuinely overflowing card, not just a short default text.
+        for (expanded in listOf(true, false)) {
+            val shot = Render.render(R.layout.activity_train, widthDp = 393f,
+                heightDp = 760f, textScale = 1.15f) { root ->
+                root.findViewById<TextView>(R.id.provenance).text =
+                    "WEBSITE · past-card report · run inferred"
+                root.findViewById<TextView>(R.id.age).text = "Site arrival · 2 min ago"
+                root.findViewById<TextView>(R.id.headline).text =
+                    "Last mapped website card · Bhadravati 10:07"
+                root.findViewById<TextView>(R.id.delay).text = "+159m late · 10:07"
+                root.findViewById<TextView>(R.id.next).text =
+                    "Tarikere Jn\nTimetable 07:47 · past, no ETA"
+                root.findViewById<View>(R.id.trackingSummaryCard).layoutParams =
+                    root.findViewById<View>(R.id.trackingSummaryCard).layoutParams.apply {
+                        height = Render.dp(root.context, if (expanded) 530f else 145f).toInt()
+                    }
+                if (!expanded) {
+                    root.findViewById<View>(R.id.heroDetailsScroll).visibility = View.GONE
+                    root.findViewById<TextView>(R.id.compactReport).apply {
+                        text = "Website last card · Bhadravati 10:07"
+                        visibility = View.VISIBLE
+                    }
+                }
+            }
+            val scroller = shot.bounds(R.id.scroller)
+            val controls = shot.bounds(R.id.sourceControls)
+            val picker = shot.bounds(R.id.sourceSpinner)
+            val auto = shot.bounds(R.id.autoSwitch)
+            assertTrue("source controls scrolled/clipped with summary ($expanded): $controls / $scroller",
+                shot.root.findViewById<View>(R.id.sourceControls).parent ===
+                    shot.root.findViewById<View>(R.id.contentColumn) &&
+                    controls.top >= scroller.bottom && controls.bottom <=
+                        shot.bounds(R.id.routeColumnHeader).top)
+            assertTrue("source picker not fully painted ($expanded): $picker / $controls",
+                picker.left >= controls.left && picker.right <= controls.right &&
+                    picker.top >= controls.top && picker.bottom <= controls.bottom &&
+                    picker.width() >= Render.dp(shot.context, 100f))
+            assertTrue("Auto is clipped ($expanded): $auto / $controls",
+                auto.top >= controls.top && auto.bottom <= controls.bottom &&
+                    auto.right <= controls.right)
+            assertTrue("source row must be above fold ($expanded): $controls",
+                controls.bottom < Render.dp(shot.context, 760f))
+        }
+    }
+
+    @Test
     fun denseWebsiteFailureKeepsSourceNamedHeadlineAboveTheFold() {
         val shot = Render.render(R.layout.activity_train, widthDp = 393f,
             heightDp = 785f, textScale = 1.15f) { root ->

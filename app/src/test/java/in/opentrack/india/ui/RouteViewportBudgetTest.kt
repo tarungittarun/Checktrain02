@@ -33,6 +33,15 @@ class RouteViewportBudgetTest {
         assertTrue("card exceeds the 53% hard cap", cap <= (760 * 2 * .53f).toInt())
     }
 
+    @Test fun pinnedSourceRowDoesNotConsumeTheReservedRouteHaltBudget() {
+        val density = 2f
+        val available = 700 * 2
+        val cap = RouteViewportBudget.sourceCapPx(available, 760 * 2, density, 1f)
+        val routeAfterSource = (available - cap) / density - 56f
+        assertTrue("source row ate the three-halt reserve: $routeAfterSource dp",
+            routeAfterSource >= 350f)
+    }
+
     @Test fun tinyScreenCannotAllocateMoreThanItsAvailableHeight() {
         val cap = RouteViewportBudget.sourceCapPx(400, 400, 2f, 1.4f)
         assertTrue(cap in 0..400)
