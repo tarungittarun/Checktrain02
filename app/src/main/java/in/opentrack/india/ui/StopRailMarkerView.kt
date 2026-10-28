@@ -16,6 +16,8 @@ class StopRailMarkerView @JvmOverloads constructor(context: Context,
     attrs: AttributeSet? = null, defStyle: Int = 0) : View(context, attrs, defStyle) {
     var ageSeconds: Long? = null
         set(value) { field = value; invalidate() }
+    var batteryOutline: Boolean = false
+        set(value) { if (field != value) { field = value; invalidate() } }
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val box = RectF()
     private fun dp(v: Float) = v * resources.displayMetrics.density
@@ -25,6 +27,10 @@ class StopRailMarkerView @JvmOverloads constructor(context: Context,
         super.onDraw(canvas)
         val x = width / 2f
         val y = height / 2f
+        if (batteryOutline) {
+            BatteryTrainSketch.draw(canvas, x, y, resources.displayMetrics.density, paint)
+            return
+        }
         paint.style = Paint.Style.FILL
         paint.color = context.getColor(
             if (ageSeconds?.let { it >= SourceFreshness.STALE_AFTER_MS / 1_000L } == true)

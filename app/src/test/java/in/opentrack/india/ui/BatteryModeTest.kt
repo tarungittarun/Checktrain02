@@ -9,6 +9,7 @@ import android.widget.TextView
 import `in`.opentrack.india.data.Prefs
 import `in`.opentrack.india.R
 import `in`.opentrack.india.domain.TrackModel
+import `in`.opentrack.india.domain.RouteBetween
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -86,6 +87,7 @@ class BatteryModeTest {
             TrackModel.MinuteSource.REPORTED, "2", TrackModel.State.HERE,
             true, 304, 0, 200, false, false, false, null)
         adapter.haltMarker = TableMarker.Halt("ASK", "Last NTES arrival at ASK", false)
+        adapter.legAgeSeconds = 9 * 60L
         adapter.submitList(listOf(stop))
         val holder = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
         adapter.onBindViewHolder(holder, 0)
@@ -95,10 +97,109 @@ class BatteryModeTest {
         assertEquals("D —", holder.liveDep.text.toString())
         assertTrue(holder.liveArr.contentDescription.contains("Reported arrival"))
         assertEquals(Color.WHITE, holder.liveArr.currentTextColor)
-        assertEquals(View.GONE, holder.trainMarker.visibility)
-        assertEquals(View.VISIBLE, holder.marker.visibility)
-        assertTrue(holder.marker.text.toString().contains("NTES"))
+        assertEquals(View.VISIBLE, holder.trainMarker.visibility)
+        assertTrue(holder.trainMarker.batteryOutline)
+        assertEquals(View.GONE, holder.marker.visibility)
+        assertTrue(holder.eventCaption.text.toString().contains("At Arsikere Jn · as of 01:38"))
+        assertTrue(holder.eventCaption.text.toString().contains("9m ago"))
+        assertEquals("9m ago", holder.markerAge.text.toString())
+        assertTrue(holder.trainMarker.contentDescription.contains("present position unknown"))
         assertEquals(null, holder.liveArr.compoundDrawables[0])
+    }
+
+    @Test fun lastWebsiteIntermediateHasOneWhiteSketchAndAnAgedSiteCaption() {
+        Prefs(ctx).batteryMode = true
+        val adapter = StopAdapter().apply { batteryMode = true }
+        val kadur = TrackModel.Stop(1, "DRU", "Kadur", 501, 503, 685, 690, null,
+            TrackModel.MinuteSource.SITE_REPORTED, "1", TrackModel.State.PASSED,
+            false, 167, 0, 39, false, false, false, null)
+        val arsikere = kadur.copy(seq = 2, code = "ASK", name = "Arsikere Jn",
+            schedArr = 530, schedDep = 535, showArr = null, showDep = null,
+            source = TrackModel.MinuteSource.SCHEDULE, isAnchor = false,
+            kmFromOrigin = 206)
+        adapter.legAgeSeconds = 9 * 60L
+        adapter.legWebsiteEventMinute = 707 // 11:47 is a site card, not a page-update clock
+        adapter.setProjectedLeg(RouteBetween.LegProjection("Kadur", "Arsikere Jn",
+            0.5f, "Banavar", 186, "DRU", "ASK", emptyList(),
+            RouteBetween.MarkerKind.SITE_INTERMEDIATE))
+        adapter.submitList(listOf(kadur, arsikere))
+        val holder = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
+        adapter.onBindViewHolder(holder, 0)
+        assertEquals(View.VISIBLE, holder.inlineLegGroup.visibility)
+        assertEquals(View.VISIBLE, holder.inlineLeg.visibility)
+        assertTrue(holder.inlineLeg.batteryOutline)
+        assertEquals(View.GONE, holder.trainMarker.visibility) // one source event, one logo
+        assertTrue(holder.inlineLeg.contentDescription.contains("Banavar"))
+        assertTrue(holder.inlineLeg.contentDescription.contains("11:47"))
+        assertTrue(holder.inlineLeg.contentDescription.contains("9 min ago"))
+        assertTrue(holder.inlineLeg.contentDescription.contains("present position unknown"))
+        val width = (360f * ctx.resources.displayMetrics.density).toInt()
+        holder.inlineLeg.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+        holder.inlineLeg.layout(0, 0, width, holder.inlineLeg.measuredHeight)
+        val bitmap = Bitmap.createBitmap(width, holder.inlineLeg.height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        canvas.drawColor(Color.BLACK)
+        holder.inlineLeg.paintForTest(canvas)
+        var white = 0
+        for (x in 0 until bitmap.width step 2) for (y in 0 until bitmap.height step 2)
+            if (bitmap.getPixel(x, y) == Color.WHITE) white++
+        assertTrue("white point-pen train and label were not painted", white > 35)
+        bitmap.recycle()
+        adapter.setProjectedLeg(null)
+        adapter.onBindViewHolder(holder, 0)
+        assertEquals(View.GONE, holder.inlineLeg.visibility)
+        assertFalse(holder.inlineLeg.batteryOutline)
+    }
+
+    @Test fun officialDepartureCueStaysAtLastTimedStopOnlyInBatteryMode() {
+        Prefs(ctx).batteryMode = true
+        val departed = TrackModel.Stop(1, "SMET", "Shimoga Town", 425, 430, 580, 588, null,
+            TrackModel.MinuteSource.REPORTED, null, TrackModel.State.PASSED,
+            true, 98, 0, 20, false, false, false, null)
+        val upcoming = departed.copy(seq = 2, code = "SME", name = "Shimoga",
+            showArr = null, showDep = null, source = TrackModel.MinuteSource.SCHEDULE,
+            schedArr = 435, schedDep = 436, isAnchor = false)
+        val leg = RouteBetween.LegProjection("Shimoga Town", "Shimoga", 0.2f,
+            "Shimoga", 98, "SMET", "SME", emptyList(),
+            RouteBetween.MarkerKind.REPORTED_DEPARTURE_CUE)
+        val adapter = StopAdapter().apply { batteryMode = true }
+        adapter.setProjectedLeg(leg)
+        adapter.legAgeSeconds = 9 * 60L
+        adapter.submitList(listOf(departed, upcoming))
+        val holder = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
+        adapter.onBindViewHolder(holder, 0)
+        assertEquals(View.VISIBLE, holder.trainMarker.visibility)
+        assertEquals(View.GONE, holder.inlineLeg.visibility)
+        assertTrue(holder.eventCaption.text.toString().contains("as of 09:48"))
+        assertTrue(holder.eventCaption.text.toString().contains("NTES departure"))
+        assertTrue(holder.trainMarker.contentDescription.contains("present position unknown"))
+        Prefs(ctx).batteryMode = false
+        val normal = StopAdapter().apply {
+            batteryMode = false
+            setProjectedLeg(leg)
+            submitList(listOf(departed, upcoming))
+        }
+        val standard = normal.onCreateViewHolder(FrameLayout(ctx), 0)
+        normal.onBindViewHolder(standard, 0)
+        assertEquals(View.GONE, standard.trainMarker.visibility)
+        assertEquals(View.VISIBLE, standard.inlineLeg.visibility)
+        assertFalse(standard.inlineLeg.batteryOutline)
+    }
+
+    @Test fun aTimetableOrUnagedClaimNeverGetsABatteryLocomotive() {
+        Prefs(ctx).batteryMode = true
+        val adapter = StopAdapter().apply { batteryMode = true }
+        val stop = TrackModel.Stop(1, "ASK", "Arsikere Jn", 530, 535, null, null, null,
+            TrackModel.MinuteSource.SCHEDULE, null, TrackModel.State.NEXT,
+            false, 206, 0, 50, false, false, false, null)
+        adapter.haltMarker = TableMarker.Halt("ASK", "No accepted event", true)
+        adapter.submitList(listOf(stop))
+        val holder = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
+        adapter.onBindViewHolder(holder, 0)
+        assertEquals(View.GONE, holder.trainMarker.visibility)
+        assertEquals(View.GONE, holder.inlineLeg.visibility)
+        assertEquals(View.GONE, holder.marker.visibility)
     }
 
     private fun pixel(v: View, x: Int, y: Int): Int {

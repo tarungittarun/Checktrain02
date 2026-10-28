@@ -48,9 +48,13 @@ object BatteryMode {
             view.visibility = View.GONE // decorative logos/arrows; Refresh has its own text label
             return
         }
-        if (view is InlineLegView || view is StopRailMarkerView || view is StatusRippleView ||
-            view is JourneyProgressView || view is TrackInsightView ||
-            view is LegPositionView || view is ScreenLoadGlowView || view is ProgressBar) {
+        // The sole source-event train is a few static white pen strokes, not
+        // the coloured route canvas. Untimed/static legs remain fully off.
+        if (view is InlineLegView && !view.batteryOutline ||
+            view is StopRailMarkerView && !view.batteryOutline ||
+            view is StatusRippleView || view is JourneyProgressView ||
+            view is TrackInsightView || view is LegPositionView ||
+            view is ScreenLoadGlowView || view is ProgressBar) {
             view.visibility = View.GONE
             return
         }

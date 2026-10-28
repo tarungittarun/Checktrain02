@@ -296,6 +296,10 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
     override fun onBindViewHolder(holder: Holder, position: Int) {
         val s = getItem(position)
         val ctx = holder.itemView.context
+        // A recycled holder must never carry the battery sketch into normal
+        // mode or turn a formerly qualified site event into a new train icon.
+        holder.trainMarker.batteryOutline = false
+        holder.inlineLeg.batteryOutline = false
         holder.name.text = RowText.of(s.name)
         holder.name.setTextColor(ctx.getColor(colorFor(s)))
         holder.meta.text = buildString {
@@ -314,7 +318,17 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
                     else " · feed pf ").append(it)
             }
         }
-        val marker = haltMarker?.takeIf { it.code.equals(s.code, true) }
+        // Normal mode keeps its existing leg cue. Battery mode must not paint
+        // that cue a quarter-leg beyond an officially reported departure: pin
+        // its one white sketch to the LAST timed halt instead.
+        val batteryCue = if (batteryMode &&
+            projectedLeg?.fromCode.equals(s.code, true) &&
+            DepartureCue.isCue(projectedLeg?.markerKind) &&
+            (s.source == TrackModel.MinuteSource.REPORTED && s.showDep != null ||
+             s.source == TrackModel.MinuteSource.SITE_REPORTED && s.showArr != null))
+            TableMarker.Halt(s.code, "Last reported stop", s.source == TrackModel.MinuteSource.SITE_REPORTED)
+            else null
+        val marker = haltMarker?.takeIf { it.code.equals(s.code, true) } ?: batteryCue
         // The train icon and age already identify the last report. Keep its
         // evidence available to accessibility without a redundant banner.
         holder.marker.visibility = View.GONE
@@ -497,14 +511,20 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         // Pure presentation of the SAME row that already owns the locomotive.
         // A website comparison or a timetable dot cannot gain a reported clock.
         val captionMinute = (s.showDep ?: s.showArr).takeIf {
-            expandedCode == null && marker != null &&
+            (expandedCode == null || batteryMode) && marker != null &&
                 (s.source == TrackModel.MinuteSource.REPORTED && !marker.website ||
                  s.source == TrackModel.MinuteSource.SITE_REPORTED && marker.website)
         }
         holder.eventCaption.visibility = if (captionMinute == null) View.GONE else View.VISIBLE
-        holder.eventCaption.text = captionMinute?.let {
-            if (marker?.website == true) "Last site arrival · ${RailTime.formatRailMinuteBare(it)}"
-            else "At ${RowText.of(s.name)} · as on ${RailTime.formatRailMinuteBare(it)}"
+        holder.eventCaption.text = captionMinute?.let { minute ->
+            if (batteryMode) {
+                val event = if (marker?.website == true) "site arrival" else if (s.showDep != null)
+                    "NTES departure" else "NTES arrival"
+                "At ${RowText.of(s.name)} · as of ${RailTime.formatRailMinuteBare(minute)}" +
+                    "\n$event · ${legAgeSeconds?.let(LegGeometry::compactAgeLabel) ?: "age unknown"}"
+            } else if (marker?.website == true)
+                "Last site arrival · ${RailTime.formatRailMinuteBare(minute)}"
+            else "At ${RowText.of(s.name)} · as on ${RailTime.formatRailMinuteBare(minute)}"
         }.orEmpty()
         holder.eventCaption.setTextColor(ctx.getColor(if (marker?.website == true) R.color.warn else R.color.text2))
         holder.eventCaption.contentDescription = captionMinute?.let {
@@ -709,14 +729,31 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
                 v.setCompoundDrawables(null, null, null, null)
                 v.text = "D ${v.text}"
             }
-            holder.inlineLegGroup.visibility = if (holder.inlineLegCaption.text.isNotEmpty())
-                View.VISIBLE else View.GONE
+            // The same qualified site intermediate/stop event as the normal
+            // route, but rendered as STATIC white strokes. Do not restore the
+            // map canvas, forecast, timetable, provisional departure or GPS.
+            val siteLegOutline = leg?.markerKind == RouteBetween.MarkerKind.SITE_INTERMEDIATE &&
+                legWebsiteEventMinute != null && legAgeSeconds != null &&
+                holder.inlineLeg.showTrain
+            holder.inlineLeg.batteryOutline = siteLegOutline
+            holder.inlineLegGroup.visibility = if (siteLegOutline ||
+                holder.inlineLegCaption.text.isNotEmpty()) View.VISIBLE else View.GONE
             holder.routeToggle.visibility = View.GONE
-            holder.inlineLeg.visibility = View.GONE
+            holder.inlineLeg.visibility = if (siteLegOutline) View.VISIBLE else View.GONE
+            if (siteLegOutline) holder.inlineLeg.contentDescription =
+                "Last website report at ${leg?.nearestPoint ?: "intermediate"}, as of " +
+                    "${RailTime.formatRailMinute(legWebsiteEventMinute!!)}, " +
+                    "${LegGeometry.ageLabel(legAgeSeconds!!)}; present position unknown"
             holder.dot.visibility = View.GONE
-            holder.trainMarker.visibility = View.GONE
-            holder.marker.text = marker?.caption.orEmpty()
-            holder.marker.visibility = if (marker == null) View.GONE else View.VISIBLE
+            val stoppedReport = marker != null && captionMinute != null && legAgeSeconds != null
+            holder.trainMarker.batteryOutline = stoppedReport
+            holder.trainMarker.visibility = if (stoppedReport) View.VISIBLE else View.GONE
+            holder.trainMarker.contentDescription = if (stoppedReport)
+                "Last ${if (marker!!.website) "site" else "NTES"} report at ${s.name}, " +
+                    "as of ${RailTime.formatRailMinute(captionMinute!!)}, " +
+                    "${LegGeometry.ageLabel(legAgeSeconds!!)}; present position unknown" else ""
+            holder.markerAge.visibility = if (stoppedReport) View.VISIBLE else View.GONE
+            holder.marker.visibility = View.GONE
             holder.row.setPadding(holder.row.paddingLeft,
                 ctx.resources.getDimensionPixelSize(R.dimen.gap_xs), holder.row.paddingRight,
                 ctx.resources.getDimensionPixelSize(R.dimen.gap_xs))

@@ -28,6 +28,9 @@ class InlineLegView @JvmOverloads constructor(
         set(value) { if (field != value) { field = value; requestLayout(); invalidate() } }
     var showTrain: Boolean = true
         set(value) { field = value; invalidate() }
+    /** Battery mode draws ONLY a qualified last-event sketch, never the map canvas. */
+    var batteryOutline: Boolean = false
+        set(value) { if (field != value) { field = value; invalidate() } }
     /** Untimed map-only legs need a full touch target, not a tall empty train leg. */
     /** Distances rescaled from an older corridor, never a current train timetable. */
     var historicalMap: Boolean = false
@@ -82,6 +85,35 @@ class InlineLegView @JvmOverloads constructor(
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         val leg = projection ?: return
+        if (batteryOutline) {
+            // Only the selected website's validated *past* intermediate event
+            // qualifies. A timetable dot, candidate web cache, suggested
+            // departure or page update can never earn a locomotive here.
+            val minute = siteEventMinute ?: return
+            val age = ageSeconds ?: return
+            if (!showTrain || leg.markerKind != RouteBetween.MarkerKind.SITE_INTERMEDIATE) return
+            val x = dp(RouteRailGeometry.X_DP)
+            val y = trainCenter()?.second ?: return
+            BatteryTrainSketch.draw(canvas, x, y, resources.displayMetrics.density, paint)
+            paint.color = android.graphics.Color.WHITE
+            paint.style = Paint.Style.FILL
+            paint.textAlign = Paint.Align.LEFT
+            val left = x + dp(24f)
+            val room = (width - left - dp(12f)).coerceAtLeast(dp(36f))
+            paint.textSize = sp(12f)
+            val at = android.text.TextUtils.ellipsize(
+                "At ${RowText.of(leg.nearestPoint ?: "intermediate")} · last site",
+                android.text.TextPaint(paint), room,
+                android.text.TextUtils.TruncateAt.END).toString()
+            canvas.drawText(at, left, y - dp(4f), paint)
+            paint.textSize = sp(11f)
+            val asOf = android.text.TextUtils.ellipsize(
+                "As of ${`in`.opentrack.india.core.RailTime.formatRailMinuteBare(minute)} · " +
+                    LegGeometry.compactAgeLabel(age), android.text.TextPaint(paint), room,
+                android.text.TextUtils.TruncateAt.END).toString()
+            canvas.drawText(asOf, left, y + dp(15f), paint)
+            return
+        }
         val x = dp(RouteRailGeometry.X_DP)
         val y0 = dp(24f)
         val y1 = height - dp(26f)
