@@ -569,8 +569,8 @@ Render.save("02-track-live", shot.bitmap)
 
     @Test
     fun conciseWebsiteGapAndReleasedDockReturnSpaceToTheTable() {
-        fun paint(release: Boolean) = Render.render(R.layout.activity_train,
-            widthDp = 393f, heightDp = 780f, textScale = 1.15f) { root ->
+        val shot = Render.render(R.layout.activity_train, widthDp = 393f,
+            heightDp = 780f, textScale = 1.15f) { root ->
             Render.text(root, R.id.provenance, "Comparison only")
             Render.text(root, R.id.age, "No reported event time")
             Render.text(root, R.id.headline, "No qualifying past-stop report")
@@ -580,23 +580,37 @@ Render.save("02-track-live", shot.bitmap)
             }
             root.findViewById<View>(R.id.note).visibility = View.GONE
             Render.text(root, R.id.next, "Following halt unknown · timetable below")
-            if (release) RefreshDockSpace.release(root.findViewById(R.id.refreshDock))
         }
-        val parked = paint(false)
-        val moved = paint(true)
-        val route = moved.bounds(R.id.routeViewport)
-        assertTrue("moving Refresh left an empty dock instead of more table",
-            route.height() - parked.bounds(R.id.routeViewport).height() >=
-                Render.dp(moved.context, 59f))
+        // Render saves an unbounded image for inspecting every route row. A phone
+        // is NOT unbounded: remeasure its very same view tree at one fixed 780dp
+        // viewport before and after releasing the dock.
+        val width = Render.dp(shot.context, 393f).toInt()
+        val height = Render.dp(shot.context, 780f).toInt()
+        fun phoneLayout() {
+            shot.root.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY))
+            shot.root.layout(0, 0, width, height)
+        }
+        phoneLayout()
+        val parkedHeight = shot.bounds(R.id.routeViewport).height()
+        val parkedDock = shot.bounds(R.id.refreshDock).height()
+        assertEquals("default clock-free dock lost its 60dp", Render.dp(shot.context, 60f).toInt(),
+            parkedDock)
+        RefreshDockSpace.release(shot.root.findViewById(R.id.refreshDock))
+        phoneLayout()
+        val route = shot.bounds(R.id.routeViewport)
+        assertTrue("moving Refresh left an empty dock instead of more table: " +
+            "$parkedHeight -> ${route.height()} ($parkedDock dock)",
+            route.height() - parkedHeight >= Render.dp(shot.context, 59f))
         assertEquals("released dock must have zero height", 0,
-            moved.bounds(R.id.refreshDock).height())
+            shot.bounds(R.id.refreshDock).height())
         assertTrue("short report still covered Source controls",
-            moved.bounds(R.id.sourceControls).bottom <=
-                moved.bounds(R.id.routeColumnHeader).top)
+            shot.bounds(R.id.sourceControls).bottom <=
+                shot.bounds(R.id.routeColumnHeader).top)
         assertTrue("the source explanation must stay below its headline",
-            moved.bounds(R.id.sourceSummary).top >= moved.bounds(R.id.headline).bottom)
+            shot.bounds(R.id.sourceSummary).top >= shot.bounds(R.id.headline).bottom)
         assertTrue("the table must have at least three compact rows of room: $route",
-            route.height() >= Render.dp(moved.context, 240f))
+            route.height() >= Render.dp(shot.context, 240f))
     }
 
     @Test
