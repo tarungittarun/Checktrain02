@@ -27,11 +27,14 @@ Next-stop value exacerbated the wrapping.
   website text cannot push it below the card viewport. The row is still
   visually labelled and the source can still be changed directly.
 * The source viewport budget reserves another 56dp for that row without
-  trading away the three-halt route space. The following-halt text no longer
-  repeats the `Next stop` heading; the 07:47 clock remains labelled timetable
-  and explicitly not ETA. The report, failure notice, badge, and delay/next
-  retain separate scroll access; a two-second refresh receipt remains an
-  overlay, not a measured row.
+  trading away the three-halt route space. The 210dp minimum is rounded up,
+  not truncated below 210dp on nonintegral density phones. The following-halt
+  text no longer repeats the `Next stop` heading; the 07:47 clock remains
+  labelled timetable and explicitly not ETA. The report, failure notice,
+  badge, and delay/next retain separate scroll access. A two-second refresh
+  receipt is measured against the already sized card, not included in its
+  height; on compact screens its text has its own scrolling viewport rather
+  than enlarging the Summary Box or covering the source controls.
 * A screenshot-sized render test forces a longer-than-viewport report at
   1.15× text and verifies Source and Auto are fully inside their pinned row,
   ahead of the route table, above the screen fold, **both with More and Less**.

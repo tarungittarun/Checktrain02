@@ -506,8 +506,13 @@ Render.save("02-track-live", shot.bitmap)
             overlaid.bounds(R.id.summaryShell))
         assertEquals("receipt moved the station headings", baseline.bounds(R.id.routeColumnHeader),
             overlaid.bounds(R.id.routeColumnHeader))
+        assertEquals("receipt moved the pinned Source/Auto controls",
+            baseline.bounds(R.id.sourceControls), overlaid.bounds(R.id.sourceControls))
         assertEquals("overlay is not a sibling that pushes the table", overlaid.bounds(R.id.summaryShell),
             overlaid.bounds(R.id.refreshReceiptOverlay))
+        assertTrue("receipt must scroll inside the card, not spill over source controls",
+            overlaid.bounds(R.id.receiptScroll).bottom <=
+                overlaid.bounds(R.id.refreshReceiptOverlay).bottom)
         assertTrue("missing three visible receipt lines",
             listOf(R.id.receiptTook, R.id.receiptChecked, R.id.receiptFreshness)
                 .all { overlaid.bounds(it).height() > 0 })

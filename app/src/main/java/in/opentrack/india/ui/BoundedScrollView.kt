@@ -16,7 +16,7 @@ internal object RouteViewportBudget {
         // the route heading/archives AND the fixed 56dp source/Auto row below the
         // report viewport. The summary scrolls when a source has a long note.
         val reserve = ((360f * fontScale.coerceIn(1f, 1.4f) + 56f) * density).toInt()
-        val minimumSummary = (210f * density).toInt()
+        val minimumSummary = kotlin.math.ceil(210.0 * density).toInt()
         return minOf(available, (screenPx * .53f).toInt(),
             (available - reserve).coerceAtLeast(minimumSummary)).coerceAtLeast(0)
     }
