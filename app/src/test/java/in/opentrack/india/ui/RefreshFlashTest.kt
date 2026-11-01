@@ -12,8 +12,12 @@ class RefreshFlashTest {
             "same last site-reported stop; checked in 650 ms", null, true))
         assertEquals("Connection failed", RefreshFlash.connectionError(source,
             "last-known" to "Request failed: connection reset", null, false))
-        assertEquals("Source blocked request", RefreshFlash.connectionError(source,
-            "unverified" to "HTTP 403", null, false))
+        assertEquals("Website refused request (HTTP 403)", RefreshFlash.connectionError(source,
+            "unverified" to "Request failed: HTTP · HTTP 403", null, false))
+        assertEquals("Website rate limited (HTTP 429)", RefreshFlash.connectionError(source,
+            "unverified" to "Request failed: HTTP · HTTP 429", null, false))
+        assertNull("a new page answer must clear an old failure", RefreshFlash.connectionError(source,
+            "comparison" to "HTTP 403 from earlier request", null, true))
         assertEquals("Source timed out", RefreshFlash.connectionError(source,
             "unverified" to "timed out", null, false))
     }

@@ -654,8 +654,13 @@ class LiveViewModel(
         }
     }
 
-    /** Initial open or explicit/opt-in screen-visible Refresh. Both button and timer
-     * use the selected-source-first chain; the auto flag changes only the diary label. */
+    /** A failed website check can leave NTES displayed. Only a deliberate button press retries
+     * the saved website preference; Auto stays on NTES until the traveller chooses the site again. */
+    fun refreshTarget(auto: Boolean): String = RefreshTargetPolicy.target(mirrorActiveSource,
+        `in`.opentrack.india.data.Prefs(app).defaultTrackingSource, auto)
+
+    /** Initial open or explicit/opt-in screen-visible Refresh. Auto does not repeatedly probe a
+     * website that refused the preceding manual request. */
     fun refresh(manual: Boolean = false, auto: Boolean = false) {
         // Three taps in one second on the owner's R53 phone launched three copies of the
         // same official POST. Keep one live chain in flight; the independent mirror is
@@ -681,9 +686,9 @@ class LiveViewModel(
             FeedProbe.requestCancel()
         }
         val previous = lastAnswer?.position
-        val selected = mirrorActiveSource?.takeIf { it in PublicPageChecks.names ||
-            it in setOf(WimtCandidate.SOURCE, "erail", ConfirmTktMirror.SOURCE,
-                RunningStatusMirror.SOURCE) }
+        val selected = (if (manual) refreshTarget(auto) else mirrorActiveSource)?.takeIf {
+            it in PublicPageChecks.names || it in setOf(WimtCandidate.SOURCE, "erail",
+                ConfirmTktMirror.SOURCE, RunningStatusMirror.SOURCE) }
         // A user-selected source gets the FIRST request. NTES is only a last fallback,
         // never an automatic preflight that delays a 0.4-second website response.
         if ((manual || `in`.opentrack.india.data.Prefs(app).batteryMode) && selected != null) {

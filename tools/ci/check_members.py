@@ -115,6 +115,8 @@ setSpan getSpans getSpanStart replaceFirst
 enabledCipherSuites supportedCipherSuites defaultCipherSuites createSocket getOrDefault
 # mirror witness (2026-10-12): stdlib Map merge so traveller lines keep their stop and the mirror fills the rest
 filterKeys
+# JDK's in-process HTTP server used by the transport refusal wire test.
+createContext
 # Android framework: static route pair selector uses two Spinner selections and Android's built-in
 # spinner layouts (not application resources). No project declaration can satisfy these names.
 selectedItemPosition simple_spinner_item simple_spinner_dropdown_item getLong

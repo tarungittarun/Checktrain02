@@ -120,6 +120,12 @@ def inspect(tag, params):
 
 print("Read-only site structure and drift trial. No claimed event is independently observed.", flush=True)
 a = inspect("baseline", {"trainNo": TRAIN})
+if TRAIN == "20689" and not a:
+    # One same-host control distinguishes a train-specific refusal from a runner-wide
+    # rejection. Do not keep sending dated and repeat requests after a denied first GET.
+    print("no baseline page; checking one control train on the same host", flush=True)
+    inspect("control-16227", {"trainNo": "16227"})
+    raise SystemExit(0)
 # Does a date parameter actually select a different run? Merely echoing a URL is not proof.
 inspect("explicit-old-date", {"trainNo": TRAIN, "date": "2026-10-14"})
 print("waiting 45 seconds to compare row changes with page-update clock...", flush=True)

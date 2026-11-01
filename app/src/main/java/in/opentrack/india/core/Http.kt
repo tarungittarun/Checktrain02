@@ -94,8 +94,10 @@ class Http(context: Context) {
             if (attempt <= retries) sleep(300L * attempt)
         }
         if (last is Result.Failed && !pinIpv4 && last.kind != Result.Kind.OFFLINE &&
-            clampTimeout(deadline, timeoutMillis) > 0
+            !httpStatusResponse(last) && clampTimeout(deadline, timeoutMillis) > 0
         ) {
+            // A completed HTTP refusal (especially 429) is NOT a broken IPv6 socket.
+            // Do not send the same refused request again to another address family.
             // One unprompted second chance, pinned to an A record. A phone on Wi-Fi whose IPv6 path is
             // half-alive sees exactly this: the first address returned is AAAA, the handshake dies as
             // "closed" a few hundred milliseconds in, and a browser on the same network loads the page
@@ -451,6 +453,11 @@ class Http(context: Context) {
             if (!bodyRead) runCatching { conn?.disconnect() }
         }
     }
+
+    /** Only an actual status line is terminal; an IOException classified HTTP can still recover
+     * through IPv4. In particular, neither a 403 nor a 429 should be repeated automatically. */
+    private fun httpStatusResponse(result: Result.Failed): Boolean =
+        result.kind == Result.Kind.HTTP && result.message.matches(Regex("HTTP [45][0-9]{2}"))
 
     private fun cacheFile(url: String): File =
         File(cacheRoot, Hash.sha1(url))

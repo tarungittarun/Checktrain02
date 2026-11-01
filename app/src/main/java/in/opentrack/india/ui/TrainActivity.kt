@@ -591,7 +591,7 @@ class TrainActivity : AppCompatActivity() {
         if (!auto) focusRequestId++
         receiptReady = false
         refreshStartedAt = SystemClock.elapsedRealtime()
-        requestedRefreshSource = lastUi?.activeSource ?: "NTES (official)"
+        requestedRefreshSource = vm.refreshTarget(auto)
         previousRefreshEvent = eventKey(lastUi, requestedRefreshSource)
         previousWebsiteClockKey = if (WebsiteReportDisplay.selected(requestedRefreshSource))
             websiteClockKey(lastUi) else null
@@ -701,6 +701,9 @@ class TrainActivity : AppCompatActivity() {
         // painted child says WIMT. Expose the *selected* source to TalkBack too.
         binding.sourceSpinner.contentDescription = "Selected ${TrackingSources.label(TrackingSources.valid(ui.activeSource))}. " +
             "Choose NTES or Where Is My Train website. Long press for time and source details."
+        binding.refresh.contentDescription = if (vm.refreshTarget(auto = false) != ui.activeSource)
+            "Retry selected website first; NTES currently shown as fallback. Drag to move in lower half"
+        else "Refresh selected source; drag to move in lower half"
         if (names.isEmpty()) return
         // State updates recolor the existing adapter. Rebuilding the Spinner for every
         // background answer can fire a selection callback for its default first item,
@@ -1408,7 +1411,8 @@ class TrainActivity : AppCompatActivity() {
     private fun showConnectionError(reason: String, source: String) {
         // Put a failure BELOW the badge without covering the last report or
         // replacing an event time with a page-check timestamp.
-        connectionCue.show(reason, sourceName(source))
+        connectionCue.show(reason, sourceName(source),
+            lastUi?.activeSource?.takeIf { it != source }?.let(::sourceName))
         if (!heroExpanded) {
             binding.heroEyebrow.text = "CHECK FAILED"
             binding.heroEyebrow.setTextColor(getColor(R.color.connection_ink))

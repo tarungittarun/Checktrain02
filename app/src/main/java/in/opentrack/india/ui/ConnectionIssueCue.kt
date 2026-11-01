@@ -21,11 +21,15 @@ class ConnectionIssueCue(private val card: View, private val alert: TextView,
     var reason: String? = null
         private set
 
-    fun show(newReason: String, source: String) {
-        if (reason == "$source:$newReason") return
+    fun show(newReason: String, source: String, showing: String? = null) {
+        val fallback = showing?.takeIf { it != source }
+        val key = "$source:$newReason:${fallback.orEmpty()}"
+        if (reason == key) return
         stopMotion()
-        reason = "$source:$newReason"
-        alert.text = "$newReason · $source. Previous report unchanged; retry or change source."
+        reason = key
+        alert.text = if (fallback == null)
+            "$newReason · $source. Previous report unchanged; retry or change source."
+        else "$newReason · $source. Showing $fallback instead."
         alert.visibility = View.VISIBLE
         if (batteryMode) {
             BatteryMode.paint(card)

@@ -64,6 +64,11 @@ class ConnectionCueAndDelayTest {
             androidx.core.view.ViewCompat.getImportantForAccessibility(evidence))
         assertTrue(label.text.contains("Source timed out · NTES"))
         assertTrue(label.text.contains("Previous report unchanged"))
+        cue.show("Website refused request (HTTP 403)", "whereismytrain.org.in (website)",
+            "NTES · official")
+        assertTrue(label.text.contains("Showing NTES · official instead"))
+        assertFalse("fallback may have updated NTES, so do not say its report is unchanged",
+            label.text.contains("Previous report unchanged"))
         cue.pause()
         assertEquals(1f, card.alpha, .001f)
         assertEquals(0f, card.translationX, .001f)
