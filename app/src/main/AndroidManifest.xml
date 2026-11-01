@@ -47,6 +47,20 @@
             android:exported="false"
             android:parentActivityName=".ui.MainActivity" />
 
+        <!-- The user must choose TrackTrain in Android's Share sheet. A share intent does
+             not authenticate its sender; this receiver displays text only, never fetches it. -->
+        <activity
+            android:name=".ui.SharedTrainActivity"
+            android:exported="true"
+            android:label="TrackTrain · preview shared status"
+            android:launchMode="singleTop">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
+
         <activity
             android:name=".ui.SettingsActivity"
             android:exported="false"
