@@ -13,6 +13,7 @@ import sys
 import time
 import urllib.parse
 import urllib.request
+import urllib.error
 
 ROOT = "https://whereismytrain.org.in/"
 TRAIN = re.fullmatch(r"\d{5}", sys.argv[1] if len(sys.argv) > 1 else "16227")
@@ -38,6 +39,16 @@ def get(params):
         if len(body) > 500_000:
             raise ValueError("HTML exceeds 500 kB cap")
         return body.decode("utf-8", "replace"), round(time.monotonic() - t, 3), code, headers
+    except urllib.error.HTTPError as exc:
+        # The refusal is a response, not a parser failure. Log only a fixed allowlist
+        # of non-identifying response headers; never dump HTML challenges, cookies,
+        # origin identifiers or any token from the error body.
+        diagnostic = {key: exc.headers.get(key, "")[:80] for key in
+                      ("Server", "Via", "Content-Type", "Retry-After", "CF-Mitigated")
+                      if exc.headers.get(key)}
+        print("request refused after %.2f s: HTTP %d, response headers=%s" %
+              (time.monotonic() - t, exc.code, diagnostic), flush=True)
+        return "", round(time.monotonic() - t, 3), exc.code, {}
     except Exception as exc:
         print("request failed after %.2f s: %s: %s" % (time.monotonic() - t,
               type(exc).__name__, str(exc)[:120]), flush=True)
