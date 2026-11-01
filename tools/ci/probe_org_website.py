@@ -44,10 +44,20 @@ def get(params):
         # of non-identifying response headers; never dump HTML challenges, cookies,
         # origin identifiers or any token from the error body.
         diagnostic = {key: exc.headers.get(key, "")[:80] for key in
-                      ("Server", "Via", "Content-Type", "Retry-After", "CF-Mitigated")
+                      ("Server", "Via", "Content-Type", "Retry-After", "CF-Mitigated", "X-Cache")
                       if exc.headers.get(key)}
-        print("request refused after %.2f s: HTTP %d, response headers=%s" %
-              (time.monotonic() - t, exc.code, diagnostic), flush=True)
+        # Diagnose the *kind* of refusal without copying a challenge page, cookie,
+        # token, client fingerprint, IP address or raw response into a commit comment.
+        body = exc.read(8_193)
+        page = body.decode("utf-8", "replace").lower()
+        markers = [word for word in ("access denied", "forbidden", "security check",
+                   "bot protection", "challenge", "captcha", "temporarily blocked",
+                   "request blocked", "website suspended", "rate limit", "hostinger")
+                   if word in page]
+        print("request refused after %.2f s: HTTP %d, response headers=%s, "
+              "body-prefix=%dB%s, markers=%s" %
+              (time.monotonic() - t, exc.code, diagnostic, len(body),
+               "+" if len(body) > 8_192 else "", markers), flush=True)
         return "", round(time.monotonic() - t, 3), exc.code, {}
     except Exception as exc:
         print("request failed after %.2f s: %s: %s" % (time.monotonic() - t,
