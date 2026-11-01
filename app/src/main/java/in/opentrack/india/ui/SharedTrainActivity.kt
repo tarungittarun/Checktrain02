@@ -64,7 +64,7 @@ class SharedTrainActivity : AppCompatActivity() {
                 "before adding a source-labelled, user-shared comparison.", R.style.TextMeta)
         }
         column.addView(Button(this).apply {
-            text = "Close"
+            this.text = "Close"
             setOnClickListener { finish() }
         })
         val scroll = ScrollView(this).apply { addView(column) }
