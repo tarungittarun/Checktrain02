@@ -29,8 +29,8 @@ def get(params):
     t = time.monotonic()
     try:
         request = urllib.request.Request(url, headers={
-            "User-Agent": "Mozilla/5.0 (Linux; Android 13; Mobile) Chrome/120 Safari/537.36",
-            "Accept": "text/html", "Cache-Control": "no-cache"})
+            "User-Agent": "OpenTrackIndia/1.0 (offline-first railway tracker; no accounts, no tracking)",
+            "Accept": "text/html"})
         with urllib.request.urlopen(request, timeout=12) as response:
             body = response.read(500_001)
             headers = response.headers
@@ -120,11 +120,10 @@ def inspect(tag, params):
 
 print("Read-only site structure and drift trial. No claimed event is independently observed.", flush=True)
 a = inspect("baseline", {"trainNo": TRAIN})
-if TRAIN == "20689" and not a:
-    # One same-host control distinguishes a train-specific refusal from a runner-wide
-    # rejection. Do not keep sending dated and repeat requests after a denied first GET.
-    print("no baseline page; checking one control train on the same host", flush=True)
-    inspect("control-16227", {"trainNo": "16227"})
+if TRAIN == "20689":
+    # Earlier 20689 and control-train requests both returned 403. Test the honest
+    # app identity once only; another train/date/repeat would just add traffic.
+    print("single polite transport check; no automatic repeat or control request", flush=True)
     raise SystemExit(0)
 # Does a date parameter actually select a different run? Merely echoing a URL is not proof.
 inspect("explicit-old-date", {"trainNo": TRAIN, "date": "2026-10-14"})

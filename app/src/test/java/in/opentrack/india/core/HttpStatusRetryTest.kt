@@ -62,7 +62,8 @@ class HttpStatusRetryTest {
                 try {
                     val result = Http(RuntimeEnvironment.getApplication()).get(
                         "http://127.0.0.1:${server.localPort}/status?test=$code",
-                        timeoutMillis = 2_000, retries = 1, budgetMillis = 4_000)
+                        timeoutMillis = 2_000, retries = 1, budgetMillis = 4_000,
+                        allowCachedOnFailure = false)
                     assertTrue("expected HTTP $code, got $result", result is Http.Result.Failed)
                     assertEquals("HTTP $code", (result as Http.Result.Failed).message)
                     assertEquals("HTTP $code should have exactly one request", 1, calls.get())

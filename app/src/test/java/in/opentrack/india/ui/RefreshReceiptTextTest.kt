@@ -49,6 +49,16 @@ class RefreshReceiptTextTest {
         assertFalse(failure.contains("Website answered"))
     }
 
+    @Test fun pausedWebsiteDoesNotClaimAnHttpAttempt() {
+        val text = RefreshReceiptText.format(PublicPageChecks.ORG, "website", "NTES · official",
+            "17:40:00", "last reported stop 12 min ago",
+            "unverified" to "Website request paused after HTTP 403; no new request. Retry in 15 min.",
+            null, false, false, unchanged, true)
+        assertTrue(text.contains("website not asked"))
+        assertTrue(text.contains("Retry in 15 min"))
+        assertFalse(text.contains("website request failed"))
+    }
+
     @Test fun websiteHttpSuccessWithPastCardShowsSourceEventNotPageClockMovement() {
         val text = RefreshReceiptText.format(PublicPageChecks.ORG, "website", "website",
             "06:15:58", "no new timed position from this source",

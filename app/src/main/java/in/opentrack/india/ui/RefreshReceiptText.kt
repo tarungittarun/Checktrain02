@@ -35,6 +35,8 @@ object RefreshReceiptText {
         if (cachedBody) return "Checked $checked · $sourceLabel request timed out; " +
             "cached HTTP body is not a new reply · $context"
         val detail = status?.second.orEmpty()
+        if (source == PublicPageChecks.ORG && detail.startsWith("Website request paused"))
+            return "At $checked · website not asked: $detail · $context"
         if (detail.contains("Request failed:", true) || detail.contains("timed out", true) ||
             detail.contains("could not connect", true) || detail.contains("did not answer", true)) {
             val short = detail.substringAfter("Request failed:", detail).substringBefore(';')

@@ -7,6 +7,10 @@ import `in`.opentrack.india.v2.mirror.PublicPageChecks
  * rather than sending a denied website another request every minute. Choosing NTES explicitly
  * changes the saved preference and makes NTES first again. */
 object RefreshTargetPolicy {
+    /** The initial background survey must not ask the website for an NTES view. */
+    fun surveyWebsite(active: String?, alreadyChecked: Boolean): Boolean =
+        active == PublicPageChecks.ORG && !alreadyChecked
+
     fun target(displayed: String?, preferred: String?, auto: Boolean): String {
         val active = displayed ?: TrackingSources.OFFICIAL
         return if (!auto && active == TrackingSources.OFFICIAL &&

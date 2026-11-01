@@ -70,6 +70,8 @@ class Http(context: Context) {
         headers: Map<String, String> = emptyMap(),
         pinIpv4: Boolean = false,
         budgetMillis: Int = 0,
+        /** A refusal must remain visible to callers that pace a source after HTTP 403/429. */
+        allowCachedOnFailure: Boolean = true,
     ): Result {
         var last: Result = Result.Failed(Result.Kind.EMPTY, "not attempted")
         var attempt = 0
@@ -123,7 +125,7 @@ class Http(context: Context) {
             if (again is Result.Ok) return again
             last = again
         }
-        if (last is Result.Failed) {
+        if (last is Result.Failed && allowCachedOnFailure) {
             Diary.get()?.log("HTTP", "GET " + hostOf(url) + " served the response cache instead: " + verdict(last))
             cached(url)?.let { (body, age) ->
                 Log.d(TAG, "serving cached body (${age / 1000}s old) after ${last.kind}")

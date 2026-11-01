@@ -122,10 +122,14 @@ class OrgWebsiteStatusTest {
             route = route).orgDistanceProbe!!.contains("km segment"))
     }
 
-    @Test fun `website mobile retry is bounded and other source policy is unchanged`() {
-        assertEquals(1, PublicPageChecks.retriesFor(PublicPageChecks.ORG))
+    @Test fun `website request is single and identifies as this app, not Chrome`() {
+        assertEquals(0, PublicPageChecks.retriesFor(PublicPageChecks.ORG))
         assertEquals(0, PublicPageChecks.retriesFor(PublicPageChecks.RAIL_YATRI))
         assertEquals(0, PublicPageChecks.retriesFor(PublicPageChecks.IXIGO))
+        val headers = PublicPageChecks.headersFor(PublicPageChecks.ORG)
+        assertEquals(mapOf("Accept" to "text/html"), headers)
+        assertFalse(headers.containsKey("User-Agent"))
+        assertFalse(headers.containsKey("Cache-Control"))
     }
 
     @Test fun `real 26 Oct same-website cards update Kumsi but cannot invent Shimoga Town actuals`() {

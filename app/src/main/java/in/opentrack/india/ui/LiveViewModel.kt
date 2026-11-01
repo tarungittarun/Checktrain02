@@ -32,6 +32,7 @@ import `in`.opentrack.india.v2.mirror.ConfirmTktSchedule
 import `in`.opentrack.india.v2.mirror.ErailRouteMirror
 import `in`.opentrack.india.v2.mirror.RunningStatusMirror
 import `in`.opentrack.india.v2.mirror.PublicPageChecks
+import `in`.opentrack.india.v2.mirror.WebsiteRequestPacing
 import `in`.opentrack.india.v2.mirror.WimtCandidate
 import `in`.opentrack.india.v2.source.ErailPairParser
 import `in`.opentrack.india.v2.source.ErailTransport
@@ -337,11 +338,15 @@ class LiveViewModel(
                 // arrives while the HTTP call is in flight, the first reply cannot
                 // contain its intermediate points; recheck once after publishing it.
                 val mapAtRequest = _ui.value?.staticRoute ?: geoRoute ?: confirmStaticRoute
-                val result = withContext(Dispatchers.IO) {
+                val pacing = if (name == PublicPageChecks.ORG) WebsiteRequestPacing(app) else null
+                val paused = pacing?.paused(System.currentTimeMillis())
+                if (paused != null) Diary.get()?.log("SOURCE", "website not asked: ${paused.detail}")
+                val result = paused ?: withContext(Dispatchers.IO) {
                     PublicPageChecks.fetch(Http(app), name, trainNo, originEpochDay,
                         System.currentTimeMillis(), route.srcCode, route.dstCode,
                         route.stops.map { it.code.uppercase() }.toSet(), route, mapAtRequest)
                 }
+                if (paused == null) pacing?.observe(result, System.currentTimeMillis())
                 if (_ui.value == null) return@launch
                 if (latestProbeOrder[name] != order) {
                     Diary.get()?.log("SOURCE", "ignoring older $name reply after a newer probe started")
@@ -379,7 +384,8 @@ class LiveViewModel(
                     SourceEvidenceReceipt.publicPage(name, trainNo, originEpochDay,
                         publicChecks[name] ?: resolved)
                 }
-                manualProbeMs[name] = System.currentTimeMillis() - started
+                if (paused == null) manualProbeMs[name] = System.currentTimeMillis() - started
+                else manualProbeMs.remove(name)
                 if (select) mirrorActiveSource = name
                 _ui.value?.let { u -> _ui.value = buildUi(u.route, lastAnswer ?: u.answer, u.tried) }
                 if (select) _mirrorState.value = resolved.detail
@@ -493,7 +499,12 @@ class LiveViewModel(
         Diary.get()?.log("SOURCE", "first load: checking all independent sources without selecting them")
         // The mirror checks ConfirmTkt and runningstatus together, even when NTES succeeded.
         maybeMirror(force = true)
-        (PublicPageChecks.names + listOf(WimtCandidate.SOURCE, "erail")).forEach {
+        // Do not spend a website request merely because an NTES screen was opened.
+        // If this website is the chosen default, ask it once; otherwise only an
+        // explicit selection/Refresh or the existing stale-NTES comparison may ask.
+        (PublicPageChecks.names.filter { it != PublicPageChecks.ORG ||
+            RefreshTargetPolicy.surveyWebsite(mirrorActiveSource, publicChecks[it] != null) } +
+            listOf(WimtCandidate.SOURCE, "erail")).forEach {
             probeSource(it, select = false)
         }
     }
@@ -1789,14 +1800,17 @@ class LiveViewModel(
         )
         for (name in PublicPageChecks.names) {
             val result = publicChecks[name]
-            sourceNames[name] = if (result == null) "none" to "checking on first load" else
+            sourceNames[name] = if (result == null)
+                "none" to (if (name == PublicPageChecks.ORG)
+                    "select to check; no unsolicited website request" else "checking on first load") else
                 (if (name == PublicPageChecks.ORG && result.orgReport != null &&
                     (!result.pageAnswered || now - result.orgReport.pageUpdatedAt !in 0L..300_000L))
                     "last-known" else if (result.orgReport != null &&
                     now - result.orgReport.pageUpdatedAt in 0L..300_000L)
                     "comparison" else if (result.stationClaim != null &&
                     now - result.stationClaim.updateAt in 0L..300_000L)
-                    "comparison" else "unverified") to (result.detail + " · checked " +
+                    "comparison" else "unverified") to (if (result.detail.startsWith("Website request paused"))
+                    result.detail else result.detail + " · checked " +
                     RailTime.formatDate(RailTime.istEpochDay(result.checkedAt)) + " " +
                     RailTime.formatClock(result.checkedAt) + " IST" +
                     (if (now - result.checkedAt > 300_000L) " (old check; refresh to ask again)" else ""))

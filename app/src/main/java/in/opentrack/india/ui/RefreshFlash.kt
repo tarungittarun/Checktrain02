@@ -10,6 +10,7 @@ object RefreshFlash {
         if (source == PublicPageChecks.ORG && websiteAnswered == true) return null
         val reason = detail + " " + official?.reason.orEmpty()
         if (source == PublicPageChecks.ORG) {
+            if (detail.startsWith("Website request paused")) return "Website request paused"
             // A refused request is not the same as a rate limit. Do not guess the reason
             // for the refusal, but make the HTTP outcome visible on the phone itself.
             if (detail.contains("HTTP 403", true)) return "Website refused request (HTTP 403)"

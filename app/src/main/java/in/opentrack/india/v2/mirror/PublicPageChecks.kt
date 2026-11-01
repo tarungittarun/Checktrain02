@@ -67,10 +67,18 @@ object PublicPageChecks {
         }
     }
 
-    /** A quickly dropped mobile GET gets one second chance for this website, never a
-     * second four-second socket wait. [Http]'s attempt deadline is four seconds (plus
-     * its bounded retry/backoff overhead); HTTP errors are not retried. */
-    internal fun retriesFor(name: String): Int = if (name == ORG) 1 else 0
+    /** One request per explicit website check. A refusal is never a cue to retry; the
+     * transport's separate IPv4 recovery still applies to a broken socket, not HTTP 403. */
+    internal fun retriesFor(name: String): Int = 0
+
+    /** Identify as this app, not a Chrome session we do not have. Ordinary HTTP caching is
+     * allowed; a page publication clock is still never an observed train-event clock. */
+    internal fun headersFor(name: String): Map<String, String> = when (name) {
+        ORG -> mapOf("Accept" to "text/html")
+        else -> mapOf("User-Agent" to "Mozilla/5.0 (Linux; Android 13; Mobile) Chrome/120 Safari/537.36",
+            "Accept" to if (name == RAIL_YATRI) "application/json" else "text/html",
+            "Cache-Control" to "no-cache", "Pragma" to "no-cache")
+    }
 
     fun fetch(http: Http, name: String, number: String, originDay: Long, now: Long,
               source: String? = null, destination: String? = null,
@@ -78,9 +86,7 @@ object PublicPageChecks {
               mapRoute: TrainRoute? = null): Result =
         fetch(name, number, originDay, now, source, destination, knownCodes, route, mapRoute) { url ->
             http.get(url, timeoutMillis = 4_000, retries = retriesFor(name), budgetMillis = 4_000,
-                headers = mapOf("User-Agent" to "Mozilla/5.0 (Linux; Android 13; Mobile) Chrome/120 Safari/537.36",
-                    "Accept" to if (name == RAIL_YATRI) "application/json" else "text/html",
-                    "Cache-Control" to "no-cache", "Pragma" to "no-cache"))
+                headers = headersFor(name), allowCachedOnFailure = name != ORG)
         }
 
     /** Transport seam: a source choice always requests its own URL. An HTTP fallback cache may
