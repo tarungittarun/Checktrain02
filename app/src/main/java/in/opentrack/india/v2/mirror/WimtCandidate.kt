@@ -36,15 +36,16 @@ object WimtCandidate {
         knownKms: Map<String, Int> = emptyMap(),
         get: (String) -> Pair<String?, String> = ::getOnce,
     ): Result {
-        if (!number.matches(Regex("\\d{4,5}")) ||
+        if (!number.matches(Regex("[0-9]{5}")) ||
             !from.matches(Regex("[A-Z]{2,5}")) || !to.matches(Regex("[A-Z]{2,5}")))
             return Result(emptyMap(), "invalid train or route identity")
         val day = SimpleDateFormat("dd-MM-yyyy", Locale.ENGLISH).apply {
             timeZone = TimeZone.getTimeZone("Asia/Kolkata")
         }.format(Date(epochDay * 86_400_000L))
-        val parameters = mapOf("date" to day, "train_no" to number,
-            "from" to from, "to" to to, "from_day" to "1", "lang" to "en",
-            "appVersion" to "7.1.5.633808517", "sb_version" to "0")
+        // This is an undocumented public web-cache comparison, not a genuine phone-app
+        // session. Do not pass copied appVersion/sb_version identifiers, or an assumed
+        // from_day; ask only by run date and verify the returned route independently.
+        val parameters = mapOf("date" to day, "train_no" to number, "lang" to "en")
         val url = "https://whereismytrain.in/cache/live_status?" + parameters.entries.joinToString("&") {
             "${it.key}=${URLEncoder.encode(it.value, "UTF-8")}" }
         val (body, why) = get(url)
@@ -88,7 +89,8 @@ object WimtCandidate {
             fun event(key: String): String? {
                 val seconds = row.optLong(key, 0L)
                 val millis = seconds * 1000L
-                if (seconds <= 0 || RailTime.istEpochDay(millis) != epochDay ||
+                if (seconds <= 0 || seconds > Long.MAX_VALUE / 1000L ||
+                    RailTime.istEpochDay(millis) !in epochDay..(epochDay + 3) ||
                     millis > nowMillis + 120_000L || millis > updated + 30_000L) {
                     if (seconds > 0) rejectedAhead++
                     return null
@@ -98,7 +100,15 @@ object WimtCandidate {
                 return RailTime.formatRailMinuteBare(minute)
             }
             val arr = event("actual_arrival_tm")
-            val dep = event("actual_departure_tm")
+            val rawArr = row.optLong("actual_arrival_tm", 0L)
+            val rawDep = row.optLong("actual_departure_tm", 0L)
+            // The 2 Nov 20689 cache gave BDVT an arrival at 13:35 and an
+            // "actual departure" of 12:52 (its schedule). Even on a row marked
+            // departed, that cannot be a reported departure after the arrival.
+            val dep = if (rawArr > 0 && rawDep > 0 && rawDep < rawArr) {
+                rejectedAhead++
+                null
+            } else event("actual_departure_tm")
             if (arr != null || dep != null) {
                 lines[code] = "$code · " + listOfNotNull(arr?.let { "arrival $it" },
                     dep?.let { "departure $it" }).joinToString(" · ") +
@@ -112,7 +122,7 @@ object WimtCandidate {
             else "web point ${webPoint.code} at ${RailTime.formatClock(webPoint.eventAtMillis)} IST " +
                 "(${(nowMillis - webPoint.eventAtMillis) / 60_000L} min old); not GPS or the WIMT phone app"
         return Result(lines, "${rows.length()} rows; ${lines.size} candidate stops; " +
-            "$rejectedEta ETA rows and $rejectedAhead pre-update/future cells excluded; $age. " +
+            "$rejectedEta ETA rows and $rejectedAhead contradictory/pre-update/future cells excluded; $age. " +
             "$pointNote. Undocumented web cache; no future ETA inferred", webPoint)
     }
 
