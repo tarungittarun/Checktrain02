@@ -14,6 +14,7 @@ class Response(io.BytesIO):
         super().__init__(body)
         self.status = status
         self.headers = Message()
+        self.headers["Content-Type"] = "text/html; charset=utf-8"
         for key, value in (headers or {}).items():
             self.headers[key] = value
 
@@ -76,6 +77,14 @@ class TrialTest(unittest.TestCase):
                 self.assertNotIn("private-cdn", str(answer))
                 self.assertEqual(answer["retryAfterSeconds"], 900 if status == 429 else None)
 
+    def test_hostile_retry_header_is_never_echoed_or_parsed_as_unbounded_int(self):
+        blocked = refusal(429)
+        blocked.headers.replace_header("Retry-After", "9" * 8_000)
+        answer = trial.classify("20689", FakeOpener(blocked))
+        self.assertEqual(answer["verdict"], "HTTP_REFUSED_NO_BODY_READ")
+        self.assertIsNone(answer["retryAfterSeconds"])
+        self.assertLess(len(str(answer)), 500)
+
     def test_200_challenge_wrong_train_generic_page_and_gzip_are_not_success(self):
         bodies = [
             (b"<h1>Checking your browser before accessing</h1>", "BROWSER_CHECK_NOT_TRAIN_DATA"),
@@ -89,6 +98,10 @@ class TrialTest(unittest.TestCase):
         zipped = Response(gzip.compress(b"<h1>20689</h1><!-- Station Details Card -->"),
                           headers={"Content-Encoding": "gzip"})
         self.assertTrue(trial.classify("20689", FakeOpener(zipped))["pageAccepted"])
+        not_html = Response(b"<h1>20689</h1><!-- Station Details Card -->")
+        not_html.headers.replace_header("Content-Type", "application/json")
+        self.assertEqual(trial.classify("20689", FakeOpener(not_html))["verdict"],
+                         "UNEXPECTED_CONTENT_TYPE_NO_BODY_READ")
 
     def test_error_body_limit_redirect_and_input_guard(self):
         big = FakeOpener(Response(b"a" * (trial.LIMIT + 1)))

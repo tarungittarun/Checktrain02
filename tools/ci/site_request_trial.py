@@ -121,6 +121,9 @@ def classify(train: str, opener=None, contract: Contract | None = None) -> dict:
             if response.status != 200:
                 result["verdict"] = "NON_200_NO_BODY_READ"
                 return result
+            if content_type != "text/html":
+                result["verdict"] = "UNEXPECTED_CONTENT_TYPE_NO_BODY_READ"
+                return result
             body = bounded_body(response)
             # A 200 can be a challenge or a generic page; never call it train data.
             text = body.decode("utf-8", "replace")

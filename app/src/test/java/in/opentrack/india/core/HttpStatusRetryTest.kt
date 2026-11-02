@@ -16,6 +16,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
+import `in`.opentrack.india.v2.mirror.PublicPageChecks
 
 /** Local wire test: a real refusal must not be sent again as an IPv4 'recovery'. */
 @RunWith(RobolectricTestRunner::class)
@@ -28,6 +29,7 @@ class HttpStatusRetryTest {
                 server.soTimeout = 300
                 val running = AtomicBoolean(true)
                 val calls = AtomicInteger()
+                val requestHeaders = AtomicReference("")
                 val failure = AtomicReference<Throwable?>()
                 val responder = Thread {
                     while (running.get()) {
@@ -41,6 +43,7 @@ class HttpStatusRetryTest {
                                     if (b < 0 || header.size() > 8192) error("missing GET headers")
                                     header.write(b)
                                 }
+                                requestHeaders.set(header.toString("UTF-8"))
                                 calls.incrementAndGet()
                                 val response = "HTTP/1.1 $code Denied\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
                                 socket.getOutputStream().apply {
@@ -63,10 +66,18 @@ class HttpStatusRetryTest {
                     val result = Http(RuntimeEnvironment.getApplication()).get(
                         "http://127.0.0.1:${server.localPort}/status?test=$code",
                         timeoutMillis = 2_000, retries = 1, budgetMillis = 4_000,
+                        headers = PublicPageChecks.headersFor(PublicPageChecks.ORG),
                         allowCachedOnFailure = false)
                     assertTrue("expected HTTP $code, got $result", result is Http.Result.Failed)
                     assertEquals("HTTP $code", (result as Http.Result.Failed).message)
                     assertEquals("HTTP $code should have exactly one request", 1, calls.get())
+                    val wire = requestHeaders.get()
+                    assertTrue(wire.startsWith("GET /status?test=$code HTTP/1.1\r\n"))
+                    assertTrue(wire.contains(Regex("(?im)^Accept: text/html\\r?$")))
+                    assertTrue(wire.contains(Regex("(?im)^User-Agent: OpenTrackIndia/1\\.0 ")))
+                    assertTrue(wire.contains(Regex("(?im)^Accept-Encoding: gzip\\r?$")))
+                    assertFalse(wire.contains(Regex("(?im)^(Cookie|Authorization):")))
+                    assertFalse(wire.contains("Mozilla/5.0"))
                 } finally {
                     running.set(false)
                     server.close()
