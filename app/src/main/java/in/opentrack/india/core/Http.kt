@@ -430,8 +430,12 @@ class Http(context: Context) {
                     setRequestProperty("Accept-Encoding", "gzip")
                 }
             }
-            if (conn.responseCode >= 400) {
-                return Result.Failed(Result.Kind.HTTP, "HTTP ${conn.responseCode}")
+            val responseStatus = conn.responseCode
+            if (responseStatus >= 400) {
+                SiteRefusalReceipt.forResponse(conn.url.host, responseStatus) { key ->
+                    conn.getHeaderField(key)
+                }?.let { receipt -> Diary.get()?.log("SITE_REFUSAL", receipt) }
+                return Result.Failed(Result.Kind.HTTP, "HTTP $responseStatus")
             }
             val body = HttpBody.read(conn.inputStream, conn.contentEncoding)
             bodyRead = true
