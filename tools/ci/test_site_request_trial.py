@@ -112,8 +112,10 @@ class TrialTest(unittest.TestCase):
                                                                "https://elsewhere.example/"))
         for input_value in ("２０６８９", "20689&x=1", "2068", " 20689", "20689\n"):
             with self.subTest(input_value=input_value):
+                never_open = FakeOpener(Response(b""))
                 with self.assertRaises(trial.ContractError):
-                    trial.classify(input_value, FakeOpener(Response(b"")))
+                    trial.classify(input_value, never_open)
+                self.assertEqual(never_open.calls, [], "invalid train must not make a GET")
 
     def test_contract_drift_cannot_silently_turn_green(self):
         page = trial.PAGE.read_text()
