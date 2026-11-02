@@ -1,0 +1,20 @@
+# R166 — bounded website-request trial in Actions
+
+**Question:** can TrackTrain's *current, honestly identified* `.org.in` GET obtain train content without misleadingly claiming a CDN refusal is a valid feed? This is an execution setup, not a browser-verification workaround or a promise that GitHub's IP/TLS matches the owner's phone.
+
+## Executable gates
+
+- `.github/workflows/org-source-research.yml`: on changes to the trial or by explicit dispatch, first runs offline tests + a source-code contract check, then makes **one first-hop HTTPS GET** for one validated five-digit train number. It does not run for every app edit, schedule, or Refresh. No cookies, browser/User-Agent impersonation, redirects, second train/date/control request, retry or challenge response body. The job fails visibly on 403/429, redirects, network error, 200 browser-check page, wrong train or absent station cards. A successful **structure-only** verdict is not a source-correct run or dated event. Its bounded JSON result appears in the Actions summary and seven-day artifact; no page body or raw CDN request ID is posted.
+- `tools/ci/site_request_trial.py`: extracts/guards the app's explicit `.org.in` URL, five-digit validation, Accept header, declared User-Agent, gzip/close, GET, 4-second timeout/budget, zero retries, no website cache fallback and refusal handling from Kotlin source before making the trial request. If these settings drift, the contract fails rather than testing a stale Python imitation. Python's `urllib` and the GitHub runner have different implicit headers, DNS/TLS fingerprint and IP from Android; they are *not* packet-level equivalence. Redirects are intentionally reported rather than followed to avoid an uncounted second GET.
+- `tools/ci/test_site_request_trial.py`: **network-free** fake-server tests for a matching train page, hcdn 403/429 (body never read, ID never output), 200 challenge, wrong train, empty station cards, gzip, oversized page, redirect and invalid input. Mutations to the app's timeout/headers/retry/cache/User-Agent/status guard must fail the contract. Android CI runs these tests on every push without issuing any website request. The live trial runs separately and cannot be made green by offline fixture tests.
+
+## Interpretation / next action
+
+- **403 + `cdnServer=true`:** runner's first-hop client was refused; collect status and UTC time. An original unredacted `x-hcdn-request-id` from the *phone* (not the redacted upload) should be given privately to the site's operator for a rule review. Hostinger [documents](https://www.hostinger.com/support/hostinger-cdn-how-to-fix-blocked-legitimate-requests/) the operator's rule/exception workflow. This trial deliberately does not store the runner's raw ID in a public artifact.
+- **200 + challenge or no matching cards:** not train data. Do not change parsing or call it WIMT.
+- **200 + matching train/cards:** only the runner obtained a structurally relevant web page. It does **not** show the Android phone was allowed, that the site grants programmatic usage, or that station clocks are reported actuals. Check a real phone request and parser/run-age evidence before allowing the selected website source to be described as working.
+- **Timeout/redirect:** inconclusive about permission. Don't retry the refused endpoint with another identity or a browser session. A redirect is a deliberate conservative difference from Android's automatic redirect handling.
+
+To run again when legitimately needed: Actions → **org-website-request-trial** → Run workflow on the Arena branch with a five-digit number, *if GitHub enables dispatch for this branch*. Pushes changing this workflow/trial already run one check; do not repeatedly dispatch after 403. The repo's E2E workflow remains manual-only and is not started by this trial.
+
+**Scope:** `whereismytrain.org.in` is the independent website, not Google's `com.whereismytrain.android` data. This setup tests refusal and request construction; operator-approved access and real-device confirmation remain required to satisfy the phone-app WIMT request. PR #3 remains unmerged.
