@@ -8,9 +8,6 @@ import android.view.animation.LinearInterpolator
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.content.Intent
-import android.content.ActivityNotFoundException
-import android.net.Uri
 import android.os.Bundle
 import android.os.SystemClock
 import android.util.Log
@@ -213,21 +210,6 @@ class TrainActivity : AppCompatActivity() {
         super.onSaveInstanceState(outState)
     }
 
-    private fun openWebsiteInBrowser(number: String) {
-        // Hand the URL to the user's real browser. Do not read a browser cookie, inspect its
-        // response, automate its verification, or claim its page was an in-app source answer.
-        val url = BrowserWebsiteLink.url(number) ?: return
-        try {
-            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
-                addCategory(Intent.CATEGORY_BROWSABLE)
-            })
-        } catch (_: ActivityNotFoundException) {
-            Toast.makeText(applicationContext, "No browser is installed", Toast.LENGTH_SHORT).show()
-        } catch (_: SecurityException) {
-            Toast.makeText(applicationContext, "Browser could not open this website", Toast.LENGTH_SHORT).show()
-        }
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val trainNo = intent.getStringExtra(EXTRA_TRAIN_NO).orEmpty()
@@ -391,10 +373,7 @@ class TrainActivity : AppCompatActivity() {
                     "station is a planned passing time estimated from the timetable and distances. " +
                     "Intermediate km comes from a separate route map and can differ from the main timetable.\n\n" +
                     "The train icon stays at the last reported place; its age is the " +
-                    "age of that event, not the age of the page or proof of its current position.\n\n" +
-                    "Open browser uses your installed browser to view the independent website. " +
-                    "It does not import the page into this app or replace Refresh.")
-                .setNegativeButton("Open browser") { _, _ -> openWebsiteInBrowser(trainNo) }
+                    "age of that event, not the age of the page or proof of its current position.")
                 .setNeutralButton("Source details") { _, _ ->
                     AlertDialog.Builder(this).setTitle("Source details · ${BuildStamp.ROUND}")
                         .setMessage(sourceDetails)
@@ -406,7 +385,6 @@ class TrainActivity : AppCompatActivity() {
                     paintBatteryDialog(dialog)
                     // AOSP's all-caps action looks like a warning label and was
                     // hard to recognise as the second, optional explanation.
-                    dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setAllCaps(false)
                     dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setAllCaps(false)
                     dialog.getButton(AlertDialog.BUTTON_POSITIVE).setAllCaps(false)
                 }
@@ -722,7 +700,7 @@ class TrainActivity : AppCompatActivity() {
         // Spinner's own accessibility text can be empty on Android even when its
         // painted child says WIMT. Expose the *selected* source to TalkBack too.
         binding.sourceSpinner.contentDescription = "Selected ${TrackingSources.label(TrackingSources.valid(ui.activeSource))}. " +
-            "Choose NTES or Where Is My Train website. Long press for time details or open the site in your browser."
+            "Choose NTES or Where Is My Train website. Long press for time and source details."
         binding.refresh.contentDescription = if (vm.refreshTarget(auto = false) != ui.activeSource)
             "Retry selected website first; NTES currently shown as fallback. Drag to move in lower half"
         else "Refresh selected source; drag to move in lower half"
@@ -1113,14 +1091,18 @@ class TrainActivity : AppCompatActivity() {
         val newReceipt = ui.selectedLoadReceiptMillis != null && loadKey != lastScreenLoadKey
         if (newReceipt) lastScreenLoadKey = loadKey
         if (refreshStartedAt == 0L) {
-            val failure = RefreshFlash.connectionError(ui.activeSource.orEmpty(),
+            val site = `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG
+            val preferredFailure = RefreshFlash.preferredWebsiteError(ui.activeSource,
+                vm.refreshTarget(auto = false), ui.sourceStates[site], ui.publicSourceAnswered[site])
+            val failure = preferredFailure ?: RefreshFlash.connectionError(ui.activeSource.orEmpty(),
                 ui.sourceStates[ui.activeSource], ui.officialRequest,
                 ui.publicSourceAnswered[ui.activeSource])
+            val failedSource = if (preferredFailure != null) site else ui.activeSource.orEmpty()
             val key = if (failure == null) null else
-                "${ui.activeSource}:${ui.sourceStates[ui.activeSource]?.second}:$failure"
+                "$failedSource:${ui.sourceStates[failedSource]?.second}:$failure"
             if (key != null && key != lastFlashErrorKey) {
                 lastFlashErrorKey = key
-                showConnectionError(failure!!, ui.activeSource.orEmpty())
+                showConnectionError(failure!!, failedSource)
             } else if (failure == null) {
                 lastFlashErrorKey = null
                 connectionCue.clear()

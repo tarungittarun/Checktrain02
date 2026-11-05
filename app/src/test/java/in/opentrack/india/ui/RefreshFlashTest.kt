@@ -25,6 +25,19 @@ class RefreshFlashTest {
             "unverified" to "timed out", null, false))
     }
 
+    @Test fun firstLoadWebsiteFailureStillNamesWebsiteWhenOfficialIsDisplayed() {
+        val site = PublicPageChecks.ORG
+        val official = TrackingSources.OFFICIAL
+        assertEquals("Website refused request (HTTP 403)", RefreshFlash.preferredWebsiteError(
+            official, site, "unverified" to "Request failed: HTTP · HTTP 403", false))
+        assertNull(RefreshFlash.preferredWebsiteError(official, official,
+            "unverified" to "Request failed: HTTP · HTTP 403", false))
+        assertNull(RefreshFlash.preferredWebsiteError(site, site,
+            "unverified" to "Request failed: HTTP · HTTP 403", false))
+        assertNull(RefreshFlash.preferredWebsiteError(official, site,
+            "comparison" to "page answered", true))
+    }
+
     @Test fun officialErrorIsSeparateFromAUsableEarlierStop() {
         assertEquals("Connection failed", RefreshFlash.connectionError(TrackingSources.OFFICIAL,
             "last-known" to "saved stop", OfficialRequestReceipt(

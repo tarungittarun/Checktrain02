@@ -4,6 +4,14 @@ import `in`.opentrack.india.v2.mirror.PublicPageChecks
 
 /** The short failure display names a failed CONNECTION, never an unchanged stop. */
 object RefreshFlash {
+    /** A failed first-load website request can leave NTES displayed. Name the failed
+     * preferred source in the warning instead of falsely calling the NTES answer a 403. */
+    fun preferredWebsiteError(displayed: String?, manualTarget: String?,
+                              websiteState: Pair<String, String>?, websiteAnswered: Boolean?): String? =
+        if (displayed == TrackingSources.OFFICIAL && manualTarget == PublicPageChecks.ORG)
+            connectionError(PublicPageChecks.ORG, websiteState, null, websiteAnswered)
+        else null
+
     fun connectionError(source: String, state: Pair<String, String>?,
                         official: OfficialRequestReceipt?, websiteAnswered: Boolean?): String? {
         val detail = state?.second.orEmpty()

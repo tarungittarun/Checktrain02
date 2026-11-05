@@ -11,6 +11,14 @@ object RefreshTargetPolicy {
     fun surveyWebsite(active: String?, alreadyChecked: Boolean): Boolean =
         active == PublicPageChecks.ORG && !alreadyChecked
 
+    /** A first-load website refusal must not leave an already answered official source hidden
+     * behind a blank website table. This changes only the displayed source, never the saved
+     * preference, so the next deliberate Refresh still asks the website first. */
+    fun afterWebsiteSurvey(displayed: String?, siteReportAvailable: Boolean,
+                           officialActualsAvailable: Boolean): String? =
+        if (displayed == PublicPageChecks.ORG && !siteReportAvailable && officialActualsAvailable)
+            TrackingSources.OFFICIAL else displayed
+
     fun target(displayed: String?, preferred: String?, auto: Boolean): String {
         val active = displayed ?: TrackingSources.OFFICIAL
         return if (!auto && active == TrackingSources.OFFICIAL &&

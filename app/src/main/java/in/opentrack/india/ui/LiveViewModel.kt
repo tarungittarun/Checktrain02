@@ -387,6 +387,21 @@ class LiveViewModel(
                 if (paused == null) manualProbeMs[name] = System.currentTimeMillis() - started
                 else manualProbeMs.remove(name)
                 if (select) mirrorActiveSource = name
+                else if (name == PublicPageChecks.ORG) {
+                    val officialActuals = lastAnswer?.let { answer ->
+                        answer.position.provenance == SourceKind.PROVIDER_NTES &&
+                            answer.perStop.values.any { stop ->
+                                stop.actualArrivalMin != null || stop.actualDepartureMin != null
+                            }
+                    } == true
+                    val display = RefreshTargetPolicy.afterWebsiteSurvey(mirrorActiveSource,
+                        resolved.orgReport != null && resolved.pageAnswered, officialActuals)
+                    if (display != mirrorActiveSource) {
+                        mirrorActiveSource = display
+                        Diary.get()?.log("SOURCE", "website first-load check has no usable report; " +
+                            "showing independently answered NTES instead; website remains manual Refresh preference")
+                    }
+                }
                 _ui.value?.let { u -> _ui.value = buildUi(u.route, lastAnswer ?: u.answer, u.tried) }
                 if (select) _mirrorState.value = resolved.detail
                 Diary.get()?.log("SOURCE", "$name: ${resolved.detail}")
