@@ -8,6 +8,8 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.util.Calendar
+import java.util.TimeZone
 
 /** A STRICT online gate on the installed APK, not the more permissive fixture/source UI suite.
  * HTTP 403, a challenge page, NTES fallback, a web-cache candidate, timetable-only cells,
@@ -16,6 +18,18 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class WimtWebsiteLiveAcceptanceTest {
     @Test fun websiteRefreshMustPaintARealSourceQualifiedPastCard() {
+        // The site omits the origin run date. A completed or future service cannot
+        // qualify its cards for this test merely because its page answered. Use a
+        // train whose known timetable is in flight at this IST hour; outside these
+        // windows fail before making any site request rather than claiming success.
+        val hour = Calendar.getInstance(TimeZone.getTimeZone("Asia/Kolkata"))
+            .get(Calendar.HOUR_OF_DAY)
+        val number = when (hour) {
+            in 5..11 -> "20652"  // TLGP -> SBC morning service
+            in 15..19 -> "20651" // SBC -> TLGP afternoon service
+            in 20..23 -> "16227" // MYS -> TLGP overnight service
+            else -> error("no known unambiguously active website test train at IST hour $hour")
+        }
         try {
             E2E.launch()
             E2E.awaitSearchScreen()
@@ -25,13 +39,13 @@ class WimtWebsiteLiveAcceptanceTest {
             assertTrue("cannot enable source diary", E2E.tap("diagToggle"))
             E2E.ui.pressBack()
             assertTrue("train mode missing", E2E.tap("modeTrain"))
-            assertTrue("20652 not in search", E2E.typeInBox("trainBox", "20652") &&
+            assertTrue("$number not in search", E2E.typeInBox("trainBox", number) &&
                 E2E.ui.wait(Until.hasObject(E2E.res("sugPrimary")), E2E.LOCAL_MS))
-            assertTrue("could not select 20652", E2E.tapSuggestion("trainBox"))
+            assertTrue("could not select $number", E2E.tapSuggestion("trainBox"))
             assertTrue("Find missing", E2E.reveal("find", "searchCardScroll") && E2E.tap("find"))
-            assertTrue("20652 result missing", E2E.ui.wait(Until.hasObject(E2E.res("hitGo")), E2E.NETWORK_MS))
+            assertTrue("$number result missing", E2E.ui.wait(Until.hasObject(E2E.res("hitGo")), E2E.NETWORK_MS))
             assertTrue("Track not opened", E2E.openTrackFromFirstResult())
-            assertEquals("wrong train opened", "20652", E2E.text("trainNo"))
+            assertEquals("wrong train opened", number, E2E.text("trainNo"))
             E2E.shot("wimt-before-selected-source")
             assertTrue("source selector not reachable", E2E.reveal("sourceSpinner", "scroller") &&
                 E2E.tap("sourceSpinner"))
