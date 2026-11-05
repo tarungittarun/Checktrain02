@@ -1,0 +1,67 @@
+# Targeted, opt-in source acceptance: a real online emulator, APK, screenshots and
+# strict site-data gate. General E2E stays manual-only; this does not run on normal pushes.
+name: wimt-website-device-acceptance
+on:
+  push:
+    branches: ['arena/6f68e526-checktrain02']
+    paths:
+      - '.github/workflows/wimt-device-acceptance.yml'
+      - 'tools/ci/run_wimt_device.sh'
+      - 'tools/ci/wimt_device_report.py'
+      - 'app/src/androidTest/java/in/opentrack/india/e2e/WimtWebsiteLiveAcceptanceTest.kt'
+  workflow_dispatch:
+permissions:
+  contents: write # API-visible redacted verdict; raw diary never published
+jobs:
+  device:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[wimt-device]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Offline strict-result/redaction and workflow checks
+        run: |
+          python3 tools/ci/wimt_device_report.py --self-test
+          python3 tools/ci/check_workflows.py
+          bash -n tools/ci/run_wimt_device.sh
+      - name: Generate offline timetable in the exact APK
+        run: bash tools/ci/prepare_asset.sh
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: true
+      - name: Build app and UI-test APKs from this SHA
+        run: ./gradlew --no-daemon :app:assembleDebug :app:assembleDebugAndroidTest --stacktrace
+      - name: Real emulator · select website · require past card and painted clock
+        run: bash tools/ci/run_wimt_device.sh
+      - name: Evidence-backed result even on boot, build or site refusal
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p wimt-device-evidence
+          if [ ! -s wimt-device-evidence/result.json ]; then
+            echo '{"accepted":false,"verdict":"DEVICE_TEST_NOT_EXECUTED","reason":"build or setup failed; no live source claim"}' > wimt-device-evidence/result.json
+          fi
+          { echo '### Independent .org.in website · source-strict APK device acceptance';
+            echo 'Online emulator, not owner phone or Google WIMT app. A refusal, missing train card or unbooted device is NOT a pass.';
+            echo '```json'; cat wimt-device-evidence/result.json; echo '```';
+            echo "Run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"; } \
+            > wimt-device-evidence/report.md
+          cat wimt-device-evidence/report.md >> "$GITHUB_STEP_SUMMARY"
+          gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
+            -F body=@wimt-device-evidence/report.md > /dev/null || \
+            echo '::warning::Commit comment unavailable; inspect run summary/artifact'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wimt-device-evidence
+          path: wimt-device-evidence/
+          if-no-files-found: error
+          retention-days: 7

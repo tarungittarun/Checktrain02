@@ -1,0 +1,73 @@
+package `in`.opentrack.india.e2e
+
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.uiautomator.By
+import androidx.test.uiautomator.Until
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import org.junit.runner.RunWith
+
+/** A STRICT online gate on the installed APK, not the more permissive fixture/source UI suite.
+ * HTTP 403, a challenge page, NTES fallback, a web-cache candidate, timetable-only cells,
+ * or a page with no qualified current-run past card must all FAIL, with a screenshot.
+ * The independent .org.in website is not Google's WIMT phone-app feed. */
+@RunWith(AndroidJUnit4::class)
+class WimtWebsiteLiveAcceptanceTest {
+    @Test fun websiteRefreshMustPaintARealSourceQualifiedPastCard() {
+        try {
+            E2E.launch()
+            E2E.awaitSearchScreen()
+            // The diagnostic switch is opt-in, enabled here through the real Settings UI.
+            assertTrue("Settings not reachable", E2E.tap("settings"))
+            assertTrue("diagnostic switch not reachable", E2E.reveal("diagToggle", "settingsScroll"))
+            assertTrue("cannot enable source diary", E2E.tap("diagToggle"))
+            E2E.ui.pressBack()
+            assertTrue("train mode missing", E2E.tap("modeTrain"))
+            assertTrue("20652 not in search", E2E.typeInBox("trainBox", "20652") &&
+                E2E.ui.wait(Until.hasObject(E2E.res("sugPrimary")), E2E.LOCAL_MS))
+            assertTrue("could not select 20652", E2E.tapSuggestion("trainBox"))
+            assertTrue("Find missing", E2E.reveal("find", "searchCardScroll") && E2E.tap("find"))
+            assertTrue("20652 result missing", E2E.ui.wait(Until.hasObject(E2E.res("hitGo")), E2E.NETWORK_MS))
+            assertTrue("Track not opened", E2E.openTrackFromFirstResult())
+            assertEquals("wrong train opened", "20652", E2E.text("trainNo"))
+            E2E.shot("wimt-before-selected-source")
+            assertTrue("source selector not reachable", E2E.reveal("sourceSpinner", "scroller") &&
+                E2E.tap("sourceSpinner"))
+            val site = E2E.ui.wait(Until.findObject(By.textContains("Where Is My Train · website")),
+                E2E.LOCAL_MS)
+            assertNotNull("independent website not selectable", site)
+            site!!.click() // one deliberate selected-source request; no background retry in the test
+            val until = System.currentTimeMillis() + E2E.NETWORK_MS
+            var accepted = false
+            var warning = ""
+            var headline = ""
+            var badge = ""
+            while (System.currentTimeMillis() < until) {
+                headline = E2E.text("headline", 250)
+                badge = E2E.text("provenance", 250)
+                warning = E2E.text("connectionAlert", 250)
+                val reported = (headline.startsWith("Last mapped website card") ||
+                    headline.startsWith("Recently reported near")) &&
+                    badge.contains("run inferred", true)
+                if (reported) { accepted = true; break }
+                if (warning.contains("HTTP 403") || warning.contains("blocks request", true) ||
+                    warning.contains("HTTP 429")) break
+                Thread.sleep(250)
+            }
+            E2E.shot("wimt-after-selected-source")
+            assertTrue("No qualified website past card in the installed app; " +
+                "headline='$headline' badge='$badge' warning='$warning'. " +
+                "NTES fallback, HTTP 200 alone and the .in web cache do not pass.", accepted)
+            assertTrue("time-sheet not reachable", E2E.reveal("routeHeadActual", "scroller"))
+            assertEquals("website data was mislabeled ACTUAL", "WEBSITE", E2E.text("routeHeadActual"))
+            val siteCells = E2E.all(By.res(E2E.PKG, "liveArr")) +
+                E2E.all(By.res(E2E.PKG, "liveDep"))
+            assertTrue("site report has no painted source-attributed times",
+                siteCells.any { it.contentDescription.orEmpty().startsWith("Website displayed") })
+        } finally {
+            E2E.shot("wimt-final-even-on-failure")
+        }
+    }
+}

@@ -1,0 +1,66 @@
+#!/usr/bin/env python3
+"""Bounded verdict for the strict .org.in APK device journey; no raw diary publication."""
+import json
+import re
+import sys
+from pathlib import Path
+
+HOST = "whereismytrain.org.in"
+
+
+def verdict(instrumentation: str, diary: str, process_rc: int) -> dict:
+    attempted = re.findall(r"\[HTTP\] GET whereismytrain\.org\.in try#\d+ -> ([^\r\n]+)", diary)
+    evidence = [line for line in diary.splitlines()
+                if "[EVIDENCE] source=whereismytrain.org.in (website)" in line]
+    latest = evidence[-1] if evidence else ""
+    transport = re.search(r"\btransport=([A-Z_]+)", latest)
+    rows = re.search(r"\bsiteRows=(\d+)", latest)
+    train = re.search(r"\btrain=(\d{5})\b", latest)
+    test_passed = process_rc == 0 and bool(re.search(r"OK \(1 test\)", instrumentation)) and \
+        "FAILURES!!!" not in instrumentation and "INSTRUMENTATION_FAILED" not in instrumentation
+    site_answered = any("answered " in x for x in attempted)
+    refused = any("HTTP 403" in x or "HTTP 429" in x for x in attempted)
+    accepted = test_passed and site_answered and not refused and \
+        transport is not None and transport.group(1) == "NETWORK_ANSWER" and \
+        rows is not None and int(rows.group(1)) > 0
+    reason = ("PASS_SITE_CARD_AND_DEVICE_UI" if accepted else
+              "WEBSITE_REFUSED" if refused else
+              "DEVICE_TEST_NOT_EXECUTED" if not instrumentation else
+              "SITE_REPLY_OR_SOURCE_QUALIFICATION_MISSING" if site_answered else
+              "NO_WEBSITE_NETWORK_ANSWER")
+    return {"verdict": reason, "accepted": accepted, "instrumentationPassed": test_passed,
+            "websiteGetCount": len(attempted), "websiteAnswered": site_answered,
+            "websiteRefused": refused, "sourceTransport": transport.group(1) if transport else "unknown",
+            "siteRows": int(rows.group(1)) if rows else 0,
+            "trainNumber": train.group(1) if train else "unknown",
+            "browserOrPhoneAppFeed": False,
+            "note": "Emulator + independent .org.in website; not owner's phone or Google WIMT app"}
+
+
+def self_test() -> None:
+    good = ("11-05 [HTTP] GET whereismytrain.org.in try#1 -> answered 108395B\n"
+            "11-05 [EVIDENCE] source=whereismytrain.org.in (website) train=20652 "
+            "transport=NETWORK_ANSWER siteRows=10 cdnRequestId=PRIVATE\n")
+    denied = good.replace("answered 108395B", "HTTP HTTP 403").replace(
+        "transport=NETWORK_ANSWER siteRows=10", "transport=FAILED_OR_UNUSABLE siteRows=0")
+    assert verdict("OK (1 test)", good, 0)["accepted"]
+    assert verdict("OK (1 test)", denied, 0)["verdict"] == "WEBSITE_REFUSED"
+    assert not verdict("FAILURES!!!", good, 0)["accepted"]
+    assert not verdict("OK (1 test)", good, 1)["accepted"]
+    assert not verdict("", good, 0)["accepted"]
+    assert "PRIVATE" not in json.dumps(verdict("OK (1 test)", good, 0))
+    print("offline strict gate and diary redaction tests passed")
+
+
+if __name__ == "__main__":
+    if sys.argv[1:] == ["--self-test"]:
+        self_test()
+    elif len(sys.argv) == 4:
+        ins = Path(sys.argv[1]).read_text(errors="replace") if Path(sys.argv[1]).exists() else ""
+        diary = Path(sys.argv[2]).read_text(errors="replace") if Path(sys.argv[2]).exists() else ""
+        report = verdict(ins, diary, int(sys.argv[3]))
+        print(json.dumps(report, sort_keys=True))
+        if not report["accepted"]:
+            sys.exit(1)
+    else:
+        raise SystemExit("usage: wimt_device_report.py instrumentation.txt private-diary.txt process-exit-code")
