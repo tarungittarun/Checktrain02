@@ -54,9 +54,10 @@ jobs:
             echo '```json'; cat wimt-device-evidence/result.json; echo '```';
             echo "Run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"; } \
             > wimt-device-evidence/report.md
-          cat wimt-device-evidence/report.md >> "$GITHUB_STEP_SUMMARY"
+          python3 tools/ci/wimt_recover.py wimt-device-evidence > /dev/null
+          cat wimt-device-evidence/recovered-report.md >> "$GITHUB_STEP_SUMMARY"
           gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
-            -F body=@wimt-device-evidence/report.md > /dev/null || \
+            -F body=@wimt-device-evidence/recovered-report.md > /dev/null || \
             echo '::warning::Commit comment unavailable; inspect run summary/artifact'
       - uses: actions/upload-artifact@v4
         if: always()

@@ -19,18 +19,25 @@ def verdict(instrumentation: str, diary: str, process_rc: int) -> dict:
     test_passed = process_rc == 0 and bool(re.search(r"OK \(1 test\)", instrumentation)) and \
         "FAILURES!!!" not in instrumentation and "INSTRUMENTATION_FAILED" not in instrumentation
     site_answered = any("answered " in x for x in attempted)
-    refused = any("HTTP 403" in x or "HTTP 429" in x for x in attempted)
+    wire_refused = any("HTTP 403" in x or "HTTP 429" in x for x in attempted)
+    # The opt-in diary may not have been collected from an emulator. The test's
+    # *visible UI* failure can still establish that the app displayed a website
+    # refusal. Do not invent a wire request count when the wire receipt is absent.
+    ui_refused = bool(re.search(r"Website refused request \(HTTP (?:403|429)\)", instrumentation))
+    refused = wire_refused or ui_refused
     accepted = test_passed and site_answered and not refused and \
         transport is not None and transport.group(1) == "NETWORK_ANSWER" and \
         rows is not None and int(rows.group(1)) > 0
     reason = ("PASS_SITE_CARD_AND_DEVICE_UI" if accepted else
-              "WEBSITE_REFUSED" if refused else
+              "WEBSITE_REFUSED_WIRE" if wire_refused else
+              "WEBSITE_REFUSED_UI_DIARY_UNAVAILABLE" if ui_refused else
               "DEVICE_TEST_NOT_EXECUTED" if not instrumentation else
               "SITE_REPLY_OR_SOURCE_QUALIFICATION_MISSING" if site_answered else
               "NO_WEBSITE_NETWORK_ANSWER")
     return {"verdict": reason, "accepted": accepted, "instrumentationPassed": test_passed,
-            "websiteGetCount": len(attempted), "websiteAnswered": site_answered,
-            "websiteRefused": refused, "sourceTransport": transport.group(1) if transport else "unknown",
+            "websiteGetCount": len(attempted) if diary else None, "websiteAnswered": site_answered,
+            "websiteRefused": refused, "wireReceiptAvailable": bool(diary),
+            "sourceTransport": transport.group(1) if transport else "unknown",
             "siteRows": int(rows.group(1)) if rows else 0,
             "trainNumber": train.group(1) if train else "unknown",
             "browserOrPhoneAppFeed": False,
@@ -44,7 +51,11 @@ def self_test() -> None:
     denied = good.replace("answered 108395B", "HTTP HTTP 403").replace(
         "transport=NETWORK_ANSWER siteRows=10", "transport=FAILED_OR_UNUSABLE siteRows=0")
     assert verdict("OK (1 test)", good, 0)["accepted"]
-    assert verdict("OK (1 test)", denied, 0)["verdict"] == "WEBSITE_REFUSED"
+    assert verdict("OK (1 test)", denied, 0)["verdict"] == "WEBSITE_REFUSED_WIRE"
+    no_diary = verdict("java.lang.AssertionError: warning='Website refused request (HTTP 403)'\n"
+                       "FAILURES!!!\nTests run: 1,  Failures: 1", "", 0)
+    assert no_diary["verdict"] == "WEBSITE_REFUSED_UI_DIARY_UNAVAILABLE"
+    assert no_diary["websiteGetCount"] is None and not no_diary["accepted"]
     assert not verdict("FAILURES!!!", good, 0)["accepted"]
     assert not verdict("OK (1 test)", good, 1)["accepted"]
     assert not verdict("", good, 0)["accepted"]

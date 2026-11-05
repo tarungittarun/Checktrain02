@@ -22,9 +22,14 @@ def brief(log: str) -> list[str]:
 
 if __name__ == "__main__":
     folder = Path(sys.argv[1])
-    result = json.loads((folder / "result.json").read_text())
+    original = json.loads((folder / "result.json").read_text())
     inst = (folder / "instrumentation.txt").read_text(errors="replace") if (folder / "instrumentation.txt").exists() else ""
     boot = (folder / "boot.txt").read_text(errors="replace") if (folder / "boot.txt").exists() else ""
+    from wimt_device_report import verdict
+    # Reinterpret only the existing visible test failure if the diary was absent.
+    # No added GET, no invented wire count or source success.
+    result = (verdict(inst, "", 1) if not original.get("accepted") and
+              not original.get("wireReceiptAvailable", False) and inst else original)
     report = ["### Existing WIMT emulator run · failure diagnosis (no new site GET)", "",
               "```json", json.dumps(result, sort_keys=True), "```", "",
               "Instrumented test assertions/results (bounded, no raw diary):", "```"]

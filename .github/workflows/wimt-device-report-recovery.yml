@@ -4,7 +4,9 @@ name: wimt-device-report-recovery
 on:
   push:
     branches: ['arena/6f68e526-checktrain02']
-    paths: ['.github/workflows/wimt-device-report-recovery.yml']
+    paths:
+      - '.github/workflows/wimt-device-report-recovery.yml'
+      - 'tools/ci/wimt_recover.py'
   workflow_dispatch:
     inputs:
       source_run:
