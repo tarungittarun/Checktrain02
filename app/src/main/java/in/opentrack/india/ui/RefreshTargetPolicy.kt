@@ -1,0 +1,28 @@
+package `in`.opentrack.india.ui
+
+import `in`.opentrack.india.v2.mirror.PublicPageChecks
+
+/** Displayed fallback is not a new source choice. A deliberate Refresh retries the traveller's
+ * selected website before NTES; the opt-in timer stays on the displayed fallback after refusal,
+ * rather than sending a denied website another request every minute. Choosing NTES explicitly
+ * changes the saved preference and makes NTES first again. */
+object RefreshTargetPolicy {
+    /** The initial background survey must not ask the website for an NTES view. */
+    fun surveyWebsite(active: String?, alreadyChecked: Boolean): Boolean =
+        active == PublicPageChecks.ORG && !alreadyChecked
+
+    /** A first-load website refusal must not leave an already answered official source hidden
+     * behind a blank website table. This changes only the displayed source, never the saved
+     * preference, so the next deliberate Refresh still asks the website first. */
+    fun afterWebsiteSurvey(displayed: String?, siteReportAvailable: Boolean,
+                           officialActualsAvailable: Boolean): String? =
+        if (displayed == PublicPageChecks.ORG && !siteReportAvailable && officialActualsAvailable)
+            TrackingSources.OFFICIAL else displayed
+
+    fun target(displayed: String?, preferred: String?, auto: Boolean): String {
+        val active = displayed ?: TrackingSources.OFFICIAL
+        return if (!auto && active == TrackingSources.OFFICIAL &&
+            TrackingSources.valid(preferred) == PublicPageChecks.ORG) PublicPageChecks.ORG
+        else active
+    }
+}
