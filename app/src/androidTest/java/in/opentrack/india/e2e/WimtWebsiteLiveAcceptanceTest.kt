@@ -25,6 +25,8 @@ class WimtWebsiteLiveAcceptanceTest {
         val hour = Calendar.getInstance(TimeZone.getTimeZone("Asia/Kolkata"))
             .get(Calendar.HOUR_OF_DAY)
         val number = when (hour) {
+            in 0..4 -> "16227"  // yesterday's MYS -> TLGP overnight run;
+                                    // number-mode search picks the nearest origin day
             in 5..11 -> "20652"  // TLGP -> SBC morning service
             in 12..13 -> "12002" // NDLS -> BPL scheduled 06:00-14:00; timetable candidate only
             in 15..19 -> "20651" // SBC -> TLGP afternoon service

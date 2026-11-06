@@ -8,7 +8,8 @@ import sys
 
 def brief(log: str) -> list[str]:
     lines = []
-    patterns = ("FAILURES!!!", "java.lang.AssertionError", "INSTRUMENTATION_FAILED",
+    patterns = ("FAILURES!!!", "java.lang.AssertionError", "java.lang.IllegalStateException",
+                "no known unambiguously active", "INSTRUMENTATION_FAILED",
                 "INSTRUMENTATION_RESULT:", "Tests run:", "Process crashed", "OK (", "AssertionError:")
     for line in log.splitlines():
         if any(k in line for k in patterns):
@@ -37,6 +38,8 @@ if __name__ == "__main__":
     report += brief(inst) or ["No instrumented result captured; boot tail follows."]
     if not inst:
         report += [re.sub(r"https?://\S+", "<url>", s)[:220] for s in boot.splitlines()[-12:]]
-    report += ["```", "", "Screenshots and hierarchy remain in the originating run's artifact."]
+    verified = (folder / "screen-verification.json").exists()
+    report += ["```", "", "Verified in-app screenshots remain in the originating run's artifact."
+               if verified else "In-app screenshots were NOT verified; do not present the artifact as app evidence."]
     (folder / "recovered-report.md").write_text("\n".join(report) + "\n")
     print("\n".join(report))
