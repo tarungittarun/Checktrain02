@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """PDF from an already captured Android emulator artifact. No provider request.
 
-The PDF is deliberately a failed-source report. No mock image, Google-app identity,
+The PDF uses only a source-strict passed run or a UI-confirmed 403. No mock image, Google-app identity,
 secret/cookie/CDN-ID, or uncaptured train position is allowed into its prose.
 """
 from pathlib import Path
@@ -26,19 +26,24 @@ def make_pdf(folder: Path, output: Path, source_run: str, source_sha: str) -> No
     instrumentation = (folder / "instrumentation.txt").read_text(errors="replace")
     from wimt_device_report import verdict
     diagnosed = verdict(instrumentation, "", 1)
-    if original.get("accepted") or diagnosed["verdict"] != "WEBSITE_REFUSED_UI_DIARY_UNAVAILABLE":
-        raise ValueError("this PDF requires this exact failed, UI-confirmed website 403 capture")
+    accepted = (original.get("accepted") is True and original.get("instrumentationPassed") is True
+                and original.get("websiteAnswered") is True and original.get("siteRows", 0) > 0
+                and original.get("sourceTransport") == "NETWORK_ANSWER")
+    refused = not accepted and diagnosed["verdict"] == "WEBSITE_REFUSED_UI_DIARY_UNAVAILABLE"
+    if not accepted and not refused:
+        raise ValueError("PDF requires strict accepted website evidence OR UI-confirmed refusal")
     if not source_run.isdigit() or len(source_sha) != 40 or not all(c in "0123456789abcdef" for c in source_sha):
         raise ValueError("run id and exact 40-character commit SHA are required")
     # Require in-test captures AND a matching app UI hierarchy; a host
     # screencap after instrumentation exits is commonly the HOME SCREEN.
     from verify_wimt_screens import verify
-    verified = verify(folder)
+    verified = verify(folder, require_http_403=refused)
     images = [("Before selecting website source", screenshot(folder / "screens", "wimt-before-selected-source")),
-              ("After selected website displayed HTTP 403", screenshot(folder / "screens", "wimt-after-selected-source"))]
+              ("After selected website response", screenshot(folder / "screens", "wimt-after-selected-source"))]
     output.parent.mkdir(parents=True, exist_ok=True)
     pdf = canvas.Canvas(str(output), pagesize=A4)
-    pdf.setTitle("TrackTrain WIMT website device trial - HTTP 403 - run " + source_run)
+    pdf.setTitle("TrackTrain independent website device trial - " +
+                 ("PASS" if accepted else "HTTP 403") + " - run " + source_run)
     pdf.setAuthor("TrackTrain CI evidence; independent website, not Google WIMT app")
     width, height = A4
     margin = 45
@@ -46,23 +51,31 @@ def make_pdf(folder: Path, output: Path, source_run: str, source_sha: str) -> No
     pdf.rect(0, height - 112, width, 112, fill=1, stroke=0)
     pdf.setFillColor(colors.white)
     pdf.setFont("Helvetica-Bold", 19)
-    pdf.drawString(margin, height - 58, "WIMT website in-app test: FAILED")
+    pdf.drawString(margin, height - 58, "WIMT website in-app test: " + ("PASSED" if accepted else "FAILED"))
     pdf.setFont("Helvetica", 10)
     pdf.drawString(margin, height - 80, "Actual API 34 emulator capture, not a mock-up or phone-app feed")
     y = height - 145
     lines = [
         "Source: independent whereismytrain.org.in website (not Google's WIMT Android app).",
         "Run: GitHub Actions #" + source_run + "  |  APK/test source: " + source_sha[:12],
-        "Result: installed app displayed 'Website refused request (HTTP 403)'.",
-        "No qualified website past card or source-attributed station clock was shown.",
-        "The strict instrumented assertion FAILED; Android build success is not source success.",
-        "Wire-level refusal and GET count were not independently verified in this PDF.",
-        "The UI refusal does not establish a qualified train position or station clock.",
-        "A separate runner Chrome trial also got 403, but it was not this emulator/phone.",
-        "This is a NEW capture. The earlier run 42026847014's artifact was deleted",
-        "by this repository's six-hour artifact hygiene policy before PDF publication.",
-        "These screenshots MUST NOT be represented as screenshots from that earlier run.",
-        "PR #3 stays open; this PDF does not certify live WIMT data or position.",
+    ]
+    if accepted:
+        lines += [
+            "Strict installed-APK test: PASS_SITE_CARD_AND_DEVICE_UI.",
+            "Website network answer and in-app past card + painted website clock verified.",
+            "This does not establish measured GPS position, operator permission or owner-phone access.",
+        ]
+    else:
+        lines += [
+            "Result: installed app displayed 'Website refused request (HTTP 403)'.",
+            "No qualified website past card or source-attributed station clock was shown.",
+            "The strict instrumented assertion FAILED; Android build success is not source success.",
+            "Wire-level refusal and GET count were not independently verified in this PDF.",
+            "The UI refusal does not establish a qualified train position or station clock.",
+        ]
+    lines += [
+        "Screenshots were taken during this installed-app test, not from the launcher.",
+        "PR #3 stays open; an emulator test is not Google's phone-app telemetry.",
     ]
     pdf.setFont("Helvetica", 10.5)
     pdf.setFillColor(colors.HexColor("#14283b"))
@@ -97,10 +110,11 @@ def make_pdf(folder: Path, output: Path, source_run: str, source_sha: str) -> No
         pdf.drawImage(str(image), (width - sw) / 2, height - 76 - sh,
                       sw, sh, preserveAspectRatio=True, mask="auto")
         pdf.setFont("Helvetica", 8)
-        pdf.drawString(margin, 30, "Independent website failed; screenshot does not prove current train position.")
+        pdf.drawString(margin, 30, "Independent website; screenshot does not prove measured train position.")
         pdf.showPage()
     pdf.save()
     print(json.dumps({"pdf": str(output), "pages": 1 + len(images), "sourceRun": source_run,
+                      "sourceAccepted": accepted,
                       "appScreenshotVerification": verified,
                       "screenshotNames": [p.name for _, p in images],
                       "bytes": output.stat().st_size}, sort_keys=True))

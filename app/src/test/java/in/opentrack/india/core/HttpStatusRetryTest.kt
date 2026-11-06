@@ -74,6 +74,7 @@ class HttpStatusRetryTest {
                     val wire = requestHeaders.get()
                     assertTrue(wire.startsWith("GET /status?test=$code HTTP/1.1\r\n"))
                     assertTrue(wire.contains(Regex("(?im)^Accept: text/html\\r?$")))
+                    assertTrue(wire.contains(Regex("(?im)^Accept-Language: en-IN,en;q=0\\.8\\r?$")))
                     assertTrue(wire.contains(Regex("(?im)^User-Agent: OpenTrackIndia/1\\.0 ")))
                     assertTrue(wire.contains(Regex("(?im)^Accept-Encoding: gzip\\r?$")))
                     assertFalse(wire.contains(Regex("(?im)^(Cookie|Authorization):")))

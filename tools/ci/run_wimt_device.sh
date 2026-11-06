@@ -19,7 +19,12 @@ finish() {
         rm -f "wimt-device-evidence/screens/$name.$ext"
     done
   done
-  if ! python3 tools/ci/verify_wimt_screens.py wimt-device-evidence \
+  screen_mode=()
+  if grep -q 'OK (1 test)' wimt-device-evidence/instrumentation.txt 2>/dev/null && \
+     ! grep -q 'FAILURES!!!' wimt-device-evidence/instrumentation.txt 2>/dev/null; then
+    screen_mode=(--accepted)
+  fi
+  if ! python3 tools/ci/verify_wimt_screens.py wimt-device-evidence "${screen_mode[@]}" \
     > wimt-device-evidence/screen-verification.json \
     2> wimt-device-evidence/screen-verification-error.txt; then
     rm -f wimt-device-evidence/screen-verification.json

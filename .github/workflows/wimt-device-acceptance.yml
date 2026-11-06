@@ -12,6 +12,7 @@ on:
       - 'tools/ci/build_wimt_pdf.py'
       - 'app/src/androidTest/java/in/opentrack/india/e2e/E2E.kt'
       - 'app/src/androidTest/java/in/opentrack/india/e2e/WimtWebsiteLiveAcceptanceTest.kt'
+      - 'app/src/main/java/in/opentrack/india/v2/mirror/PublicPageChecks.kt'
   workflow_dispatch:
 permissions:
   contents: write # API-visible redacted verdict and release PDF; raw diary never published
@@ -95,10 +96,10 @@ jobs:
           test -s "$pdf"
           gh release upload latest-apk "$pdf" --clobber
           link=https://github.com/${GITHUB_REPOSITORY}/releases/download/latest-apk/$(basename "$pdf")
-          { echo '### Actual APK emulator screenshots (failed independent website)';
+          { echo '### Actual APK emulator screenshots (source verdict in result above)';
             echo "PDF: $link";
             echo "Source run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}";
-            echo 'This is a NEW device run; the earlier 42026847014 screenshots were deleted by the six-hour artifact janitor. The strict source acceptance remains RED.'; } > build/pdf-report-link.md
+            echo 'This is a NEW device run, not the deleted 42026847014 screenshots. Read the strict source verdict above; a screenshot alone is not a feed success.'; } > build/pdf-report-link.md
           cat build/pdf-report-link.md >> "$GITHUB_STEP_SUMMARY"
           gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
             -F body=@build/pdf-report-link.md > /dev/null

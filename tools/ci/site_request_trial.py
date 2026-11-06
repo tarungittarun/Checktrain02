@@ -60,7 +60,8 @@ def app_contract(page: str | None = None, http: str | None = None) -> Contract:
             page, "site URL / trainNo")
     require(r'number\.matches\(Regex\("\[0-9\]\{5\}"\)\)', page, "number validation")
     require(r'internal fun retriesFor\(name: String\): Int = 0', page, "zero app retries")
-    require(r'ORG\s*->\s*mapOf\("Accept" to "text/html"\)', page, "website headers")
+    require(r'ORG\s*->\s*mapOf\("Accept" to "text/html",\s*"Accept-Language" to "en-IN,en;q=0\.8"\)',
+            page, "website English response negotiation")
     require(r'http\.get\(url,\s*timeoutMillis\s*=\s*4_000,\s*retries\s*=\s*retriesFor\(name\),'
             r'\s*budgetMillis\s*=\s*4_000,\s*headers\s*=\s*headersFor\(name\),'
             r'\s*allowCachedOnFailure\s*=\s*name\s*!=\s*ORG\)', page,
@@ -76,7 +77,8 @@ def app_contract(page: str | None = None, http: str | None = None) -> Contract:
     if not ua.startswith("OpenTrackIndia/") or any(s in ua.lower() for s in ("mozilla", "chrome")):
         raise ContractError("app identity must not impersonate a browser")
     return Contract("https://whereismytrain.org.in/?trainNo=$number",
-                    {"User-Agent": ua, "Accept": "text/html", "Accept-Encoding": "gzip",
+                    {"User-Agent": ua, "Accept": "text/html", "Accept-Language": "en-IN,en;q=0.8",
+                     "Accept-Encoding": "gzip",
                      "Connection": "close"}, 4.0)
 
 

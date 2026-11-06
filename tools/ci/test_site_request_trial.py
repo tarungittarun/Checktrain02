@@ -122,8 +122,10 @@ class TrialTest(unittest.TestCase):
         http = trial.HTTP.read_text()
         changes = [
             (page.replace("timeoutMillis = 4_000", "timeoutMillis = 8_000"), http),
-            (page.replace('ORG -> mapOf("Accept" to "text/html")',
+            (page.replace('ORG -> mapOf("Accept" to "text/html", "Accept-Language" to "en-IN,en;q=0.8")',
                           'ORG -> mapOf("Accept" to "*/*")'), http),
+            (page.replace('"Accept-Language" to "en-IN,en;q=0.8"',
+                          '"Accept-Language" to "xx"'), http),
             (page.replace("allowCachedOnFailure = name != ORG",
                           "allowCachedOnFailure = true"), http),
             (page.replace("retriesFor(name: String): Int = 0",

@@ -10,7 +10,7 @@ PNG = b"\x89PNG\r\n\x1a\n"
 NAMES = ("wimt-before-selected-source", "wimt-after-selected-source")
 
 
-def verify(folder: Path) -> dict:
+def verify(folder: Path, require_http_403: bool = True) -> dict:
     screens = folder / "screens"
     details = {}
     for name in NAMES:
@@ -26,11 +26,11 @@ def verify(folder: Path) -> dict:
             raise ValueError(f"not the foreground TrackTrain app: {name}")
         if not any(n.get("resource-id", "").endswith(":id/trainNo") for n in app_nodes):
             raise ValueError(f"train track not visible in captured app: {name}")
-        if name.startswith("wimt-after") and not any(
+        if name.startswith("wimt-after") and require_http_403 and not any(
                 "HTTP 403" in (n.get("text", "") + n.get("content-desc", "")) for n in app_nodes):
             raise ValueError("after-source hierarchy did not display HTTP 403")
         details[name] = {"pngBytes": png.stat().st_size, "appNodes": len(app_nodes)}
-    return {"verifiedAppScreens": details, "websiteAcceptance": False}
+    return {"verifiedAppScreens": details, "displayedRefusalRequired": require_http_403}
 
 
 if __name__ == "__main__":
@@ -45,6 +45,7 @@ if __name__ == "__main__":
                     '<hierarchy><node package="in.opentrack.india" '
                     'resource-id="in.opentrack.india:id/trainNo" />' + extra + '</hierarchy>')
             assert len(verify(Path(tmp))["verifiedAppScreens"]) == 2
+            assert len(verify(Path(tmp), require_http_403=False)["verifiedAppScreens"]) == 2
             (screens / (NAMES[1] + ".xml")).write_text(
                 '<hierarchy><node package="com.google.android.apps.nexuslauncher" /></hierarchy>')
             try:
@@ -53,11 +54,12 @@ if __name__ == "__main__":
             except ValueError:
                 pass
         print("in-app screenshot gate rejects launcher and accepts matching hierarchy")
-    elif len(sys.argv) == 2:
+    elif len(sys.argv) in (2, 3) and (len(sys.argv) == 2 or sys.argv[2] == "--accepted"):
         try:
-            print(json.dumps(verify(Path(sys.argv[1])), sort_keys=True))
+            print(json.dumps(verify(Path(sys.argv[1]),
+                                    require_http_403=len(sys.argv) == 2), sort_keys=True))
         except (ValueError, OSError, ET.ParseError) as exc:
             print(f"WIMT_APP_SCREENSHOT_NOT_VERIFIED: {exc}", file=sys.stderr)
             sys.exit(1)
     else:
-        raise SystemExit("usage: verify_wimt_screens.py <evidence-directory> | --self-test")
+        raise SystemExit("usage: verify_wimt_screens.py <evidence-directory> [--accepted] | --self-test")

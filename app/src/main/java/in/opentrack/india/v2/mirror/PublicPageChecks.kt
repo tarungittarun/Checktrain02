@@ -74,7 +74,9 @@ object PublicPageChecks {
     /** Identify as this app, not a Chrome session we do not have. Ordinary HTTP caching is
      * allowed; a page publication clock is still never an observed train-event clock. */
     internal fun headersFor(name: String): Map<String, String> = when (name) {
-        ORG -> mapOf("Accept" to "text/html")
+        // Standard English content negotiation for the site's English station
+        // labels; this remains an honest TrackTrain GET, not a browser identity.
+        ORG -> mapOf("Accept" to "text/html", "Accept-Language" to "en-IN,en;q=0.8")
         else -> mapOf("User-Agent" to "Mozilla/5.0 (Linux; Android 13; Mobile) Chrome/120 Safari/537.36",
             "Accept" to if (name == RAIL_YATRI) "application/json" else "text/html",
             "Cache-Control" to "no-cache", "Pragma" to "no-cache")

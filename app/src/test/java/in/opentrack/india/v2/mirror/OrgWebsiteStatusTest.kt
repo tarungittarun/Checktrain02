@@ -127,7 +127,7 @@ class OrgWebsiteStatusTest {
         assertEquals(0, PublicPageChecks.retriesFor(PublicPageChecks.RAIL_YATRI))
         assertEquals(0, PublicPageChecks.retriesFor(PublicPageChecks.IXIGO))
         val headers = PublicPageChecks.headersFor(PublicPageChecks.ORG)
-        assertEquals(mapOf("Accept" to "text/html"), headers)
+        assertEquals(mapOf("Accept" to "text/html", "Accept-Language" to "en-IN,en;q=0.8"), headers)
         assertFalse(headers.containsKey("User-Agent"))
         assertFalse(headers.containsKey("Cache-Control"))
     }
