@@ -29,7 +29,8 @@ if __name__ == "__main__":
     # Reinterpret only the existing visible test failure if the diary was absent.
     # No added GET, no invented wire count or source success.
     result = (verdict(inst, "", 1) if not original.get("accepted") and
-              not original.get("wireReceiptAvailable", False) and inst else original)
+              (not original.get("wireReceiptAvailable", False) or
+               original.get("websiteGetCount") == 0) and inst else original)
     report = ["### Existing WIMT emulator run · failure diagnosis (no new site GET)", "",
               "```json", json.dumps(result, sort_keys=True), "```", "",
               "Instrumented test assertions/results (bounded, no raw diary):", "```"]

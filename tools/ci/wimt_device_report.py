@@ -35,8 +35,8 @@ def verdict(instrumentation: str, diary: str, process_rc: int) -> dict:
               "SITE_REPLY_OR_SOURCE_QUALIFICATION_MISSING" if site_answered else
               "NO_WEBSITE_NETWORK_ANSWER")
     return {"verdict": reason, "accepted": accepted, "instrumentationPassed": test_passed,
-            "websiteGetCount": len(attempted) if diary else None, "websiteAnswered": site_answered,
-            "websiteRefused": refused, "wireReceiptAvailable": bool(diary),
+            "websiteGetCount": len(attempted) if attempted else None, "websiteAnswered": site_answered,
+            "websiteRefused": refused, "wireReceiptAvailable": bool(attempted),
             "sourceTransport": transport.group(1) if transport else "unknown",
             "siteRows": int(rows.group(1)) if rows else 0,
             "trainNumber": train.group(1) if train else "unknown",
@@ -56,6 +56,9 @@ def self_test() -> None:
                        "FAILURES!!!\nTests run: 1,  Failures: 1", "", 0)
     assert no_diary["verdict"] == "WEBSITE_REFUSED_UI_DIARY_UNAVAILABLE"
     assert no_diary["websiteGetCount"] is None and not no_diary["accepted"]
+    unrelated_diary = verdict("Website refused request (HTTP 403)", "other app log entry", 1)
+    assert unrelated_diary["websiteGetCount"] is None
+    assert not unrelated_diary["wireReceiptAvailable"]
     assert not verdict("FAILURES!!!", good, 0)["accepted"]
     assert not verdict("OK (1 test)", good, 1)["accepted"]
     assert not verdict("", good, 0)["accepted"]
