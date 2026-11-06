@@ -28,10 +28,26 @@ jobs:
           github-token: ${{ github.token }}
           path: captured-wimt-device
       - name: Create a PDF containing only the actual failed-source screenshots
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
+          mkdir -p build
           python3 -m pip install --disable-pip-version-check --quiet reportlab==4.2.5
+          set +e
           python3 tools/ci/build_wimt_pdf.py captured-wimt-device \
-            build/wimt-website-device-42026847014.pdf
+            build/wimt-website-device-42026847014.pdf 2> build/pdf-error.txt
+          status=$?
+          set -e
+          if [ "$status" -ne 0 ]; then
+            { echo '### PDF construction failed (no new website request)';
+              echo 'Actual files in the earlier device artifact:';
+              find captured-wimt-device -type f -printf '%P (%s bytes)\n' | head -40;
+              echo 'Bounded error:'; tail -20 build/pdf-error.txt; } > build/pdf-diagnostic.md
+            cat build/pdf-diagnostic.md >> "$GITHUB_STEP_SUMMARY"
+            gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
+              -F body=@build/pdf-diagnostic.md > /dev/null || true
+            exit "$status"
+          fi
           test -s build/wimt-website-device-42026847014.pdf
           sha256sum build/wimt-website-device-42026847014.pdf
       - name: Publish direct PDF link on existing rolling APK release
