@@ -15,7 +15,9 @@ on:
       - 'app/src/main/java/in/opentrack/india/v2/mirror/PublicPageChecks.kt'
       - 'app/src/main/java/in/opentrack/india/core/WebsiteBrowserRequest.kt'
       - 'app/src/main/java/in/opentrack/india/ui/LiveViewModel.kt'
-      - 'tools/ci/wimt_device_report.py'
+      - 'tools/ci/wimt_recover.py'
+      - 'app/build.gradle' # version/signing changes must not bypass installed-APK acceptance
+      - 'app/src/main/java/in/opentrack/india/core/BuildStamp.kt'
   workflow_dispatch:
 permissions:
   contents: write # API-visible redacted verdict and release PDF; raw diary never published
