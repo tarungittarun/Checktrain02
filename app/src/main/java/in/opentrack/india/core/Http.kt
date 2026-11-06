@@ -468,10 +468,11 @@ class Http(context: Context) {
         }
     }
 
-    /** Only an actual status line is terminal; an IOException classified HTTP can still recover
-     * through IPv4. In particular, neither a 403 nor a 429 should be repeated automatically. */
+    /** An actual refusal or deliberately declined redirect is terminal. An IOException
+     * classified HTTP can still recover through IPv4; a 302/403/429 cannot. */
     private fun httpStatusResponse(result: Result.Failed): Boolean =
-        result.kind == Result.Kind.HTTP && result.message.matches(Regex("HTTP [45][0-9]{2}"))
+        result.kind == Result.Kind.HTTP && result.message.matches(
+            Regex("HTTP (?:3[0-9]{2} redirect not followed|[45][0-9]{2})"))
 
     private fun cacheFile(url: String): File =
         File(cacheRoot, Hash.sha1(url))
