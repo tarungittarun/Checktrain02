@@ -12,8 +12,6 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 
-SOURCE_RUN = "42026847014"
-SOURCE_SHA = "2047484902db42cf2953a3f61bfdc5ec5180cdb0"
 
 
 def screenshot(folder: Path, name: str) -> Path:
@@ -23,19 +21,21 @@ def screenshot(folder: Path, name: str) -> Path:
     return candidates[0]
 
 
-def make_pdf(folder: Path, output: Path) -> None:
+def make_pdf(folder: Path, output: Path, source_run: str, source_sha: str) -> None:
     original = json.loads((folder / "result.json").read_text())
     instrumentation = (folder / "instrumentation.txt").read_text(errors="replace")
     from wimt_device_report import verdict
-    diagnosed = verdict(instrumentation, "", 1) if not original.get("accepted") else original
+    diagnosed = verdict(instrumentation, "", 1)
     if original.get("accepted") or diagnosed["verdict"] != "WEBSITE_REFUSED_UI_DIARY_UNAVAILABLE":
         raise ValueError("this PDF requires this exact failed, UI-confirmed website 403 capture")
+    if not source_run.isdigit() or len(source_sha) != 40 or not all(c in "0123456789abcdef" for c in source_sha):
+        raise ValueError("run id and exact 40-character commit SHA are required")
     after = screenshot(folder, "wimt-after-selected-source")
     before = screenshot(folder, "wimt-before-selected-source")
     final = screenshot(folder, "wimt-final-even-on-failure")
     output.parent.mkdir(parents=True, exist_ok=True)
     pdf = canvas.Canvas(str(output), pagesize=A4)
-    pdf.setTitle("TrackTrain WIMT website device trial - HTTP 403 - run " + SOURCE_RUN)
+    pdf.setTitle("TrackTrain WIMT website device trial - HTTP 403 - run " + source_run)
     pdf.setAuthor("TrackTrain CI evidence; independent website, not Google WIMT app")
     width, height = A4
     margin = 45
@@ -49,16 +49,18 @@ def make_pdf(folder: Path, output: Path) -> None:
     y = height - 145
     lines = [
         "Source: independent whereismytrain.org.in website (not Google's WIMT Android app).",
-        "Run: GitHub Actions #" + SOURCE_RUN + "  |  APK/test source: " + SOURCE_SHA[:12],
+        "Run: GitHub Actions #" + source_run + "  |  APK/test source: " + source_sha[:12],
         "Result: installed app displayed 'Website refused request (HTTP 403)'.",
         "No qualified website past card or source-attributed station clock was shown.",
         "The strict instrumented assertion FAILED; Android build success is not source success.",
-        "The opt-in emulator diary was unavailable to the host-side report. Therefore the",
-        "wire request count and raw response body are UNKNOWN, not zero or accepted.",
+        ("The wire diary recorded a refusal; this PDF publishes no raw identifiers."
+         if original.get("wireReceiptAvailable") and original.get("websiteRefused") else
+         "The wire diary was unavailable; the request count is UNKNOWN, not zero."),
+        "The UI refusal does not establish a qualified train position or station clock.",
         "A separate runner Chrome trial also got 403, but it was not this emulator/phone.",
-        "This test selected train 20652 late in IST; the screen additionally stated the",
-        "selected journey had not started. The test's later run-window choice was corrected",
-        "without repeating the denied website request. This capture remains a real failure.",
+        "This is a NEW capture. The earlier run 42026847014's artifact was deleted",
+        "by this repository's six-hour artifact hygiene policy before PDF publication.",
+        "These screenshots MUST NOT be represented as screenshots from that earlier run.",
         "PR #3 stays open; this PDF does not certify live WIMT data or position.",
     ]
     pdf.setFont("Helvetica", 10.5)
@@ -80,7 +82,7 @@ def make_pdf(folder: Path, output: Path) -> None:
         y -= 18
     pdf.setFont("Helvetica", 8)
     pdf.setFillColor(colors.HexColor("#596a7a"))
-    pdf.drawString(margin, 38, "Source run: github.com/tarungittarun/Checktrain02/actions/runs/" + SOURCE_RUN)
+    pdf.drawString(margin, 38, "Source run: github.com/tarungittarun/Checktrain02/actions/runs/" + source_run)
     pdf.showPage()
 
     for name, image in (("Before selecting website source", before),
@@ -90,7 +92,7 @@ def make_pdf(folder: Path, output: Path) -> None:
         pdf.setFont("Helvetica-Bold", 14)
         pdf.drawString(margin, height - 39, name)
         pdf.setFont("Helvetica", 9)
-        pdf.drawString(margin, height - 57, "Unmodified emulator screenshot from Actions run " + SOURCE_RUN)
+        pdf.drawString(margin, height - 57, "Unmodified emulator screenshot from Actions run " + source_run)
         iw, ih = ImageReader(str(image)).getSize()
         scale = min((width - 2 * margin) / iw, (height - 135) / ih)
         sw, sh = iw * scale, ih * scale
@@ -100,12 +102,12 @@ def make_pdf(folder: Path, output: Path) -> None:
         pdf.drawString(margin, 30, "Independent website failed; screenshot does not prove current train position.")
         pdf.showPage()
     pdf.save()
-    print(json.dumps({"pdf": str(output), "pages": 4, "sourceRun": SOURCE_RUN,
+    print(json.dumps({"pdf": str(output), "pages": 4, "sourceRun": source_run,
                       "screenshotNames": [before.name, after.name, final.name],
                       "bytes": output.stat().st_size}, sort_keys=True))
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        raise SystemExit("usage: build_wimt_pdf.py <downloaded-wimt-device-evidence> <output.pdf>")
-    make_pdf(Path(sys.argv[1]), Path(sys.argv[2]))
+    if len(sys.argv) != 5:
+        raise SystemExit("usage: build_wimt_pdf.py <captured-evidence> <output.pdf> <source-run-id> <40-character-source-sha>")
+    make_pdf(Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3], sys.argv[4])

@@ -26,11 +26,13 @@ class WimtWebsiteLiveAcceptanceTest {
             .get(Calendar.HOUR_OF_DAY)
         val number = when (hour) {
             in 5..11 -> "20652"  // TLGP -> SBC morning service
+            in 12..13 -> "12002" // NDLS -> BPL scheduled 06:00-14:00; timetable candidate only
             in 15..19 -> "20651" // SBC -> TLGP afternoon service
             in 20..23 -> "16227" // MYS -> TLGP overnight service
             else -> error("no known unambiguously active website test train at IST hour $hour")
         }
         try {
+            println("WIMT_DEVICE_SELECTED_TRAIN=$number (timetable candidate, not live position)")
             E2E.launch()
             E2E.awaitSearchScreen()
             // The diagnostic switch is opt-in, enabled here through the real Settings UI.

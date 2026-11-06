@@ -11,7 +11,7 @@ on:
       - 'app/src/androidTest/java/in/opentrack/india/e2e/WimtWebsiteLiveAcceptanceTest.kt'
   workflow_dispatch:
 permissions:
-  contents: write # API-visible redacted verdict; raw diary never published
+  contents: write # API-visible redacted verdict and release PDF; raw diary never published
 jobs:
   device:
     if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[wimt-device]')
@@ -59,6 +59,39 @@ jobs:
           gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
             -F body=@wimt-device-evidence/recovered-report.md > /dev/null || \
             echo '::warning::Commit comment unavailable; inspect run summary/artifact'
+      - name: Make and publish an actual screenshot PDF before artifact cleanup
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p build
+          python3 -m pip install --disable-pip-version-check --quiet reportlab==4.2.5
+          pdf=build/wimt-website-device-${GITHUB_RUN_ID}.pdf
+          set +e
+          python3 tools/ci/build_wimt_pdf.py wimt-device-evidence "$pdf" \
+            "$GITHUB_RUN_ID" "$GITHUB_SHA" 2> build/pdf-error.txt
+          status=$?
+          set -e
+          if [ "$status" -ne 0 ]; then
+            { echo '### Screenshot PDF unavailable: no qualifying captured UI refusal';
+              echo 'Captured file names (no screenshot pixels altered):';
+              find wimt-device-evidence -type f -printf '%P (%s bytes)\n' | head -35;
+              echo 'Bounded builder error:'; tail -12 build/pdf-error.txt; } > build/pdf-diagnostic.md
+            cat build/pdf-diagnostic.md >> "$GITHUB_STEP_SUMMARY"
+            gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
+              -F body=@build/pdf-diagnostic.md > /dev/null || true
+            exit "$status"
+          fi
+          test -s "$pdf"
+          gh release upload latest-apk "$pdf" --clobber
+          link=https://github.com/${GITHUB_REPOSITORY}/releases/download/latest-apk/$(basename "$pdf")
+          { echo '### Actual APK emulator screenshots (failed independent website)';
+            echo "PDF: $link";
+            echo "Source run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}";
+            echo 'This is a NEW device run; the earlier 42026847014 screenshots were deleted by the six-hour artifact janitor. The strict source acceptance remains RED.'; } > build/pdf-report-link.md
+          cat build/pdf-report-link.md >> "$GITHUB_STEP_SUMMARY"
+          gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
+            -F body=@build/pdf-report-link.md > /dev/null
       - uses: actions/upload-artifact@v4
         if: always()
         with:
