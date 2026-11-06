@@ -128,6 +128,8 @@ class TrialTest(unittest.TestCase):
                           '"Accept-Language" to "xx"'), http),
             (page.replace("allowCachedOnFailure = name != ORG",
                           "allowCachedOnFailure = true"), http),
+            (page.replace("followRedirects = name != ORG",
+                          "followRedirects = true"), http),
             (page.replace("retriesFor(name: String): Int = 0",
                           "retriesFor(name: String): Int = 2"), http),
             (page, http.replace('"OpenTrackIndia/1.0', '"Chrome/120')),

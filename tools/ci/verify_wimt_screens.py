@@ -15,7 +15,7 @@ def verify(folder: Path, require_http_403: bool = True) -> dict:
     details = {}
     for name in NAMES:
         png, xml = screens / (name + ".png"), screens / (name + ".xml")
-        if not png.exists() or png.stat().st_size < 1000 or png.open("rb").read(8) != PNG:
+        if not png.exists() or png.stat().st_size < 1000 or png.read_bytes()[:8] != PNG:
             raise ValueError(f"missing/invalid in-test PNG: {name}")
         if not xml.exists() or xml.stat().st_size < 100:
             raise ValueError(f"missing in-test hierarchy: {name}")

@@ -72,6 +72,8 @@ class Http(context: Context) {
         budgetMillis: Int = 0,
         /** A refusal must remain visible to callers that pace a source after HTTP 403/429. */
         allowCachedOnFailure: Boolean = true,
+        /** Refused website redirects are not permission to ask another URL. */
+        followRedirects: Boolean = true,
     ): Result {
         var last: Result = Result.Failed(Result.Kind.EMPTY, "not attempted")
         var attempt = 0
@@ -86,7 +88,7 @@ class Http(context: Context) {
                 left = if (timeoutMillis < MIN_ATTEMPT_MS) timeoutMillis else MIN_ATTEMPT_MS
             }
             attempt++
-            last = tryOnce(url, left, headers, pinIpv4)
+            last = tryOnce(url, left, headers, pinIpv4, followRedirects)
             Diary.get()?.log("HTTP") {
                 "GET " + hostOf(url) + " try#" + attempt + (if (pinIpv4) " pinned-v4" else "") +
                     " -> " + verdict(last)
@@ -105,7 +107,7 @@ class Http(context: Context) {
             // "closed" a few hundred milliseconds in, and a browser on the same network loads the page
             // because it retries the other family. Chrome's advantage is not magic - it is that it tries
             // twice. Doing the same here fixes every host the app talks to, not only the feed.
-            when (val pinned = tryOnce(url, clampTimeout(deadline, timeoutMillis), headers, true)) {
+            when (val pinned = tryOnce(url, clampTimeout(deadline, timeoutMillis), headers, true, followRedirects)) {
                 is Result.Ok -> {
                     Diary.get()?.log("HTTP", "GET " + hostOf(url) + " recovered on the pinned IPv4 route")
                     return pinned
@@ -120,7 +122,8 @@ class Http(context: Context) {
             // 600 ms on the rare bad minute and hides the class of failure from the traveller entirely. If the
             // name is genuinely gone, the retry fails identically and the message the user reads is unchanged.
             sleep(600L)
-            val again = tryOnce(url, clampTimeout(deadline, timeoutMillis), headers)
+            val again = tryOnce(url, clampTimeout(deadline, timeoutMillis), headers,
+                followRedirects = followRedirects)
             Diary.get()?.log("HTTP", "GET " + hostOf(url) + " after a resolver blip -> " + verdict(again))
             if (again is Result.Ok) return again
             last = again
@@ -401,6 +404,7 @@ class Http(context: Context) {
         timeoutMillis: Int,
         headers: Map<String, String> = emptyMap(),
         pin4: Boolean = false,
+        followRedirects: Boolean = true,
     ): Result = serial {
         var conn: HttpURLConnection? = null
         var bodyRead = false
@@ -408,7 +412,7 @@ class Http(context: Context) {
             conn = (URL(url).openConnection() as HttpURLConnection).apply {
                 connectTimeout = timeoutMillis
                 readTimeout = timeoutMillis
-                instanceFollowRedirects = true
+                instanceFollowRedirects = followRedirects
                 requestMethod = "GET"
                 // A browser-ish UA is required: several public Indian Railways endpoints reset
                 // connections from clients with no User-Agent at all.
@@ -420,7 +424,11 @@ class Http(context: Context) {
             }
             val code = conn.responseCode
             if (code in 300..399) {
-                // Some of these endpoints answer with a redirect to a maintenance page; follow once.
+                // On the selected website a redirect is not train data, and may
+                // otherwise make an invisible extra GET to a browser challenge.
+                if (!followRedirects) return Result.Failed(Result.Kind.HTTP,
+                    "HTTP $code redirect not followed")
+                // Some other endpoints answer with a redirect to a maintenance page; follow once.
                 val loc = conn.getHeaderField("Location")
                     ?: return Result.Failed(Result.Kind.HTTP, "redirect without location")
                 conn.disconnect()

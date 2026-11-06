@@ -88,7 +88,8 @@ object PublicPageChecks {
               mapRoute: TrainRoute? = null): Result =
         fetch(name, number, originDay, now, source, destination, knownCodes, route, mapRoute) { url ->
             http.get(url, timeoutMillis = 4_000, retries = retriesFor(name), budgetMillis = 4_000,
-                headers = headersFor(name), allowCachedOnFailure = name != ORG)
+                headers = headersFor(name), allowCachedOnFailure = name != ORG,
+                followRedirects = name != ORG)
         }
 
     /** Transport seam: a source choice always requests its own URL. An HTTP fallback cache may

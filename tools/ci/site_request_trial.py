@@ -64,13 +64,18 @@ def app_contract(page: str | None = None, http: str | None = None) -> Contract:
             page, "website English response negotiation")
     require(r'http\.get\(url,\s*timeoutMillis\s*=\s*4_000,\s*retries\s*=\s*retriesFor\(name\),'
             r'\s*budgetMillis\s*=\s*4_000,\s*headers\s*=\s*headersFor\(name\),'
-            r'\s*allowCachedOnFailure\s*=\s*name\s*!=\s*ORG\)', page,
-            "4s budget and no website failure cache")
+            r'\s*allowCachedOnFailure\s*=\s*name\s*!=\s*ORG,\s*'
+            r'followRedirects\s*=\s*name\s*!=\s*ORG\)', page,
+            "4s budget, no website failure cache or redirect")
     require(r'if \(last\.kind == Result\.Kind\.HTTP\) break', http, "no HTTP-error retry")
     require(r'!httpStatusResponse\(last\)', http, "no IPv4 retry after HTTP status")
     require(r'if \(responseStatus >= 400\)\s*\{.*?return Result\.Failed\(Result\.Kind\.HTTP, '
             r'"HTTP \$responseStatus"\)', http, "refusal handled before body")
     require(r'requestMethod\s*=\s*"GET"', http, "GET method")
+    require(r'instanceFollowRedirects\s*=\s*followRedirects', http,
+            "transport respects website redirect policy")
+    require(r'if \(!followRedirects\) return Result\.Failed\(Result\.Kind\.HTTP,\s*'
+            r'"HTTP \$code redirect not followed"\)', http, "no redirect follow-up GET")
     require(r'setRequestProperty\("Accept-Encoding", "gzip"\)', http, "gzip request")
     require(r'setRequestProperty\("Connection", "close"\)', http, "close request")
     ua = require(r'private const val USER_AGENT\s*=\s*"([^"\r\n]+)"', http, "app identity").group(1)
@@ -84,8 +89,8 @@ def app_contract(page: str | None = None, http: str | None = None) -> Contract:
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, request, fp, code, msg, headers, newurl):
-        # Android can follow redirects; this first-hop trial intentionally cannot make
-        # an uncounted second request or follow an unexpected destination.
+        # The selected website's Android GET now also refuses redirects: neither
+        # client may turn an unexpected hop into an uncounted second request.
         return None
 
 

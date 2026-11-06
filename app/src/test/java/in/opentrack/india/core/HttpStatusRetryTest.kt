@@ -23,8 +23,8 @@ import `in`.opentrack.india.v2.mirror.PublicPageChecks
 @Config(sdk = [28])
 class HttpStatusRetryTest {
     @Test(timeout = 15_000)
-    fun refusedAndRateLimitedGetAreNotAutomaticallyRetried() {
-        for (code in listOf(403, 429)) {
+    fun refusedRateLimitedAndRedirectedWebsiteGetAreNotAutomaticallyRetried() {
+        for (code in listOf(302, 403, 429)) {
             ServerSocket(0).use { server ->
                 server.soTimeout = 300
                 val running = AtomicBoolean(true)
@@ -45,7 +45,9 @@ class HttpStatusRetryTest {
                                 }
                                 requestHeaders.set(header.toString("UTF-8"))
                                 calls.incrementAndGet()
-                                val response = "HTTP/1.1 $code Denied\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                                val response = "HTTP/1.1 $code Denied\r\n" +
+                                    "Location: http://127.0.0.1:${server.localPort}/another\r\n" +
+                                    "Content-Length: 0\r\nConnection: close\r\n\r\n"
                                 socket.getOutputStream().apply {
                                     write(response.toByteArray(Charsets.US_ASCII))
                                     flush()
@@ -67,9 +69,10 @@ class HttpStatusRetryTest {
                         "http://127.0.0.1:${server.localPort}/status?test=$code",
                         timeoutMillis = 2_000, retries = 1, budgetMillis = 4_000,
                         headers = PublicPageChecks.headersFor(PublicPageChecks.ORG),
-                        allowCachedOnFailure = false)
+                        allowCachedOnFailure = false, followRedirects = false)
                     assertTrue("expected HTTP $code, got $result", result is Http.Result.Failed)
-                    assertEquals("HTTP $code", (result as Http.Result.Failed).message)
+                    assertEquals(if (code == 302) "HTTP 302 redirect not followed" else "HTTP $code",
+                        (result as Http.Result.Failed).message)
                     assertEquals("HTTP $code should have exactly one request", 1, calls.get())
                     val wire = requestHeaders.get()
                     assertTrue(wire.startsWith("GET /status?test=$code HTTP/1.1\r\n"))
