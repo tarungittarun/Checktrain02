@@ -257,9 +257,11 @@ object E2E {
     }
 
     /** Strict WIMT capture: fail before the provider GET if app pixels cannot be saved.
-     * Internal test-APK storage remains readable via adb run-as after the test exits. */
+     * Target-app storage is writable from instrumentation and readable via adb run-as. */
     fun shotWimt(tag: String) {
-        val ctx = InstrumentationRegistry.getInstrumentation().context
+        // Instrumentation executes under the TARGET app UID. The test APK's
+        // context.filesDir is not writable here; targetContext.filesDir is.
+        val ctx = InstrumentationRegistry.getInstrumentation().targetContext
         val dir = File(ctx.filesDir, "evidence")
         check(dir.mkdirs() || dir.isDirectory) { "Cannot create test screenshot directory" }
         val image = File(dir, "$tag.png")
@@ -270,7 +272,7 @@ object E2E {
         ui.dumpWindowHierarchy(hierarchy)
         check(hierarchy.length() > 100) { "Hierarchy $tag failed inside the running app" }
         println("WIMT_SHOT $tag bytes=${image.length()} xml=${hierarchy.length()} " +
-            "testPackage=${ctx.packageName}")
+            "appPackage=${ctx.packageName}")
     }
 
     /**

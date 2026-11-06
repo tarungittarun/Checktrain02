@@ -10,11 +10,11 @@ finish() {
   # not app evidence. Never capture or publish that as a WIMT screenshot.
   adb shell uiautomator dump /sdcard/wimt-window.xml >/dev/null 2>&1 || true
   adb pull /sdcard/wimt-window.xml wimt-device-evidence/window.xml >/dev/null 2>&1 || true
-  # Pull each *in-test* screenshot through the debuggable test APK's data dir.
+  # Pull each *in-test* screenshot from the debuggable TARGET app's data dir.
   # A missing file is a capture failure, not permission to use the launcher.
   for name in wimt-before-selected-source wimt-after-selected-source wimt-final-even-on-failure; do
     for ext in png xml; do
-      adb exec-out run-as in.opentrack.india.test cat "files/evidence/$name.$ext" \
+      adb exec-out run-as in.opentrack.india cat "files/evidence/$name.$ext" \
         > "wimt-device-evidence/screens/$name.$ext" 2>/dev/null || \
         rm -f "wimt-device-evidence/screens/$name.$ext"
     done
