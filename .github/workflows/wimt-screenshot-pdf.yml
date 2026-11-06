@@ -3,6 +3,15 @@
 name: wimt-device-screenshot-pdf
 on:
   workflow_dispatch:
+    inputs:
+      source_run:
+        description: 'Existing installed-app run with a UI-confirmed HTTP 403 and a real final.png'
+        required: true
+        type: string
+      source_sha:
+        description: 'Exact 40-character commit SHA of the captured installed-app run'
+        required: true
+        type: string
 permissions:
   actions: read
   contents: write # attach the finished PDF to the existing rolling APK release
@@ -15,12 +24,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      # Original run artifact is deleted after six hours by repository policy.
-      # This recovery entry point is kept manual and must fail, not fabricate pixels.
+      # Download only the specifically identified still-existing device capture.
+      # The original run 42026847014 is deleted by the six-hour policy.
       - uses: actions/download-artifact@v4
         with:
           name: wimt-device-evidence
-          run-id: '42026847014'
+          run-id: ${{ inputs.source_run }}
           github-token: ${{ github.token }}
           path: captured-wimt-device
       - name: Create a PDF containing only the actual failed-source screenshots
@@ -31,8 +40,8 @@ jobs:
           python3 -m pip install --disable-pip-version-check --quiet reportlab==4.2.5
           set +e
           python3 tools/ci/build_wimt_pdf.py captured-wimt-device \
-            build/wimt-website-device-42026847014.pdf 42026847014 2047484902db42cf2953a3f61bfdc5ec5180cdb0 \
-            2> build/pdf-error.txt
+            "build/wimt-website-device-${{ inputs.source_run }}.pdf" \
+            "${{ inputs.source_run }}" "${{ inputs.source_sha }}" 2> build/pdf-error.txt
           status=$?
           set -e
           if [ "$status" -ne 0 ]; then
@@ -45,15 +54,16 @@ jobs:
               -F body=@build/pdf-diagnostic.md > /dev/null || true
             exit "$status"
           fi
-          test -s build/wimt-website-device-42026847014.pdf
-          sha256sum build/wimt-website-device-42026847014.pdf
+          test -s "build/wimt-website-device-${{ inputs.source_run }}.pdf"
+          sha256sum "build/wimt-website-device-${{ inputs.source_run }}.pdf"
       - name: Publish direct PDF link on existing rolling APK release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release upload latest-apk build/wimt-website-device-42026847014.pdf --clobber
-          link=https://github.com/${GITHUB_REPOSITORY}/releases/download/latest-apk/wimt-website-device-42026847014.pdf
-          printf '### WIMT website in-app device trial - failed HTTP 403\n\nPDF with actual before/after/failure screenshots: %s\n\nSource: Actions run 42026847014. No new website request; not phone-app data or a successful WIMT feed.\n' "$link" \
+          pdf="build/wimt-website-device-${{ inputs.source_run }}.pdf"
+          gh release upload latest-apk "$pdf" --clobber
+          link=https://github.com/${GITHUB_REPOSITORY}/releases/download/latest-apk/$(basename "$pdf")
+          printf '### WIMT website in-app device trial - failed HTTP 403\n\nPDF with actual retained screenshot(s): %s\n\nSource: Actions run ${{ inputs.source_run }}. No new website request; not phone-app data or a successful WIMT feed. Earlier run 42026847014 images were deleted by artifact cleanup.\n' "$link" \
             | tee "$GITHUB_STEP_SUMMARY" > build/pdf-report-link.md
           gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
             -F body=@build/pdf-report-link.md > /dev/null
@@ -61,6 +71,6 @@ jobs:
         if: always()
         with:
           name: wimt-failed-website-pdf
-          path: build/wimt-website-device-42026847014.pdf
+          path: build/wimt-website-device-*.pdf
           if-no-files-found: warn
           retention-days: 14

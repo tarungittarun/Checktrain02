@@ -30,9 +30,21 @@ def make_pdf(folder: Path, output: Path, source_run: str, source_sha: str) -> No
         raise ValueError("this PDF requires this exact failed, UI-confirmed website 403 capture")
     if not source_run.isdigit() or len(source_sha) != 40 or not all(c in "0123456789abcdef" for c in source_sha):
         raise ValueError("run id and exact 40-character commit SHA are required")
-    after = screenshot(folder, "wimt-after-selected-source")
-    before = screenshot(folder, "wimt-before-selected-source")
-    final = screenshot(folder, "wimt-final-even-on-failure")
+    # On some emulator images the test APK's external-files directory is not
+    # pullable after instrumentation exits. The host's adb screencap still
+    # records the *actual final displayed screen*, never a reconstruction.
+    final_candidates = [p for p in folder.rglob("final.png") if p.is_file() and p.stat().st_size > 0]
+    if len(final_candidates) != 1:
+        raise ValueError(f"expected exactly one captured host final.png, found {len(final_candidates)}")
+    final = final_candidates[0]
+    after = list(folder.rglob("wimt-after-selected-source.png"))
+    before = list(folder.rglob("wimt-before-selected-source.png"))
+    if len(after) > 1 or len(before) > 1 or (after and not before) or (before and not after):
+        raise ValueError("partial/ambiguous test screenshots: cannot label before and after")
+    images = ([ ("Before selecting website source", screenshot(folder, "wimt-before-selected-source")),
+                ("After website source failed (403)", screenshot(folder, "wimt-after-selected-source")) ]
+              if after and before else [])
+    images.append(("Final actual screen after assertion failure", final))
     output.parent.mkdir(parents=True, exist_ok=True)
     pdf = canvas.Canvas(str(output), pagesize=A4)
     pdf.setTitle("TrackTrain WIMT website device trial - HTTP 403 - run " + source_run)
@@ -53,9 +65,7 @@ def make_pdf(folder: Path, output: Path, source_run: str, source_sha: str) -> No
         "Result: installed app displayed 'Website refused request (HTTP 403)'.",
         "No qualified website past card or source-attributed station clock was shown.",
         "The strict instrumented assertion FAILED; Android build success is not source success.",
-        ("The wire diary recorded a refusal; this PDF publishes no raw identifiers."
-         if original.get("wireReceiptAvailable") and original.get("websiteRefused") else
-         "The wire diary was unavailable; the request count is UNKNOWN, not zero."),
+        "Wire-level refusal and GET count were not independently verified in this PDF.",
         "The UI refusal does not establish a qualified train position or station clock.",
         "A separate runner Chrome trial also got 403, but it was not this emulator/phone.",
         "This is a NEW capture. The earlier run 42026847014's artifact was deleted",
@@ -76,18 +86,18 @@ def make_pdf(folder: Path, output: Path, source_run: str, source_sha: str) -> No
     pdf.drawString(margin, y, "Screenshots included from the same device run:")
     y -= 20
     pdf.setFont("Helvetica", 10)
-    for label in ("Before website selection", "After website selection (HTTP 403)",
-                  "Final screen after the failed assertion"):
+    for label, _ in images:
         pdf.drawString(margin + 12, y, "- " + label)
         y -= 18
+    if len(images) == 1:
+        y -= 7
+        pdf.drawString(margin + 12, y, "Test-side before/after images were not retained; not reconstructed.")
     pdf.setFont("Helvetica", 8)
     pdf.setFillColor(colors.HexColor("#596a7a"))
     pdf.drawString(margin, 38, "Source run: github.com/tarungittarun/Checktrain02/actions/runs/" + source_run)
     pdf.showPage()
 
-    for name, image in (("Before selecting website source", before),
-                        ("After website source failed (403)", after),
-                        ("Final screen on assertion failure", final)):
+    for name, image in images:
         pdf.setFillColor(colors.HexColor("#132238"))
         pdf.setFont("Helvetica-Bold", 14)
         pdf.drawString(margin, height - 39, name)
@@ -102,8 +112,8 @@ def make_pdf(folder: Path, output: Path, source_run: str, source_sha: str) -> No
         pdf.drawString(margin, 30, "Independent website failed; screenshot does not prove current train position.")
         pdf.showPage()
     pdf.save()
-    print(json.dumps({"pdf": str(output), "pages": 4, "sourceRun": source_run,
-                      "screenshotNames": [before.name, after.name, final.name],
+    print(json.dumps({"pdf": str(output), "pages": 1 + len(images), "sourceRun": source_run,
+                      "screenshotNames": [p.name for _, p in images],
                       "bytes": output.stat().st_size}, sort_keys=True))
 
 
