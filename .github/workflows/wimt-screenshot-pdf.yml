@@ -34,9 +34,33 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: wimt-device-evidence
-          run-id: ${{ inputs.source_run || '42179936690' }}
+          run-id: ${{ inputs.source_run || '42203043295' }}
           github-token: ${{ github.token }}
           path: captured-wimt-device
+      - name: Diagnose the test screenshot path without another website request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PYDIAG' > capture-diagnostic.md
+          from pathlib import Path
+          f = Path('captured-wimt-device')
+          print('### Raw in-app capture diagnosis (existing artifact, no new site GET)')
+          for p in sorted((f / 'screens').glob('*')):
+              head = p.read_bytes()[:110]
+              if not head.startswith(b'\x89PNG'):
+                  print(f'{p.name} ({p.stat().st_size} bytes): {head!r}')
+              else:
+                  print(f'{p.name} ({p.stat().st_size} bytes): valid PNG header')
+          print('Instrumentation tail:')
+          print('```')
+          print((f / 'instrumentation.txt').read_text(errors='replace')[-2600:])
+          print('```')
+          print('Capture error:')
+          print((f / 'screen-verification-error.txt').read_text(errors='replace')[:400])
+          PYDIAG
+          cat capture-diagnostic.md >> "$GITHUB_STEP_SUMMARY"
+          gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
+            -F body=@capture-diagnostic.md > /dev/null
       - name: Create a PDF containing only the actual failed-source screenshots
         env:
           GH_TOKEN: ${{ github.token }}
@@ -45,8 +69,8 @@ jobs:
           python3 -m pip install --disable-pip-version-check --quiet reportlab==4.2.5
           set +e
           python3 tools/ci/build_wimt_pdf.py captured-wimt-device \
-            "build/wimt-website-device-${{ inputs.source_run || '42179936690' }}.pdf" \
-            "${{ inputs.source_run || '42179936690' }}" "${{ inputs.source_sha || '8f2922dc64ee8e8b970b1e859f02b912e026c277' }}" 2> build/pdf-error.txt
+            "build/wimt-website-device-${{ inputs.source_run || '42203043295' }}.pdf" \
+            "${{ inputs.source_run || '42203043295' }}" "${{ inputs.source_sha || '46967b9a086c5b1d0a63d1b6af167abc2a7ff680' }}" 2> build/pdf-error.txt
           status=$?
           set -e
           if [ "$status" -ne 0 ]; then
@@ -59,16 +83,16 @@ jobs:
               -F body=@build/pdf-diagnostic.md > /dev/null || true
             exit "$status"
           fi
-          test -s "build/wimt-website-device-${{ inputs.source_run || '42179936690' }}.pdf"
-          sha256sum "build/wimt-website-device-${{ inputs.source_run || '42179936690' }}.pdf"
+          test -s "build/wimt-website-device-${{ inputs.source_run || '42203043295' }}.pdf"
+          sha256sum "build/wimt-website-device-${{ inputs.source_run || '42203043295' }}.pdf"
       - name: Publish direct PDF link on existing rolling APK release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          pdf="build/wimt-website-device-${{ inputs.source_run || '42179936690' }}.pdf"
+          pdf="build/wimt-website-device-${{ inputs.source_run || '42203043295' }}.pdf"
           gh release upload latest-apk "$pdf" --clobber
           link=https://github.com/${GITHUB_REPOSITORY}/releases/download/latest-apk/$(basename "$pdf")
-          printf '### WIMT website in-app device trial - failed HTTP 403\n\nPDF with actual retained screenshot(s): %s\n\nSource: Actions run ${{ inputs.source_run || '42179936690' }}. No new website request; not phone-app data or a successful WIMT feed. Earlier run 42026847014 images were deleted by artifact cleanup.\n' "$link" \
+          printf '### WIMT website in-app device trial - failed HTTP 403\n\nPDF with actual retained screenshot(s): %s\n\nSource: Actions run ${{ inputs.source_run || '42203043295' }}. No new website request; not phone-app data or a successful WIMT feed. Earlier run 42026847014 images were deleted by artifact cleanup.\n' "$link" \
             | tee "$GITHUB_STEP_SUMMARY" > build/pdf-report-link.md
           gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
             -F body=@build/pdf-report-link.md > /dev/null
