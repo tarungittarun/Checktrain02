@@ -5,6 +5,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.Until
 import `in`.opentrack.india.core.Http
+import `in`.opentrack.india.core.WebsiteBrowserRequest
 import `in`.opentrack.india.v2.mirror.PublicPageChecks
 import `in`.opentrack.india.v2.mirror.WebsiteRequestPacing
 import org.junit.Assert.assertEquals
@@ -69,6 +70,17 @@ class WimtMobileRequestSimulationTest {
         assertFalse("browser challenge cannot supply website station events", result.orgReport != null)
         assertEquals("en-IN,en;q=0.8", PublicPageChecks.headersFor(site)["Accept-Language"])
         assertFalse(PublicPageChecks.headersFor(site).keys.any { it.equals("Cookie", true) })
+    }
+
+    @Test fun browserDocumentNeverNavigatesToAnUnapprovedUrl() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        for (url in listOf("http://whereismytrain.org.in/?trainNo=20651",
+                "https://whereismytrain.org.in/?trainNo=20651&other=1",
+                "https://other.example/?trainNo=20651")) {
+            val answer = WebsiteBrowserRequest.document(context, url)
+            assertTrue("unexpected browser navigation for $url", answer is Http.Result.Failed)
+            assertEquals("invalid website URL", (answer as Http.Result.Failed).message)
+        }
     }
 
     @Test fun installedApkOpensAnOfflineTrainTrackWithoutAskingWebsite() {

@@ -13,6 +13,9 @@ on:
       - 'app/src/androidTest/java/in/opentrack/india/e2e/E2E.kt'
       - 'app/src/androidTest/java/in/opentrack/india/e2e/WimtWebsiteLiveAcceptanceTest.kt'
       - 'app/src/main/java/in/opentrack/india/v2/mirror/PublicPageChecks.kt'
+      - 'app/src/main/java/in/opentrack/india/core/WebsiteBrowserRequest.kt'
+      - 'app/src/main/java/in/opentrack/india/ui/LiveViewModel.kt'
+      - 'tools/ci/wimt_device_report.py'
   workflow_dispatch:
 permissions:
   contents: write # API-visible redacted verdict and release PDF; raw diary never published
@@ -42,7 +45,26 @@ jobs:
         with:
           cache-read-only: true
       - name: Build app and UI-test APKs from this SHA
-        run: ./gradlew --no-daemon :app:assembleDebug :app:assembleDebugAndroidTest --stacktrace
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          ./gradlew --no-daemon :app:assembleDebug :app:assembleDebugAndroidTest \
+            > /tmp/wimt-browser-build.log 2>&1
+          rc=$?
+          set -e
+          if [ "$rc" -ne 0 ]; then
+            { echo '### APK build failed before any website request'; echo '```';
+              grep -E '(^e: |^> |^\* What went wrong:|^Execution failed|^.*FAILED|^.*error:)' \
+                /tmp/wimt-browser-build.log | head -55 | cut -c 1-240 || true;
+              echo '--- last 25 lines ---'; tail -25 /tmp/wimt-browser-build.log | cut -c 1-240;
+              echo '```'; } > /tmp/wimt-browser-build-error.md
+            cat /tmp/wimt-browser-build-error.md >> "$GITHUB_STEP_SUMMARY"
+            gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
+              -F body=@/tmp/wimt-browser-build-error.md > /dev/null || true
+            exit "$rc"
+          fi
+          tail -12 /tmp/wimt-browser-build.log
       - name: Real emulator · select website · require past card and painted clock
         run: bash tools/ci/run_wimt_device.sh
       - name: Evidence-backed result even on boot, build or site refusal

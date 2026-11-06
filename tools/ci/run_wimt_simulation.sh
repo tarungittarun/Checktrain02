@@ -24,10 +24,10 @@ timeout 240 adb shell am instrument -w -e class \
   > wimt-simulation-evidence/instrumentation.txt 2>&1
 rc=$?
 set -e
-if [ "$rc" -ne 0 ] || ! grep -q 'OK (3 tests)' wimt-simulation-evidence/instrumentation.txt || \
+if [ "$rc" -ne 0 ] || ! grep -q 'OK (4 tests)' wimt-simulation-evidence/instrumentation.txt || \
     grep -Eq 'FAILURES!!!|INSTRUMENTATION_FAILED|shortMsg=Process crashed' wimt-simulation-evidence/instrumentation.txt; then
   tail -50 wimt-simulation-evidence/instrumentation.txt
-  echo '::error::3 Android simulation methods did not all pass'
+  echo '::error::4 Android simulation methods did not all pass'
   exit 1
 fi
 # The in-test APK screenshot must show TrackTrain, not the post-test launcher.

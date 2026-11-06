@@ -27,6 +27,7 @@ import `in`.opentrack.india.v2.crowd.NtfyRelay
 import `in`.opentrack.india.v2.crowd.StopReport
 import `in`.opentrack.india.core.BrowserFetch
 import `in`.opentrack.india.core.Http
+import `in`.opentrack.india.core.WebsiteBrowserRequest
 import `in`.opentrack.india.v2.mirror.ConfirmTktMirror
 import `in`.opentrack.india.v2.mirror.ConfirmTktSchedule
 import `in`.opentrack.india.v2.mirror.ErailRouteMirror
@@ -342,9 +343,20 @@ class LiveViewModel(
                 val paused = pacing?.paused(System.currentTimeMillis())
                 if (paused != null) Diary.get()?.log("SOURCE", "website not asked: ${paused.detail}")
                 val result = paused ?: withContext(Dispatchers.IO) {
-                    PublicPageChecks.fetch(Http(app), name, trainNo, originEpochDay,
-                        System.currentTimeMillis(), route.srcCode, route.dstCode,
-                        route.stops.map { it.code.uppercase() }.toSet(), route, mapAtRequest)
+                    if (name == PublicPageChecks.ORG) {
+                        // The selected website now gets an actual browser-engine document
+                        // navigation, not a Java GET disguised with a browser User-Agent.
+                        // Keep the SAME source/parser and refusal/pacing qualification.
+                        PublicPageChecks.fetch(name, trainNo, originEpochDay,
+                            System.currentTimeMillis(), route.srcCode, route.dstCode,
+                            route.stops.map { it.code.uppercase() }.toSet(), route, mapAtRequest) { url ->
+                            WebsiteBrowserRequest.document(app, url)
+                        }
+                    } else {
+                        PublicPageChecks.fetch(Http(app), name, trainNo, originEpochDay,
+                            System.currentTimeMillis(), route.srcCode, route.dstCode,
+                            route.stops.map { it.code.uppercase() }.toSet(), route, mapAtRequest)
+                    }
                 }
                 if (paused == null) pacing?.observe(result, System.currentTimeMillis())
                 if (_ui.value == null) return@launch

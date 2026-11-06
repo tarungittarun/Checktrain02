@@ -40,8 +40,9 @@ def verdict(instrumentation: str, diary: str, process_rc: int) -> dict:
             "sourceTransport": transport.group(1) if transport else "unknown",
             "siteRows": int(rows.group(1)) if rows else 0,
             "trainNumber": train.group(1) if train else "unknown",
-            "browserOrPhoneAppFeed": False,
-            "note": "Emulator + independent .org.in website; not owner's phone or Google WIMT app"}
+            "googlePhoneAppFeed": False, "browserEngineRequest": True,
+            "websiteGetCountScope": "main_document_navigation_only",
+            "note": "Emulator WebView + independent .org.in website; not owner's Chrome or Google WIMT app"}
 
 
 def self_test() -> None:

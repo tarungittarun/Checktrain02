@@ -1,5 +1,7 @@
 # R174 · Mobile website access: request research and fail-closed Actions assurance
 
+**Later implementation:** [R175](R175_BROWSER_ENGINE_WEBSITE_REQUEST.md) changes the selected website's production transport from the Java GET described below to a genuine Android WebView document navigation. R174's executed results are from the earlier Java transport; its offline Java wire and Python runner trial are **not** browser-request parity tests. New browser-path results must come from the subsequent source-strict installed-APK run.
+
 The selected source is **the independent `whereismytrain.org.in` HTML website**, not Google's Where Is My Train phone app, the distinct `.in` cache, or NTES. The user asked which mobile APK requests could avoid a refusal, and for an Actions simulation. There is no basis to assert that changing a User-Agent/TLS fingerprint or doing enough retries would obtain permission or stop a 403. We can control our client request discipline and test it; only the website operator can explain/approve its CDN/origin policy.
 
 ## Measured facts, not theories

@@ -1,5 +1,5 @@
-# One first-hop GET from a GitHub runner with the app's explicit request contract.
-# It is NOT a browser/phone TLS/IP simulator and cannot guarantee phone access.
+# Historical Java-HTTP comparison only. Production selected website now uses WebView;
+# urllib is NOT the APK's browser request and cannot guarantee phone access.
 # Push trigger only when this trial changes, never on ordinary app edits/refresher taps.
 name: org-website-request-trial
 on:
@@ -25,7 +25,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Offline refusal simulations and app-to-runner request-contract gate
+      - name: Offline refusal simulations and historical Java-HTTP contract
         run: |
           python3 tools/ci/test_site_request_trial.py
           python3 tools/ci/site_request_trial.py --contract
@@ -43,7 +43,7 @@ jobs:
           set -e
           {
             echo '### Independent website request trial — GitHub runner, not Android phone'
-            echo 'This checks explicit URL/headers and one first-hop GET; no cookies, redirects, retries or challenge automation. HTTP 200 with matching train/cards is **structure only**, not a dated station event or evidence of phone access.'
+            echo 'Historical urllib/Java HTTP comparison only, NOT the selected APK WebView transport. No cookies, redirects, retries or challenge automation. HTTP 200 with matching cards is structure only, not phone access.'
             echo '```json'
             cat site-request-result.json
             echo '```'

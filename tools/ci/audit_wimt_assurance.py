@@ -23,7 +23,9 @@ def audit(folder: Path) -> dict:
             and result.get("websiteRefused") is False
             and result.get("sourceTransport") == "NETWORK_ANSWER"
             and isinstance(result.get("siteRows"), int) and result["siteRows"] > 0
-            and result.get("browserOrPhoneAppFeed") is False):
+            and result.get("googlePhoneAppFeed") is False
+            and result.get("browserEngineRequest") is True
+            and result.get("websiteGetCountScope") == "main_document_navigation_only"):
         raise ValueError("artifact is not a source-strict independent website network pass")
     if "OK (1 test)" not in inst or "FAILURES!!!" in inst or "INSTRUMENTATION_FAILED" in inst:
         raise ValueError("exact installed-app instrumented test did not pass")

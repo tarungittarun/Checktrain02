@@ -24,7 +24,8 @@ class AssuranceAuditTest(unittest.TestCase):
                       "websiteAnswered": True, "wireReceiptAvailable": True,
                       "websiteGetCount": 1, "websiteRefused": False,
                       "sourceTransport": "NETWORK_ANSWER", "siteRows": 2,
-                      "browserOrPhoneAppFeed": False}
+                      "googlePhoneAppFeed": False, "browserEngineRequest": True,
+                      "websiteGetCountScope": "main_document_navigation_only"}
             (folder / "instrumentation.txt").write_text("OK (1 test)")
             (folder / "screen-verification.json").write_text(json.dumps({
                 "displayedRefusalRequired": False,

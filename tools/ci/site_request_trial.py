@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""One first-hop website GET matching TrackTrain's declared URL and headers.
+"""Historical Java-HTTP website trial, NOT the selected WebView transport (R175).
 
-This is an availability test from a GitHub runner, NOT a phone/browser/TLS fingerprint
-simulator and NOT an access-control workaround. No cookies, spoofed browser identity,
-challenge solving, redirects, retries, response body on errors or raw CDN IDs.
+A runner urllib request is not Android WebView or Chrome. No cookies, spoofed browser
+identity, challenge solving, redirects, retries or raw CDN IDs. Do not present a
+successful response here as acceptance of the current APK's browser navigation.
 """
 from __future__ import annotations
 
@@ -49,10 +49,10 @@ def require(pattern: str, source: str, label: str) -> re.Match[str]:
 
 
 def app_contract(page: str | None = None, http: str | None = None) -> Contract:
-    """Fail closed on a drift in the app's *explicit* request settings.
+    """Guard the historical Java HTTP helper (not the production website WebView).
 
     This checks source expressions rather than maintaining a second manually edited copy
-    of headers. It does not claim to model Android's implicit headers or its TLS stack.
+    of headers. It does not model Android WebView, Chrome, their cookies or their TLS.
     """
     page = PAGE.read_text() if page is None else page
     http = HTTP.read_text() if http is None else http
@@ -166,7 +166,7 @@ def classify(train: str, opener=None, contract: Contract | None = None) -> dict:
 def main() -> int:
     if len(sys.argv) == 2 and sys.argv[1] == "--contract":
         contract = app_contract()
-        print("App URL, method, identity, headers, retry, budget and refusal guards match trial contract")
+        print("Historical Java HTTP helper matches the runner trial; NOT selected APK WebView request")
         return 0
     if len(sys.argv) != 2:
         print("usage: site_request_trial.py --contract | TRAIN_NUMBER", file=sys.stderr)
