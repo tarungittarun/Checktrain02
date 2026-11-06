@@ -46,12 +46,28 @@ jobs:
       - name: Build the offline timetable required by the APK
         run: bash tools/ci/prepare_asset.sh
       - name: Actual app HTTP wire to local test server, parser and refusal pacing
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
+          set +e
           ./gradlew --no-daemon :app:testDebugUnitTest \
             --tests 'in.opentrack.india.core.HttpStatusRetryTest' \
             --tests 'in.opentrack.india.v2.mirror.WebsiteRequestPacingTest' \
             --tests 'in.opentrack.india.v2.mirror.OrgWebsiteStatusTest' \
-            --stacktrace
+            --stacktrace > /tmp/wimt-sim-gradle.log 2>&1
+          result=$?
+          set -e
+          if [ "$result" -ne 0 ]; then
+            { echo '### Local mobile-request simulation build/test failed';
+              echo 'Bounded Gradle tail (test-owned data only; no website GET):';
+              echo '```'; tail -70 /tmp/wimt-sim-gradle.log | cut -c 1-240;
+              echo '```'; } > /tmp/wimt-sim-error.md
+            cat /tmp/wimt-sim-error.md >> "$GITHUB_STEP_SUMMARY"
+            gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
+              -F body=@/tmp/wimt-sim-error.md > /dev/null || true
+            exit "$result"
+          fi
+          tail -12 /tmp/wimt-sim-gradle.log
       - name: Simulation scope is not website access
         run: |
           echo '### Local wire/response-policy simulations: PASS' >> "$GITHUB_STEP_SUMMARY"
