@@ -76,7 +76,7 @@ jobs:
         run: |
           bash tools/ci/prepare_asset.sh
           ./gradlew --no-daemon :app:assembleDebug :app:assembleDebugAndroidTest --stacktrace
-      - name: Real API34 emulator: offline launch/track + 403/challenge simulations
+      - name: 'Real API34 emulator: offline launch/track + 403/challenge simulations'
         run: bash tools/ci/run_wimt_simulation.sh
       - name: Report screenshot verification, NOT website permission
         if: always()
