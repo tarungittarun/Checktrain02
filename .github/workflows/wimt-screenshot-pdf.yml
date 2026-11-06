@@ -1,0 +1,53 @@
+# Report-only recovery from an ALREADY RUN device trial: zero new .org.in GETs.
+# Source screenshots are required; no generated/mock pixels can stand in for them.
+name: wimt-device-screenshot-pdf
+on:
+  push:
+    branches: ['arena/6f68e526-checktrain02']
+    paths:
+      - '.github/workflows/wimt-screenshot-pdf.yml'
+      - 'tools/ci/build_wimt_pdf.py'
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: write # attach the finished PDF to the existing rolling APK release
+jobs:
+  publish:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[wimt-pdf]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          name: wimt-device-evidence
+          run-id: '42026847014'
+          github-token: ${{ github.token }}
+          path: captured-wimt-device
+      - name: Create a PDF containing only the actual failed-source screenshots
+        run: |
+          python3 -m pip install --disable-pip-version-check --quiet reportlab==4.2.5
+          python3 tools/ci/build_wimt_pdf.py captured-wimt-device \
+            build/wimt-website-device-42026847014.pdf
+          test -s build/wimt-website-device-42026847014.pdf
+          sha256sum build/wimt-website-device-42026847014.pdf
+      - name: Publish direct PDF link on existing rolling APK release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload latest-apk build/wimt-website-device-42026847014.pdf --clobber
+          link=https://github.com/${GITHUB_REPOSITORY}/releases/download/latest-apk/wimt-website-device-42026847014.pdf
+          printf '### WIMT website in-app device trial - failed HTTP 403\n\nPDF with actual before/after/failure screenshots: %s\n\nSource: Actions run 42026847014. No new website request; not phone-app data or a successful WIMT feed.\n' "$link" \
+            | tee "$GITHUB_STEP_SUMMARY" > build/pdf-report-link.md
+          gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
+            -F body=@build/pdf-report-link.md > /dev/null
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wimt-failed-website-pdf
+          path: build/wimt-website-device-42026847014.pdf
+          if-no-files-found: warn
+          retention-days: 14
