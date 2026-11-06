@@ -243,11 +243,9 @@ object E2E {
         return visible("headline", NETWORK_MS) || visible("routeLabel", NETWORK_MS)
     }
 
-    /** Screenshots and hierarchies are the evidence a red device run needs; nobody reads a stack trace. */
+    /** Legacy screenshots used by the broader manual E2E suite. */
     fun shot(tag: String) {
         val dir = evidenceDir() ?: return
-        // Both calls take the destination File: `UiDevice` has no bitmap-returning screenshot, and the
-        // hierarchy writer wants a stream only in the sense that it writes the file itself.
         runCatching { ui.takeScreenshot(File(dir, "$tag.png")) }
         runCatching { ui.dumpWindowHierarchy(File(dir, "$tag.xml")) }
     }
@@ -256,6 +254,23 @@ object E2E {
         val ctx = InstrumentationRegistry.getInstrumentation().context
         val dir = File(ctx.getExternalFilesDir(null) ?: ctx.filesDir, "evidence")
         return if (dir.mkdirs() || dir.isDirectory) dir else null
+    }
+
+    /** Strict WIMT capture: fail before the provider GET if app pixels cannot be saved.
+     * Internal test-APK storage remains readable via adb run-as after the test exits. */
+    fun shotWimt(tag: String) {
+        val ctx = InstrumentationRegistry.getInstrumentation().context
+        val dir = File(ctx.filesDir, "evidence")
+        check(dir.mkdirs() || dir.isDirectory) { "Cannot create test screenshot directory" }
+        val image = File(dir, "$tag.png")
+        check(ui.takeScreenshot(image) && image.length() > 1000) {
+            "Screenshot $tag failed inside the running app"
+        }
+        val hierarchy = File(dir, "$tag.xml")
+        ui.dumpWindowHierarchy(hierarchy)
+        check(hierarchy.length() > 100) { "Hierarchy $tag failed inside the running app" }
+        println("WIMT_SHOT $tag bytes=${image.length()} xml=${hierarchy.length()} " +
+            "testPackage=${ctx.packageName}")
     }
 
     /**

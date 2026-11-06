@@ -6,11 +6,26 @@ mkdir -p wimt-device-evidence/screens
 finish() {
   rc=$?
   set +e
-  adb exec-out screencap -p > wimt-device-evidence/final.png 2>/dev/null || true
+  # A screenshot after instrumentation terminates is the Android LAUNCHER,
+  # not app evidence. Never capture or publish that as a WIMT screenshot.
   adb shell uiautomator dump /sdcard/wimt-window.xml >/dev/null 2>&1 || true
   adb pull /sdcard/wimt-window.xml wimt-device-evidence/window.xml >/dev/null 2>&1 || true
-  adb pull /sdcard/Android/data/in.opentrack.india.test/files/evidence \
-    wimt-device-evidence/screens >/dev/null 2>&1 || true
+  # Pull each *in-test* screenshot through the debuggable test APK's data dir.
+  # A missing file is a capture failure, not permission to use the launcher.
+  for name in wimt-before-selected-source wimt-after-selected-source wimt-final-even-on-failure; do
+    for ext in png xml; do
+      adb exec-out run-as in.opentrack.india.test cat "files/evidence/$name.$ext" \
+        > "wimt-device-evidence/screens/$name.$ext" 2>/dev/null || \
+        rm -f "wimt-device-evidence/screens/$name.$ext"
+    done
+  done
+  if ! python3 tools/ci/verify_wimt_screens.py wimt-device-evidence \
+    > wimt-device-evidence/screen-verification.json \
+    2> wimt-device-evidence/screen-verification-error.txt; then
+    rm -f wimt-device-evidence/screen-verification.json
+    cat wimt-device-evidence/screen-verification-error.txt
+    rc=4 # An apparent success without app screenshots is NOT a device pass.
+  fi
   # Raw device diary is transient: never upload it or post CDN IDs, cookies or IPs.
   adb shell run-as in.opentrack.india cat files/diag/log.txt \
     > /tmp/wimt-device-private-diary.txt 2>/dev/null || true
@@ -18,6 +33,8 @@ finish() {
     /tmp/wimt-device-private-diary.txt "$rc" > wimt-device-evidence/result.json || true
   rm -f /tmp/wimt-device-private-diary.txt
   cat wimt-device-evidence/result.json
+  trap - EXIT
+  exit "$rc"
 }
 trap finish EXIT
 export API=34 IMG=google_apis ABI=x86_64 DEVICE=pixel_6 BOOT_TIMEOUT=360

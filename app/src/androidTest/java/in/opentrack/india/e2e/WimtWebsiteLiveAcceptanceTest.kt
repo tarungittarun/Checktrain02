@@ -48,7 +48,7 @@ class WimtWebsiteLiveAcceptanceTest {
             assertTrue("$number result missing", E2E.ui.wait(Until.hasObject(E2E.res("hitGo")), E2E.NETWORK_MS))
             assertTrue("Track not opened", E2E.openTrackFromFirstResult())
             assertEquals("wrong train opened", number, E2E.text("trainNo"))
-            E2E.shot("wimt-before-selected-source")
+            E2E.shotWimt("wimt-before-selected-source")
             assertTrue("source selector not reachable", E2E.reveal("sourceSpinner", "scroller") &&
                 E2E.tap("sourceSpinner"))
             val site = E2E.ui.wait(Until.findObject(By.textContains("Where Is My Train · website")),
@@ -72,7 +72,7 @@ class WimtWebsiteLiveAcceptanceTest {
                     warning.contains("HTTP 429")) break
                 Thread.sleep(250)
             }
-            E2E.shot("wimt-after-selected-source")
+            E2E.shotWimt("wimt-after-selected-source")
             assertTrue("No qualified website past card in the installed app; " +
                 "headline='$headline' badge='$badge' warning='$warning'. " +
                 "NTES fallback, HTTP 200 alone and the .in web cache do not pass.", accepted)
@@ -83,7 +83,10 @@ class WimtWebsiteLiveAcceptanceTest {
             assertTrue("site report has no painted source-attributed times",
                 siteCells.any { it.contentDescription.orEmpty().startsWith("Website displayed") })
         } finally {
-            E2E.shot("wimt-final-even-on-failure")
+            // Preserve the original assertion (especially the observed 403) even if
+            // this optional last shot fails. Before/after captures are mandatory.
+            runCatching { E2E.shotWimt("wimt-final-even-on-failure") }
+                .onFailure { println("WIMT_OPTIONAL_FINAL_SHOT_FAILED: ${it.javaClass.simpleName}") }
         }
     }
 }
