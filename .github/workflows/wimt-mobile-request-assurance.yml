@@ -54,13 +54,15 @@ jobs:
             --tests 'in.opentrack.india.core.HttpStatusRetryTest' \
             --tests 'in.opentrack.india.v2.mirror.WebsiteRequestPacingTest' \
             --tests 'in.opentrack.india.v2.mirror.OrgWebsiteStatusTest' \
-            --stacktrace > /tmp/wimt-sim-gradle.log 2>&1
+            > /tmp/wimt-sim-gradle.log 2>&1
           result=$?
           set -e
           if [ "$result" -ne 0 ]; then
             { echo '### Local mobile-request simulation build/test failed';
               echo 'Bounded Gradle tail (test-owned data only; no website GET):';
-              echo '```'; tail -70 /tmp/wimt-sim-gradle.log | cut -c 1-240;
+              echo '```';
+              grep -E '(^e: |^> |^\* What went wrong:|^Execution failed|^.*FAILED|^Caused by:|^.*No tests found|^.*error:)' /tmp/wimt-sim-gradle.log | head -55 | cut -c 1-240 || true;
+              echo '--- last 30 lines ---'; tail -30 /tmp/wimt-sim-gradle.log | cut -c 1-240;
               echo '```'; } > /tmp/wimt-sim-error.md
             cat /tmp/wimt-sim-error.md >> "$GITHUB_STEP_SUMMARY"
             gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
