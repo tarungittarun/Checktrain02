@@ -28,11 +28,11 @@ import java.util.concurrent.Executors
  *     written to a new file until the user turns it on. Disabling appends a footer and stops.
  *  2. **Never leaves the device on its own.** There is no upload path here: the only way the contents get
  *     out is the user pressing Share or Save. The screen that enables it says so.
- *  3. **Records what the app already knows, and nothing that identifies a person.** No location, no
- *     account, no search history beyond the train number being tracked - and a redaction pass that drops
- *     anything shaped like a credential (see [sanitize]), because the live feed's envelope and a keyed
- *     provider's token both pass near this code. Server IP addresses are logged; a Private DNS hostname is
- *     reduced to its last two labels, since those hostnames routinely embed an account id.
+ *  3. **Records only bounded device diagnostics.** No location, account, response body or cookies.
+ *     A 403 on the selected website can include the exact train URL and CDN request ID for private
+ *     operator correlation; the Settings warning says not to post that line publicly. All OTHER
+ *     entries retain the credential/digest scrub (see [sanitize]). Server IP addresses are logged;
+ *     a Private DNS hostname is reduced to its last two labels, since it may embed an account ID.
  *
  * Threading: [log] is called from the socket thread, so appending is an in-memory operation and the disk
  * write happens on a single daemon executor. A crash loses at most the last few lines; the ring keeps them
@@ -109,8 +109,18 @@ class Diary(private val file: File) {
         append(tag, message())
     }
 
-    private fun append(tag: String, message: String) {
-        val line = "${clockFmt.format(Date())} [$tag] ${sanitize(message)}"
+    /** Exact Hostinger correlation receipt, only in the user's opt-in on-device diary.
+     * The normal sanitizer redacts bare 32-hex strings, which would destroy some request IDs.
+     * Bypass it ONLY for the fixed-format, allowlisted, validated fields produced here.
+     * Never export this line to Actions/comments; share only privately with the site operator. */
+    fun logWebsiteRefusal(url: String, rawRequestId: String?, atMillis: Long) {
+        if (!enabled) return
+        val metadata = WebsiteRefusalMetadata.line(url, rawRequestId, atMillis) ?: return
+        append("SITE_REFUSAL_PRIVATE", metadata, trustedReceipt = true)
+    }
+
+    private fun append(tag: String, message: String, trustedReceipt: Boolean = false) {
+        val line = "${clockFmt.format(Date())} [$tag] ${if (trustedReceipt) message else sanitize(message)}"
         synchronized(ring) {
             if (ring.size >= RING_CAP) ring.removeFirst()
             ring.addLast(line)

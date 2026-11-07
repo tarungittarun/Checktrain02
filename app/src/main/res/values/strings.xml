@@ -100,7 +100,7 @@
     <string name="feed_report_copied">Live-feed report copied to the clipboard</string>
     <string name="feed_report_empty">Nothing to report yet — the screen has not finished loading</string>
     <string name="settings_diag_title">Diagnostic log</string>
-    <string name="settings_diag_hint">Off by default, and nothing is recorded until you turn it on. Each line is one request, one provider verdict or one parse refusal: host, status, elapsed, no train numbers, no locations, no payload contents. The file stays on this phone unless you share or save it yourself.</string>
+    <string name="settings_diag_hint">Off by default. A website HTTP 403 records its exact URL (including train number), UTC time and original CDN request ID for private operator diagnosis. No response body or cookies are recorded. The log stays on this phone unless you share or save it; share the request ID privately, not in a public issue.</string>
     <string name="settings_diag_on">Turn on collection</string>
     <string name="settings_diag_off">Turn off collection</string>
     <string name="settings_diag_share">Share</string>

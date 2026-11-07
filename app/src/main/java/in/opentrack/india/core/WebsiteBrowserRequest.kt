@@ -3,6 +3,7 @@ package `in`.opentrack.india.core
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.webkit.CookieManager
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -85,9 +86,11 @@ object WebsiteBrowserRequest {
                 val browser = WebView(context)
                 view = browser
                 browser.settings.apply {
-                    // Let the site render normally. No custom UA, copied Chrome cookies, JS
-                    // bridge, injected challenge solver or web security override is used.
+                    // Standard WebView page capabilities, NOT proof that Hostinger will admit us.
+                    // No forged UA, copied Chrome cookies, JS bridge or challenge solver.
                     javaScriptEnabled = true
+                    domStorageEnabled = true
+                    databaseEnabled = true
                     allowFileAccess = false
                     allowContentAccess = false
                     allowFileAccessFromFileURLs = false
@@ -95,6 +98,12 @@ object WebsiteBrowserRequest {
                     mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
                     cacheMode = WebSettings.LOAD_NO_CACHE
                     mediaPlaybackRequiresUserGesture = true
+                }
+                CookieManager.getInstance().apply {
+                    setAcceptCookie(true)
+                    // The document and its CDN are first-party on this host; do not
+                    // allow unrelated third-party tracking cookies without a need.
+                    setAcceptThirdPartyCookies(browser, false)
                 }
                 browser.webViewClient = object : WebViewClient() {
                     override fun shouldOverrideUrlLoading(v: WebView, request: WebResourceRequest): Boolean {
@@ -108,7 +117,16 @@ object WebsiteBrowserRequest {
 
                     override fun onReceivedHttpError(v: WebView, request: WebResourceRequest,
                                                      response: WebResourceResponse) {
-                        if (request.isForMainFrame) finish(Http.Result.Failed(Http.Result.Kind.HTTP,
+                        if (!request.isForMainFrame) return // an image's 403 is not the train page's 403
+                        if (response.statusCode == 403) {
+                            // Capture the exact header before finishing the failed navigation.
+                            // This is private, opt-in device evidence; it is never in the UI,
+                            // result message, public CI comment or uploaded device artifact.
+                            val id = WebsiteRefusalMetadata.header(response.responseHeaders)
+                            Diary.get()?.logWebsiteRefusal(request.url.toString(), id,
+                                System.currentTimeMillis())
+                        }
+                        finish(Http.Result.Failed(Http.Result.Kind.HTTP,
                             "HTTP ${response.statusCode}"))
                     }
 
