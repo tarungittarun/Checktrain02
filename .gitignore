@@ -32,6 +32,8 @@ app/src/main/assets/ref/*.json
 !tools/ci/test-only-debug.p12
 keystore.properties
 secrets.*
+# User-supplied CDN correlation IDs and operator emails are private, never commit them.
+/private/
 
 # editor / OS noise
 .idea/
