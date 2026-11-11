@@ -19,7 +19,7 @@ import java.util.TimeZone
 class WimtCacheLiveAcceptanceTest {
     private fun trainForIstHour(): String = when (
         Calendar.getInstance(TimeZone.getTimeZone("Asia/Kolkata")).get(Calendar.HOUR_OF_DAY)) {
-        in 0..4 -> "16227" // MYS -> TLGP overnight service
+        in 0..4 -> "20652" // avoid 16227's WIMT MYS -> TLGP vs app SBC -> SMET route conflict
         in 5..11 -> "20652" // TLGP -> SBC morning service
         in 12..13 -> "12002" // NDLS -> BPL daytime service
         in 14..19 -> "20651" // SBC -> TLGP afternoon service
