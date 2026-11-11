@@ -21,40 +21,82 @@ import java.util.TimeZone
  */
 object WimtCandidate {
     const val SOURCE = "WIMT web cache (candidate)"
+    private const val MIN_EPOCH_DAY = 0L
+    private const val MAX_EPOCH_DAY = 47_482L // 2100-01-01
+    private val CLOCK_TIME = Regex("(?:[01]?\\d|2[0-3]|24):[0-5]\\d")
     /** Only a claimed web-cache location. The field is not a GPS/cell measurement and its root
      * timestamp is a cache timestamp, NOT the time the train passed this point. */
     data class WebPoint(
         val code: String, val routeKm: Double, val eventAtMillis: Long,
         val cacheAtMillis: Long, val precedingHalt: String, val followingHalt: String,
     )
-    data class Result(val lines: Map<String, String>, val detail: String,
-                      val webPoint: WebPoint? = null)
+    data class WireReply(val body: String?, val status: Int?, val detail: String)
+    data class Result(
+        val lines: Map<String, String>,
+        val detail: String,
+        val webPoint: WebPoint? = null,
+        /** Transport metadata is separate from parsed source claims. */
+        val responseStatus: Int? = null,
+        val responseReceived: Boolean = false,
+    )
+    private data class ParsedTime(val railMinute: Int)
+
+    const val MAX_RESPONSE_BYTES = 150_000
 
     fun fetch(
         number: String, epochDay: Long, from: String, to: String,
         knownCodes: Set<String>, nowMillis: Long = System.currentTimeMillis(),
         knownKms: Map<String, Int> = emptyMap(),
-        get: (String) -> Pair<String?, String> = ::getOnce,
+        knownTimes: Map<String, Pair<Int?, Int?>> = emptyMap(),
+        get: (String) -> WireReply = ::getOnce,
     ): Result {
-        if (!number.matches(Regex("[0-9]{5}")) ||
+        if (!number.matches(Regex("[0-9]{4,5}")) ||
             !from.matches(Regex("[A-Z]{2,5}")) || !to.matches(Regex("[A-Z]{2,5}")))
             return Result(emptyMap(), "invalid train or route identity")
+        if (epochDay !in MIN_EPOCH_DAY..MAX_EPOCH_DAY)
+            return Result(emptyMap(), "invalid origin run date")
         val day = SimpleDateFormat("dd-MM-yyyy", Locale.ENGLISH).apply {
             timeZone = TimeZone.getTimeZone("Asia/Kolkata")
         }.format(Date(epochDay * 86_400_000L))
         // This is an undocumented public web-cache comparison, not a genuine phone-app
-        // session. Do not pass copied appVersion/sb_version identifiers, or an assumed
-        // from_day; ask only by run date and verify the returned route independently.
-        val parameters = mapOf("date" to day, "train_no" to number, "lang" to "en")
+        // session. Do not pass copied appVersion/sb_version identifiers, assumed from_day,
+        // or a forged browser identity; ask once by run date and validate the returned route.
+        val parameters = linkedMapOf("train_no" to number, "date" to day, "lang" to "en")
         val url = "https://whereismytrain.in/cache/live_status?" + parameters.entries.joinToString("&") {
             "${it.key}=${URLEncoder.encode(it.value, "UTF-8")}" }
-        val (body, why) = get(url)
-        if (body == null) return Result(emptyMap(), "no response ($why)")
-        return parse(body, epochDay, from, to, nowMillis, knownCodes, knownKms)
+        val reply = try {
+            get(url)
+        } catch (error: Exception) {
+            return Result(emptyMap(), "${error.javaClass.simpleName}: ${(error.message ?: "").take(90)}")
+        }
+        if (reply.status != 200) {
+            val status = reply.status?.let { "HTTP $it" } ?: "no HTTP response"
+            return Result(emptyMap(), "$status · ${reply.detail}",
+                responseStatus = reply.status, responseReceived = reply.status != null)
+        }
+        if (reply.body == null) {
+            val reason = reply.detail.takeIf { it.isNotBlank() && it != "ok" }
+                ?: "response body missing"
+            return Result(emptyMap(), "HTTP 200; $reason",
+                responseStatus = reply.status, responseReceived = true)
+        }
+        if (reply.body.toByteArray(Charsets.UTF_8).size > MAX_RESPONSE_BYTES) {
+            return Result(emptyMap(), "HTTP 200; response exceeded ${MAX_RESPONSE_BYTES / 1000} kB",
+                responseStatus = reply.status, responseReceived = true)
+        }
+        val parsed = parse(reply.body, epochDay, from, to, nowMillis, knownCodes,
+            knownKms, knownTimes)
+        return parsed.copy(detail = "HTTP 200; ${parsed.detail}",
+            responseStatus = reply.status, responseReceived = true)
     }
 
     fun parse(body: String, epochDay: Long, from: String, to: String, nowMillis: Long,
-              knownCodes: Set<String> = emptySet(), knownKms: Map<String, Int> = emptyMap()): Result {
+              knownCodes: Set<String> = emptySet(), knownKms: Map<String, Int> = emptyMap(),
+              knownTimes: Map<String, Pair<Int?, Int?>> = emptyMap()): Result {
+        if (body.toByteArray(Charsets.UTF_8).size > MAX_RESPONSE_BYTES)
+            return Result(emptyMap(), "response exceeded ${MAX_RESPONSE_BYTES / 1000} kB")
+        if (epochDay !in MIN_EPOCH_DAY..MAX_EPOCH_DAY)
+            return Result(emptyMap(), "invalid origin run date")
         val root = runCatching { JSONObject(body) }.getOrNull()
             ?: return Result(emptyMap(), "unreadable JSON; no minutes accepted")
         val expectedDate = SimpleDateFormat("dd-MM-yyyy", Locale.ENGLISH).apply {
@@ -66,11 +108,15 @@ object WimtCandidate {
             return Result(emptyMap(), "run date or route mismatched; no minutes accepted")
         val rows = root.optJSONArray("days_schedule")
             ?: return Result(emptyMap(), "no dated station rows")
+        if (nowMillis < 0L) return Result(emptyMap(), "invalid current time")
         val lines = linkedMapOf<String, String>()
         var rejectedEta = 0
         var rejectedAhead = 0
         var latestObservation = 0L
         val seen = mutableSetOf<String>()
+        val runStartMillis = RailTime.railMinuteToEpochMillis(epochDay, 0)
+        val latestAllowedMillis = if (nowMillis > Long.MAX_VALUE - 120_000L)
+            Long.MAX_VALUE else nowMillis + 120_000L
         for (i in 0 until rows.length()) {
             val row = rows.optJSONObject(i) ?: continue
             val code = row.optString("station_code").uppercase(Locale.ENGLISH)
@@ -80,50 +126,91 @@ object WimtCandidate {
                 rejectedEta++
                 continue
             }
-            // A location or a time string isn't an event. Demand the source's departed flag
-            // AND a distinct update timestamp that is later than each proposed event.
-            if (row.opt("departed") != true) continue
-            val updated = updatedMillis(row.optString("updated_at")) ?: continue
-            if (updated > nowMillis + 120_000L || updated < epochDay * 86_400_000L -
-                RailTime.IST_OFFSET_MILLIS) continue
-            fun event(key: String): String? {
-                val seconds = row.optLong(key, 0L)
-                val millis = seconds * 1000L
-                if (seconds <= 0 || seconds > Long.MAX_VALUE / 1000L ||
-                    RailTime.istEpochDay(millis) !in epochDay..(epochDay + 3) ||
-                    millis > nowMillis + 120_000L || millis > updated + 30_000L) {
-                    if (seconds > 0) rejectedAhead++
+            val schedule = knownTimes[code]
+            fun event(epochKey: String, clockKey: String, scheduledMinute: Int?): ParsedTime? {
+                val secondsValue = row.opt(epochKey) as? Number
+                if (secondsValue != null && secondsValue.toDouble() != 0.0) {
+                    // Epoch-second fields need their own later row-update clock. Never
+                    // rehabilitate a contradictory numeric claim with the fallback HH:mm.
+                    val seconds = secondsValue.toLong()
+                    val updated = updatedMillis(row.optString("updated_at")) ?: return null
+                    if (seconds <= 0L || seconds > Long.MAX_VALUE / 1000L) {
+                        if (seconds > 0L) rejectedAhead++
+                        return null
+                    }
+                    val millis = seconds * 1000L
+                    if (RailTime.istEpochDay(millis) !in epochDay..(epochDay + 3) ||
+                        millis > latestAllowedMillis || updated > latestAllowedMillis ||
+                        updated < runStartMillis || millis > updated + 30_000L) {
+                        rejectedAhead++
+                        return null
+                    }
+                    latestObservation = maxOf(latestObservation, updated)
+                    val absoluteMinute = Math.floorDiv(millis + RailTime.IST_OFFSET_MILLIS, 60_000L)
+                    val railMinute = (absoluteMinute - epochDay * RailTime.MINUTES_PER_DAY).toInt()
+                    return ParsedTime(railMinute)
+                }
+
+                // Gravity01's provider also consumes the cache's HH:mm fields. Anchor
+                // those day-blind clocks to this same train's static run schedule; keep
+                // them explicitly unverified and never copy them into ACTUAL cells.
+                val rawClock = row.optString(clockKey).trim()
+                if (!CLOCK_TIME.matches(rawClock)) return null
+                val scheduleMinute = scheduledMinute ?: return null
+                if (scheduleMinute !in -RailTime.MINUTES_PER_DAY..
+                        (4 * RailTime.MINUTES_PER_DAY)) return null
+                val clockMinute = RailTime.parseHm(rawClock) ?: return null
+                val railMinute = RailTime.alignClock(clockMinute, scheduleMinute) ?: return null
+                val millis = RailTime.railMinuteToEpochMillis(epochDay, railMinute)
+                if (RailTime.istEpochDay(millis) !in epochDay..(epochDay + 3) ||
+                    millis > latestAllowedMillis) {
+                    rejectedAhead++
                     return null
                 }
-                latestObservation = maxOf(latestObservation, updated)
-                val minute = RailTime.istMinuteOfDay(millis)
-                return RailTime.formatRailMinuteBare(minute)
+                val updateRaw = row.optString("updated_at").takeIf {
+                    it.isNotBlank() && !it.equals("null", true)
+                }
+                val updated = if (updateRaw == null) null else updatedMillis(updateRaw) ?: return null
+                if (updated != null && (updated > latestAllowedMillis ||
+                        updated < runStartMillis || millis > updated + 30_000L)) {
+                    rejectedAhead++
+                    return null
+                }
+                if (updated != null) latestObservation = maxOf(latestObservation, updated)
+                return ParsedTime(railMinute)
             }
-            val arr = event("actual_arrival_tm")
-            val rawArr = row.optLong("actual_arrival_tm", 0L)
-            val rawDep = row.optLong("actual_departure_tm", 0L)
-            // The 2 Nov 20689 cache gave BDVT an arrival at 13:35 and an
-            // "actual departure" of 12:52 (its schedule). Even on a row marked
-            // departed, that cannot be a reported departure after the arrival.
-            val dep = if (rawArr > 0 && rawDep > 0 && rawDep < rawArr) {
+
+            val arrived = event("actual_arrival_tm", "actual_arrival_time", schedule?.first)
+            val departed = row.opt("departed") == true
+            val rawDeparture = if (departed)
+                event("actual_departure_tm", "actual_departure_time", schedule?.second) else null
+            // A station arrival may be the current reported event while the train is
+            // still stopped. Departure is accepted only when WIMT marks it departed;
+            // an out-of-order departure must never follow an admitted arrival.
+            val departure = if (arrived != null && rawDeparture != null &&
+                rawDeparture.railMinute < arrived.railMinute) {
                 rejectedAhead++
                 null
-            } else event("actual_departure_tm")
-            if (arr != null || dep != null) {
-                lines[code] = "$code · " + listOfNotNull(arr?.let { "arrival $it" },
-                    dep?.let { "departure $it" }).joinToString(" · ") +
-                    " · WIMT web note (unverified, not Act)"
+            } else rawDeparture
+            if (arrived != null || departure != null) {
+                lines[code] = "$code · run date ${RailTime.formatDate(epochDay)} · " +
+                    listOfNotNull(arrived?.let { "arrival ${RailTime.formatRailMinute(it.railMinute)}" },
+                        departure?.let { "departure ${RailTime.formatRailMinute(it.railMinute)}" })
+                        .joinToString(" · ") + " · WIMT web note (unverified, not Act)"
             }
         }
-        val age = if (latestObservation == 0L) "no admissible observed-time candidates"
-            else "last event update ${((nowMillis - latestObservation).coerceAtLeast(0L) / 60_000L)} min ago"
+        val age = if (latestObservation == 0L) {
+            if (lines.isEmpty()) "no admissible observed-time candidates"
+            else "row update timestamp unavailable; age unknown"
+        } else "last row update ${((nowMillis - latestObservation).coerceAtLeast(0L) / 60_000L)} min ago"
         val webPoint = positionCandidate(root, rows, epochDay, nowMillis, knownKms)
         val pointNote = if (webPoint == null) "no fresh, route-bracketed web position event"
             else "web point ${webPoint.code} at ${RailTime.formatClock(webPoint.eventAtMillis)} IST " +
                 "(${(nowMillis - webPoint.eventAtMillis) / 60_000L} min old); not GPS or the WIMT phone app"
-        return Result(lines, "${rows.length()} rows; ${lines.size} candidate stops; " +
-            "$rejectedEta ETA rows and $rejectedAhead contradictory/pre-update/future cells excluded; $age. " +
-            "$pointNote. Undocumented web cache; no future ETA inferred", webPoint)
+        return Result(lines, "run date ${RailTime.formatDate(epochDay)}; ${rows.length()} rows; " +
+            "${lines.size} candidate stops; $rejectedEta ETA rows and $rejectedAhead " +
+            "contradictory/pre-update/future cells excluded; $age. $pointNote. " +
+            "Undocumented web cache; no future ETA inferred", webPoint)
     }
 
     /** A root timestamp is minted on every HTTP answer. Only the dated CURRENT point's
@@ -189,31 +276,39 @@ object WimtCandidate {
         }.getOrNull()
     }
 
-    private fun getOnce(url: String): Pair<String?, String> = try {
+    internal fun getOnce(url: String): WireReply = try {
         val connection = (URL(url).openConnection() as HttpURLConnection).apply {
             connectTimeout = 2_500
             readTimeout = 2_500
+            useCaches = false
+            instanceFollowRedirects = false
+            requestMethod = "GET"
             setRequestProperty("Accept", "application/json")
-            setRequestProperty("User-Agent", "OpenTrack India source research/1.0")
+            setRequestProperty("User-Agent", "TrackTrain/1.0 (Android; user-selected web-cache comparison)")
         }
         try {
-            if (connection.responseCode != 200) null to "HTTP ${connection.responseCode}"
-            else {
+            val status = connection.responseCode
+            if (status != HttpURLConnection.HTTP_OK) {
+                WireReply(null, status, "HTTP $status")
+            } else {
                 val bytes = connection.inputStream.use { stream ->
                     val out = java.io.ByteArrayOutputStream()
-                    val chunk = ByteArray(8192)
-                    while (out.size() <= 150_000) {
+                    val chunk = ByteArray(8_192)
+                    while (true) {
                         val n = stream.read(chunk)
                         if (n < 0) break
+                        if (out.size() + n > MAX_RESPONSE_BYTES)
+                            return@use null
                         out.write(chunk, 0, n)
                     }
                     out.toByteArray()
                 }
-                if (bytes.size > 150_000) null to "response exceeded 150 kB"
-                else String(bytes, Charsets.UTF_8) to "ok"
+                if (bytes == null) WireReply(null, status,
+                    "response exceeded ${MAX_RESPONSE_BYTES / 1000} kB")
+                else WireReply(String(bytes, Charsets.UTF_8), status, "ok")
             }
         } finally { connection.disconnect() }
     } catch (e: Exception) {
-        null to (e.javaClass.simpleName + ": " + (e.message ?: "").take(90))
+        WireReply(null, null, e.javaClass.simpleName + ": " + (e.message ?: "").take(90))
     }
 }

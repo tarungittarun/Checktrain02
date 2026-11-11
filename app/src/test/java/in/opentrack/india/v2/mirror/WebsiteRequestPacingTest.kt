@@ -29,7 +29,8 @@ class WebsiteRequestPacingTest {
         assertNull(reopened.paused(at + WebsiteRequestPacing.PAUSE_MS))
         gate.observe(PublicPageChecks.Result("Request failed: HTTP · HTTP 429", at, false), at)
         assertTrue(reopened.paused(at + 60_000)!!.detail.contains("HTTP 429"))
-        gate.observe(PublicPageChecks.Result("site answered", at + 60_000, true), at + 60_000)
+        gate.observe(PublicPageChecks.Result("successful page contains literal HTTP 403 text",
+            at + 60_000, true), at + 60_000)
         assertNull(reopened.paused(at + 60_001))
         assertFalse("a parse-only failure is not a refusal",
             WebsiteRequestPacing(context).paused(at + 60_002) != null)

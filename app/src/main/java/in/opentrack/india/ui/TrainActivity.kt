@@ -700,7 +700,7 @@ class TrainActivity : AppCompatActivity() {
         // Spinner's own accessibility text can be empty on Android even when its
         // painted child says WIMT. Expose the *selected* source to TalkBack too.
         binding.sourceSpinner.contentDescription = "Selected ${TrackingSources.label(TrackingSources.valid(ui.activeSource))}. " +
-            "Choose NTES or Where Is My Train website. Long press for time and source details."
+            "Choose NTES, Where Is My Train website, or experimental WIMT web cache. Long press for time and source details."
         binding.refresh.contentDescription = if (vm.refreshTarget(auto = false) != ui.activeSource)
             "Retry selected website first; NTES currently shown as fallback. Drag to move in lower half"
         else "Refresh selected source; drag to move in lower half"
@@ -719,9 +719,11 @@ class TrainActivity : AppCompatActivity() {
                     (view as TextView).apply {
                         val (state, detail) = spinnerStates[names[position]] ?: ("none" to "checking on first load")
                         val indicator = SourceIndicator.of(names[position], state, detail)
-                        val shortName = if (names[position] ==
-                            `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG)
-                            "WIMT site" else "NTES"
+                        val shortName = when (names[position]) {
+                            `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG -> "WIMT site"
+                            `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE -> "WIMT cache"
+                            else -> "NTES"
+                        }
                         text = "● $shortName  ▾"
                         textSize = 14f
                         maxLines = 1
@@ -813,13 +815,13 @@ class TrainActivity : AppCompatActivity() {
                 `in`.opentrack.india.v2.mirror.RunningStatusMirror.SOURCE, "erail") &&
                 ui.sourceStates[selected]?.first != "live"
         } == true
-        // One explanation only: the qualified site's badge + labelled table already state
-        // provenance. Show this line only when its selected source has no usable point.
+        val wimtRows = ui.sourceLines[`in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE].orEmpty()
+        // Keep web-cache claims separate from the ACTUAL table. Its own data summary
+        // appears only when that experimental source is deliberately selected.
         sourceSummaryWanted = (
             ui.websiteGap != null || ui.alternateSiteHint != null ||
                 publicCheck != null && ui.orgWebsiteReport == null ||
-            ui.activeSource == `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE &&
-                ui.wimtWebPoint == null || mirrorWithoutTimes
+            ui.activeSource == `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE || mirrorWithoutTimes
         )
         binding.sourceSummary.visibility = if (heroExpanded && sourceSummaryWanted) View.VISIBLE else View.GONE
         val selectedStatus = ui.activeSource?.let { ui.sourceStates[it] }
@@ -831,14 +833,18 @@ class TrainActivity : AppCompatActivity() {
             SourceIndicator.of(ui.activeSource.orEmpty(), state, detail).tone ==
                 SourceIndicator.Tone.PENDING
         } == true
-        binding.sourceSummary.isClickable = ui.alternateSiteHint != null
-        binding.sourceSummary.setOnClickListener(if (ui.alternateSiteHint != null)
+        val showingWimtRows = ui.activeSource ==
+            `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE && wimtRows.isNotEmpty()
+        binding.sourceSummary.isClickable = !showingWimtRows && ui.alternateSiteHint != null
+        binding.sourceSummary.setOnClickListener(if (!showingWimtRows && ui.alternateSiteHint != null)
             View.OnClickListener { vm.setActiveSource(`in`.opentrack.india.v2.mirror.PublicPageChecks.ORG) }
             else null)
         binding.sourceSummary.text = when {
+            showingWimtRows ->
+                "WIMT web cache: ${wimtRows.size} source-reported web-cache time row(s), unverified, not railway ACTUAL. Open Source details."
             ui.alternateSiteHint != null -> ui.alternateSiteHint
             ui.websiteGap != null -> WebsiteGapSummaryUi.concise(ui.websiteGap)
-            ui.wimtWebPoint != null -> "Site distance claim; not phone GPS."
+            ui.wimtWebPoint != null -> "WIMT web-cache distance claim; not phone GPS."
             selectedPending -> "Checking ${sourceName(ui.activeSource.orEmpty())}…"
             else -> "$selectedReason$response. Timetable below."
         }
@@ -1200,8 +1206,23 @@ class TrainActivity : AppCompatActivity() {
             ui.sourceStates.forEach { (name, status) ->
                 append(sourceName(name)).append(": ")
                 // Keep long source diagnostics in the copied diary, not in the tracking UI.
-                append(when (status.first) {
+                if (name == `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE) {
+                    val rows = ui.sourceLines[name].orEmpty().values.toList()
+                    // Keep the actual HTTP result in Source details: status-only failures and
+                    // malformed HTTP-200 bodies must not disappear behind a generic badge.
+                    val responseDetail = status.second.substringAfter("; ", status.second)
+                    append("${rows.size} source-reported web-cache time row(s); ")
+                        .append(responseDetail)
+                        .append("; unverified, not railway ACTUAL")
+                } else append(when (status.first) {
                     "live" -> "reported times available"
+                    "comparison" -> when {
+                        name == `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE ->
+                            "${ui.sourceLines[name].orEmpty().size} source-reported web-cache time row(s); unverified, not railway ACTUAL"
+                        name == `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG &&
+                            ui.orgWebsiteReport != null -> "site-published past station times; run date inferred, not railway ACTUAL"
+                        else -> "comparison only; not independently verified ACTUAL"
+                    }
                     "candidate" -> when {
                         name == `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG &&
                             ui.orgWebsiteReport != null -> "site-published past station times; " +
@@ -1223,6 +1244,14 @@ class TrainActivity : AppCompatActivity() {
                 })
                 SourceIndicator.seconds(status.second)?.let { append(" · ").append(it) }
                 append('\n')
+                if (name == `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE &&
+                    ui.activeSource == name) {
+                    val rows = ui.sourceLines[name].orEmpty().values.toList()
+                    append("Selected WIMT web-cache rows · unverified, not railway ACTUAL:\n")
+                    if (rows.isEmpty()) append("No station-time row passed the strict parser gates.\n")
+                    else rows.take(12).forEach { append("• ").append(it).append('\n') }
+                    if (rows.size > 12) append("… ${rows.size - 12} additional source rows omitted.\n")
+                }
             }
             append("\nWIMT web cache is not the WIMT phone app. ")
             append("Site claims are not verified actuals. Station distances can differ between maps.")
@@ -1231,7 +1260,7 @@ class TrainActivity : AppCompatActivity() {
     }
 
     private fun sourceName(name: String): String = when (name) {
-        `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE -> "WIMT website"
+        `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE -> "WIMT web cache"
         "NTES (official)" -> "NTES · official"
         else -> name
     }
@@ -1530,6 +1559,13 @@ class TrainActivity : AppCompatActivity() {
             u.wimtWebPoint?.let { p -> append("WIMT WEB CACHE CANDIDATE " +
                 "${p.code} ${p.routeKm}km event ${RailTime.formatClock(p.eventAtMillis)} " +
                 "cache ${RailTime.formatClock(p.cacheAtMillis)} IST; not phone-app GPS or verified Act\n") }
+            if (u.activeSource == `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE) {
+                val rows = u.sourceLines[`in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE]
+                    .orEmpty().values.toList()
+                append("WIMT web-cache comparison rows=${rows.size}; unverified, not ACTUAL\n")
+                rows.take(20).forEach { append("  ").append(it).append('\n') }
+                if (rows.size > 20) append("  ${rows.size - 20} additional rows omitted\n")
+            }
             // Filtered rather than concatenated: an empty feed-stamp used to leave "· " hanging at the end of
             // the line, which is the sort of detail that makes a diagnostic look unfinished in a screenshot.
             append(listOf(

@@ -11,11 +11,11 @@ object SourceIndicator {
     data class Indicator(val tone: Tone, val label: String)
 
     fun of(name: String, state: String, detail: String): Indicator = when {
+        name == WimtCandidate.SOURCE && state in setOf("live", "comparison", "candidate") ->
+            Indicator(Tone.CANDIDATE, "web cache · unverified")
         state == "live" -> Indicator(Tone.READY, "reported times")
         state == "candidate" && name == PublicPageChecks.ORG ->
             Indicator(Tone.CANDIDATE, "site stops · unverified")
-        state == "candidate" && name == WimtCandidate.SOURCE ->
-            Indicator(Tone.CANDIDATE, "site distance · not GPS")
         state == "candidate" -> Indicator(Tone.CANDIDATE, "unverified station claim")
         state == "comparison" && name == PublicPageChecks.ORG ->
             Indicator(Tone.CANDIDATE, "site past-card times · run date inferred")

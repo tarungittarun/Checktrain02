@@ -34,6 +34,7 @@ import `in`.opentrack.india.v2.mirror.ErailRouteMirror
 import `in`.opentrack.india.v2.mirror.RunningStatusMirror
 import `in`.opentrack.india.v2.mirror.PublicPageChecks
 import `in`.opentrack.india.v2.mirror.WebsiteRequestPacing
+import `in`.opentrack.india.v2.mirror.WimtCacheRequest
 import `in`.opentrack.india.v2.mirror.WimtCandidate
 import `in`.opentrack.india.v2.source.ErailPairParser
 import `in`.opentrack.india.v2.source.ErailTransport
@@ -457,10 +458,18 @@ class LiveViewModel(
                 val u = _ui.value ?: return@launch
                 val route = u.staticRoute ?: u.route
                 val result = withContext(Dispatchers.IO) {
-                    WimtCandidate.fetch(trainNo, originEpochDay, route.srcCode.uppercase(),
-                        route.dstCode.uppercase(), route.stops.map { it.code.uppercase() }.toSet(),
-                        knownKms = u.route.stops.filter { it.isHalt && it.schedKm >= 0 }
-                            .associate { it.code.uppercase() to it.schedKm })
+                    WimtCacheRequest.fetch(
+                        number = trainNo,
+                        epochDay = originEpochDay,
+                        from = route.srcCode.uppercase(),
+                        to = route.dstCode.uppercase(),
+                        knownCodes = route.stops.map { it.code.uppercase() }.toSet(),
+                        knownKms = route.stops.filter { it.isHalt && it.schedKm >= 0 }
+                            .associate { it.code.uppercase() to it.schedKm },
+                        knownTimes = route.stops.filter { it.isHalt }
+                            .associate { it.code.uppercase() to (it.arrivalMin to it.departureMin) },
+                        pacing = WebsiteRequestPacing(app, WimtCacheRequest.PAUSE_PREFS),
+                    )
                 }
                 if (latestProbeOrder[name] != order) return@launch
                 wimtCandidate = result
@@ -531,7 +540,7 @@ class LiveViewModel(
         // explicit selection/Refresh or the existing stale-NTES comparison may ask.
         (PublicPageChecks.names.filter { it != PublicPageChecks.ORG ||
             RefreshTargetPolicy.surveyWebsite(mirrorActiveSource, publicChecks[it] != null) } +
-            listOf(WimtCandidate.SOURCE, "erail")).forEach {
+            listOf("erail")).forEach {
             probeSource(it, select = false)
         }
     }
@@ -748,8 +757,9 @@ class LiveViewModel(
                         selected == PublicPageChecks.ORG && WebsiteReportDisplay.usable(
                             state, current.publicSourceAnswered[selected] == true,
                             current.orgWebsiteReport) ||
-                        state == "candidate" && selected == WimtCandidate.SOURCE &&
-                            current.wimtWebPoint != null
+                        state == "comparison" && selected == WimtCandidate.SOURCE &&
+                            (current.wimtWebPoint != null ||
+                                current.sourceLines[selected].orEmpty().isNotEmpty())
                     if (!usable) {
                         val fallback = bestAvailableSource(current, selected)
                         Diary.get()?.log("SOURCE", "refresh $selected failed ($state); fallback=${fallback ?: "official request"}")
@@ -1815,8 +1825,9 @@ class LiveViewModel(
                     p.routeKm in from.schedKm.toDouble()..to.schedKm.toDouble() &&
                     now - p.eventAtMillis in 0L..600_000L &&
                     now - p.cacheAtMillis in 0L..120_000L
-                (if (usable) "comparison" else "unverified") to
-                    "${it.detail}; web point is not phone-app GPS or a verified stop Act"
+                (if (usable || it.lines.isNotEmpty()) "comparison" else "unverified") to
+                    "${it.lines.size} source-reported time row(s); ${it.detail}; " +
+                        "web claims are unverified, not railway ACTUAL or phone-app GPS"
             } ?: ("none" to "manual check available; not a verified source")),
             "erail" to (if (manualErail != null) "live" to (manualErailDetail ?: "verified manual result")
                 else if (manualErailDetail != null) "unverified" to manualErailDetail!!
@@ -1855,9 +1866,11 @@ class LiveViewModel(
         if ("last known" in mirrorSourceLines) sourceNames["last known"] =
             "last-known" to "cached for this run; not a new observation"
         for (name in sourceNames.keys) selectable[name] = when {
-            // Page excerpts are comparisons, never station events. The source badge,
-            // top sentence and Info explain them; don't paste excerpts onto stop rows.
-            name == WimtCandidate.SOURCE || name in PublicPageChecks.names -> emptyMap()
+            // Cache rows remain read-only comparison text; the table's ACTUAL cells,
+            // marker and delay are not populated from this source.
+            name == WimtCandidate.SOURCE -> wimtCandidate?.lines.orEmpty()
+            // Page excerpts are comparisons, never station events.
+            name in PublicPageChecks.names -> emptyMap()
             else -> mirrorSourceLines[name].orEmpty()
         }
         val selected = mirrorActiveSource ?: if (answer.position.provenance == SourceKind.PROVIDER)

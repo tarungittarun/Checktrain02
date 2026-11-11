@@ -6,11 +6,15 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class SourceIndicatorTest {
-    @Test fun travellerChoicesNeverPresentUnverifiedProbesAsThePhoneApp() {
-        assertEquals(listOf(TrackingSources.OFFICIAL, PublicPageChecks.ORG), TrackingSources.options)
+    @Test fun explicitWimtWebCacheChoiceIsDistinctFromWebsiteAndPhoneApp() {
+        assertEquals(listOf(TrackingSources.OFFICIAL, PublicPageChecks.ORG, WimtCandidate.SOURCE),
+            TrackingSources.options)
         assertEquals("Where Is My Train · website",
             TrackingSources.label(PublicPageChecks.ORG))
-        assertEquals(TrackingSources.OFFICIAL, TrackingSources.valid(WimtCandidate.SOURCE))
+        assertEquals("WIMT web cache · experimental",
+            TrackingSources.label(WimtCandidate.SOURCE))
+        assertEquals(WimtCandidate.SOURCE, TrackingSources.valid(WimtCandidate.SOURCE))
+        assertEquals(TrackingSources.OFFICIAL, TrackingSources.valid("WIMT phone app"))
     }
 
     @Test fun aQuickHttpPageDoesNotBecomeGreen() {
@@ -42,8 +46,12 @@ class SourceIndicatorTest {
         assertEquals(SourceIndicator.Tone.CANDIDATE, site.tone)
         assertEquals(true, site.label.contains("site past-card times"))
         assertEquals(false, site.label.contains("verified"))
-        assertEquals(SourceIndicator.Tone.CANDIDATE,
-            SourceIndicator.of(WimtCandidate.SOURCE, "comparison", "dated km point").tone)
+        val cache = SourceIndicator.of(WimtCandidate.SOURCE, "comparison", "dated web rows")
+        assertEquals(SourceIndicator.Tone.CANDIDATE, cache.tone)
+        assertEquals("web cache · unverified", cache.label)
+        assertEquals("a cache can never become a green live source",
+            SourceIndicator.Tone.CANDIDATE,
+            SourceIndicator.of(WimtCandidate.SOURCE, "live", "claimed actuals").tone)
         assertEquals(SourceIndicator.Tone.CANDIDATE,
             SourceIndicator.of(PublicPageChecks.RAIL_YATRI, "comparison", "no passage minute").tone)
         assertEquals(SourceIndicator.Tone.READY,

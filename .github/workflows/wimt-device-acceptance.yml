@@ -1,6 +1,6 @@
-# Targeted, opt-in source acceptance: a real online emulator, APK, screenshots and
-# strict site-data gate. General E2E stays manual-only; this does not run on normal pushes.
-name: wimt-website-device-acceptance
+# Targeted, opt-in source acceptance: a real online emulator, installed APK and
+# endpoint-specific strict data gate. General E2E stays manual-only; no live request on normal pushes.
+name: wimt-source-device-acceptance
 on:
   push:
     branches: ['arena/6f68e526-checktrain02']
@@ -16,14 +16,142 @@ on:
       - 'app/src/main/java/in/opentrack/india/core/WebsiteBrowserRequest.kt'
       - 'app/src/main/java/in/opentrack/india/ui/LiveViewModel.kt'
       - 'tools/ci/wimt_recover.py'
+      - 'tools/ci/run_wimt_cache_device.sh'
+      - 'tools/ci/verify_wimt_cache_screens.py'
+      - 'tools/ci/wimt_cache_device_report.py'
+      - 'tools/ci/build_wimt_cache_pdf.py'
+      - 'tools/ci/test_wimt_cache_device_report.py'
+      - 'tools/ci/test_verify_wimt_cache_screens.py'
+      - 'app/src/androidTest/java/in/opentrack/india/e2e/WimtCacheLiveAcceptanceTest.kt'
+      - 'app/src/main/java/in/opentrack/india/v2/mirror/WimtCandidate.kt'
+      - 'app/src/main/java/in/opentrack/india/v2/mirror/WimtCacheRequest.kt'
+      - 'app/src/main/java/in/opentrack/india/v2/mirror/WebsiteRequestPacing.kt'
+      - 'app/src/test/java/in/opentrack/india/v2/mirror/WimtCandidateTest.kt'
+      - 'app/src/test/java/in/opentrack/india/v2/mirror/WimtCacheRequestTest.kt'
+      - 'app/src/test/java/in/opentrack/india/v2/mirror/WebsiteRequestPacingTest.kt'
+      - 'app/src/test/java/in/opentrack/india/ui/SourceIndicatorTest.kt'
+      - 'app/src/main/java/in/opentrack/india/ui/TrackingSources.kt'
+      - 'app/src/main/java/in/opentrack/india/ui/SourceIndicator.kt'
+      - 'app/src/main/java/in/opentrack/india/ui/TrainActivity.kt'
       - 'app/build.gradle' # version/signing changes must not bypass installed-APK acceptance
       - 'app/src/main/java/in/opentrack/india/core/BuildStamp.kt'
   workflow_dispatch:
+    inputs:
+      source:
+        description: 'Independent endpoint to test; the website and web cache are separate sources'
+        type: choice
+        required: true
+        default: website
+        options:
+          - website
+          - web-cache
 permissions:
   contents: write # API-visible redacted verdict and release PDF; raw diary never published
 jobs:
+  # The `.in` JSON cache is a different endpoint from the `.org.in` website.
+  # Run it only when explicitly selected through workflow_dispatch; never make
+  # ordinary pushes perform a live request or treat a refusal as a pass.
+  cache_device:
+    if: github.event_name == 'workflow_dispatch' && inputs.source == 'web-cache'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Offline report and script checks
+        run: |
+          python3 tools/ci/test_wimt_cache_device_report.py
+          python3 tools/ci/test_verify_wimt_cache_screens.py
+          python3 tools/ci/check_workflows.py
+          python3 tools/ci/check_kotlin_balance.py app/src
+          bash -n tools/ci/run_wimt_cache_device.sh
+      - name: Generate offline timetable in the exact APK
+        run: bash tools/ci/prepare_asset.sh
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: true
+      - name: Run parser/request edge cases and build both APKs from this SHA
+        run: ./gradlew --no-daemon :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest --stacktrace
+      - name: Save the exact APKs before the live-source test
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wimt-cache-apks
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Install APKs and require strictly parsed cache rows in the app UI
+        id: cache_device_test
+        run: bash tools/ci/run_wimt_cache_device.sh
+      - name: Evidence-backed cache result
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p wimt-cache-device-evidence
+          [ -s wimt-cache-device-evidence/instrumentation.txt ] || : > wimt-cache-device-evidence/instrumentation.txt
+          if [ ! -s wimt-cache-device-evidence/result.json ]; then
+            printf '%s\n' '{"accepted":false,"verdict":"DEVICE_TEST_NOT_EXECUTED","reason":"build, boot or setup failed; no live cache claim"}' > wimt-cache-device-evidence/result.json
+          fi
+          { echo '### WIMT `.in` web-cache · source-strict installed-APK result';
+            echo 'This undocumented cache is not the `.org.in` website or Google phone app. Empty rows/refusals are failures.';
+            echo '```json'; cat wimt-cache-device-evidence/result.json; echo '```';
+            echo "Run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"; } \
+            > wimt-cache-device-evidence/report.md
+          cat wimt-cache-device-evidence/report.md >> "$GITHUB_STEP_SUMMARY"
+          gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
+            -F body=@wimt-cache-device-evidence/report.md > /dev/null || \
+            echo '::warning::Commit comment unavailable; inspect the run summary and artifacts'
+      - name: Build PDF from actual in-app cache-test screenshots only
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 -m pip install --disable-pip-version-check --quiet reportlab==4.2.5
+          pdf="wimt-cache-device-evidence/wimt-cache-device-${GITHUB_RUN_ID}.pdf"
+          if python3 tools/ci/build_wimt_cache_pdf.py wimt-cache-device-evidence "$pdf" \
+               "$GITHUB_RUN_ID" "$GITHUB_SHA" > wimt-cache-device-evidence/pdf-verification.json; then
+            echo 'Actual app screenshots PDF:' >> "$GITHUB_STEP_SUMMARY"
+            echo "\`$pdf\` (uploaded with the evidence artifact)." >> "$GITHUB_STEP_SUMMARY"
+            gh release upload latest-apk "$pdf" --clobber || \
+              echo '::warning::PDF retained as a workflow artifact; rolling release upload unavailable'
+          else
+            echo 'No screenshot PDF: the app-window captures did not pass verification; nothing was fabricated.' \
+              | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Publish the debug APK only after strict live cache acceptance
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import json
+          with open('wimt-cache-device-evidence/result.json', encoding='utf-8') as f:
+              result = json.load(f)
+          if result.get('accepted') is not True or result.get('inAppScreensVerified') is not True:
+              raise SystemExit('strict live cache/data/screenshot evidence missing; APK not delivered as working')
+          PY
+          gh release upload latest-apk app/build/outputs/apk/debug/app-debug.apk --clobber
+          echo 'Validated updateable APK: https://github.com/${GITHUB_REPOSITORY}/releases/download/latest-apk/app-debug.apk' \
+            >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wimt-cache-device-evidence
+          path: wimt-cache-device-evidence/
+          if-no-files-found: warn
+          retention-days: 7
+
   device:
-    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[wimt-device]')
+    if: (github.event_name == 'workflow_dispatch' && inputs.source != 'web-cache') || contains(github.event.head_commit.message, '[wimt-device]')
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
