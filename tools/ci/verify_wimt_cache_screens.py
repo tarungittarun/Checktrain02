@@ -197,9 +197,14 @@ def verify(folder: Path, accepted: bool = False) -> dict:
                 http_status.group(1) != "200" or \
                 "unverified, not railway ACTUAL" not in after_text or \
                 "run date " not in details_text or \
+                "cache-reported route " not in details_text or \
+                "matched requested route" not in details_text or \
+                "[field actual_" not in details_text or \
+                "cache source tag" not in details_text or \
+                "row update " not in details_text or \
                 "WIMT web note (unverified, not Act)" not in details_text or \
                 "unverified, not railway ACTUAL" not in details_text:
-            raise ValueError("accepted test lacks matching visible-summary/details rows, HTTP 200, or provenance in the in-app hierarchy")
+            raise ValueError("accepted test lacks matching visible-summary/details rows, HTTP 200, or route/row provenance in the in-app hierarchy")
     return {
         "verified": True,
         "appPackage": APP_PACKAGE,

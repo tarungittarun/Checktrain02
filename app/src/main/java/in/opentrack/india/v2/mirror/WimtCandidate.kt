@@ -39,7 +39,7 @@ object WimtCandidate {
         val responseStatus: Int? = null,
         val responseReceived: Boolean = false,
     )
-    private data class ParsedTime(val railMinute: Int)
+    private data class ParsedTime(val railMinute: Int, val field: String)
 
     const val MAX_RESPONSE_BYTES = 150_000
 
@@ -102,9 +102,10 @@ object WimtCandidate {
         val expectedDate = SimpleDateFormat("dd-MM-yyyy", Locale.ENGLISH).apply {
             timeZone = TimeZone.getTimeZone("Asia/Kolkata")
         }.format(Date(epochDay * 86_400_000L))
+        val sourceStation = root.optString("source_station").uppercase(Locale.ENGLISH)
+        val destinationStation = root.optString("destination_station").uppercase(Locale.ENGLISH)
         if (root.optString("start_date") != expectedDate ||
-            !root.optString("source_station").equals(from, true) ||
-            !root.optString("destination_station").equals(to, true))
+            !sourceStation.equals(from, true) || !destinationStation.equals(to, true))
             return Result(emptyMap(), "run date or route mismatched; no minutes accepted")
         val rows = root.optJSONArray("days_schedule")
             ?: return Result(emptyMap(), "no dated station rows")
@@ -148,7 +149,7 @@ object WimtCandidate {
                     latestObservation = maxOf(latestObservation, updated)
                     val absoluteMinute = Math.floorDiv(millis + RailTime.IST_OFFSET_MILLIS, 60_000L)
                     val railMinute = (absoluteMinute - epochDay * RailTime.MINUTES_PER_DAY).toInt()
-                    return ParsedTime(railMinute)
+                    return ParsedTime(railMinute, epochKey)
                 }
 
                 // Gravity01's provider also consumes the cache's HH:mm fields. Anchor
@@ -177,7 +178,7 @@ object WimtCandidate {
                     return null
                 }
                 if (updated != null) latestObservation = maxOf(latestObservation, updated)
-                return ParsedTime(railMinute)
+                return ParsedTime(railMinute, clockKey)
             }
 
             val arrived = event("actual_arrival_tm", "actual_arrival_time", schedule?.first)
@@ -193,10 +194,19 @@ object WimtCandidate {
                 null
             } else rawDeparture
             if (arrived != null || departure != null) {
+                val eventClaims = listOfNotNull(
+                    arrived?.let { "arrival ${RailTime.formatRailMinute(it.railMinute)} [field ${it.field}]" },
+                    departure?.let { "departure ${RailTime.formatRailMinute(it.railMinute)} [field ${it.field}]" },
+                ).joinToString(" · ")
+                val rawSourceTag = row.optString("source").trim()
+                val sourceTag = if (rawSourceTag.matches(Regex("[A-Za-z0-9._-]{1,32}")) &&
+                    !rawSourceTag.equals("null", true))
+                    "cache source tag $rawSourceTag" else "cache source tag unavailable"
+                val rowUpdate = updatedMillis(row.optString("updated_at"))?.let {
+                    "row update ${formatUpdate(it)}"
+                } ?: "row update unavailable"
                 lines[code] = "$code · run date ${RailTime.formatDate(epochDay)} · " +
-                    listOfNotNull(arrived?.let { "arrival ${RailTime.formatRailMinute(it.railMinute)}" },
-                        departure?.let { "departure ${RailTime.formatRailMinute(it.railMinute)}" })
-                        .joinToString(" · ") + " · WIMT web note (unverified, not Act)"
+                    "$eventClaims · $sourceTag · $rowUpdate · WIMT web note (unverified, not Act)"
             }
         }
         val age = if (latestObservation == 0L) {
@@ -207,7 +217,8 @@ object WimtCandidate {
         val pointNote = if (webPoint == null) "no fresh, route-bracketed web position event"
             else "web point ${webPoint.code} at ${RailTime.formatClock(webPoint.eventAtMillis)} IST " +
                 "(${(nowMillis - webPoint.eventAtMillis) / 60_000L} min old); not GPS or the WIMT phone app"
-        return Result(lines, "run date ${RailTime.formatDate(epochDay)}; ${rows.length()} rows; " +
+        return Result(lines, "run date ${RailTime.formatDate(epochDay)}; cache-reported route " +
+            "$sourceStation→$destinationStation matched requested route; ${rows.length()} rows; " +
             "${lines.size} candidate stops; $rejectedEta ETA rows and $rejectedAhead " +
             "contradictory/pre-update/future cells excluded; $age. $pointNote. " +
             "Undocumented web cache; no future ETA inferred", webPoint)
@@ -265,6 +276,11 @@ object WimtCandidate {
         if (a < 0 || b <= a || km !in a.toDouble()..b.toDouble()) return null
         return WebPoint(code, km, event, stamp, before, after)
     }
+
+    private fun formatUpdate(millis: Long): String =
+        SimpleDateFormat("dd MMM yyyy HH:mm:ss 'IST'", Locale.ENGLISH).apply {
+            timeZone = TimeZone.getTimeZone("Asia/Kolkata")
+        }.format(Date(millis))
 
     private fun updatedMillis(raw: String): Long? {
         if (!raw.matches(Regex("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d+[+]05:30"))) return null

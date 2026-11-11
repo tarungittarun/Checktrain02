@@ -2273,11 +2273,13 @@ class LiveViewModel(
         internal fun fallbackNote(live: ErailLiveIdentity, searchedFrom: String, searchedTo: String): String {
             val base = "This train is not in the device's offline timetable — the two times are the live " +
                 "source's origin→terminus times (via erail); per-stop halts are not available on this device."
-            val pairMatches = live.identity.fromCode.equals(searchedFrom, true) &&
-                live.identity.toCode.equals(searchedTo, true)
-            return if (pairMatches) base
-            else "the live source says this number runs ${live.identity.fromCode} → ${live.identity.toCode}, " +
-                "not $searchedFrom → $searchedTo. " + base
+            val segmentNote = JourneyRouteGate.missingJourneyNote(
+                live.identity.number,
+                listOf(live.identity.fromCode, live.identity.toCode),
+                searchedFrom,
+                searchedTo,
+            )
+            return listOfNotNull(base, segmentNote).joinToString(" ")
         }
 
         internal fun identityOverlay(srcCode: String, dstCode: String, id: TrainIdentity?): String? = when {

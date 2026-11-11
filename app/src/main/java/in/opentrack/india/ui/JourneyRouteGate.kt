@@ -10,4 +10,13 @@ object JourneyRouteGate {
         val end = codes.indexOfLast { it.equals(to, true) }
         return start >= 0 && end > start
     }
+
+    /** Search-result endpoints are the passenger's boarding/alighting segment, not the train's
+     * origin/terminus. Warn only when that segment is absent from the displayed route; its absence
+     * is evidence of an incomplete route, not by itself proof that the train number is wrong. */
+    fun missingJourneyNote(trainNo: String, codes: List<String>, from: String, to: String): String? {
+        if (from.isBlank() || to.isBlank() || covers(codes, from, to)) return null
+        return "Selected search segment ${from.uppercase()} → ${to.uppercase()} is not covered by " +
+            "the timetable shown for train ${trainNo.trim()}; station times may be incomplete."
+    }
 }

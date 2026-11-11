@@ -638,27 +638,25 @@ class TrainActivity : AppCompatActivity() {
         }
     }
 
-    // LEGACY-FREEZE (5.2b): the live pair list (v2) can know a fresher identity for this number than
-    // the offline route this screen renders (16228 was two different trains wearing one number - the
-    // founding bug). When the tapped row's codes disagree with the loaded route, the screen SAYS so
-    // (TrainIdentity.conflictWith's sentence pattern) instead of silently showing a wrong train's times.
+    // The search result carries a passenger segment (boarding/alighting), not the train's full
+    // endpoints. Compare it with the ordered stops; never call an intermediate segment a conflicting
+    // train identity. Full origin/terminus identity is checked separately in LiveViewModel.routeLabel.
     private var errorText: String? = null
 
-    private fun identityConflict(): String? {
+    private fun selectedJourneyWarning(): String? {
         val ui = lastUi ?: return null
-        val liveFrom = intent.getStringExtra(EXTRA_FROM).orEmpty()
-        val liveTo = intent.getStringExtra(EXTRA_TO).orEmpty()
-        if (liveFrom.length < 3 || liveTo.length < 3) return null
-        val label = ui.model.routeLabel
-        if (label.contains(liveFrom) && label.contains(liveTo)) return null
-        return "train ${ui.model.trainNo}: this device's timetable says $label, " +
-            "the live list says $liveFrom → $liveTo — the times below are the timetable's and may " +
-            "belong to the wrong train"
+        return JourneyRouteGate.missingJourneyNote(
+            ui.model.trainNo,
+            ui.route.stops.map { it.code },
+            intent.getStringExtra(EXTRA_FROM).orEmpty(),
+            intent.getStringExtra(EXTRA_TO).orEmpty(),
+        )
     }
 
-    /** One writer for the note line: a live-identity conflict outranks a transient error message. */
+    /** A genuinely uncovered passenger segment outranks transient note text; endpoint identity is
+     * already compared against the full route in the ViewModel. */
     private fun renderNote() {
-        val msg = identityConflict() ?: errorText ?: SummaryNoteUi.visible(lastUi?.model?.note, lastUi?.websiteGap != null)
+        val msg = selectedJourneyWarning() ?: errorText ?: SummaryNoteUi.visible(lastUi?.model?.note, lastUi?.websiteGap != null)
         binding.note.visibility = if (msg == null || !heroExpanded) View.GONE else View.VISIBLE
         if (msg != null) binding.note.text = msg
     }

@@ -82,7 +82,9 @@ class VerifyPngTest(unittest.TestCase):
                          'text="WIMT web cache: 2 source-reported web-cache time row(s), '
                          'unverified, not railway ACTUAL. Open Source details."',
                 "details": 'text="WIMT web cache: 2 source-reported web-cache time row(s); HTTP 200; '
-                           'run date 12 Oct 2026; unverified, not railway ACTUAL; '
+                           'run date 12 Oct 2026; cache-reported route TLGP→MYS matched requested route; '
+                           'arrival 20:55 [field actual_arrival_tm]; cache source tag live; '
+                           'row update 12 Oct 2026 20:56:00 IST; unverified, not railway ACTUAL; '
                            'WIMT web note (unverified, not Act); '
                            'Selected WIMT web-cache rows"',
             }

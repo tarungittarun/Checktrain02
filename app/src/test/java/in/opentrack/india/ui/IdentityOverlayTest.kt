@@ -4,6 +4,7 @@ import `in`.opentrack.india.v2.contract.Provenance
 import `in`.opentrack.india.v2.contract.SourceKind
 import `in`.opentrack.india.v2.contract.TrainIdentity
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -42,13 +43,19 @@ class IdentityOverlayTest {
     }
 
     @Test
-    fun the_fallback_note_names_what_is_missing_and_any_pair_mismatch() {
+    fun the_fallback_note_distinguishes_missing_search_stops_from_train_identity() {
         val note = LiveViewModel.fallbackNote(live("YPR", "SMET", 555, 845, 0), "YPR", "SMET")
         assertTrue(note.contains("not in the device's offline timetable"))
         assertTrue(note.contains("per-stop halts are not available"))
-        val mismatch = LiveViewModel.fallbackNote(live("TLGP", "MYS", 330, 930, 0), "SMET", "MYS")
-        assertTrue("got: $mismatch", mismatch.contains("TLGP → MYS"))
-        assertTrue("got: $mismatch", mismatch.contains("not SMET → MYS"))
+        assertTrue("a passenger segment equal to the endpoint route is covered",
+            !note.contains("Selected search segment"))
+
+        val missingSegment = LiveViewModel.fallbackNote(
+            live("TLGP", "MYS", 330, 930, 0), "SMET", "MYS")
+        assertTrue("got: $missingSegment", missingSegment.contains("Selected search segment SMET → MYS"))
+        assertTrue("got: $missingSegment", missingSegment.contains("not covered by the timetable"))
+        assertFalse("a passenger segment is not a train identity conflict",
+            missingSegment.contains("not SMET → MYS"))
     }
 
     private fun id(from: String, to: String) = TrainIdentity(

@@ -14,7 +14,7 @@ class WimtCandidateTest {
     private val capture = """{
       "start_date":"14-10-2026","source_station":"YPR","destination_station":"SMET",
       "days_schedule":[
-        {"station_code":"YPR","departed":true,"actual_arrival_tm":1791949713,
+        {"station_code":"YPR","source":"live","departed":true,"actual_arrival_tm":1791949713,
          "actual_departure_tm":1791950020,"updated_at":"2026-10-14T09:25:49.710676+05:30"},
         {"station_code":"BAW","departed":true,"actual_arrival_tm":1791950499,
          "actual_departure_tm":1791950633,"updated_at":"2026-10-14T09:32:24.542168+05:30"},
@@ -30,7 +30,12 @@ class WimtCandidateTest {
             setOf("YPR", "BAW", "VNR", "RRB", "SMET"))
         assertEquals(2, r.lines.size)
         assertTrue(r.lines["YPR"]!!.contains("arrival 09:18"))
+        assertTrue(r.lines["YPR"]!!.contains("[field actual_arrival_tm]"))
         assertTrue(r.lines["YPR"]!!.contains("departure 09:23"))
+        assertTrue(r.lines["YPR"]!!.contains("[field actual_departure_tm]"))
+        assertTrue(r.lines["YPR"]!!.contains("cache source tag live"))
+        assertTrue(r.lines["YPR"]!!.contains("row update 14 Oct 2026 09:25:49 IST"))
+        assertTrue(r.detail.contains("cache-reported route YPR→SMET matched requested route"))
         assertTrue(r.lines["BAW"]!!.contains("arrival 09:31"))
         assertFalse(r.lines["BAW"]!!.contains("departure"))
         assertFalse("a future ETA is not an arrival", r.lines.containsKey("RRB"))
@@ -200,7 +205,10 @@ class WimtCandidateTest {
         assertEquals(3, result.lines.size)
         assertTrue(result.lines["YPR"]!!.contains("run date 14 Oct 2026"))
         assertTrue(result.lines["YPR"]!!.contains("arrival 09:18"))
+        assertTrue(result.lines["YPR"]!!.contains("[field actual_arrival_time]"))
         assertTrue(result.lines["YPR"]!!.contains("departure 09:23"))
+        assertTrue(result.lines["YPR"]!!.contains("cache source tag unavailable"))
+        assertTrue(result.lines["YPR"]!!.contains("row update unavailable"))
         assertTrue("the current reported arrival can appear without inventing its departure",
             result.lines["VNR"]!!.contains("arrival 10:35") &&
                 !result.lines["VNR"]!!.contains("departure"))

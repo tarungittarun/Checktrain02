@@ -40,6 +40,7 @@ class WimtCacheLiveAcceptanceTest {
             assertTrue("$number result missing", E2E.ui.wait(Until.hasObject(E2E.res("hitGo")), E2E.NETWORK_MS))
             assertTrue("Track not opened", E2E.openTrackFromFirstResult())
             assertEquals("wrong train opened", number, E2E.text("trainNo"))
+            var expectedCacheRoute: String? = null
             if (number == "16228") {
                 val routeDeadline = System.currentTimeMillis() + E2E.NETWORK_MS
                 var routeLabel = ""
@@ -53,6 +54,15 @@ class WimtCacheLiveAcceptanceTest {
                     "confirmed in the app: '$routeLabel'", routeLabel.contains("TLGP", true) &&
                     routeLabel.contains("MYS", true) &&
                     routeLabel.contains("identity confirmed live (via erail)", true))
+                val routeMatch = Regex("([A-Z]{2,5})\\s*→\\s*([A-Z]{2,5})").find(routeLabel)
+                assertNotNull("the route identity has no parseable endpoint pair: '$routeLabel'", routeMatch)
+                expectedCacheRoute = routeMatch!!.groupValues[1] + "→" + routeMatch.groupValues[2]
+                val routeNote = E2E.text("note", 500)
+                assertTrue("SMET→SBC is a passenger search segment within TLGP→MYS, not a " +
+                    "conflicting train identity; got '$routeNote'",
+                    !routeNote.contains("live list says", true) &&
+                        !routeNote.contains("may belong to the wrong train", true) &&
+                        !routeNote.contains("Selected search segment", true))
             }
             assertTrue("cache selection is not visible", E2E.reveal("sourceSpinner", "scroller"))
             E2E.shotWimt("wimt-cache-before-selected-source")
@@ -110,6 +120,18 @@ class WimtCacheLiveAcceptanceTest {
                 details.take(1200), details.contains("run date ") &&
                     details.contains("unverified, not railway ACTUAL") &&
                     details.contains("WIMT web cache is not the WIMT phone app"))
+            assertTrue("cache root must disclose its own route claim and request match: " +
+                details.take(1200), details.contains("cache-reported route ") &&
+                    details.contains("matched requested route"))
+            assertTrue("each row must identify the source field, source tag and row-update " +
+                "availability: " + details.take(1200), details.contains("[field actual_") &&
+                    details.contains("cache source tag") && details.contains("row update "))
+            expectedCacheRoute?.let { expected ->
+                assertTrue("cache route claim differs from the app's independently confirmed " +
+                    "route $expected: ${details.take(1200)}",
+                    details.replace(" ", "").contains(
+                        "cache-reportedroute${expected}matchedrequestedroute"))
+            }
             assertTrue("HTTP refusal, challenge, malformed/stale/ETA-only data, or empty rows are " +
                 "NOT acceptance. No source-reported cache row reached the app's comparison details. " +
                 "summary='$summary' details='${details.take(1200)}'", rowCount > 0 &&
