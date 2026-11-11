@@ -19,7 +19,7 @@ import java.util.TimeZone
 class WimtCacheLiveAcceptanceTest {
     private fun trainForIstHour(): String = when (
         Calendar.getInstance(TimeZone.getTimeZone("Asia/Kolkata")).get(Calendar.HOUR_OF_DAY)) {
-        in 0..4 -> "20652" // avoid 16227's WIMT MYS -> TLGP vs app SBC -> SMET route conflict
+        in 0..4 -> "16228" // TLGP -> MYS overnight run; wait for the independent live route first
         in 5..11 -> "20652" // TLGP -> SBC morning service
         in 12..13 -> "12002" // NDLS -> BPL daytime service
         in 14..19 -> "20651" // SBC -> TLGP afternoon service
@@ -40,6 +40,20 @@ class WimtCacheLiveAcceptanceTest {
             assertTrue("$number result missing", E2E.ui.wait(Until.hasObject(E2E.res("hitGo")), E2E.NETWORK_MS))
             assertTrue("Track not opened", E2E.openTrackFromFirstResult())
             assertEquals("wrong train opened", number, E2E.text("trainNo"))
+            if (number == "16228") {
+                val routeDeadline = System.currentTimeMillis() + E2E.NETWORK_MS
+                var routeLabel = ""
+                while (System.currentTimeMillis() < routeDeadline) {
+                    routeLabel = E2E.text("routeLabel", 500)
+                    if (routeLabel.contains("TLGP", true) && routeLabel.contains("MYS", true) &&
+                        routeLabel.contains("identity confirmed live (via erail)", true)) break
+                    Thread.sleep(250)
+                }
+                assertTrue("refuse a cache lookup before the independent TLGP→MYS route is " +
+                    "confirmed in the app: '$routeLabel'", routeLabel.contains("TLGP", true) &&
+                    routeLabel.contains("MYS", true) &&
+                    routeLabel.contains("identity confirmed live (via erail)", true))
+            }
             assertTrue("cache selection is not visible", E2E.reveal("sourceSpinner", "scroller"))
             E2E.shotWimt("wimt-cache-before-selected-source")
 
