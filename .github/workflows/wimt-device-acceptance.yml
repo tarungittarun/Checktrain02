@@ -49,10 +49,11 @@ permissions:
   contents: write # API-visible redacted verdict and release PDF; raw diary never published
 jobs:
   # The `.in` JSON cache is a different endpoint from the `.org.in` website.
-  # Run it only when explicitly selected through workflow_dispatch; never make
-  # ordinary pushes perform a live request or treat a refusal as a pass.
+  # Run only after an explicit workflow_dispatch selection, or an explicit
+  # `[wimt-cache-device]` push marker (fallback when the GitHub integration
+  # cannot dispatch workflows). Ordinary pushes never make live requests.
   cache_device:
-    if: github.event_name == 'workflow_dispatch' && inputs.source == 'web-cache'
+    if: (github.event_name == 'workflow_dispatch' && inputs.source == 'web-cache') || (github.event_name == 'push' && contains(github.event.head_commit.message, '[wimt-cache-device]'))
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
