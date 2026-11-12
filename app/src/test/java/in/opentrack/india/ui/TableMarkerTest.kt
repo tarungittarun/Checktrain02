@@ -32,6 +32,16 @@ class TableMarkerTest {
             "TK", day, now)!!.website)
     }
 
+    @Test fun websiteMarkerUsesDepartureWhenOnlyDepartureWasReported() {
+        val departureOnly = row(TrackModel.MinuteSource.SITE_REPORTED, 500)
+            .copy(showArr = null, showDep = 502)
+        val now = RailTime.railMinuteToEpochMillis(day, 510)
+        val marker = TableMarker.atHalt(listOf(departureOnly), "TK", day, now)!!
+        assertTrue(marker.website)
+        assertTrue(marker.caption.startsWith("Site's last mapped departure"))
+        assertFalse(marker.caption.contains("arrival"))
+    }
+
     @Test fun markerAgeAdvancesWithoutASecondNetworkAnswer() {
         val event = RailTime.railMinuteToEpochMillis(day, 500)
         val row = row(TrackModel.MinuteSource.SITE_REPORTED, 500)

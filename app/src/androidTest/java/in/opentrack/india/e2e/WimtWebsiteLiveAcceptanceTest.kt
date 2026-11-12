@@ -68,7 +68,7 @@ class WimtWebsiteLiveAcceptanceTest {
                 eventFreshness = E2E.text("age", 250)
                 val reported = headline.startsWith("Last site card ·") &&
                     badge.contains("run inferred", true) &&
-                    eventFreshness.startsWith("Site arrival ·") && eventFreshness.contains("ago")
+                    eventFreshness.startsWith("Site ") && eventFreshness.contains("ago")
                 if (reported) { accepted = true; break }
                 if (warning.contains("HTTP 403") || warning.contains("blocks request", true) ||
                     warning.contains("HTTP 429")) break

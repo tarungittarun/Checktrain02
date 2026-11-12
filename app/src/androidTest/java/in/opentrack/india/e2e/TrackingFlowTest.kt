@@ -740,9 +740,10 @@ class TrackingFlowTest {
             // not a transient overlay that may already have faded at assertion time.
             val eventAge = E2E.text("age")
             val eventDetail = E2E.find("age")?.contentDescription.orEmpty()
-            assertTrue("site event was replaced with a page-check clock: $eventAge / $eventDetail",
-                eventAge.startsWith("Site arrival · ") &&
-                    eventDetail.contains("Website last mapped arrival") &&
+            val eventNoun = eventAge.removePrefix("Site ").substringBefore(" ·").lowercase()
+            assertTrue("site event was replaced with a page-check clock or mislabelled: $eventAge / $eventDetail",
+                eventAge.startsWith("Site ") && eventAge.contains(" ago") &&
+                    eventDetail.contains("Website last mapped $eventNoun") &&
                     eventDetail.contains("page update") && eventDetail.contains("not movement"))
         } else {
             assertTrue("no site report must not populate numeric station clocks: $live",

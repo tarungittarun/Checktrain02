@@ -83,9 +83,35 @@ class WebsiteReportDisplayTest {
         assertNull(visible["SBC"])
     }
 
-    @Test fun staleWebsiteBadgeRetainsInferredRunWarning() {
+    @Test fun lastWebsiteEventLabelUsesTheReportedArrivalDepartureOrPassage() {
+        val arrival = report.copy(rows = mapOf(
+            "YPR" to LiveStopFields(actualArrivalMin = 686)),
+            anchorCode = "YPR", departed = false, eventMinute = 686)
+        assertEquals(WebsiteReportDisplay.SiteEventKind.ARRIVAL,
+            WebsiteReportDisplay.eventKind(arrival))
+        assertEquals("Site arrival", WebsiteReportDisplay.eventKind(arrival).summaryLabel)
+
+        val departure = report.copy(rows = mapOf(
+            "YPR" to LiveStopFields(actualDepartureMin = 1412)),
+            anchorCode = "YPR", departed = true, eventMinute = 1412)
+        assertEquals(WebsiteReportDisplay.SiteEventKind.DEPARTURE,
+            WebsiteReportDisplay.eventKind(departure))
+        assertEquals("Site departure", WebsiteReportDisplay.eventKind(departure).summaryLabel)
+
+        val both = departure.copy(rows = mapOf(
+            "YPR" to LiveStopFields(actualArrivalMin = 1406, actualDepartureMin = 1412)))
+        assertEquals(WebsiteReportDisplay.SiteEventKind.DEPARTURE,
+            WebsiteReportDisplay.eventKind(both))
+        val passage = departure.copy(intermediate = OrgWebsiteStatus.Intermediate(
+            "MID", "Mapped point", "SBC", "YPR", 10, 1412))
+        assertEquals(WebsiteReportDisplay.SiteEventKind.PASSAGE,
+            WebsiteReportDisplay.eventKind(passage))
+    }
+
+    @Test fun staleWebsiteBadgeRetainsInferredRunWarningAndAvoidsAssumingArrival() {
         assertTrue(WebsiteReportDisplay.STALE_BADGE.contains("stale"))
         assertTrue(WebsiteReportDisplay.STALE_BADGE.contains("run inferred"))
+        assertTrue(WebsiteReportDisplay.STALE_BADGE.contains("mapped event"))
         assertFalse(WebsiteReportDisplay.STALE_BADGE.contains("GPS"))
     }
 

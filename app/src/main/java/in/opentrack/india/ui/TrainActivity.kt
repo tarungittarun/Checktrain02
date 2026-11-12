@@ -1103,10 +1103,11 @@ class TrainActivity : AppCompatActivity() {
 
         if (WebsiteReportDisplay.selected(ui.activeSource) && ui.orgWebsiteReport != null) {
             val report = ui.orgWebsiteReport!!
+            val eventKind = WebsiteReportDisplay.eventKind(report)
             val eventAt = RailTime.railMinuteToEpochMillis(vm.originDate, report.eventMinute)
             val eventAge = TableMarker.elapsedLabel((System.currentTimeMillis() - eventAt).coerceAtLeast(0))
             binding.provenance.contentDescription = binding.provenance.contentDescription?.toString().orEmpty() +
-                ". Website station claim ${RailTime.formatRailMinute(report.eventMinute)}, " +
+                ". Website ${eventKind.noun} claim ${RailTime.formatRailMinute(report.eventMinute)}, " +
                 "$eventAge old. Page checked ${RailTime.formatClockSeconds(report.pageUpdatedAt)}; " +
                 "page clock is not a train movement."
         }
@@ -1416,14 +1417,15 @@ class TrainActivity : AppCompatActivity() {
             WebsiteReportDisplay.selected(ui.activeSource) &&
                 ui.orgWebsiteReport != null && elapsed != null -> {
                 val report = ui.orgWebsiteReport!!
+                val eventKind = WebsiteReportDisplay.eventKind(report)
                 val checkedAt = ui.selectedLoadReceiptMillis ?: now
                 val pageAgeAtCheck = if (checkedAt >= report.pageUpdatedAt) {
                     val ageMillis = checkedAt - report.pageUpdatedAt
                     if (ageMillis < 60_000L) "${ageMillis / 1_000L}s"
                     else TableMarker.elapsedLabel(ageMillis)
                 } else "clock ahead"
-                binding.age.text = "Site arrival · $elapsed · page $pageAgeAtCheck old at check"
-                binding.age.contentDescription = "Website last mapped arrival " +
+                binding.age.text = "${eventKind.summaryLabel} · $elapsed · page $pageAgeAtCheck old at check"
+                binding.age.contentDescription = "Website last mapped ${eventKind.noun} " +
                     "${RailTime.formatRailMinute(report.eventMinute)}; event age $elapsed; " +
                     "page updated ${RailTime.formatClockSeconds(report.pageUpdatedAt)} IST, " +
                     "checked ${RailTime.formatClockSeconds(checkedAt)} IST, " +
@@ -1518,9 +1520,10 @@ class TrainActivity : AppCompatActivity() {
         val age = when {
             active == `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG &&
                 ui?.orgWebsiteReport != null -> {
-                val eventMillis = RailTime.railMinuteToEpochMillis(vm.originDate,
-                    ui.orgWebsiteReport!!.eventMinute)
-                "last website arrival ${TableMarker.elapsedLabel((now - eventMillis).coerceAtLeast(0))} ago" +
+                val report = ui.orgWebsiteReport!!
+                val eventMillis = RailTime.railMinuteToEpochMillis(vm.originDate, report.eventMinute)
+                "last website ${WebsiteReportDisplay.eventKind(report).noun} " +
+                    "${TableMarker.elapsedLabel((now - eventMillis).coerceAtLeast(0))} ago" +
                     " · current position unknown"
             }
             active == `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE &&

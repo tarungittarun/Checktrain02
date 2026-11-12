@@ -85,14 +85,14 @@ class InlineRouteRenderTest {
         // A later site timeout/stale page leaves only this separately labelled
         // historical comparison, never an official Act or a renewed page clock.
         assertTrue(WebsiteGapUi.caption(ttr, site.siteClocks["TTR"], saved = true)!!
-            .startsWith("Web past (saved) · arr 01:17"))
+            .startsWith("Website claim (saved) · arr 01:17"))
         adapter.haltMarker = TableMarker.Halt("ASK", "Last NTES arrival", false)
         adapter.submitList(listOf(ttr, ask, rrb))
         val past = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
         adapter.onBindViewHolder(past, 0)
         assertEquals("—", past.liveArr.text.toString())
         assertEquals("—", past.liveDep.text.toString())
-        assertEquals("Web past · arr 01:17 · dep 01:20 · day2",
+        assertEquals("Website claim · arr 01:17 · dep 01:20 · day2",
             past.websitePastComparison.text.toString())
         assertEquals(View.VISIBLE, past.websitePastComparison.visibility)
         assertTrue(past.websitePastComparison.contentDescription.contains("Not an NTES actual"))
@@ -327,6 +327,26 @@ class InlineRouteRenderTest {
         assertEquals("—", holder.liveArr.text.toString())
         assertEquals(View.GONE, holder.timeType.visibility)
         assertEquals(View.GONE, holder.eventCaption.visibility)
+    }
+
+    @Test fun websiteDepartureOnlyIsNeverCaptionedAsAnArrival() {
+        val ctx = RuntimeEnvironment.getApplication()
+        val adapter = StopAdapter()
+        val ypr = TrackModel.Stop(2, "YPR", "Yesvantpur Jn", 1406, 1408,
+            null, 1412, 4, TrackModel.MinuteSource.SITE_REPORTED, "3",
+            TrackModel.State.HERE, true, 144, 0, 366, false, false, false, -8)
+        val next = ypr.copy(seq = 3, code = "TK", name = "Tumkur",
+            schedArr = 1453, schedDep = 1455, showDep = null,
+            source = TrackModel.MinuteSource.SCHEDULE, isAnchor = false, kmFromOrigin = 209)
+        adapter.submitList(listOf(ypr, next))
+        adapter.haltMarker = TableMarker.Halt("YPR", "Site's last mapped departure", true)
+        val holder = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
+        adapter.onBindViewHolder(holder, 0)
+        assertEquals("—", holder.liveArr.text.toString())
+        assertEquals("23:32", holder.liveDep.text.toString())
+        assertEquals("Last site departure · 23:32", holder.eventCaption.text.toString())
+        assertTrue(holder.eventCaption.contentDescription.contains("Website reports departure"))
+        assertTrue(holder.trainMarker.contentDescription.contains("last mapped departure"))
     }
 
     @Test fun onlyCollapsedReportedHaltShowsAtAndAsOnBesideItsLocomotive() {

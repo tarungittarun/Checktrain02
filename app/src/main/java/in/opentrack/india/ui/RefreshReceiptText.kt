@@ -52,7 +52,7 @@ object RefreshReceiptText {
                     RefreshEvidence.Change.NEW_STOP -> "new site-reported stop"
                     RefreshEvidence.Change.REVISED_AT_SAME_STOP -> "revised site stop time"
                     RefreshEvidence.Change.UNCHANGED -> if (websiteClocksChanged)
-                        "site clocks changed; no newer mapped arrival" else
+                        "site clocks changed; no newer mapped event" else
                         "same last qualifying site stop, no newer event"
                 }
                 val omission = if (change == RefreshEvidence.Change.UNCHANGED &&

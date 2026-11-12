@@ -77,9 +77,9 @@ class RefreshReceiptTextTest {
 
     @Test fun changedWebsiteCardClocksDoNotBecomeAnInventedNewStop() {
         val detail = RefreshReceiptText.format(PublicPageChecks.ORG, "website", "website",
-            "07:01:54", "last website arrival 48 min ago", "comparison" to "site answered",
+            "07:01:54", "last website departure 48 min ago", "comparison" to "site answered",
             null, true, false, unchanged, false, websiteClocksChanged = true)
-        assertTrue(detail.contains("site clocks changed; no newer mapped arrival"))
+        assertTrue(detail.contains("site clocks changed; no newer mapped event"))
         assertFalse(detail.contains("new site-reported stop"))
         assertTrue(RefreshReceiptUi.short("website", "07:01:54", unchanged, detail, false)
             .endsWith("site times revised"))

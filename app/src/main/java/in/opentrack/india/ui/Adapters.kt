@@ -358,6 +358,7 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         val pendingDep = websitePendingDeparture?.takeIf { website &&
             it.first.equals(s.code, true) }?.second
         val siteCard = websiteCardTimes[s.code]
+        val siteEventKind = WebsiteReportDisplay.eventKind(s.showArr, s.showDep)
         val stationClaim = reports[s.code]?.startsWith("RailYatri root claims") == true
         holder.status.text = when {
             pendingDep != null && siteCard == null -> "Site dep ${RouteClockUi.clock(pendingDep)}? · unconfirmed"
@@ -530,7 +531,7 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             val wimt = sourceNameForMarker == "WIMT .in"
             if (batteryMode) {
                 val event = when {
-                    marker?.website == true -> "site arrival"
+                    marker?.website == true -> "site ${siteEventKind.noun}"
                     wimt -> "WIMT .in source-reported " + if (s.showDep != null) "departure" else "arrival"
                     s.showDep != null -> "NTES departure"
                     else -> "NTES arrival"
@@ -538,7 +539,7 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
                 "At ${RowText.of(s.name)} · as of $clock" +
                     "\n$event · ${legAgeSeconds?.let(LegGeometry::compactAgeLabel) ?: "age unknown"}"
             } else when {
-                marker?.website == true -> "Last site arrival · $clock"
+                marker?.website == true -> "Last site ${siteEventKind.noun} · $clock"
                 wimt -> "WIMT .in source event · $clock"
                 else -> "At ${RowText.of(s.name)} · as on $clock"
             }
@@ -551,7 +552,9 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
                 sourceNameForMarker == "WIMT .in" -> "WIMT .in source reports"
                 else -> "Last reported at"
             }
-            "$source ${if (s.showDep != null) "departure" else "arrival"} at " +
+            val eventNoun = if (marker?.website == true) siteEventKind.noun
+                else if (s.showDep != null) "departure" else "arrival"
+            "$source $eventNoun at " +
                 "${RowText.of(s.name)}, event time ${RailTime.formatRailMinute(minute)}. " +
                 "Present position unknown."
         }.orEmpty()

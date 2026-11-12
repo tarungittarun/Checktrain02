@@ -18,7 +18,7 @@ internal object WebsiteGapUi {
         if (arr == null && dep == null) return null
         val day = RouteClockUi.departureDay(dep, arr)
         return buildString {
-            append(if (saved) "Web past (saved) · " else "Web past · ")
+            append(if (saved) "Website claim (saved) · " else "Website claim · ")
             if (arr != null) append("arr ").append(RailTime.formatRailMinuteBare(arr))
             if (dep != null) {
                 if (arr != null) append(" · ")

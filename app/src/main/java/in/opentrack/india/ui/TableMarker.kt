@@ -27,7 +27,9 @@ object TableMarker {
             ?.takeIf { it >= 0 }
         val ageText = if (age == null || age < 60_000L) "" else
             " · ${elapsedLabel(age).replace(" min", "m").replace(" h ", "h ")} ago"
-        return Halt(row.code, (if (website) "Site's last mapped arrival" else "Last reported stop") + ageText,
-            website)
+        val caption = if (website) "Site's last mapped " +
+            WebsiteReportDisplay.eventKind(row.showArr, row.showDep).noun
+            else "Last reported stop"
+        return Halt(row.code, caption + ageText, website)
     }
 }

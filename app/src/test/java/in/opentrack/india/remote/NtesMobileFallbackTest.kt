@@ -86,6 +86,38 @@ class NtesMobileFallbackTest {
     }
 
     @Test
+    fun `16227 SBC contradictory ETA is rejected and MWM UA cells stay unreported`() {
+        val raw = """{"SRC":"MYS","LUPDT":"23:40 13-Oct","STNS":[
+            {"SC":"MYS","STA":"Source","STD":"19:40 13-Oct","ETA":"Source","ETD":"19:40 13-Oct","DARR":"","DDEP":"On Time"},
+            {"SC":"SBC","STA":"23:05 13-Oct","STD":"23:15 13-Oct","ETA":"22:53 13-Oct","ETD":"23:16 13-Oct","DARR":"On Time","DDEP":"00:01"},
+            {"SC":"MWM","STA":"23:20 13-Oct","STD":"23:21 13-Oct","ETA":"UA","ETD":"UA","DARR":"On Time","DDEP":"On Time"},
+            {"SC":"YPR","STA":"23:26 13-Oct","STD":"23:28 13-Oct","ETA":"UA","ETD":"UA","DARR":"On Time","DDEP":"On Time"}
+        ]}"""
+        val parsed = NtesWire.parse(raw)!!
+        assertEquals(22 * 60 + 53, parsed.rows[1].actArr) // candidate only: 12m before STA
+        assertEquals(23 * 60 + 16, parsed.rows[1].actDep)
+        assertEquals(0, parsed.rows[1].delayArr) // "On Time" contradicts the -12m ETA
+        assertNull(parsed.rows[2].actArr)
+        assertNull(parsed.rows[2].actDep) // UA is not a timestamp
+
+        val route = TrainRoute("16227", "MYS TLGP", "MYS", "Mysuru", "TLGP", "Talaguppa",
+            510, null, 127, null, listOf(
+                StopRow(1, "MYS", "Mysuru", null, null, null, null, 19 * 60 + 40, 0, 0, true),
+                StopRow(2, "SBC", "Bengaluru", null, null, null, 23 * 60 + 5, 23 * 60 + 15, 0, 138, true),
+                StopRow(3, "MWM", "Malleswaram", null, null, null, 23 * 60 + 20, 23 * 60 + 21, 0, 141, true),
+                StopRow(4, "YPR", "Yesvantpur", null, null, null, 23 * 60 + 26, 23 * 60 + 28, 0, 144, true),
+            ), emptyList())
+        val doc = JSONObject(raw)
+        val publishedAt = NtesMobileFallback.updateMillis(doc, day)!!
+        val trusted = NtesMobileFallback.trustedRows(parsed.copy(feedStampMillis = publishedAt),
+            route, day, RailTime.railMinuteToEpochMillis(day, 23 * 60 + 41))
+        assertNull("do not promote a contradictory ETA to an actual arrival", trusted.rows[1].actArr)
+        assertEquals(23 * 60 + 16, trusted.rows[1].actDep)
+        assertNull("NTES returned no MWM arrival clock", trusted.rows[2].actArr)
+        assertNull("NTES returned no MWM departure clock", trusted.rows[2].actDep)
+    }
+
+    @Test
     fun `captured no-header STNS accepts selected corridor and replaces contradictory device timetable`() {
         val doc = JSONObject(observed16227)
         val wrong = route() // device route starts SBC, not the official response's MYS

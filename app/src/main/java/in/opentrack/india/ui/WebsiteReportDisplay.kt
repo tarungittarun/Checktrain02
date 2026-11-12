@@ -9,7 +9,38 @@ import `in`.opentrack.india.v2.mirror.PublicPageChecks
  * It is not an independently run-verified NTES actual, and a page clock is not
  * a train event. Only [OrgWebsiteStatus.parse]'s guarded cells may be painted. */
 object WebsiteReportDisplay {
-    const val STALE_BADGE = "WEBSITE · mapped arrival · stale · run inferred"
+    const val STALE_BADGE = "WEBSITE · mapped event · stale · run inferred"
+
+    /** Event type for the website's last qualifying past card. A card with only a
+     * departure is not an arrival; page-update time never chooses this label. */
+    enum class SiteEventKind(val summaryLabel: String, val noun: String) {
+        ARRIVAL("Site arrival", "arrival"),
+        DEPARTURE("Site departure", "departure"),
+        PASSAGE("Site passage", "passage"),
+        EVENT("Site event", "event"),
+    }
+
+    fun eventKind(report: OrgWebsiteStatus.Report): SiteEventKind {
+        if (report.intermediate != null) return SiteEventKind.PASSAGE
+        val fields = report.rows.entries.firstOrNull {
+            it.key.equals(report.anchorCode, ignoreCase = true)
+        }?.value
+        return eventKind(fields?.actualArrivalMin, fields?.actualDepartureMin,
+            report.eventMinute)
+    }
+
+    /** With both clocks present, the displayed event minute determines which one
+     * the report is describing. Without one, a halt's latest clock is departure. */
+    fun eventKind(arrivalMinute: Int?, departureMinute: Int?,
+                  eventMinute: Int? = null): SiteEventKind = when {
+        departureMinute != null && (eventMinute == null || eventMinute == departureMinute) ->
+            SiteEventKind.DEPARTURE
+        arrivalMinute != null && (eventMinute == null || eventMinute == arrivalMinute) ->
+            SiteEventKind.ARRIVAL
+        departureMinute != null -> SiteEventKind.DEPARTURE
+        arrivalMinute != null -> SiteEventKind.ARRIVAL
+        else -> SiteEventKind.EVENT
+    }
 
     fun usable(state: String?, answered: Boolean, report: OrgWebsiteStatus.Report?): Boolean =
         state == "comparison" && answered && report != null && report.rows.isNotEmpty()
