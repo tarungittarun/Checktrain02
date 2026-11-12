@@ -383,12 +383,24 @@ jobs:
       - name: Publish the bounded source verdict
         if: always()
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           python3 - <<'PY'
           import json
+          import os
           from pathlib import Path
           path = Path('wimt-live-device-evidence/result.json')
-          result = json.loads(path.read_text(encoding='utf-8'))
+          try:
+              result = json.loads(path.read_text(encoding='utf-8'))
+              if not isinstance(result, dict):
+                  raise ValueError('result root is not an object')
+          except (OSError, ValueError):
+              result = {
+                  'accepted': False,
+                  'verdict': 'RESULT_UNAVAILABLE',
+                  'reason': 'The device runner did not produce a parseable bounded result; inspect its step log and evidence artifact.',
+              }
           safe = {
               'source': result.get('source'),
               'comparisonMeaning': result.get('comparisonMeaning'),
@@ -410,15 +422,19 @@ jobs:
           report = '### WIMT `.in` installed-app same-train/date comparison\n\n```json\n'
           report += json.dumps(safe, indent=2, sort_keys=True)
           report += '\n```\n\nThe selected-source and explicit web-cache paths both request the same undocumented `.in/cache/live_status` endpoint; this is not independent source parity. '
-          report += 'It is not the `.org.in` website or Google's WIMT Android app. Freshness, run date, route, current-station claims and genuine app-window captures are required; HTTP 200 or a timetable alone is not acceptance.\n'
+          report += 'It is not the `.org.in` website or Google’s WIMT Android app. Freshness, run date, route, current-station claims and genuine app-window captures are required; HTTP 200 or a timetable alone is not acceptance.\n'
           pdf_link = Path('wimt-live-device-evidence/pdf-link.txt')
           if pdf_link.is_file():
               report += '\nActual in-app screenshot PDF: ' + pdf_link.read_text().strip().removeprefix('PDF_RELEASE_URL=') + '\n'
-          with Path('wimt-live-device-evidence/summary.md').open('w', encoding='utf-8') as f:
+          summary_path = Path('wimt-live-device-evidence/summary.md')
+          summary_path.write_text(report, encoding='utf-8')
+          with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a', encoding='utf-8') as f:
               f.write(report)
-          with Path(__import__('os').environ['GITHUB_STEP_SUMMARY']).open('a', encoding='utf-8') as f:
-              f.write(report)
+          print(report)
           PY
+          gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
+            -F body=@wimt-live-device-evidence/summary.md > /dev/null || \
+            echo '::warning::Commit comment unavailable; inspect the run summary and evidence artifact'
 
       - uses: actions/upload-artifact@v4
         if: always()

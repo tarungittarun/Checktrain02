@@ -39,13 +39,21 @@ finish() {
     rm -f "$OUT/screen-verification.json"
     cat "$OUT/screen-verification-error.txt"
   fi
-  python3 tools/ci/wimt_live_comparison_report.py \
-    --instrumentation "$OUT/instrumentation.txt" \
-    --device-log "$OUT/device-log.txt" \
-    --return-code "$rc" \
-    --screen-verification "$OUT/screen-verification.json" \
-    > "$OUT/result.json"
-  report_rc=$?
+  if python3 tools/ci/wimt_live_comparison_report.py \
+      --instrumentation "$OUT/instrumentation.txt" \
+      --device-log "$OUT/device-log.txt" \
+      --return-code "$rc" \
+      --screen-verification "$OUT/screen-verification.json" \
+      > "$OUT/result.json" 2> "$OUT/report-error.txt"; then
+    report_rc=0
+  else
+    report_rc=$?
+    cat "$OUT/report-error.txt" >&2
+    if [ ! -s "$OUT/result.json" ]; then
+      printf '%s\n' '{"accepted":false,"verdict":"REPORT_GENERATION_FAILED","reason":"comparison report failed; inspect report-error.txt and the raw attempt evidence"}' \
+        > "$OUT/result.json"
+    fi
+  fi
   if [ "$rc" -eq 0 ] && { [ "$verify_rc" -ne 0 ] || [ "$report_rc" -ne 0 ]; }; then
     rc=5
   fi
