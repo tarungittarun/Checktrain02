@@ -107,13 +107,11 @@ class WimtLiveApiSoakTest {
         if (!selectedWimt() || !E2E.reveal("sourceSpinner", "scroller", swipes = 2)) return null
         val spinner = E2E.find("sourceSpinner", 300) ?: return null
         if (runCatching { spinner.longClick() }.isFailure) return null
-        var dialogOpened = false
         try {
             val detailsButton = E2E.ui.wait(
                 Until.findObject(By.text("Source details")), E2E.LOCAL_MS) ?: return null
             detailsButton.click()
             E2E.ui.waitForIdle()
-            dialogOpened = true
             val detailsNode = E2E.ui.wait(
                 Until.findObject(By.textContains("Selected WIMT .in live-status response")),
                 E2E.LOCAL_MS) ?: return null
@@ -121,12 +119,8 @@ class WimtLiveApiSoakTest {
             if (captureTag != null) E2E.shotWimt(captureTag)
             return text
         } finally {
-            // The source picker exposes a short About menu before the nested details dialog.
-            // Return to the same tracking screen even when the details label disappears.
-            if (dialogOpened) {
-                E2E.ui.pressBack()
-                E2E.ui.waitForIdle()
-            }
+            // Pressing Source details dismisses About and opens the details dialog. One Back
+            // closes that active dialog and restores tracking; a second Back would exit it.
             E2E.ui.pressBack()
             E2E.ui.waitForIdle()
         }

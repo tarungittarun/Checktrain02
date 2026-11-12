@@ -109,10 +109,8 @@ class WimtLiveApiAcceptanceTest {
             val details = detailsNode!!.text.orEmpty()
             E2E.shotWimt("wimt-live-source-details")
 
-            // Close both nested explanation dialogs after capturing the table. Acceptance uses
-            // the summary and visible cells saved with that screenshot, not a later re-render.
-            E2E.ui.pressBack()
-            E2E.ui.waitForIdle()
+            // The Source details button dismisses About and opens its details dialog. One Back
+            // returns to tracking; a second would leave the activity and mislabel the final shot.
             E2E.ui.pressBack()
             E2E.ui.waitForIdle()
 
