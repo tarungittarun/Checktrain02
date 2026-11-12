@@ -56,6 +56,29 @@ def make_report(instrumentation: str, return_code: int,
     if cells is None and isinstance(screen.get("wimtAttributedVisibleTimeCells"), int):
         cells = screen["wimtAttributedVisibleTimeCells"]
 
+    # Preserve facts visible in the verified in-app hierarchy when the instrumented
+    # result line was not captured. This can describe evidence, never create a pass:
+    # accepted still requires the successful one-test result and explicit verdict log.
+    result_captured = match is not None
+    if screens_ok:
+        if parsed["http200"] is None and status is not None:
+            parsed["http200"] = status == "HTTP 200"
+        if parsed["runDateMatched"] is None:
+            value = screen.get("runDateMatchedVisible")
+            parsed["runDateMatched"] = value if isinstance(value, bool) else None
+        if parsed["routeEndpointsMatched"] is None:
+            value = screen.get("routeEndpointsMatchedVisible")
+            parsed["routeEndpointsMatched"] = value if isinstance(value, bool) else None
+        if parsed["freshSourceStamp"] is None:
+            value = screen.get("freshSourceStampVisible")
+            parsed["freshSourceStamp"] = value if isinstance(value, bool) else None
+        if parsed["sourceRowsInDetails"] is None:
+            parsed["sourceRowsInDetails"] = rows
+        if parsed["wimtAttributedVisibleTimeCells"] is None:
+            parsed["wimtAttributedVisibleTimeCells"] = cells
+        if parsed["selectedSourceVisible"] is None:
+            parsed["selectedSourceVisible"] = True
+
     test_candidate = return_code == 0 and exactly_one and PASS_LINE in instrumentation and match is not None
     strict_data = parsed["http200"] is True and parsed["runDateMatched"] is True and \
         parsed["routeEndpointsMatched"] is True and parsed["freshSourceStamp"] is True and \
@@ -65,6 +88,9 @@ def make_report(instrumentation: str, return_code: int,
         screen.get("acceptedDataVerifiedInAppHierarchy") is True
 
     text = instrumentation.lower()
+    visible_matched_rows = screens_ok and status == "HTTP 200" and rows is not None and rows > 0 and \
+        cells is not None and cells > 0 and screen.get("runDateMatchedVisible") is True and \
+        screen.get("routeEndpointsMatchedVisible") is True
     if accepted:
         verdict = "PASS_FRESH_MATCHED_SOURCE_TIMES_IN_APP"
         reason = "The installed APK fetched fresh WIMT `.in` data for the selected run and route and showed source-attributed stop clocks in the app."
@@ -74,6 +100,16 @@ def make_report(instrumentation: str, return_code: int,
     elif status == "HTTP 429" or "http 429" in text:
         verdict = "HTTP_429_RATE_LIMITED"
         reason = "The selected `.in` request was rate-limited; no retry or WIMT data acceptance is claimed."
+    elif (status is not None and re.fullmatch(r"HTTP 5[0-9]{2}", status)) or \
+            re.search(r"\bhttp 5[0-9]{2}\b", text):
+        verdict = "HTTP_5XX_SERVER_ERROR"
+        reason = "The selected `.in` server returned a 5xx response; no WIMT data acceptance is claimed."
+    elif visible_matched_rows and parsed["freshSourceStamp"] is not True:
+        verdict = "HTTP_200_MATCHED_SOURCE_ROWS_BUT_FRESHNESS_UNPROVEN"
+        reason = "Verified in-app captures show run/route-matched source rows, but the source update stamp did not pass the freshness gate."
+    elif visible_matched_rows and not test_candidate:
+        verdict = "MATCHED_SOURCE_ROWS_VISIBLE_DEVICE_ASSERTION_FAILED"
+        reason = "Verified in-app captures show run/route-matched source rows, but the installed-app assertion did not produce a passing one-test verdict; acceptance remains failed."
     elif (status == "HTTP 200" or parsed["http200"] is True or
           re.search(r"\bHTTP[/: ]+200\b", instrumentation, re.IGNORECASE)) and \
             (rows == 0 or not strict_data):
@@ -94,6 +130,7 @@ def make_report(instrumentation: str, return_code: int,
         "accepted": accepted,
         "verdict": verdict,
         "installedApkTestPassed": return_code == 0 and exactly_one,
+        "deviceTestResultCaptured": result_captured,
         "liveEvidence": parsed,
         "httpStatusVisibleInSourceDetails": status,
         "inAppScreensVerified": screens_ok,
@@ -112,8 +149,12 @@ def self_test() -> None:
         "captureSource": "in-test UiAutomator screenshot plus matching app-window hierarchy",
         "acceptedDataVerifiedInAppHierarchy": True,
         "sourceRowsInDetails": 3,
+        "sourceRowsInSummary": 3,
         "wimtAttributedVisibleTimeCells": 2,
         "httpStatusVisibleInDetails": "HTTP 200",
+        "runDateMatchedVisible": True,
+        "routeEndpointsMatchedVisible": True,
+        "freshSourceStampVisible": True,
         "screenshots": [
             {"name": "wimt-live-before-selected-source.png"},
             {"name": "wimt-live-after-selected-source.png"},
@@ -123,9 +164,16 @@ def self_test() -> None:
     line = ("OK (1 test)\nWIMT_LIVE_DEVICE_RESULT http200=true runDateMatched=true "
             "routeMatched=true freshUpdate=true evidenceRows=3 visibleSourceCells=2 selected=true\n" + PASS_LINE)
     assert make_report(line, 0, json.dumps(screens))["accepted"] is True
+    screenshot_only = make_report("FAILURES!!!\nHTTP 200", 1, json.dumps(screens))
+    assert screenshot_only["accepted"] is False
+    assert screenshot_only["verdict"] == "MATCHED_SOURCE_ROWS_VISIBLE_DEVICE_ASSERTION_FAILED"
+    assert screenshot_only["liveEvidence"]["sourceRowsInDetails"] == 3
+    assert screenshot_only["liveEvidence"]["wimtAttributedVisibleTimeCells"] == 2
+    assert screenshot_only["deviceTestResultCaptured"] is False
     for output, expected in [
         ("HTTP 403", "HTTP_403_REFUSED"),
         ("HTTP 429", "HTTP_429_RATE_LIMITED"),
+        ("HTTP 500", "HTTP_5XX_SERVER_ERROR"),
         ("HTTP 200", "HTTP_200_NO_QUALIFYING_LIVE_DATA"),
         ("SocketTimeoutException", "TRANSPORT_FAILED"),
     ]:

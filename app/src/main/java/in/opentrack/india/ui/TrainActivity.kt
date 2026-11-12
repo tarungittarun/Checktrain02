@@ -824,8 +824,12 @@ class TrainActivity : AppCompatActivity() {
                     (wimtLiveEvidence.detail.take(220))
             wimtLiveEvidence.actualStopCount > 0 ->
                 "WIMT .in: ${wimtLiveEvidence.actualStopCount} source-reported stop row(s); " +
-                    (if (wimtLiveEvidence.freshSourceUpdate)
-                        "upstream update stamp is fresh" else "last-known source report") +
+                    (when {
+                        wimtLiveEvidence.freshSourceUpdate -> "upstream update stamp is fresh"
+                        wimtLiveEvidence.sourceUpdateAheadByMillis != null ->
+                            "upstream update stamp is ahead; not counted fresh yet"
+                        else -> "last-known source report"
+                    }) +
                     ". Update stamp is not an event time. Not GPS or independent train verification."
             wimtLiveEvidence.currentStationCode != null ->
                 "WIMT current-station field says ${wimtLiveEvidence.currentStationCode}; " +
@@ -1255,6 +1259,8 @@ class TrainActivity : AppCompatActivity() {
                 append(" IST · ").append(when {
                     stamp == null -> "freshness unknown"
                     evidence.freshSourceUpdate -> "fresh source stamp; not event time"
+                    evidence.sourceUpdateAheadByMillis != null ->
+                        "source stamp is ahead of device clock; freshness not established"
                     else -> "stale source stamp; current position unknown"
                 })
                 val intermediate = ui.wimtIntermediate

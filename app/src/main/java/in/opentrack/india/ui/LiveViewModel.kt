@@ -74,6 +74,7 @@ data class WimtLiveEvidence(
     val sourceUpdateMillis: Long?,
     val actualStopCount: Int,
     val currentStationCode: String?,
+    val sourceUpdateAheadByMillis: Long?,
     val freshSourceUpdate: Boolean,
     val checkedAtMillis: Long,
 )
@@ -284,6 +285,7 @@ class LiveViewModel(
     private var manualWimtDetail: String? = null
     private var manualWimtCheckedAt = 0L
     private var manualProbeJob: Job? = null
+    private var wimtFreshnessRecheckJob: Job? = null
     private var manualProbeSource: String? = null
     private var sourceProbeOrder = 0L
     private val latestProbeOrder = mutableMapOf<String, Long>()
@@ -481,6 +483,10 @@ class LiveViewModel(
             if (select) manualProbeJob = job
             return job
         } else if (name == TrackingSources.WIMT) {
+            if (select) {
+                wimtFreshnessRecheckJob?.cancel()
+                wimtFreshnessRecheckJob = null
+            }
             val probeStarted = System.currentTimeMillis()
             val job = viewModelScope.launch {
                 if (select) _mirrorState.postValue("Checking WIMT .in live-status feed…")
@@ -511,6 +517,10 @@ class LiveViewModel(
                 }
                 val acceptedResult = result.copy(snapshot = acceptedSnapshot)
                 val freshUpdate = WimtLiveProvider.hasFreshSourceUpdate(acceptedResult, now)
+                val updateStamp = acceptedSnapshot?.feedStampMillis
+                val updateAheadBy = updateStamp?.minus(now)?.takeIf { it > 0L }
+                val freshnessRecheckDelay = if (select)
+                    WimtLiveProvider.freshStampRecheckDelayMillis(acceptedResult, now) else null
                 val actualStopCount = acceptedSnapshot?.perStop?.count { (_, fields) ->
                     fields.actualArrivalMin != null || fields.actualDepartureMin != null
                 } ?: 0
@@ -520,7 +530,8 @@ class LiveViewModel(
                     (actualStopCount > 0 || hasCurrentStation)
                 val freshnessLabel = when {
                     freshUpdate -> "upstream update stamp within ${WimtLiveProvider.FRESH_UPDATE_MAX_AGE_MS / 60_000} min; not an event clock"
-                    acceptedSnapshot?.feedStampMillis != null -> "upstream update stamp is stale"
+                    updateAheadBy != null -> "at response time, the upstream update stamp was ahead of this device clock"
+                    updateStamp != null -> "upstream update stamp is stale"
                     else -> "upstream update time unavailable"
                 }
                 val runLabel = when (result.runDateMatched) {
@@ -545,7 +556,7 @@ class LiveViewModel(
                     !hasRunBoundReport -> if (result.snapshot != null) "unverified" else "none"
                     freshUpdate && actualStopCount > 0 -> "live"
                     freshUpdate && hasCurrentStation -> "candidate"
-                    acceptedSnapshot?.feedStampMillis != null -> "last-known"
+                    updateStamp != null && updateAheadBy == null -> "last-known"
                     else -> "unverified"
                 }
                 manualWimtResult = result
@@ -563,6 +574,7 @@ class LiveViewModel(
                     sourceUpdateMillis = acceptedSnapshot?.feedStampMillis,
                     actualStopCount = actualStopCount,
                     currentStationCode = result.currentStationCode,
+                    sourceUpdateAheadByMillis = updateAheadBy,
                     freshSourceUpdate = freshUpdate,
                     checkedAtMillis = now,
                 )
@@ -576,6 +588,22 @@ class LiveViewModel(
                     latest.tried,
                     listOf("WIMT .in source report: $detail"),
                 ).copy(relayOk = latest.relayOk)
+                freshnessRecheckDelay?.let { waitMillis ->
+                    wimtFreshnessRecheckJob?.cancel()
+                    wimtFreshnessRecheckJob = viewModelScope.launch {
+                        // The response is still not fresh while its stamp is ahead. Re-evaluate
+                        // locally once the permitted small skew has elapsed; never send another GET.
+                        delay(waitMillis + 100L)
+                        if (latestProbeOrder[name] != order || mirrorActiveSource != name ||
+                            manualWimtResult?.snapshot?.feedStampMillis != updateStamp) return@launch
+                        _ui.value?.let { current ->
+                            _ui.value = buildUi(
+                                current.route, lastAnswer ?: current.answer, current.tried,
+                                listOf("WIMT .in source report: ${manualWimtDetail.orEmpty()}"),
+                            ).copy(relayOk = current.relayOk)
+                        }
+                    }
+                }
                 Diary.get()?.log("SOURCE", "$name: state=$state · $detail")
             }
             if (select) manualProbeJob = job
@@ -1809,6 +1837,9 @@ class LiveViewModel(
         } ?: 0
         val wimtEvidenceForUi = wimtEvidence?.copy(
             actualStopCount = wimtActualStopCount,
+            sourceUpdateAheadByMillis = wimtSnapshot?.feedStampMillis?.let { stamp ->
+                (stamp - now).takeIf { it > 0L }
+            },
             freshSourceUpdate = wimtFreshNow,
         )
         val wimtIntermediateForUi = manualWimtIntermediate.takeIf { wimtIdentityMatched }

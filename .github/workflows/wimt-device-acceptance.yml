@@ -370,6 +370,7 @@ jobs:
               'accepted': result.get('accepted') is True,
               'verdict': result.get('verdict'),
               'installedApkTestPassed': result.get('installedApkTestPassed') is True,
+              'deviceTestResultCaptured': result.get('deviceTestResultCaptured') is True,
               'liveEvidence': result.get('liveEvidence'),
               'httpStatusVisibleInSourceDetails': result.get('httpStatusVisibleInSourceDetails'),
               'inAppScreensVerified': result.get('inAppScreensVerified') is True,

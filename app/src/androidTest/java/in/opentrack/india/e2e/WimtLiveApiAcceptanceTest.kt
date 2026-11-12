@@ -53,27 +53,23 @@ class WimtLiveApiAcceptanceTest {
             assertNotNull("direct WIMT .in live-status source is not selectable", source)
             source!!.click() // one deliberate selected-source request; no test retry or Auto timer
 
-            val settleDeadline = System.currentTimeMillis() + E2E.NETWORK_MS + 15_000L
+            val settleDeadline = System.currentTimeMillis() + E2E.NETWORK_MS + 2 * 60_000L + 15_000L
             var summary = ""
             var selected = ""
             while (System.currentTimeMillis() < settleDeadline) {
                 summary = E2E.text("sourceSummary", 500)
                 selected = E2E.find("sourceSpinner", 500)?.contentDescription.orEmpty()
-                if (selected.contains("Selected WIMT .in live-status feed", true) &&
-                    !summary.contains("Checking", true)) break
+                val selectedRequestSettled =
+                    selected.contains("Selected WIMT .in live-status feed", true) &&
+                        !summary.contains("Checking", true)
+                val rowsVisible = summary.contains("source-reported stop row", true)
+                val stampFresh = summary.contains("upstream update stamp is fresh", true)
+                if (selectedRequestSettled && (!rowsVisible || stampFresh)) break
                 Thread.sleep(250)
             }
+            // A source timestamp a few seconds ahead is not treated as fresh early. The app's
+            // one-shot local recheck may update it without issuing a second HTTP request.
             E2E.shotWimt("wimt-live-after-selected-source")
-
-            // Read actual displayed route cells before opening the modal source details.
-            // This proves the selected response reached the app's table, not just a parser result.
-            val cells = E2E.all(By.res(E2E.PKG, "liveArr")) +
-                E2E.all(By.res(E2E.PKG, "liveDep"))
-            val sourceCells = cells.filter {
-                it.contentDescription.orEmpty().contains("WIMT .in source-reported", true) &&
-                    !it.contentDescription.orEmpty().endsWith("unknown", true)
-            }
-            val rowCellCount = sourceCells.size
 
             assertTrue("source details picker is not reachable", E2E.reveal("sourceSpinner", "scroller"))
             E2E.find("sourceSpinner")!!.longClick()
@@ -85,6 +81,24 @@ class WimtLiveApiAcceptanceTest {
             assertNotNull("selected WIMT .in response details missing", detailsNode)
             val details = detailsNode!!.text.orEmpty()
             E2E.shotWimt("wimt-live-source-details")
+
+            // Close both nested explanation dialogs, then read current app state. A source stamp
+            // may cross its small future-skew window while the details dialog is open.
+            E2E.ui.pressBack()
+            E2E.ui.waitForIdle()
+            E2E.ui.pressBack()
+            E2E.ui.waitForIdle()
+            summary = E2E.text("sourceSummary", 500)
+            selected = E2E.find("sourceSpinner", 500)?.contentDescription.orEmpty()
+
+            // Inspect the displayed route cells after the selected-source table has settled.
+            val cells = E2E.all(By.res(E2E.PKG, "liveArr")) +
+                E2E.all(By.res(E2E.PKG, "liveDep"))
+            val sourceCells = cells.filter {
+                it.contentDescription.orEmpty().contains("WIMT .in source-reported", true) &&
+                    !it.contentDescription.orEmpty().endsWith("unknown", true)
+            }
+            val rowCellCount = sourceCells.size
 
             val reportRows = Regex("""Selected WIMT \.in source-reported rows \((\d+)\):""")
                 .find(details)?.groupValues?.get(1)?.toIntOrNull() ?: 0
@@ -101,9 +115,9 @@ class WimtLiveApiAcceptanceTest {
 
             // Safe, bounded diagnostics only: no response body, headers, cookies, URL identifiers,
             // route IDs, event clocks, or raw transport receipt is printed to the workflow log.
-            println("WIMT_LIVE_DEVICE_RESULT http200=$http200 runDateMatched=$runMatched " +
-                "routeMatched=$routeMatched freshUpdate=$fresh evidenceRows=$reportRows " +
-                "visibleSourceCells=$rowCellCount selected=$selectedSourceVisible")
+            Log.i("WimtLiveApiAcceptance", "WIMT_LIVE_DEVICE_RESULT http200=$http200 " +
+                "runDateMatched=$runMatched routeMatched=$routeMatched freshUpdate=$fresh " +
+                "evidenceRows=$reportRows visibleSourceCells=$rowCellCount selected=$selectedSourceVisible")
             assertTrue("The installed app did not show fresh, run/date/route-matched WIMT .in stop " +
                 "times in its table; HTTP 200, stale data, a station field, timetable, or fallback " +
                 "is not acceptance. selected=$selectedSourceVisible http200=$http200 " +

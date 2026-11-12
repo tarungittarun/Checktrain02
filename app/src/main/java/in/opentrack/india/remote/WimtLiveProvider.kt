@@ -31,6 +31,7 @@ object WimtLiveProvider {
     private const val USER_AGENT = "TrackTrain/1.0 (Android; selected WIMT source)"
     private const val MAX_RESPONSE_BYTES = 1_000_000
     const val FRESH_UPDATE_MAX_AGE_MS = 10 * 60_000L
+    const val UPDATE_STAMP_FUTURE_TOLERANCE_MS = 120_000L
 
     /** One direct GET for the selected train/run; not `.org.in` or the app's comparison-only parser. The endpoint may itself be cached. */
     internal fun requestUrl(trainNo: String, dayStr: String): String =
@@ -47,6 +48,13 @@ object WimtLiveProvider {
         result.snapshot?.feedStampMillis?.let { stamp ->
             stamp <= nowMillis && nowMillis - stamp <= FRESH_UPDATE_MAX_AGE_MS
         } == true
+
+    /** Return a local-only wait when the source stamp is slightly ahead; do not call it fresh early. */
+    fun freshStampRecheckDelayMillis(result: WimtResult, nowMillis: Long): Long? {
+        val stamp = result.snapshot?.feedStampMillis ?: return null
+        val aheadBy = stamp - nowMillis
+        return aheadBy.takeIf { it in 1..UPDATE_STAMP_FUTURE_TOLERANCE_MS }
+    }
 
     data class WimtIntermediate(
         val code: String,
@@ -239,7 +247,9 @@ object WimtLiveProvider {
         val updateIso = firstNonBlank(root, "lastUpdateIsoDate")
         val parsedUpdateMillis = parseIsoMillis(updateIso)
         // A future upstream stamp (or a parser/clock mismatch) is not a fresh feed stamp.
-        val updateMillis = parsedUpdateMillis?.takeIf { it <= nowMillis + 120_000L }
+        val updateMillis = parsedUpdateMillis?.takeIf {
+            it <= nowMillis + UPDATE_STAMP_FUTURE_TOLERANCE_MS
+        }
 
         val perStop = mutableMapOf<String, LiveStopFields>()
         val lines = mutableMapOf<String, String>()

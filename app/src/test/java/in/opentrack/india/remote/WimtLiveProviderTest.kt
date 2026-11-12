@@ -95,6 +95,21 @@ class WimtLiveProviderTest {
     }
 
     @Test
+    fun aSlightlyFutureFeedStampIsNotFreshUntilTheClockReachesIt() {
+        val result = WimtLiveProvider.parse(
+            sampleJson, "12089", route, 20766L, 1794243000000L)
+        val stamp = result.snapshot?.feedStampMillis
+        assertNotNull(stamp)
+        val sourceStamp = stamp!!
+        assertEquals(false, WimtLiveProvider.hasFreshSourceUpdate(result, sourceStamp - 1L))
+        assertEquals(1L, WimtLiveProvider.freshStampRecheckDelayMillis(result, sourceStamp - 1L))
+        assertNull(WimtLiveProvider.freshStampRecheckDelayMillis(result, sourceStamp))
+        assertTrue(WimtLiveProvider.hasFreshSourceUpdate(result, sourceStamp))
+        assertNull(WimtLiveProvider.freshStampRecheckDelayMillis(
+            result, sourceStamp - WimtLiveProvider.UPDATE_STAMP_FUTURE_TOLERANCE_MS - 1L))
+    }
+
+    @Test
     fun mismatchedOrInvalidEchoedRunDateDoesNotProduceSnapshot() {
         val wrongDate = sampleJson.replace("09-11-2026", "10-11-2026")
         val dateResult = WimtLiveProvider.parse(
