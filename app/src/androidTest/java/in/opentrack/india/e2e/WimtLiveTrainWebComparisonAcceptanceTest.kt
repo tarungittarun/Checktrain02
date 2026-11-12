@@ -147,9 +147,11 @@ class WimtLiveTrainWebComparisonAcceptanceTest {
                 "directFresh=${attempt.directFresh} webFresh=${attempt.webFresh} " +
                 "overlap=${attempt.overlappingEventFields} " +
                 "mismatchCount=${attempt.mismatchFields.size + attempt.appOnlyEventFields.size + attempt.webOnlyEventFields.size}")
-            if (attempt.stopAfterHostFailure || !attempt.defaultResetSucceeded) {
+            val selectedWimtSource = attempt.directSelected || attempt.webSelected
+            if (attempt.stopAfterHostFailure ||
+                (selectedWimtSource && !attempt.defaultResetSucceeded)) {
                 hostBlocked = true
-                break // do not issue another request after a refusal/transport failure
+                break // do not retry a refused host or proceed after a failed selected-source reset
             }
             if (attempts.count { it.verdict == "COMPARISON_COMPLETE" } >= MIN_COMPARISONS) break
         }
@@ -163,8 +165,8 @@ class WimtLiveTrainWebComparisonAcceptanceTest {
             Log.i(TAG, "WIMT_MULTI_VERDICT=PASS_THREE_FRESH_SAME_TRAIN_DATE_COMPARISONS_NOT_PARITY")
         }
         assertTrue(
-            "Need at least $MIN_COMPARISONS fresh same-train/date WIMT comparisons with default " +
-                "source restored after every attempt; completed=${completed.size}, attempted=${attempts.size}, " +
+            "Need at least $MIN_COMPARISONS fresh same-train/date WIMT comparisons with the NTES " +
+                "default verified after every selected-source attempt; completed=${completed.size}, attempted=${attempts.size}, " +
                 "hostBlocked=$hostBlocked. Mismatches are reported, not hidden or re-labelled as parity.",
             completed.size >= MIN_COMPARISONS && !hostBlocked,
         )
@@ -357,24 +359,25 @@ class WimtLiveTrainWebComparisonAcceptanceTest {
         }
         return result
         } finally {
-            // Verify and persist NTES after every candidate, including a search miss. Otherwise
-            // a candidate that never opened a tracking result looks like a failed reset and
-            // prematurely prevents the remaining live candidates from being tried.
-            result.defaultResetSucceeded = runCatching { resetDefaultToNtes(result) }.getOrElse {
-                result.defaultResetFailure = "reset-exception:${it.javaClass.simpleName}"
-                false
-            }
-            if (!result.defaultResetSucceeded) {
-                result.stopAfterHostFailure = true
-                result.reason = listOf(result.reason,
-                    "Could not persist NTES as the next tracking screen's default source " +
-                        "(${result.defaultResetFailure ?: "unknown reset stage"}).")
-                    .filter { it.isNotBlank() }.joinToString(" ")
-            } else if (sourceChoiceTouched && !result.defaultActiveSourceRestored) {
-                result.reason = listOf(result.reason,
-                    "NTES is verified as the saved next-screen default in Settings; the current " +
-                        "track screen remained on the selected WIMT source.")
-                    .filter { it.isNotBlank() }.joinToString(" ")
+            // A search miss does not change the selected source or the saved NTES preference.
+            // Only enter Settings after this attempt actually switched to a WIMT source.
+            if (sourceChoiceTouched) {
+                result.defaultResetSucceeded = runCatching { resetDefaultToNtes(result) }.getOrElse {
+                    result.defaultResetFailure = "reset-exception:${it.javaClass.simpleName}"
+                    false
+                }
+                if (!result.defaultResetSucceeded) {
+                    result.stopAfterHostFailure = true
+                    result.reason = listOf(result.reason,
+                        "Could not persist NTES as the next tracking screen's default source " +
+                            "(${result.defaultResetFailure ?: "unknown reset stage"}).")
+                        .filter { it.isNotBlank() }.joinToString(" ")
+                } else if (!result.defaultActiveSourceRestored) {
+                    result.reason = listOf(result.reason,
+                        "NTES is verified as the saved next-screen default in Settings; the current " +
+                            "track screen remained on the selected WIMT source.")
+                        .filter { it.isNotBlank() }.joinToString(" ")
+                }
             }
         }
     }
