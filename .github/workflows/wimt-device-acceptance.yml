@@ -274,9 +274,10 @@ jobs:
 
   # Same upstream /cache/live_status endpoint as the comparison path, but this
   # job tests the installed app's selected-source integration into its stop table.
-  # It is manually dispatched only; the endpoint may itself be server-cached.
+  # The endpoint may itself be server-cached. A one-use push marker is the
+  # fallback when the GitHub integration cannot dispatch workflows.
   live_api_device:
-    if: github.event_name == 'workflow_dispatch' && inputs.source == 'live-api'
+    if: (github.event_name == 'workflow_dispatch' && inputs.source == 'live-api') || (github.event_name == 'push' && contains(github.event.head_commit.message, '[wimt-live-api-device]'))
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
