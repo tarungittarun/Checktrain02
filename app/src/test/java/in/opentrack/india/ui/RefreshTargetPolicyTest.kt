@@ -24,12 +24,12 @@ class RefreshTargetPolicyTest {
         assertEquals(official, RefreshTargetPolicy.afterWebsiteSurvey(official, false, true))
     }
 
-    @Test fun manualRefreshRetriesPreferredSourceAfterOfficialFallback() {
+    @Test fun manualRefreshNormalizesLegacyWimtDefaultsToTheWebsiteAfterOfficialFallback() {
         assertEquals(site, RefreshTargetPolicy.target(official, site, auto = false))
         assertEquals(site, RefreshTargetPolicy.target(site, site, auto = false))
-        assertEquals(TrackingSources.WIMT, RefreshTargetPolicy.target(
+        assertEquals(site, RefreshTargetPolicy.target(
             official, TrackingSources.WIMT, auto = false))
-        assertEquals(WimtCandidate.SOURCE, RefreshTargetPolicy.target(
+        assertEquals(site, RefreshTargetPolicy.target(
             official, WimtCandidate.SOURCE, auto = false))
     }
 
