@@ -25,6 +25,13 @@ def make_pdf(folder: Path, output: Path, source_run: str, source_sha: str) -> di
         raise ValueError("run ID and exact 40-character source SHA are required")
     from verify_wimt_live_screens import verify
     verified = verify(folder, accepted=result.get("accepted") is True)
+    screen_report = {}
+    screen_report_path = folder / "screen-verification.json"
+    if screen_report_path.is_file():
+        try:
+            screen_report = json.loads(screen_report_path.read_text())
+        except (OSError, json.JSONDecodeError):
+            screen_report = {}
     images = [(label, folder / "screens" / f"{name}.png") for label, name in SCREEN_NAMES]
     output.parent.mkdir(parents=True, exist_ok=True)
     pdf = canvas.Canvas(str(output), pagesize=A4)
@@ -49,6 +56,8 @@ def make_pdf(folder: Path, output: Path, source_run: str, source_sha: str) -> di
         "Not the `.org.in` website or Google's WIMT phone app.",
         "Actions run: " + source_run + " | source SHA: " + source_sha,
         "Verdict: " + str(result.get("verdict", "unknown")),
+        "Installed-app one-test passed: " + str(result.get("installedApkTestPassed")),
+        "Device test result line captured: " + str(result.get("deviceTestResultCaptured")),
         "HTTP status visible in app details: " +
             str(result.get("httpStatusVisibleInSourceDetails") or "not available"),
     ]
@@ -62,6 +71,15 @@ def make_pdf(folder: Path, output: Path, source_run: str, source_sha: str) -> di
             "WIMT-attributed visible table clocks: " +
                 str(evidence.get("wimtAttributedVisibleTimeCells")),
         ]
+    if isinstance(screen_report, dict) and screen_report:
+        lines += [
+            "Freshness in captured hierarchy: " + str(screen_report.get("freshSourceStampVisible")),
+            "WIMT-attributed cells in captured hierarchy: " +
+                str(screen_report.get("wimtAttributedVisibleTimeCells")),
+        ]
+    conflicts = result.get("evidenceConflicts")
+    if isinstance(conflicts, list) and conflicts:
+        lines.append("Device/capture evidence conflicts: " + ", ".join(str(x) for x in conflicts))
     if passed:
         lines += [
             "Strict installed-app test: fresh run/route-matched source clocks were shown in the selected WIMT table.",

@@ -433,6 +433,26 @@ Render.save("02-track-live", shot.bitmap)
     }
 
     @Test
+    fun changingSelectedSourceRebindsVisibleStopCellProvenanceWithoutAMapLeg() {
+        val p = pos(anchor = 4, status = StopStatus.DEPARTED, delay = 14, live = true)
+        val m = model(p, now = 432, per = perStop)
+        val shot = Render.render(R.layout.activity_train) { root ->
+            Render.track(root, m, p, 432)
+            val list = root.findViewById<RecyclerView>(R.id.stops)
+            (list.adapter as StopAdapter).sourceNameForMarker = "WIMT .in"
+        }
+        val list = shot.root.findViewById<RecyclerView>(R.id.stops)
+        val descriptions = (0 until list.childCount).flatMap { index ->
+            val row = list.getChildAt(index)
+            listOf(R.id.liveArr, R.id.liveDep).map { id ->
+                row.findViewById<TextView>(id).contentDescription.orEmpty()
+            }
+        }
+        assertTrue("reported stop clocks must be relabelled for the selected WIMT source",
+            descriptions.any { it.contains("WIMT .in source-reported arrival") })
+    }
+
+    @Test
     fun sourceReportedLocomotiveAndStaticPointPaintWithoutImpliedMotion() {
         val p = pos(anchor = 4, status = StopStatus.DEPARTED, delay = 14, live = true)
         val m = model(p, now = 432, per = perStop)

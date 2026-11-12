@@ -371,6 +371,7 @@ jobs:
               'verdict': result.get('verdict'),
               'installedApkTestPassed': result.get('installedApkTestPassed') is True,
               'deviceTestResultCaptured': result.get('deviceTestResultCaptured') is True,
+              'evidenceConflicts': result.get('evidenceConflicts', []),
               'liveEvidence': result.get('liveEvidence'),
               'httpStatusVisibleInSourceDetails': result.get('httpStatusVisibleInSourceDetails'),
               'inAppScreensVerified': result.get('inAppScreensVerified') is True,

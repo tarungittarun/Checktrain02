@@ -42,6 +42,8 @@ object WimtLiveProvider {
         val status: Int?,
         val detail: String,
         val responseBytes: Int? = body?.toByteArray(Charsets.UTF_8)?.size,
+        /** Wall-clock time when the complete response body arrived; test seams may omit it. */
+        val receivedAtMillis: Long? = null,
     )
 
     fun hasFreshSourceUpdate(result: WimtResult, nowMillis: Long): Boolean =
@@ -135,7 +137,10 @@ object WimtLiveProvider {
             return WimtResult(null, "WIMT response exceeded $MAX_RESPONSE_BYTES bytes",
                 responseCode = wire.status, responseBytes = wire.responseBytes ?: body.toByteArray(Charsets.UTF_8).size)
         }
-        val parsed = parse(body, trainNo, route, originEpochDay, nowMillis, stationNameLookup)
+        // Freshness details must use the response receipt clock, not the time before a slow GET.
+        // Keep the injected test seam deterministic when it does not supply a receipt timestamp.
+        val responseNowMillis = wire.receivedAtMillis ?: nowMillis
+        val parsed = parse(body, trainNo, route, originEpochDay, responseNowMillis, stationNameLookup)
         return parsed.copy(responseCode = wire.status,
             responseBytes = wire.responseBytes ?: body.toByteArray(Charsets.UTF_8).size)
     }
@@ -174,7 +179,8 @@ object WimtLiveProvider {
             }
             val body = output.toString(Charsets.UTF_8.name())
             WireReply(body, status,
-                if (body.isEmpty()) "WIMT returned an empty response" else "HTTP $status", total)
+                if (body.isEmpty()) "WIMT returned an empty response" else "HTTP $status", total,
+                System.currentTimeMillis())
         } catch (e: Exception) {
             WireReply(null, connection?.let { runCatching { it.responseCode }.getOrNull() },
                 e.message?.take(160) ?: "Network connection failed")
@@ -499,12 +505,11 @@ object WimtLiveProvider {
             perStop[anchorCode]?.actualArrivalMin != null -> "last source-reported halt $anchorCode · arrival time reported"
             else -> "last mapped halt $anchorCode · current station unknown"
         }
-        val updateDetail = when {
-            parsedUpdateMillis != null && parsedUpdateMillis > nowMillis ->
-                "upstream update stamp is in the future; not counted fresh"
-            updateMillis != null -> "upstream update stamp ${((nowMillis - updateMillis).coerceAtLeast(0) / 60_000)}m ago (not event time)"
-            else -> "upstream update timestamp unavailable"
-        }
+        // Do not bake a transient future/stale verdict into the response's fixed detail string.
+        // LiveViewModel evaluates this stamp against the latest device clock whenever it renders.
+        val updateDetail = if (parsedUpdateMillis != null)
+            "upstream update stamp reported; freshness is evaluated locally (not event time)"
+        else "upstream update timestamp unavailable"
         val runDetail = when {
             runDateMatched == true && routeMatched == true -> "response run date and route endpoints matched"
             runDateMatched == true -> "response run date matched; route endpoints were not both echoed"

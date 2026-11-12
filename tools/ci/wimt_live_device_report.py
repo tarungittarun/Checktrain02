@@ -49,12 +49,16 @@ def make_report(instrumentation: str, return_code: int,
             "in-test UiAutomator screenshot plus matching app-window hierarchy" and \
         required_screens.issubset(names)
     status = screen.get("httpStatusVisibleInDetails") if isinstance(screen, dict) else None
+    screen_rows = screen.get("sourceRowsInDetails") if isinstance(
+        screen.get("sourceRowsInDetails"), int) else None
+    screen_cells = screen.get("wimtAttributedVisibleTimeCells") if isinstance(
+        screen.get("wimtAttributedVisibleTimeCells"), int) else None
     rows = parsed["sourceRowsInDetails"]
-    if rows is None and isinstance(screen.get("sourceRowsInDetails"), int):
-        rows = screen["sourceRowsInDetails"]
+    if rows is None:
+        rows = screen_rows
     cells = parsed["wimtAttributedVisibleTimeCells"]
-    if cells is None and isinstance(screen.get("wimtAttributedVisibleTimeCells"), int):
-        cells = screen["wimtAttributedVisibleTimeCells"]
+    if cells is None:
+        cells = screen_cells
 
     # Preserve facts visible in the verified in-app hierarchy when the instrumented
     # result line was not captured. This can describe evidence, never create a pass:
@@ -79,17 +83,35 @@ def make_report(instrumentation: str, return_code: int,
         if parsed["selectedSourceVisible"] is None:
             parsed["selectedSourceVisible"] = True
 
+    # The test log and screenshot hierarchy describe the same rendered result. Preserve and
+    # surface disagreements instead of letting the first available channel silently win.
+    conflicts = []
+    if result_captured and screens_ok:
+        comparisons = [
+            ("http200", parsed["http200"], status == "HTTP 200" if status is not None else None),
+            ("runDateMatched", parsed["runDateMatched"], screen.get("runDateMatchedVisible")),
+            ("routeEndpointsMatched", parsed["routeEndpointsMatched"],
+             screen.get("routeEndpointsMatchedVisible")),
+            ("freshSourceStamp", parsed["freshSourceStamp"], screen.get("freshSourceStampVisible")),
+            ("sourceRowsInDetails", parsed["sourceRowsInDetails"], screen_rows),
+            ("wimtAttributedVisibleTimeCells", parsed["wimtAttributedVisibleTimeCells"], screen_cells),
+        ]
+        conflicts = [name for name, logged, captured in comparisons
+                     if logged is not None and captured is not None and logged != captured]
+
     test_candidate = return_code == 0 and exactly_one and PASS_LINE in instrumentation and match is not None
     strict_data = parsed["http200"] is True and parsed["runDateMatched"] is True and \
         parsed["routeEndpointsMatched"] is True and parsed["freshSourceStamp"] is True and \
         parsed["selectedSourceVisible"] is True and rows is not None and rows > 0 and \
         cells is not None and cells > 0
     accepted = test_candidate and strict_data and screens_ok and status == "HTTP 200" and \
-        screen.get("acceptedDataVerifiedInAppHierarchy") is True
+        screen.get("acceptedDataVerifiedInAppHierarchy") is True and not conflicts
 
     text = instrumentation.lower()
-    visible_matched_rows = screens_ok and status == "HTTP 200" and rows is not None and rows > 0 and \
-        cells is not None and cells > 0 and screen.get("runDateMatchedVisible") is True and \
+    visible_matched_rows = screens_ok and status == "HTTP 200" and \
+        screen_rows is not None and screen_rows > 0 and \
+        screen_cells is not None and screen_cells > 0 and \
+        screen.get("runDateMatchedVisible") is True and \
         screen.get("routeEndpointsMatchedVisible") is True
     if accepted:
         verdict = "PASS_FRESH_MATCHED_SOURCE_TIMES_IN_APP"
@@ -104,6 +126,10 @@ def make_report(instrumentation: str, return_code: int,
             re.search(r"\bhttp 5[0-9]{2}\b", text):
         verdict = "HTTP_5XX_SERVER_ERROR"
         reason = "The selected `.in` server returned a 5xx response; no WIMT data acceptance is claimed."
+    elif conflicts:
+        verdict = "IN_APP_EVIDENCE_CONTRADICTION"
+        reason = "The device assertion and captured app hierarchy disagree on: " + \
+            ", ".join(conflicts) + ". Acceptance remains failed until the same rendered evidence agrees."
     elif visible_matched_rows and parsed["freshSourceStamp"] is not True:
         verdict = "HTTP_200_MATCHED_SOURCE_ROWS_BUT_FRESHNESS_UNPROVEN"
         reason = "Verified in-app captures show run/route-matched source rows, but the source update stamp did not pass the freshness gate."
@@ -131,6 +157,7 @@ def make_report(instrumentation: str, return_code: int,
         "verdict": verdict,
         "installedApkTestPassed": return_code == 0 and exactly_one,
         "deviceTestResultCaptured": result_captured,
+        "evidenceConflicts": conflicts,
         "liveEvidence": parsed,
         "httpStatusVisibleInSourceDetails": status,
         "inAppScreensVerified": screens_ok,
@@ -181,6 +208,9 @@ def self_test() -> None:
         assert report["accepted"] is False and report["verdict"] == expected
     bad = line.replace("freshUpdate=true", "freshUpdate=false")
     assert not make_report(bad, 0, json.dumps(screens))["accepted"]
+    conflict = make_report(bad, 0, json.dumps(screens))
+    assert conflict["verdict"] == "IN_APP_EVIDENCE_CONTRADICTION"
+    assert "freshSourceStamp" in conflict["evidenceConflicts"]
     wrong_source = json.dumps({**screens, "appPackage": "launcher"})
     assert not make_report(line, 0, wrong_source)["accepted"]
     assert not make_report(line, 0, "[]")["accepted"]

@@ -183,7 +183,12 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         }
     var sourceNameForMarker: String = "NTES"
         set(value) {
-            if (field != value) { field = value; if (projectedLeg != null) notifyDataSetChanged() }
+            if (field != value) {
+                field = value
+                // Cell accessibility labels and the last-event caption are source-specific even
+                // when there is no map leg. Rebind the rows on every actual source switch.
+                notifyDataSetChanged()
+            }
         }
     var legWebsiteEventMinute: Int? = null
         set(value) {

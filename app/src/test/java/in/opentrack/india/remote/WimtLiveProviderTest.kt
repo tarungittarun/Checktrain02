@@ -5,6 +5,7 @@ import `in`.opentrack.india.model.StopRow
 import `in`.opentrack.india.model.StopStatus
 import `in`.opentrack.india.model.TrainRoute
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -107,6 +108,26 @@ class WimtLiveProviderTest {
         assertTrue(WimtLiveProvider.hasFreshSourceUpdate(result, sourceStamp))
         assertNull(WimtLiveProvider.freshStampRecheckDelayMillis(
             result, sourceStamp - WimtLiveProvider.UPDATE_STAMP_FUTURE_TOLERANCE_MS - 1L))
+    }
+
+    @Test
+    fun fetchFreshnessTextUsesTheResponseReceiptTime() {
+        val parsed = WimtLiveProvider.parse(
+            sampleJson, "12089", route, 20766L, 1794243000000L)
+        val sourceStamp = parsed.snapshot?.feedStampMillis ?: error("fixture stamp missing")
+        val requestStartedAt = sourceStamp - 1L
+        val responseReceivedAt = sourceStamp + 1L
+
+        val result = WimtLiveProvider.fetch(
+            "12089", route, 20766L, requestStartedAt, null,
+        ) {
+            WimtLiveProvider.WireReply(sampleJson, 200, "HTTP 200",
+                receivedAtMillis = responseReceivedAt)
+        }
+
+        assertEquals(responseReceivedAt, result.snapshot?.fetchedAtMillis)
+        assertTrue(result.detail.contains("upstream update stamp reported"))
+        assertFalse(result.detail.contains("upstream update stamp is in the future"))
     }
 
     @Test

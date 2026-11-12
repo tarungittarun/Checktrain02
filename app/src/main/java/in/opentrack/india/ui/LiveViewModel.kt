@@ -528,12 +528,12 @@ class LiveViewModel(
                     !result.currentStationCode.isNullOrBlank()
                 val hasRunBoundReport = acceptedSnapshot != null &&
                     (actualStopCount > 0 || hasCurrentStation)
-                val freshnessLabel = when {
-                    freshUpdate -> "upstream update stamp within ${WimtLiveProvider.FRESH_UPDATE_MAX_AGE_MS / 60_000} min; not an event clock"
-                    updateAheadBy != null -> "at response time, the upstream update stamp was ahead of this device clock"
-                    updateStamp != null -> "upstream update stamp is stale"
-                    else -> "upstream update time unavailable"
-                }
+                // Keep the saved request detail stable; the display-time status is recomputed
+                // from the stamp in buildUi(), so a small clock skew cannot leave contradictory
+                // "ahead" and "fresh" claims in the same source-details dialog.
+                val freshnessLabel = if (updateStamp != null)
+                    "upstream update stamp recorded; freshness is evaluated locally"
+                else "upstream update time unavailable"
                 val runLabel = when (result.runDateMatched) {
                     true -> "response run date matched"
                     false -> "response run date mismatched"
@@ -2046,6 +2046,8 @@ class LiveViewModel(
                 val freshness = when {
                     evidence.sourceUpdateMillis == null -> "upstream update time unavailable"
                     wimtFreshNow -> "upstream update stamp is fresh; not an event time"
+                    evidence.sourceUpdateAheadByMillis != null ->
+                        "upstream update stamp is ahead; not counted fresh yet"
                     else -> "upstream update stamp is stale; position not current"
                 }
                 state to ((manualWimtDetail ?: evidence.detail) + " · " + freshness +
