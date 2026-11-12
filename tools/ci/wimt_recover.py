@@ -27,7 +27,8 @@ def brief(log: str) -> list[str]:
             # This test's assertions include public UI labels only; still do not
             # print arbitrary stack frames, URLs, session headers or CDN IDs.
             clean = re.sub(r"(?i)(x-hcdn-request-id|cdnRequestId|cookie|token)[=: ]+\S+",
-                           r"\1=<redacted>", line)[:280]
+                           r"\1=<redacted>", line)
+            clean = re.sub(r"https?://\S+", "<url>", clean)[:280]
             lines.append(clean)
     return lines[-18:]
 
@@ -217,6 +218,66 @@ def _is_live_comparison_result(original) -> bool:
             for attempt in original["attempts"])
 
 
+def summarize_website_artifact(folder: Path, original: dict, source_run: str,
+                               source_artifact: str) -> dict:
+    """Recover a bounded `.org.in` device verdict without exposing raw diary or screenshots."""
+    if not re.fullmatch(r"[0-9]{1,20}", source_run):
+        source_run = "unknown"
+    if not re.fullmatch(r"[A-Za-z0-9._-]{1,100}", source_artifact):
+        source_artifact = "unknown"
+    instrumentation = _read_text(folder / "instrumentation.txt")
+    if not original.get("accepted") and (not original.get("wireReceiptAvailable", False) or
+                                           original.get("websiteGetCount") == 0) and instrumentation:
+        from wimt_device_report import verdict
+        result = verdict(instrumentation, "", 1)
+    else:
+        result = original
+    safe_fields = (
+        "verdict", "accepted", "instrumentationPassed", "websiteGetCount", "websiteAnswered",
+        "websiteRefused", "wireReceiptAvailable", "source", "sourceTransport", "siteRows",
+        "trainNumber", "originDay", "originRunDateIst", "runDateBasis", "runIdentity",
+        "siteClaimStation", "siteClaimMinuteFromOrigin", "siteClaimTimeIst",
+        "siteClaimAgeSecondsAtCheck", "pagePublishedAtIst", "pageAgeSecondsAtCheck",
+        "checkedAtIst", "provenanceComplete", "googlePhoneAppFeed", "browserEngineRequest",
+        "websiteGetCountScope", "note",
+    )
+    safe_result = {key: result[key] for key in safe_fields if key in result}
+    screens = _read_json(folder / "screen-verification.json") or {}
+    verified = screens.get("verifiedAppScreens", {})
+    if not isinstance(verified, dict):
+        verified = {}
+    failed_log = _read_text(folder / "failed-step-log.txt")
+    return {
+        "sourceRun": source_run,
+        "sourceArtifact": source_artifact,
+        "result": safe_result,
+        "screenVerificationFilePresent": bool(screens),
+        "verifiedInAppScreenshotNames": sorted(verified),
+        "displayedRefusalRequired": screens.get("displayedRefusalRequired"),
+        "failedStepLogRetrieval": _read_text(
+            folder / "failed-step-log-status.txt").strip() or "not-recorded",
+        "boundedFailedStepLines": brief(failed_log),
+        "boundedInstrumentationLines": brief(instrumentation),
+        "note": "Recovery reads this completed run only; no app reinstall or website request is made.",
+    }
+
+
+def _run_website_report(folder: Path, original: dict) -> int:
+    source_run = os.environ.get("WIMT_SOURCE_RUN", "unknown")
+    source_artifact = os.environ.get("WIMT_SOURCE_ARTIFACT", "unknown")
+    summary = summarize_website_artifact(folder, original, source_run, source_artifact)
+    report = [
+        "### Existing installed-APK `.org.in` run · recovery diagnosis (no new website request)",
+        "", "```json", json.dumps(summary, indent=2, sort_keys=True), "```", "",
+        "The event time remains a website-published claim; the service date is inferred from the "
+        "selected timetable because the page is undated. A failure or missing screenshot is not acceptance.",
+    ]
+    text = "\n".join(report) + "\n"
+    (folder / "recovered-report.md").write_text(text, encoding="utf-8")
+    print(text)
+    return 0
+
+
 def _self_test() -> None:
     with tempfile.TemporaryDirectory(prefix="wimt-recover-") as temporary:
         folder = Path(temporary)
@@ -262,6 +323,33 @@ def _self_test() -> None:
             summary["failedStepLog"]["boundedFailureLines"][0]
         assert "FAILURES!!!" in \
             summary["failedStepLog"]["boundedInstrumentationLines"][0]
+    with tempfile.TemporaryDirectory(prefix="wimt-website-recover-") as temporary:
+        folder = Path(temporary)
+        (folder / "instrumentation.txt").write_text(
+            "java.lang.AssertionError: no qualified website past card; "
+            "warning='Website refused request (HTTP 403)'\nFAILURES!!!\n",
+            encoding="utf-8")
+        (folder / "failed-step-log.txt").write_text(
+            "java.lang.AssertionError: x-hcdn-request-id=PRIVATE "
+            "https://example.invalid/page?token=PRIVATE\n", encoding="utf-8")
+        (folder / "failed-step-log-status.txt").write_text("available\n", encoding="utf-8")
+        (folder / "screen-verification.json").write_text(json.dumps({
+            "verifiedAppScreens": {
+                "wimt-before-selected-source": {"pngBytes": 2000, "appNodes": 5},
+                "wimt-after-selected-source": {"pngBytes": 2100, "appNodes": 6},
+            },
+            "displayedRefusalRequired": True,
+        }), encoding="utf-8")
+        summary = summarize_website_artifact(folder, {
+            "source": "whereismytrain.org.in", "accepted": False,
+            "wireReceiptAvailable": False, "websiteGetCount": None,
+        }, "43260030312", "wimt-device-evidence")
+        assert summary["sourceRun"] == "43260030312"
+        assert summary["result"]["verdict"] == "WEBSITE_REFUSED_UI_DIARY_UNAVAILABLE"
+        assert summary["verifiedInAppScreenshotNames"] == [
+            "wimt-after-selected-source", "wimt-before-selected-source"]
+        assert "PRIVATE" not in json.dumps(summary)
+        assert "<url>" in json.dumps(summary)
     print("WIMT artifact recovery self-test passed (no network or provider request)")
 
 
@@ -295,6 +383,9 @@ if __name__ == "__main__":
         raise SystemExit(_run_live_report(folder, original))
 
     original = original if isinstance(original, dict) else {}
+    if original.get("source") == "whereismytrain.org.in" or \
+            os.environ.get("WIMT_SOURCE_ARTIFACT") == "wimt-device-evidence":
+        raise SystemExit(_run_website_report(folder, original))
     inst = (folder / "instrumentation.txt").read_text(errors="replace") \
         if (folder / "instrumentation.txt").exists() else ""
     boot = (folder / "boot.txt").read_text(errors="replace") \
