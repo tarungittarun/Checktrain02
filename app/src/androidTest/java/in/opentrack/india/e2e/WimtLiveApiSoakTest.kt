@@ -67,13 +67,16 @@ class WimtLiveApiSoakTest {
             spinner.findObject(By.clazz("android.widget.TextView"))?.text.orEmpty()
         }.getOrDefault("")
         val description = runCatching { spinner.contentDescription.orEmpty() }.getOrDefault("")
+        // The selected-source description is the authoritative accessibility state;
+        // a just-completed receipt may still leave the painted spinner child stale.
+        if (description.startsWith("Selected ", true)) {
+            return description.contains("Selected WIMT .in live-status feed", true)
+        }
         if (displayed.isNotBlank()) {
             return displayed.contains("WIMT .in", true) &&
                 !displayed.contains("WIMT site", true) && !displayed.contains("WIMT cache", true)
         }
-        // After a receipt the description deliberately speaks the check result instead of
-        // the selected source. In that state, do not infer selection from stale receipt text.
-        return description.contains("Selected WIMT .in live-status feed", true)
+        return false
     }
 
     private fun selectedWimtDescription(): Boolean = runCatching {
@@ -129,7 +132,13 @@ class WimtLiveApiSoakTest {
         }
     }
 
-    private fun sample(summary: String, details: String): Sample {
+    /** Selection and clock cells are frozen with the visible table, before opening modal details. */
+    private fun sample(
+        summary: String,
+        details: String,
+        selectedAtTableCapture: Boolean,
+        visibleCellsAtTableCapture: Int,
+    ): Sample {
         val status = Regex("\\bHTTP ([1-5][0-9]{2})\\b")
             .find(details)?.groupValues?.get(1)?.toIntOrNull()
         val rows = Regex("""Selected WIMT \.in source-reported rows \((\d+)\):""")
@@ -145,7 +154,7 @@ class WimtLiveApiSoakTest {
         val freshnessAccurate = (stampFresh && summaryFresh) ||
             (nonFreshLabel && !summaryFresh)
         return Sample(
-            selected = selectedWimt(),
+            selected = selectedAtTableCapture,
             httpStatus = status,
             runMatched = details.contains("Run date echoed and matched: true"),
             routeMatched = details.contains("both route endpoints echoed and matched: true"),
@@ -153,7 +162,7 @@ class WimtLiveApiSoakTest {
             stale = stale,
             freshnessAccurate = freshnessAccurate,
             rows = rows,
-            visibleCells = visibleWimtSourceCellCount(),
+            visibleCells = visibleCellsAtTableCapture,
             disclosed = details.contains("not NTES actuals", true) &&
                 details.contains("GPS or movement", true),
         )
@@ -246,14 +255,25 @@ class WimtLiveApiSoakTest {
             }
             E2E.ui.waitForIdle()
             summary = E2E.text("sourceSummary", 500)
+            // Freeze the *rendered table* evidence before navigating into Source details.
+            // Opening/closing dialogs can replace Spinner accessibility text or table nodes;
+            // acceptance must describe the same screen shown in this genuine app screenshot.
+            val selectedAtTableCapture = selectedWimt()
+            val cellsAtTableCapture = visibleWimtSourceCellCount()
+            val summaryAtTableCapture = summary
             E2E.shotWimt("wimt-soak-start")
+            writeTrace(traceFile,
+                "WIMT_SOAK_TABLE_CAPTURE selected=$selectedAtTableCapture " +
+                    "visibleCells=$cellsAtTableCapture hasSourceRows=" +
+                    summaryAtTableCapture.contains("source-reported stop row", true))
             val initialDetails = sourceDetails("wimt-soak-start-details")
             assertNotNull("selected WIMT .in source details were not available", initialDetails)
-            val initial = sample(summary, initialDetails.orEmpty())
+            val initial = sample(summaryAtTableCapture, initialDetails.orEmpty(),
+                selectedAtTableCapture, cellsAtTableCapture)
             detailSamples++
             if (initial.strictFresh) freshSamples++ else nonFreshSamples++
             val initialOk = initial.strictFresh &&
-                summary.contains("source-reported stop row", true)
+                summaryAtTableCapture.contains("source-reported stop row", true)
             writeTrace(traceFile,
                 "WIMT_SOAK_INITIAL httpStatus=${initial.httpStatus ?: "none"} " +
                     "runDateMatched=${initial.runMatched} routeMatched=${initial.routeMatched} " +
@@ -320,8 +340,10 @@ class WimtLiveApiSoakTest {
                             in 175L..185L -> "180m"
                             else -> null
                         }
-                        val details = sourceDetails(milestone?.let { "wimt-soak-$it-details" })
+                        val selectedAtTableCapture = selectedWimt()
+                        val cellsAtTableCapture = visibleWimtSourceCellCount()
                         val measuredSummary = E2E.text("sourceSummary", 500)
+                        val details = sourceDetails(milestone?.let { "wimt-soak-$it-details" })
                         if (details == null) {
                             unqualifiedSamples++
                             if (!sourceLossRecorded) {
@@ -341,7 +363,8 @@ class WimtLiveApiSoakTest {
                                 break
                             }
                         } else {
-                            val measured = sample(measuredSummary, details)
+                            val measured = sample(measuredSummary, details,
+                                selectedAtTableCapture, cellsAtTableCapture)
                             detailSamples++
                             if (measured.fresh) freshSamples++ else nonFreshSamples++
                             if (measured.httpStatus != 200 || !measured.runMatched ||
@@ -419,16 +442,19 @@ class WimtLiveApiSoakTest {
             }
             val elapsed = SystemClock.elapsedRealtime() - soakStartedAt
             E2E.ui.waitForIdle()
-            E2E.shotWimt("wimt-soak-240m")
             val finalSummary = E2E.text("sourceSummary", 500)
-            var finalSelected = selectedWimt()
-            val finalDetails = if (finalSelected) sourceDetails("wimt-soak-240m-details") else null
-            finalSelected = selectedWimt()
+            val finalSelectedAtTableCapture = selectedWimt()
+            val finalCellsAtTableCapture = visibleWimtSourceCellCount()
+            E2E.shotWimt("wimt-soak-240m")
+            val finalDetails = if (finalSelectedAtTableCapture)
+                sourceDetails("wimt-soak-240m-details") else null
+            val finalSelected = selectedWimt()
             if (finalDetails == null) {
                 unqualifiedSamples++
                 writeTrace(traceFile, "WIMT_SOAK_FINAL_DETAILS_UNAVAILABLE selected=$finalSelected")
             } else {
-                val final = sample(E2E.text("sourceSummary", 500).ifBlank { finalSummary }, finalDetails)
+                val final = sample(finalSummary, finalDetails,
+                    finalSelectedAtTableCapture, finalCellsAtTableCapture)
                 detailSamples++
                 if (final.fresh) freshSamples++ else nonFreshSamples++
                 if (final.httpStatus != 200 || !final.runMatched || !final.routeMatched ||

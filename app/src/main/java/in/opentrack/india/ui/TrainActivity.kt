@@ -674,6 +674,11 @@ class TrainActivity : AppCompatActivity() {
         SourceIndicator.Tone.PENDING -> R.color.text2
     }
 
+    private fun sourcePickerDescription(selectedSource: String?): String =
+        "Selected ${TrackingSources.label(TrackingSources.valid(selectedSource))}. " +
+            "Choose NTES, WIMT .in live-status feed, Where Is My Train website, or experimental " +
+            "WIMT web cache. Long press for time and source details."
+
     private fun renderSourceChips(ui: LiveViewModel.Ui) {
         spinnerStates = ui.sourceStates
         // A source can finish its first-load probe while the dropdown is open. Replacing
@@ -697,8 +702,7 @@ class TrainActivity : AppCompatActivity() {
         binding.sourceSpinner.visibility = if (names.isEmpty()) View.GONE else View.VISIBLE
         // Spinner's own accessibility text can be empty on Android even when its
         // painted child says WIMT. Expose the *selected* source to TalkBack too.
-        binding.sourceSpinner.contentDescription = "Selected ${TrackingSources.label(TrackingSources.valid(ui.activeSource))}. " +
-            "Choose NTES, WIMT .in live-status feed, Where Is My Train website, or experimental WIMT web cache. Long press for time and source details."
+        binding.sourceSpinner.contentDescription = sourcePickerDescription(ui.activeSource)
         binding.refresh.contentDescription = if (vm.refreshTarget(auto = false) != ui.activeSource)
             "Retry selected website first; NTES currently shown as fallback. Drag to move in lower half"
         else "Refresh selected source; drag to move in lower half"
@@ -1563,9 +1567,10 @@ class TrainActivity : AppCompatActivity() {
     private fun attachCompletedReceipt() {
         val spoken = completedReceipt ?: return
         binding.provenance.contentDescription = binding.provenance.text.toString() + ". " + spoken
-        // renderSourceChips resets the Spinner description on every UI emission.
-        // A late offline fallback can otherwise erase the just-completed receipt.
-        binding.sourceSpinner.contentDescription = "Choose tracking source. " + spoken
+        // Keep the current source explicit for TalkBack and installed-app checks;
+        // a refresh receipt augments this description rather than replacing selection.
+        binding.sourceSpinner.contentDescription = sourcePickerDescription(lastUi?.activeSource) +
+            " Last completed refresh: " + spoken
         // The toggle stays reachable when a warning covers provenance, even on
         // devices where a Spinner exposes only its selected child's description.
         val action = if (heroExpanded) "Collapse journey card" else "Expand journey card"
