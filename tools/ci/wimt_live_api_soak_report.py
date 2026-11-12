@@ -73,6 +73,8 @@ def build_report(directory: Path) -> dict:
                 "instrumentationExitCode", ""))
         except (TypeError, ValueError):
             runner_exit = None
+    boot_path = directory / "boot.txt"
+    boot_log = boot_path.read_text(encoding="utf-8", errors="replace").lower() if boot_path.is_file() else ""
 
     captured = sorted(
         str(path.relative_to(directory))
@@ -113,11 +115,50 @@ def build_report(directory: Path) -> dict:
         "instrumentationPassed": instrumentation_passed and runner_exit == 0,
     }
     passed = all(checks.values())
+    failure_stage = "PASS" if passed else "SETUP_OR_DEVICE_TEST_NOT_COMPLETED"
+    if not passed:
+        if "emulator did not finish booting" in boot_log or "needs hardware acceleration" in boot_log:
+            failure_stage = "EMULATOR_BOOT_FAILED"
+        elif runner_exit == 3:
+            failure_stage = "EMULATOR_SETUP_FAILED"
+        elif initial_line and not initial_ok:
+            failure_stage = "INITIAL_WIMT_IN_APP_GATE_FAILED"
+        elif initial_line and not started_line:
+            failure_stage = "AUTO_ENABLE_OR_SOAK_START_FAILED"
+        elif started_line and not summary_line:
+            failure_stage = "SOAK_INTERRUPTED_BEFORE_FINAL_SUMMARY"
+        elif summary_line and not full_duration:
+            failure_stage = "SOAK_ENDED_BEFORE_240_MINUTES"
+        elif summary_line:
+            failure_stage = "SOAK_ACCEPTANCE_ASSERTION_FAILED"
+        elif runner_exit is not None:
+            failure_stage = "INSTRUMENTED_DEVICE_TEST_FAILED_BEFORE_INITIAL_GATE"
+    failed_checks = [name for name, ok in checks.items() if not ok]
+    failure_summary = "All required checks passed." if passed else "; ".join(failed_checks)
+    if not passed and failure_stage == "INITIAL_WIMT_IN_APP_GATE_FAILED":
+        failure_summary = (
+            "Initial WIMT in-app gate failed: "
+            f"HTTP={initial.get('httpStatus', 'not recorded')}, "
+            f"run-date-match={truth(initial, 'runDateMatched')}, "
+            f"route-match={truth(initial, 'routeMatched')}, "
+            f"fresh={truth(initial, 'fresh')}, rows={number(initial, 'rows')}, "
+            f"visible-cells={number(initial, 'cells')}, "
+            f"selected={truth(initial, 'selected')}, "
+            f"provenance-disclosed={truth(initial, 'disclosed')}"
+        )
+    elif not passed and failure_stage == "EMULATOR_BOOT_FAILED":
+        failure_summary = "The emulator did not boot; no installed-app WIMT claim was made."
+    elif not passed and failure_stage == "EMULATOR_SETUP_FAILED":
+        failure_summary = "Emulator setup failed before the installed-app test could run."
+    elif not passed and failure_stage == "INSTRUMENTED_DEVICE_TEST_FAILED_BEFORE_INITIAL_GATE":
+        failure_summary = "The instrumented app test failed before it recorded the initial WIMT gate."
 
     result = {
         "verdict": "PASS_240_MINUTE_INSTALLED_APP_WIMT_SOAK" if passed else
             "FAIL_OR_INCOMPLETE_240_MINUTE_INSTALLED_APP_WIMT_SOAK",
         "passed": passed,
+        "failureStage": failure_stage,
+        "failureSummary": failure_summary,
         "requiredDurationMinutes": 240,
         "durationMs": duration_ms if summary else None,
         "durationMinutes": round(duration_ms / 60_000, 2) if summary else None,
@@ -159,6 +200,8 @@ def build_report(directory: Path) -> dict:
         "# WIMT .in · 240-minute installed-app regression",
         "",
         f"**Verdict:** `{result['verdict']}`",
+        f"**Failure stage:** `{failure_stage}`",
+        f"**Diagnostic:** {failure_summary}",
         "",
         "## Result",
         "",
@@ -216,10 +259,17 @@ def self_test() -> None:
         result = build_report(directory)
         assert result["passed"]
         assert result["autoRefresh"]["nonFreshSamples"] == 23
-        (directory / "soak-trace.txt").write_text(initial + "\n", encoding="utf-8")
+        initial_failed = (
+            "WIMT_SOAK_INITIAL httpStatus=403 runDateMatched=false routeMatched=false "
+            "fresh=false rows=0 cells=0 selected=true disclosed=true accepted=false"
+        )
+        (directory / "soak-trace.txt").write_text(initial_failed + "\n", encoding="utf-8")
+        (directory / "runner-exit.txt").write_text("instrumentationExitCode=1\n", encoding="utf-8")
         result = build_report(directory)
         assert not result["passed"]
         assert result["durationMs"] is None
+        assert result["failureStage"] == "INITIAL_WIMT_IN_APP_GATE_FAILED"
+        assert "HTTP=403" in result["failureSummary"]
 
 
 def main() -> int:

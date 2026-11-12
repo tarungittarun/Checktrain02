@@ -10,7 +10,7 @@ on:
       - 'tools/ci/wimt_live_api_soak_report.py'
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write # redacted pass/fail only; no request body, URL, headers or station identifiers
 concurrency:
   group: wimt-live-api-240-minute-soak-${{ github.ref }}
   cancel-in-progress: false
@@ -61,10 +61,21 @@ jobs:
         run: bash tools/ci/run_wimt_live_api_soak.sh
       - name: Redacted result and provenance summary
         if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p wimt-live-api-soak-evidence/screens
           python3 tools/ci/wimt_live_api_soak_report.py wimt-live-api-soak-evidence
           cat wimt-live-api-soak-evidence/report.md >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo '### WIMT .in 240-minute installed-app regression';
+            echo "Run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}";
+            echo;
+            cat wimt-live-api-soak-evidence/report.md;
+          } > /tmp/wimt-live-api-soak-comment.md
+          gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
+            -F body=@/tmp/wimt-live-api-soak-comment.md > /dev/null || \
+            echo '::warning::Could not post the redacted soak summary comment'
           if [ "${{ steps.run_soak.outcome }}" = 'success' ]; then
             python3 - <<'PY'
           import json

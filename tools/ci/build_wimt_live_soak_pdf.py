@@ -52,6 +52,8 @@ def build(evidence: Path, output: Path) -> int:
     fields = [
         "Required duration: 240 minutes",
         "Measured duration: " + str(result.get("durationMinutes", "not recorded")) + " minutes",
+        "Failure stage: " + str(result.get("failureStage", "not recorded")),
+        "Diagnostic: " + str(result.get("failureSummary", "not recorded")),
         "Initial strict WIMT in-app acceptance: " + str(initial.get("accepted", False)),
         "Initial HTTP status: " + str(initial.get("httpStatus", "not recorded")),
         "Run date / route matched: " + str(initial.get("runDateMatched", False)) +
@@ -72,8 +74,10 @@ def build(evidence: Path, output: Path) -> int:
     ]
     y = page_h - 112
     for line in fields:
-        pdf.drawString(48, y, line)
-        y -= 17
+        chunks = [line[i:i + 88] for i in range(0, len(line), 88)] or [""]
+        for chunk in chunks:
+            pdf.drawString(48, y, chunk)
+            y -= 14
     pdf.setFont("Helvetica-Bold", 10)
     pdf.drawString(42, y - 3, "Provenance limit")
     y -= 20
