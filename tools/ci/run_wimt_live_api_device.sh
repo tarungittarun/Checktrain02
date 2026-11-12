@@ -10,13 +10,36 @@ finish() {
   rc=$?
   set +e
   export PATH="${ANDROID_HOME:-/usr/local/lib/android/sdk}/platform-tools:$PATH"
-  # Recover only captures named by the fresh test. The app data is cleared before each workflow run.
-  listing=$(adb shell run-as in.opentrack.india sh -c \
-    'cd files/evidence 2>/dev/null && ls wimt-compare-* 2>/dev/null' 2>/dev/null | tr -d '\r')
+  # Recover only captures named by the fresh test. The last run reported all expected PNG/XML
+  # files missing after recovery; list with direct exec-out run-as and retain counts/errors.
+  capture_listing="$OUT/capture-listing.txt"
+  capture_listing_error="$OUT/capture-access-error.txt"
+  capture_transfers="$OUT/capture-transfers.tsv"
+  : > "$capture_listing"
+  : > "$capture_listing_error"
+  : > "$capture_transfers"
+  capture_listing_ok=false
+  if adb exec-out run-as in.opentrack.india ls -1 files/evidence \
+      > "$capture_listing" 2> "$capture_listing_error"; then
+    capture_listing_ok=true
+  fi
+  listing=$(tr -d '\r' < "$capture_listing")
   while IFS= read -r name; do
     [[ "$name" =~ ^wimt-compare-[0-9]{4,5}-(before|app-live|app-details|web-cache|web-details|final)\.(png|xml)$ ]] || continue
-    adb exec-out run-as in.opentrack.india cat "files/evidence/$name" \
-      > "$OUT/screens/$name" 2>/dev/null || rm -f "$OUT/screens/$name"
+    destination="$OUT/screens/$name"
+    if adb exec-out run-as in.opentrack.india cat "files/evidence/$name" \
+        > "$destination" 2>> "$capture_listing_error"; then
+      bytes=$(wc -c < "$destination" | tr -d ' ')
+      if [ "${bytes:-0}" -gt 0 ]; then
+        printf '%s\tcopied\t%s\n' "$name" "$bytes" >> "$capture_transfers"
+      else
+        rm -f "$destination"
+        printf '%s\tempty\t0\n' "$name" >> "$capture_transfers"
+      fi
+    else
+      rm -f "$destination"
+      printf '%s\tfailed\t0\n' "$name" >> "$capture_transfers"
+    fi
   done <<< "$listing"
   adb logcat -d -s WimtMultiTrain:I > "$OUT/device-log.txt" 2>/dev/null || true
   # The full event diff can exceed logcat's per-message limit. Recover one JSONL record
@@ -30,13 +53,47 @@ finish() {
   else
     : > "$OUT/attempts.jsonl"
   fi
+  python3 tools/ci/wimt_capture_recovery.py --evidence "$OUT" \
+      --listing-succeeded "$capture_listing_ok" \
+      > "$OUT/capture-recovery.json" || \
+    printf '%s\n' '{"available":false,"reason":"capture recovery summary failed"}' \
+      > "$OUT/capture-recovery.json"
   verify_rc=1
   if python3 tools/ci/verify_wimt_live_comparison_screens.py "$OUT" \
        --device-log "$OUT/device-log.txt" \
+       --capture-recovery "$OUT/capture-recovery.json" \
        > "$OUT/screen-verification.json" 2> "$OUT/screen-verification-error.txt"; then
     verify_rc=0
   else
-    rm -f "$OUT/screen-verification.json"
+    python3 - "$OUT" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+out = Path(sys.argv[1])
+try:
+    recovery = json.loads((out / "capture-recovery.json").read_text(encoding="utf-8"))
+except (OSError, json.JSONDecodeError):
+    recovery = {"available": False}
+try:
+    error = (out / "screen-verification-error.txt").read_text(
+        encoding="utf-8", errors="replace").strip()
+except OSError:
+    error = "screenshot verifier failed without an error detail"
+result = {
+    "verified": False,
+    "verificationStatus": "VERIFICATION_ERROR",
+    "verificationReason": "The installed-app capture verifier raised an error; no screenshot gate passed.",
+    "verificationError": error[:500],
+    "acceptedComparisonCount": 0,
+    "minimumComparisons": 3,
+    "comparisons": [],
+    "captureRecovery": recovery,
+    "pixelTextVerified": False,
+}
+(out / "screen-verification.json").write_text(
+    json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+PY
     cat "$OUT/screen-verification-error.txt"
   fi
   if python3 tools/ci/wimt_live_comparison_report.py \

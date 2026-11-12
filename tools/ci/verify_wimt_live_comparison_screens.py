@@ -421,6 +421,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("evidence", type=Path, nargs="?")
     parser.add_argument("--device-log", type=Path)
+    parser.add_argument("--capture-recovery", type=Path)
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
     if args.self_test:
@@ -433,6 +434,12 @@ def main() -> int:
     except (OSError, ValueError, ET.ParseError) as exc:
         print(f"WIMT_LIVE_COMPARISON_SCREEN_NOT_VERIFIED: {exc}", file=sys.stderr)
         return 1
+    if args.capture_recovery is not None:
+        try:
+            result["captureRecovery"] = json.loads(
+                args.capture_recovery.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            result["captureRecovery"] = {"available": False}
     print(json.dumps(result, sort_keys=True))
     return 0
 

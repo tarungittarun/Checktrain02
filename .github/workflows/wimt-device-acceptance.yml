@@ -35,6 +35,7 @@ on:
       - 'tools/ci/wimt_live_comparison_report.py'
       - 'tools/ci/build_wimt_live_comparison_pdf.py'
       - 'tools/ci/test_wimt_live_comparison_report.py'
+      - 'tools/ci/wimt_capture_recovery.py'
       - 'app/src/main/java/in/opentrack/india/v2/mirror/WimtCandidate.kt'
       - 'app/src/main/java/in/opentrack/india/v2/mirror/WimtCacheRequest.kt'
       - 'app/src/main/java/in/opentrack/india/v2/mirror/WebsiteRequestPacing.kt'
@@ -301,6 +302,7 @@ jobs:
           python3 tools/ci/verify_wimt_live_screens.py --self-test
           python3 tools/ci/wimt_live_comparison_report.py --self-test
           python3 tools/ci/verify_wimt_live_comparison_screens.py --self-test
+          python3 tools/ci/wimt_capture_recovery.py --self-test
           python3 tools/ci/test_wimt_live_comparison_report.py
           python3 -m py_compile \
             tools/ci/verify_wimt_live_screens.py \
@@ -308,7 +310,8 @@ jobs:
             tools/ci/build_wimt_live_pdf.py \
             tools/ci/verify_wimt_live_comparison_screens.py \
             tools/ci/wimt_live_comparison_report.py \
-            tools/ci/build_wimt_live_comparison_pdf.py
+            tools/ci/build_wimt_live_comparison_pdf.py \
+            tools/ci/wimt_capture_recovery.py
           python3 tools/ci/check_kotlin_balance.py app/src
           python3 tools/ci/check_refs.py app/src/main/java
           python3 tools/ci/check_members.py
