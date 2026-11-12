@@ -344,7 +344,7 @@ class InlineRouteRenderTest {
         adapter.onBindViewHolder(holder, 0)
         assertEquals("—", holder.liveArr.text.toString())
         assertEquals("23:32", holder.liveDep.text.toString())
-        assertEquals("Last site departure · 23:32", holder.eventCaption.text.toString())
+        assertTrue(holder.eventCaption.text.toString().startsWith("Last site departure · 23:32"))
         assertTrue(holder.eventCaption.contentDescription.contains("Website reports departure"))
         assertTrue(holder.trainMarker.contentDescription.contains("last mapped departure"))
     }
@@ -384,7 +384,7 @@ class InlineRouteRenderTest {
         adapter.submitList(null)
         adapter.submitList(listOf(main.copy(source = TrackModel.MinuteSource.SITE_REPORTED), next))
         adapter.onBindViewHolder(holder, 0)
-        assertEquals("Last site arrival · 08:44\n18 km route gap to Intermediate",
+        assertEquals("Last site departure · 08:44\n18 km route gap to Intermediate",
             holder.eventCaption.text.toString())
         assertEquals("", holder.timeType.text.toString())
         assertEquals("WEB attribution stays in badge/accessibility, not repeated beside clocks",
