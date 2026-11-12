@@ -2,8 +2,13 @@
 """Regression tests for source-file vintage and explicit freshness metadata."""
 from __future__ import annotations
 
+import sys
 import unittest
+from pathlib import Path
 
+# The workflow executes this file directly, which puts tools/ci (not the repo root)
+# at sys.path[0]. Add the root so the ETL imports identically in direct and module runs.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from tools import build_refdb as etl
 
 
