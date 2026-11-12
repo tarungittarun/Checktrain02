@@ -662,9 +662,9 @@ class TrainActivity : AppCompatActivity() {
     }
 
     /**
-     * The source DROPDOWN (the owner asked for a dropdown in the top box, round 45): every loaded
-     * witness is an entry; picking one re-renders the table from that witness. Rebuilt only when the
-     * witness set changes, so a re-selection never fights the observer.
+     * The source dropdown offers NTES and the WIMT .org.in website. The independent .in live feed
+     * and web cache keep their own evidence paths but are not separate user choices. Rebuilt only
+     * when the visible option set changes, so a re-selection never fights the observer.
      */
     private fun sourceColor(tone: SourceIndicator.Tone): Int = when (tone) {
         SourceIndicator.Tone.READY -> R.color.accent
@@ -676,8 +676,7 @@ class TrainActivity : AppCompatActivity() {
 
     private fun sourcePickerDescription(selectedSource: String?): String =
         "Selected ${TrackingSources.label(TrackingSources.valid(selectedSource))}. " +
-            "Choose NTES, WIMT .in live-status feed, Where Is My Train website, or experimental " +
-            "WIMT web cache. Long press for time and source details."
+            "Choose NTES or the Where Is My Train website (.org.in). Long press for time and source details."
 
     private fun renderSourceChips(ui: LiveViewModel.Ui) {
         spinnerStates = ui.sourceStates
@@ -723,7 +722,7 @@ class TrainActivity : AppCompatActivity() {
                         val indicator = SourceIndicator.of(names[position], state, detail)
                         val shortName = when (names[position]) {
                             TrackingSources.WIMT -> "WIMT .in"
-                            `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG -> "WIMT site"
+                            `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG -> "WIMT website"
                             `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE -> "WIMT cache"
                             else -> "NTES"
                         }

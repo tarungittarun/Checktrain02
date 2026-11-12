@@ -6,15 +6,18 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class SourceIndicatorTest {
-    @Test fun liveApiWebsiteAndCacheAreThreeDistinctSourceChoices() {
-        assertEquals(listOf(TrackingSources.OFFICIAL, TrackingSources.WIMT,
-            PublicPageChecks.ORG, WimtCandidate.SOURCE), TrackingSources.options)
+    @Test fun pickerOffersOneWimtWebsiteChoiceAndKeepsOtherSourcesDistinct() {
+        assertEquals(listOf(TrackingSources.OFFICIAL, PublicPageChecks.ORG), TrackingSources.options)
         assertEquals("WIMT .in live-status feed", TrackingSources.label(TrackingSources.WIMT))
         assertEquals("Where Is My Train · website", TrackingSources.label(PublicPageChecks.ORG))
         assertEquals("WIMT web cache · experimental",
             TrackingSources.label(WimtCandidate.SOURCE))
-        assertEquals(TrackingSources.WIMT, TrackingSources.valid(TrackingSources.WIMT))
-        assertEquals(WimtCandidate.SOURCE, TrackingSources.valid(WimtCandidate.SOURCE))
+
+        // Previously saved .in/cache defaults resolve to the sole WIMT picker choice. Their
+        // providers and labels remain independent; this only normalizes the user-facing preference.
+        assertEquals(PublicPageChecks.ORG, TrackingSources.valid(TrackingSources.WIMT))
+        assertEquals(PublicPageChecks.ORG, TrackingSources.valid(WimtCandidate.SOURCE))
+        assertEquals(PublicPageChecks.ORG, TrackingSources.valid(PublicPageChecks.ORG))
         assertEquals(TrackingSources.OFFICIAL, TrackingSources.valid("WIMT phone app"))
     }
 

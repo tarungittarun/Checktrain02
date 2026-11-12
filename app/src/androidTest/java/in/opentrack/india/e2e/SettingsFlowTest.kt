@@ -107,6 +107,10 @@ class SettingsFlowTest {
         val website = E2E.ui.wait(Until.findObject(
             androidx.test.uiautomator.By.text("Where Is My Train · website")), E2E.LOCAL_MS)
         assertTrue("the site option is missing", website != null)
+        assertTrue("the .in live-status feed is not a separate Settings choice",
+            E2E.ui.findObject(androidx.test.uiautomator.By.textContains("WIMT .in live-status feed")) == null)
+        assertTrue("the .in web cache is not a separate Settings choice",
+            E2E.ui.findObject(androidx.test.uiautomator.By.textContains("WIMT web cache · experimental")) == null)
         website!!.click()
         assertTrue("selected default not labelled for TalkBack",
             E2E.find("defaultTrackingSource")?.contentDescription.orEmpty().contains("Where Is My Train · website"))

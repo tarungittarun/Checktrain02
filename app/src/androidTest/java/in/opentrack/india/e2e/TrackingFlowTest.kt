@@ -635,14 +635,15 @@ class TrackingFlowTest {
 
     // @flow public-source-manual-check
     @Test
-    fun selectedWebsiteAndExperimentalCacheStayDistinctTravellerChoices() {
+    fun onlyOfficialAndWebsiteAreTravellerSelectable() {
         assertTrue("source picker cannot be reached in the source card",
             E2E.reveal("sourceSpinner", "scroller") && E2E.tap("sourceSpinner"))
         val website = E2E.ui.wait(Until.findObject(By.textContains("Where Is My Train · website")), E2E.LOCAL_MS)
         assertNotNull("website choice missing", website)
-        val cache = E2E.ui.wait(Until.findObject(By.textContains("WIMT web cache · experimental")),
-            E2E.LOCAL_MS)
-        assertNotNull("explicit experimental cache comparison choice missing", cache)
+        assertTrue("the separate .in live-status provider must not be a picker choice",
+            E2E.ui.findObject(By.textContains("WIMT .in live-status feed")) == null)
+        assertTrue("the separate .in web cache must not be a picker choice",
+            E2E.ui.findObject(By.textContains("WIMT web cache · experimental")) == null)
         assertTrue("other unverified public probes are misleadingly selectable",
             E2E.ui.findObject(By.textContains("ixigo page")) == null &&
                 E2E.ui.findObject(By.textContains("confirmtkt")) == null &&

@@ -50,6 +50,10 @@ class WimtWebsiteLiveAcceptanceTest {
             val site = E2E.ui.wait(Until.findObject(By.textContains("Where Is My Train · website")),
                 E2E.LOCAL_MS)
             assertNotNull("independent website not selectable", site)
+            assertTrue("the .in live-status feed is a distinct provider, not a picker choice",
+                E2E.ui.findObject(By.textContains("WIMT .in live-status feed")) == null)
+            assertTrue("the .in web cache is a distinct provider, not a picker choice",
+                E2E.ui.findObject(By.textContains("WIMT web cache · experimental")) == null)
             site!!.click() // one deliberate selected-source request; no background retry in the test
             val until = System.currentTimeMillis() + E2E.NETWORK_MS
             var accepted = false

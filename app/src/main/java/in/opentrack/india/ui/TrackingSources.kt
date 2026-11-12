@@ -4,13 +4,14 @@ import `in`.opentrack.india.remote.WimtLiveProvider
 import `in`.opentrack.india.v2.mirror.PublicPageChecks
 import `in`.opentrack.india.v2.mirror.WimtCandidate
 
-/** Preferences use the exact selector key, never the shortened display name.
- * The live API, .org.in website and .in cache are separate WIMT data sources. */
+/** Preferences use exact source keys, never shortened display names.
+ * The main and Settings pickers offer one WIMT choice: the .org.in website. The .in live feed and
+ * web cache remain separate internal evidence sources, but are not separate user-facing choices. */
 object TrackingSources {
     const val OFFICIAL = "NTES (official)"
     const val WIMT = WimtLiveProvider.SOURCE_NAME
-    // The cache is an explicit manual comparison choice, not the live API or .org.in website.
-    val options = listOf(OFFICIAL, WIMT, PublicPageChecks.ORG, WimtCandidate.SOURCE)
+    val options = listOf(OFFICIAL, PublicPageChecks.ORG)
+
     fun label(name: String): String = when (name) {
         OFFICIAL -> "NTES · official"
         WIMT -> "WIMT .in live-status feed"
@@ -18,5 +19,14 @@ object TrackingSources {
         WimtCandidate.SOURCE -> "WIMT web cache · experimental"
         else -> name
     }
-    fun valid(name: String?): String = name?.takeIf(options::contains) ?: OFFICIAL
+
+    /** Resolve legacy .in/cache defaults to the sole WIMT choice without merging provider data. */
+    fun valid(name: String?): String {
+        val source = name ?: return OFFICIAL
+        return when (source) {
+            OFFICIAL, PublicPageChecks.ORG -> source
+            WIMT, WimtCandidate.SOURCE -> PublicPageChecks.ORG
+            else -> OFFICIAL
+        }
+    }
 }
