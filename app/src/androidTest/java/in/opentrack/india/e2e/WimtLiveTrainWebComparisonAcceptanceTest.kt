@@ -648,8 +648,13 @@ class WimtLiveTrainWebComparisonAcceptanceTest {
         const val TAG = "WimtMultiTrain"
         const val MIN_COMPARISONS = 3
         const val MAX_WEB_ROW_AGE_MS = 10 * 60_000L
-        // This is Gravity01's five-train sample set, used only as a candidate pool. A candidate
-        // counts only if the installed app independently passes the live/date/route/freshness gates.
-        val CANDIDATE_TRAINS = listOf("16315", "12951", "12301", "12295", "12089")
+        // First five are Gravity01's 30-minute live WIMT sample. The remaining IDs come from
+        // this repository's route/source tests or a previously dated .in cache capture.
+        // They are candidates only: each comparison still needs installed-app train/date/route,
+        // current-station, event freshness, and genuine screenshot evidence to count.
+        val CANDIDATE_TRAINS = listOf(
+            "16315", "12951", "12301", "12295", "12089",
+            "20689", "12627", "12621", "12002", "16228",
+        )
     }
 }
