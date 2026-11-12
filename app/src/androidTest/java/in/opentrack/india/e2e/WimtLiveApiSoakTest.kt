@@ -43,8 +43,8 @@ class WimtLiveApiSoakTest {
     private fun trainForIstHour(): String = when (
         Calendar.getInstance(TimeZone.getTimeZone("Asia/Kolkata")).get(Calendar.HOUR_OF_DAY)) {
         in 0..4 -> "16227"
-        in 5..11 -> "20652"
-        in 12..14 -> "12002"
+        in 5..10 -> "20652"
+        in 11..14 -> "12002"
         in 15..19 -> "20651"
         else -> "16227"
     }
@@ -59,7 +59,7 @@ class WimtLiveApiSoakTest {
         }
     }
 
-    /** The receipt temporarily replaces the Spinner's default selected-source description. */
+    /** Read the accessible selected source first; use the painted picker label as a fallback. */
     private fun selectedWimt(): Boolean {
         val spinner = E2E.find("sourceSpinner", 300) ?: return false
         val text = runCatching { spinner.text.orEmpty() }.getOrDefault("")

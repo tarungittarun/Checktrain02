@@ -32,8 +32,8 @@ class WimtLiveApiAcceptanceTest {
     private fun trainForIstHour(): String = when (
         Calendar.getInstance(TimeZone.getTimeZone("Asia/Kolkata")).get(Calendar.HOUR_OF_DAY)) {
         in 0..4 -> "16227" // overnight MYS -> TLGP run
-        in 5..11 -> "20652" // morning TLGP -> SBC run
-        in 12..14 -> "12002" // daytime NDLS -> BPL run
+        in 5..10 -> "20652" // morning TLGP -> SBC run; avoid its near-terminal hour
+        in 11..14 -> "12002" // daytime NDLS -> BPL service; 20652 may already be terminal
         in 15..19 -> "20651" // afternoon SBC -> TLGP run
         else -> "16227"
     }
