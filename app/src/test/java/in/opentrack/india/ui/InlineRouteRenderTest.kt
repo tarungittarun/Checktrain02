@@ -81,7 +81,7 @@ class InlineRouteRenderTest {
         assertEquals("23:24", row.liveDep.text.toString())
         assertTrue(row.liveArr.contentDescription.contains("Website displayed arrival"))
         assertTrue(row.liveDep.contentDescription.contains("Website displayed departure"))
-        assertTrue(row.liveArr.contentDescription.contains("not a current position"))
+        assertTrue(row.liveDep.contentDescription.contains("not a current position"))
         assertEquals(ctx.getColor(R.color.warn), row.liveArr.currentTextColor)
     }
 
