@@ -30,6 +30,9 @@ class WimtLiveApiSoakTest {
         val fresh: Boolean,
         val stale: Boolean,
         val freshnessAccurate: Boolean,
+        val responseClass: String,
+        val parserOutcome: String,
+        val responseBytes: Int?,
         val rows: Int,
         val visibleCells: Int,
         val disclosed: Boolean,
@@ -140,6 +143,28 @@ class WimtLiveApiSoakTest {
         val stampFresh = details.contains("fresh source stamp; not event time")
         val summaryFresh = summary.contains("upstream update stamp is fresh")
         val stale = details.contains("stale source stamp; current position unknown")
+        val responseClass = when {
+            status == null -> "HTTP_STATUS_UNKNOWN"
+            status != 200 -> "HTTP_$status"
+            rows == 0 -> "HTTP_200_NO_QUALIFIED_ROWS"
+            else -> "HTTP_200_SOURCE_ROWS_PRESENT"
+        }
+        val parserOutcome = when {
+            details.contains("response run date did not match", true) -> "RUN_DATE_MISMATCH"
+            details.contains("response route endpoints did not match", true) -> "ROUTE_MISMATCH"
+            details.contains("response train number did not match", true) -> "TRAIN_MISMATCH"
+            details.contains("invalid json", true) -> "INVALID_JSON"
+            details.contains("no schedule in wimt response", true) -> "NO_SCHEDULE_ARRAY"
+            details.contains("response exceeded", true) -> "RESPONSE_TOO_LARGE"
+            details.contains("requested run date was not echoed", true) -> "RUN_DATE_NOT_ECHOED"
+            details.contains("route endpoints were not both echoed", true) -> "ROUTE_NOT_FULLY_ECHOED"
+            rows == 0 && details.contains("source-reported actual stop", true) ->
+                "PARSED_ZERO_SOURCE_ACTUAL_STOPS"
+            rows == 0 -> "ZERO_QUALIFIED_SOURCE_ROWS"
+            else -> "SOURCE_ROWS_PRESENT"
+        }
+        val responseBytes = Regex("HTTP [1-5][0-9]{2} · ([0-9]+) bytes")
+            .find(details)?.groupValues?.get(1)?.toIntOrNull()
         val nonFreshLabel = listOf(
             "stale source stamp; current position unknown",
             "source stamp is ahead of device clock; freshness not established",
@@ -155,6 +180,9 @@ class WimtLiveApiSoakTest {
             fresh = stampFresh && summaryFresh,
             stale = stale,
             freshnessAccurate = freshnessAccurate,
+            responseClass = responseClass,
+            parserOutcome = parserOutcome,
+            responseBytes = responseBytes,
             rows = rows,
             visibleCells = visibleCellsAtTableCapture,
             disclosed = details.contains("not NTES actuals", true) &&
@@ -321,8 +349,10 @@ class WimtLiveApiSoakTest {
                 summaryAtTableCapture.contains("source-reported stop row", true)
             writeTrace(traceFile,
                 "WIMT_SOAK_INITIAL httpStatus=${initial.httpStatus ?: "none"} " +
+                    "responseBytes=${initial.responseBytes ?: "unknown"} " +
                     "runDateMatched=${initial.runMatched} routeMatched=${initial.routeMatched} " +
                     "fresh=${initial.fresh} rows=${initial.rows} cells=${initial.visibleCells} " +
+                    "responseClass=${initial.responseClass} parserOutcome=${initial.parserOutcome} " +
                     "selected=${initial.selected} disclosed=${initial.disclosed} accepted=$initialOk")
             assertTrue("strict fresh WIMT .in source-reported table was not present before the " +
                 "four-hour regression: http=${initial.httpStatus} run=${initial.runMatched} " +
@@ -525,10 +555,12 @@ class WimtLiveApiSoakTest {
                     "WIMT_SOAK_DETAIL sample=$detailSamples cycle=final " +
                         "httpStatus=${final.httpStatus ?: "none"} " +
                         "runDateMatched=${final.runMatched} routeMatched=${final.routeMatched} " +
-                    "fresh=${final.fresh} stale=${final.stale} " +
-                    "freshnessAccurate=${final.freshnessAccurate} rows=${final.rows} " +
-                    "cells=${final.visibleCells} selected=${final.selected} " +
-                    "disclosed=${final.disclosed}")
+                        "fresh=${final.fresh} stale=${final.stale} " +
+                        "freshnessAccurate=${final.freshnessAccurate} rows=${final.rows} " +
+                        "cells=${final.visibleCells} selected=${final.selected} " +
+                        "disclosed=${final.disclosed} responseClass=${final.responseClass} " +
+                        "parserOutcome=${final.parserOutcome} " +
+                        "responseBytes=${final.responseBytes ?: "unknown"}")
             }
             val fullDuration = elapsed >= durationMs
             val summaryLine = "WIMT_SOAK_SUMMARY durationMs=$elapsed cycles=$cycles " +

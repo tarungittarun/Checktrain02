@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Redacted evidence report for the installed-app 240-minute WIMT .in soak.
 
-Only bounded counts, HTTP status and run/route/freshness booleans are published. The
-source response body, request URL, headers, cookies and stop identifiers are never copied.
+Only bounded counts, response bytes, HTTP status, allowlisted parser-outcome classes, and
+run/route/freshness booleans are published. The source response body, request URL, headers,
+cookies and stop identifiers are never copied.
 """
 from __future__ import annotations
 
@@ -64,6 +65,20 @@ def build_report(directory: Path) -> dict:
     started_line = next((line for line in lines if "WIMT_SOAK_STARTED " in line), "")
     summary_line = next((line for line in reversed(lines) if "WIMT_SOAK_SUMMARY " in line), "")
     initial = fields(initial_line)
+    response_class = initial.get("responseClass", "not recorded")
+    if response_class not in {
+        "HTTP_STATUS_UNKNOWN", "HTTP_200_NO_QUALIFIED_ROWS", "HTTP_200_SOURCE_ROWS_PRESENT",
+    } and not re.fullmatch(r"HTTP_[1-5][0-9]{2}", response_class):
+        response_class = "unrecognized"
+    parser_outcome = initial.get("parserOutcome", "not recorded")
+    if parser_outcome not in {
+        "RUN_DATE_MISMATCH", "ROUTE_MISMATCH", "TRAIN_MISMATCH", "INVALID_JSON",
+        "NO_SCHEDULE_ARRAY", "RESPONSE_TOO_LARGE", "RUN_DATE_NOT_ECHOED",
+        "ROUTE_NOT_FULLY_ECHOED", "PARSED_ZERO_SOURCE_ACTUAL_STOPS",
+        "ZERO_QUALIFIED_SOURCE_ROWS", "SOURCE_ROWS_PRESENT",
+    }:
+        parser_outcome = "unrecognized"
+    initial_response_bytes = number(initial, "responseBytes", -1)
     auto_enable = fields(auto_enable_line)
     started = fields(started_line)
     summary = fields(summary_line)
@@ -156,7 +171,9 @@ def build_report(directory: Path) -> dict:
             f"fresh={truth(initial, 'fresh')}, rows={number(initial, 'rows')}, "
             f"visible-cells={number(initial, 'cells')}, "
             f"selected={truth(initial, 'selected')}, "
-            f"provenance-disclosed={truth(initial, 'disclosed')}"
+            f"provenance-disclosed={truth(initial, 'disclosed')}, "
+            f"response-class={response_class}, parser-outcome={parser_outcome}, "
+            f"response-bytes={initial_response_bytes if initial_response_bytes >= 0 else 'unknown'}"
         )
     elif not passed and failure_stage == "EMULATOR_BOOT_FAILED":
         failure_summary = "The emulator did not boot; no installed-app WIMT claim was made."
@@ -195,6 +212,9 @@ def build_report(directory: Path) -> dict:
             "freshSourceStamp": truth(initial, "fresh"),
             "sourceRows": number(initial, "rows"),
             "visibleWimtAttributedCells": number(initial, "cells"),
+            "responseClass": response_class,
+            "parserOutcome": parser_outcome,
+            "responseBytes": initial_response_bytes if initial_response_bytes >= 0 else None,
             "selectedSource": truth(initial, "selected"),
             "provenanceDisclosed": truth(initial, "disclosed"),
         },
@@ -280,8 +300,10 @@ def self_test() -> None:
         directory.mkdir(exist_ok=True)
         (directory / "screens").mkdir()
         initial = (
-            "WIMT_SOAK_INITIAL httpStatus=200 runDateMatched=true routeMatched=true "
-            "fresh=true rows=11 cells=4 selected=true disclosed=true accepted=true"
+            "WIMT_SOAK_INITIAL httpStatus=200 responseBytes=4321 "
+            "runDateMatched=true routeMatched=true fresh=true rows=11 cells=4 "
+            "responseClass=HTTP_200_SOURCE_ROWS_PRESENT parserOutcome=SOURCE_ROWS_PRESENT "
+            "selected=true disclosed=true accepted=true"
         )
         summary = (
             "WIMT_SOAK_SUMMARY durationMs=14400000 cycles=240 missedReceipts=0 "
@@ -297,9 +319,12 @@ def self_test() -> None:
         result = build_report(directory)
         assert result["passed"]
         assert result["autoRefresh"]["nonFreshSamples"] == 23
+        assert result["initial"]["parserOutcome"] == "SOURCE_ROWS_PRESENT"
         initial_failed = (
-            "WIMT_SOAK_INITIAL httpStatus=403 runDateMatched=false routeMatched=false "
-            "fresh=false rows=0 cells=0 selected=true disclosed=true accepted=false"
+            "WIMT_SOAK_INITIAL httpStatus=200 responseBytes=321 "
+            "runDateMatched=false routeMatched=false fresh=false rows=0 cells=0 "
+            "responseClass=HTTP_200_NO_QUALIFIED_ROWS parserOutcome=RUN_DATE_MISMATCH "
+            "selected=true disclosed=true accepted=false"
         )
         (directory / "soak-trace.txt").write_text(initial_failed + "\n", encoding="utf-8")
         (directory / "runner-exit.txt").write_text("instrumentationExitCode=1\n", encoding="utf-8")
@@ -307,7 +332,17 @@ def self_test() -> None:
         assert not result["passed"]
         assert result["durationMs"] is None
         assert result["failureStage"] == "INITIAL_WIMT_IN_APP_GATE_FAILED"
-        assert "HTTP=403" in result["failureSummary"]
+        assert "HTTP=200" in result["failureSummary"]
+        assert "parser-outcome=RUN_DATE_MISMATCH" in result["failureSummary"]
+        assert "response-bytes=321" in result["failureSummary"]
+        unrecognized = initial_failed.replace(
+            "responseClass=HTTP_200_NO_QUALIFIED_ROWS", "responseClass=TRAIN_12345"
+        ).replace("parserOutcome=RUN_DATE_MISMATCH", "parserOutcome=TRAIN_12345")
+        (directory / "soak-trace.txt").write_text(unrecognized + "\n", encoding="utf-8")
+        result = build_report(directory)
+        assert result["initial"]["responseClass"] == "unrecognized"
+        assert result["initial"]["parserOutcome"] == "unrecognized"
+        assert "TRAIN_12345" not in result["failureSummary"]
         auto_failure = (
             "WIMT_SOAK_INITIAL httpStatus=200 runDateMatched=true routeMatched=true "
             "fresh=true rows=13 cells=3 selected=true disclosed=true accepted=true\n"
