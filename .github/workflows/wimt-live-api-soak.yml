@@ -1,5 +1,13 @@
 name: wimt-live-api-240-minute-soak
 on:
+  push:
+    branches: ['arena/6f68e526-checktrain02']
+    paths:
+      - '.github/workflows/wimt-live-api-soak.yml'
+      - 'app/src/androidTest/java/in/opentrack/india/e2e/WimtLiveApiSoakTest.kt'
+      - 'tools/ci/build_wimt_live_soak_pdf.py'
+      - 'tools/ci/run_wimt_live_api_soak.sh'
+      - 'tools/ci/wimt_live_api_soak_report.py'
   workflow_dispatch:
 permissions:
   contents: read
@@ -8,6 +16,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   installed-app-soak:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[wimt-live-api-soak]'))
     runs-on: ubuntu-latest
     # 240 minutes in the foreground, plus build, emulator boot, final capture and report.
     timeout-minutes: 360
