@@ -27,6 +27,8 @@ object WimtLiveProvider {
 
     const val SOURCE_NAME = "WIMT .in live-status feed"
     private const val ENDPOINT = "https://whereismytrain.in/cache/live_status"
+    // Identify this app honestly. Do not copy browser/WebView or hidden WIMT app identifiers.
+    private const val USER_AGENT = "TrackTrain/1.0 (Android; selected WIMT source)"
     private const val MAX_RESPONSE_BYTES = 1_000_000
     const val FRESH_UPDATE_MAX_AGE_MS = 10 * 60_000L
 
@@ -140,8 +142,9 @@ object WimtLiveProvider {
             conn.requestMethod = "GET"
             conn.instanceFollowRedirects = false
             conn.useCaches = false
-            // Keep transport identity honest. HttpURLConnection's Android user-agent remains
-            // untouched; this is not Chrome/WebView traffic or an anti-bot workaround.
+            // Match this app's declared TrackTrain identity rather than impersonating a browser;
+            // do not send copied cookies, hidden WIMT app identifiers, or challenge-evasion headers.
+            conn.setRequestProperty("User-Agent", USER_AGENT)
             conn.setRequestProperty("Accept", "application/json")
             val status = conn.responseCode
             val stream = if (status in 200..299) conn.inputStream else conn.errorStream
