@@ -7,6 +7,7 @@ import os
 import re
 import sys
 import tempfile
+import xml.etree.ElementTree as ET
 
 CAPTURE_FILE = re.compile(
     r"^wimt-compare-[0-9]{4,5}-(before|app-live|app-details|web-cache|web-details|final)\.(png|xml)$"
@@ -31,6 +32,37 @@ def brief(log: str) -> list[str]:
             clean = re.sub(r"https?://\S+", "<url>", clean)[:280]
             lines.append(clean)
     return lines[-18:]
+
+
+UI_DIAGNOSTIC_IDS = frozenset({
+    "trainNo", "runDate", "sourceSpinner", "headline", "provenance", "age",
+    "routeHeadActual", "sourceSummary", "connectionAlert", "note", "delay", "next",
+})
+
+
+def _ui_hierarchy(path: Path) -> dict:
+    """Extract only whitelisted TrackTrain labels from an in-test hierarchy."""
+    try:
+        root = ET.parse(path).getroot()
+    except (OSError, ET.ParseError):
+        return {}
+    result = {}
+    for node in root.iter("node"):
+        if node.get("package") != "in.opentrack.india":
+            continue
+        resource = node.get("resource-id", "").rsplit("/", 1)[-1]
+        if resource not in UI_DIAGNOSTIC_IDS:
+            continue
+        item = {}
+        text = node.get("text", "").strip()
+        description = node.get("content-desc", "").strip()
+        if text:
+            item["text"] = text[:180]
+        if description:
+            item["contentDescription"] = description[:240]
+        if item:
+            result.setdefault(resource, []).append(item)
+    return result
 
 
 def _read_json(path: Path):
@@ -247,12 +279,20 @@ def summarize_website_artifact(folder: Path, original: dict, source_run: str,
     if not isinstance(verified, dict):
         verified = {}
     failed_log = _read_text(folder / "failed-step-log.txt")
+    hierarchy_names = ("wimt-before-selected-source", "wimt-after-selected-source")
+    captured_hierarchies = {}
+    for name in hierarchy_names:
+        path = folder / "screens" / f"{name}.xml"
+        if path.is_file():
+            captured_hierarchies[name] = _ui_hierarchy(path)
     return {
         "sourceRun": source_run,
         "sourceArtifact": source_artifact,
         "result": safe_result,
         "screenVerificationFilePresent": bool(screens),
         "verifiedInAppScreenshotNames": sorted(verified),
+        "capturedInTestHierarchyNames": sorted(captured_hierarchies),
+        "whitelistedUiHierarchySummaries": captured_hierarchies,
         "displayedRefusalRequired": screens.get("displayedRefusalRequired"),
         "failedStepLogRetrieval": _read_text(
             folder / "failed-step-log-status.txt").strip() or "not-recorded",
@@ -325,6 +365,13 @@ def _self_test() -> None:
             summary["failedStepLog"]["boundedInstrumentationLines"][0]
     with tempfile.TemporaryDirectory(prefix="wimt-website-recover-") as temporary:
         folder = Path(temporary)
+        (folder / "screens").mkdir()
+        (folder / "screens" / "wimt-after-selected-source.xml").write_text(
+            '<hierarchy><node package="in.opentrack.india" '
+            'resource-id="in.opentrack.india:id/trainNo" text="16227" />'
+            '<node package="in.opentrack.india" '
+            'resource-id="in.opentrack.india:id/headline" '
+            'text="No qualifying past-stop report" /></hierarchy>', encoding="utf-8")
         (folder / "instrumentation.txt").write_text(
             "java.lang.AssertionError: no qualified website past card; "
             "warning='Website refused request (HTTP 403)'\nFAILURES!!!\n",
@@ -346,6 +393,9 @@ def _self_test() -> None:
         }, "43260030312", "wimt-device-evidence")
         assert summary["sourceRun"] == "43260030312"
         assert summary["result"]["verdict"] == "WEBSITE_REFUSED_UI_DIARY_UNAVAILABLE"
+        assert summary["capturedInTestHierarchyNames"] == ["wimt-after-selected-source"]
+        assert summary["whitelistedUiHierarchySummaries"]["wimt-after-selected-source"][
+            "headline"][0]["text"] == "No qualifying past-stop report"
         assert summary["verifiedInAppScreenshotNames"] == [
             "wimt-after-selected-source", "wimt-before-selected-source"]
         assert "PRIVATE" not in json.dumps(summary)
