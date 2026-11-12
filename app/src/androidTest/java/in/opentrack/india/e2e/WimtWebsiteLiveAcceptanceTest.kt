@@ -56,13 +56,15 @@ class WimtWebsiteLiveAcceptanceTest {
             var warning = ""
             var headline = ""
             var badge = ""
+            var eventFreshness = ""
             while (System.currentTimeMillis() < until) {
                 headline = E2E.text("headline", 250)
                 badge = E2E.text("provenance", 250)
                 warning = E2E.text("connectionAlert", 250)
-                val reported = (headline.startsWith("Last mapped website card") ||
-                    headline.startsWith("Recently reported near")) &&
-                    badge.contains("run inferred", true)
+                eventFreshness = E2E.text("age", 250)
+                val reported = headline.startsWith("Last site card ·") &&
+                    badge.contains("run inferred", true) &&
+                    eventFreshness.startsWith("Site arrival ·") && eventFreshness.contains("ago")
                 if (reported) { accepted = true; break }
                 if (warning.contains("HTTP 403") || warning.contains("blocks request", true) ||
                     warning.contains("HTTP 429")) break
@@ -70,7 +72,7 @@ class WimtWebsiteLiveAcceptanceTest {
             }
             E2E.shotWimt("wimt-after-selected-source")
             assertTrue("No qualified website past card in the installed app; " +
-                "headline='$headline' badge='$badge' warning='$warning'. " +
+                "headline='$headline' badge='$badge' eventFreshness='$eventFreshness' warning='$warning'. " +
                 "NTES fallback, HTTP 200 alone and the .in web cache do not pass.", accepted)
             assertTrue("time-sheet not reachable", E2E.reveal("routeHeadActual", "scroller"))
             assertEquals("website data was mislabeled ACTUAL", "WEBSITE", E2E.text("routeHeadActual"))

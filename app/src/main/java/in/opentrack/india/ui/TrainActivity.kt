@@ -935,6 +935,10 @@ class TrainActivity : AppCompatActivity() {
         }
         binding.provenance.setBackgroundResource(badgeBg)
         binding.provenance.setTextColor(getColor(badgeText))
+        // TextViews are rebound across source/result states. Never leave a prior website
+        // event in accessibility text when the current source has no qualifying report.
+        binding.provenance.contentDescription = null
+        binding.age.contentDescription = null
         binding.provenance.text = m.provenanceLabel
         binding.age.text = m.ageLabel
         binding.delay.text = m.delayLabel
@@ -1412,10 +1416,19 @@ class TrainActivity : AppCompatActivity() {
         when {
             WebsiteReportDisplay.selected(ui.activeSource) &&
                 ui.orgWebsiteReport != null && elapsed != null -> {
-                binding.age.text = "Site arrival · $elapsed"
+                val report = ui.orgWebsiteReport!!
+                val checkedAt = ui.selectedLoadReceiptMillis ?: now
+                val pageAgeAtCheck = if (checkedAt >= report.pageUpdatedAt) {
+                    val ageMillis = checkedAt - report.pageUpdatedAt
+                    if (ageMillis < 60_000L) "${ageMillis / 1_000L}s"
+                    else TableMarker.elapsedLabel(ageMillis)
+                } else "clock ahead"
+                binding.age.text = "Site arrival · $elapsed · page $pageAgeAtCheck old at check"
                 binding.age.contentDescription = "Website last mapped arrival " +
-                    "${RailTime.formatRailMinute(ui.orgWebsiteReport!!.eventMinute)}; " +
-                    "page update ${RailTime.formatClock(ui.orgWebsiteReport!!.pageUpdatedAt)} is not movement"
+                    "${RailTime.formatRailMinute(report.eventMinute)}; event age $elapsed; " +
+                    "page updated ${RailTime.formatClockSeconds(report.pageUpdatedAt)} IST, " +
+                    "checked ${RailTime.formatClockSeconds(checkedAt)} IST, " +
+                    "page age $pageAgeAtCheck at check. The page clock is not train movement."
             }
             ui.activeSource == "NTES (official)" && timedHalt != null && elapsed != null -> {
                 val minute = (timedHalt.showDep ?: timedHalt.showArr)!!

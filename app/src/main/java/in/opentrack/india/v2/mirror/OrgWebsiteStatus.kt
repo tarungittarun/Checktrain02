@@ -64,6 +64,13 @@ object OrgWebsiteStatus {
         return Progress(index, if (point == null) 0 else 1, point?.mapKm ?: 0)
     }
 
+    /** The parser has already qualified an intermediate against a separately
+     * validated map. Rendering should re-check its adjacent timetable halts, not
+     * require a second, possibly newer map copy to reproduce the same point row. */
+    fun matchesSelectedRoute(report: Report, route: TrainRoute): Boolean =
+        progress(report, route) != null && (report.intermediate != null ||
+            route.stops.any { it.code.equals(report.anchorCode, true) && it.schedKm >= 0 })
+
     /** A newer website reply can omit/retract a previously reached card. Do not turn that
      * into backwards motion. The floor is scoped by the caller to ONE train and origin run.
      * A prior card may be retained only inside its original five-minute freshness window;

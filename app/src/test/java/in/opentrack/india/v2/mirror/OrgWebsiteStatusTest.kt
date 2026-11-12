@@ -502,6 +502,13 @@ class OrgWebsiteStatusTest {
         assertEquals(1800, report.intermediate?.scheduledMinute)
         assertEquals(1811, report.rows["ANF"]?.actualArrivalMin)
         assertNull("last card's growing departure isn't a past actual", report.rows["ANF"]?.actualDepartureMin)
+        assertTrue("the parser-validated map point remains displayable from its adjacent halt pair",
+            OrgWebsiteStatus.matchesSelectedRoute(report, halts))
+        val changedRoute = halts.copy(stops = halts.stops.mapIndexed { index, stop ->
+            if (index == 2) stop.copy(code = "OTHER") else stop
+        })
+        assertFalse("do not attach the site's intermediate to a different current leg",
+            OrgWebsiteStatus.matchesSelectedRoute(report, changedRoute))
         val leg = `in`.opentrack.india.domain.RouteBetween.siteIntermediateLeg(
             halts, staticMap, "ARU", "TLGP", "ANF", 468)!!
         assertEquals(`in`.opentrack.india.domain.RouteBetween.MarkerKind.SITE_INTERMEDIATE,

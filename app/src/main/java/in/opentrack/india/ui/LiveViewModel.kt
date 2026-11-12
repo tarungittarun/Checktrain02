@@ -1881,12 +1881,12 @@ class LiveViewModel(
                 // A source outage does not delete an older validated site claim.
                 // Keep it on this run for one day, but never redate it to the failed ask.
                 now - report.pageUpdatedAt in 0L..86_400_000L &&
-                (route.stops.any { it.code.equals(report.anchorCode, true) && it.schedKm >= 0 } ||
-                report.intermediate?.let { point ->
-                    RouteBetween.groupedPoints(_ui.value?.staticRoute ?: geoRoute ?: confirmStaticRoute,
-                        route)[point.precedingHalt]?.any { it.code == point.code &&
-                            it.schedKm == point.mapKm } == true
-                } == true)
+                // OrgWebsiteStatus already admitted any intermediate through a separately
+                // validated map. Requiring the current UI to re-fetch the same map row here
+                // could silently hide an otherwise qualified site claim after that map changed.
+                // Keep the route safety gate: a reported point must still sit between the same
+                // adjacent halts in this train's selected timetable.
+                `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.matchesSelectedRoute(report, route)
         }
         // The website may fall outside its five-minute *current* window while its
         // original past cards are still worth a source-labelled historical comparison.

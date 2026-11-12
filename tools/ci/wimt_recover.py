@@ -35,8 +35,9 @@ def brief(log: str) -> list[str]:
 
 
 UI_DIAGNOSTIC_IDS = frozenset({
-    "trainNo", "runDate", "sourceSpinner", "headline", "provenance", "age",
-    "routeHeadActual", "sourceSummary", "connectionAlert", "note", "delay", "next",
+    "trainNo", "routeLabel", "runDate", "sourceSpinner", "headline", "heroEyebrow",
+    "provenance", "age", "lastUpdated", "mirrorState", "routeHeadActual",
+    "sourceSummary", "connectionAlert", "note", "delay", "next",
 })
 
 
@@ -370,6 +371,8 @@ def _self_test() -> None:
             '<hierarchy><node package="in.opentrack.india" '
             'resource-id="in.opentrack.india:id/trainNo" text="16227" />'
             '<node package="in.opentrack.india" '
+            'resource-id="in.opentrack.india:id/routeLabel" text="MYS → TLGP" />'
+            '<node package="in.opentrack.india" '
             'resource-id="in.opentrack.india:id/headline" '
             'text="No qualifying past-stop report" /></hierarchy>', encoding="utf-8")
         (folder / "instrumentation.txt").write_text(
@@ -396,6 +399,8 @@ def _self_test() -> None:
         assert summary["capturedInTestHierarchyNames"] == ["wimt-after-selected-source"]
         assert summary["whitelistedUiHierarchySummaries"]["wimt-after-selected-source"][
             "headline"][0]["text"] == "No qualifying past-stop report"
+        assert summary["whitelistedUiHierarchySummaries"]["wimt-after-selected-source"][
+            "routeLabel"][0]["text"] == "MYS → TLGP"
         assert summary["verifiedInAppScreenshotNames"] == [
             "wimt-after-selected-source", "wimt-before-selected-source"]
         assert "PRIVATE" not in json.dumps(summary)
