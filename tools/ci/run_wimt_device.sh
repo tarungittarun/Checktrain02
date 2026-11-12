@@ -55,7 +55,7 @@ adb shell pm clear in.opentrack.india
 # report gate independently requires exactly one successful instrumented method.
 set +e
 timeout 180 adb shell am instrument -w -e class \
-  in.opentrack.india.e2e.WimtWebsiteLiveAcceptanceTest#websiteRefreshMustPaintARealSourceQualifiedPastCard \
+  in.opentrack.india.e2e.WimtWebsiteLiveAcceptanceTest#websiteRefreshMustPaintARealSourceQualifiedPastCardFor16227 \
   in.opentrack.india.test/androidx.test.runner.AndroidJUnitRunner \
   > wimt-device-evidence/instrumentation.txt 2>&1
 rc=$?

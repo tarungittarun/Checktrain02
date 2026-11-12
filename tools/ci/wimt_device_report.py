@@ -1,11 +1,24 @@
 #!/usr/bin/env python3
 """Bounded verdict for the strict .org.in APK device journey; no raw diary publication."""
+import datetime as dt
 import json
 import re
 import sys
 from pathlib import Path
 
 HOST = "whereismytrain.org.in"
+EXPECTED_TRAIN = "16227"
+IST = dt.timezone(dt.timedelta(hours=5, minutes=30))
+EPOCH_IST = dt.datetime(1970, 1, 1, tzinfo=IST)
+EPOCH_UTC = dt.datetime(1970, 1, 1, tzinfo=dt.timezone.utc)
+IST_OFFSET_MS = 19_800_000
+
+
+def _ist_time(epoch_ms: int | None) -> str | None:
+    if epoch_ms is None:
+        return None
+    return (EPOCH_UTC + dt.timedelta(milliseconds=epoch_ms)).astimezone(IST).isoformat(
+        timespec="seconds")
 
 
 def verdict(instrumentation: str, diary: str, process_rc: int) -> dict:
@@ -13,9 +26,40 @@ def verdict(instrumentation: str, diary: str, process_rc: int) -> dict:
     evidence = [line for line in diary.splitlines()
                 if "[EVIDENCE] source=whereismytrain.org.in (website)" in line]
     latest = evidence[-1] if evidence else ""
-    transport = re.search(r"\btransport=([A-Z_]+)", latest)
-    rows = re.search(r"\bsiteRows=(\d+)", latest)
-    train = re.search(r"\btrain=(\d{5})\b", latest)
+
+    def token(pattern: str) -> str | None:
+        match = re.search(pattern, latest)
+        return match.group(1) if match else None
+
+    transport = token(r"\btransport=([A-Z_]+)")
+    parsed = token(r"\bparsed=([A-Z_]+)")
+    identity = token(r"\brunIdentity=([A-Z_]+)")
+    rows = token(r"\bsiteRows=(\d+)")
+    train = token(r"\btrain=(\d{5})\b")
+    origin_day_raw = token(r"\boriginDay=(\d{1,8})\b")
+    site_claim = re.search(r"\bsiteClaim=([A-Z0-9]{1,6}):(-?\d{1,5})\b", latest)
+    published_raw = token(r"\bpagePublishedAt=(\d{1,16})\b")
+    checked_raw = token(r"\bcheckedAt=(\d{1,16})\b")
+    origin_day = int(origin_day_raw) if origin_day_raw is not None else None
+    event_minute = int(site_claim.group(2)) if site_claim else None
+    published_at = int(published_raw) if published_raw is not None else None
+    checked_at = int(checked_raw) if checked_raw is not None else None
+    event_at = ((origin_day * 1440 + event_minute) * 60_000 - IST_OFFSET_MS
+                if origin_day is not None and event_minute is not None else None)
+    page_age = ((checked_at - published_at) // 1_000
+                if checked_at is not None and published_at is not None else None)
+    event_age = ((checked_at - event_at) // 1_000
+                 if checked_at is not None and event_at is not None else None)
+    try:
+        run_date = (EPOCH_IST + dt.timedelta(days=origin_day)).date().isoformat() \
+            if origin_day is not None else None
+        claim_time = (EPOCH_IST + dt.timedelta(days=origin_day, minutes=event_minute)
+                      ).isoformat(timespec="seconds") \
+            if origin_day is not None and event_minute is not None else None
+    except (OverflowError, ValueError):
+        run_date = None
+        claim_time = None
+
     test_passed = process_rc == 0 and bool(re.search(r"OK \(1 test\)", instrumentation)) and \
         "FAILURES!!!" not in instrumentation and "INSTRUMENTATION_FAILED" not in instrumentation
     site_answered = any("answered " in x for x in attempted)
@@ -25,9 +69,17 @@ def verdict(instrumentation: str, diary: str, process_rc: int) -> dict:
     # refusal. Do not invent a wire request count when the wire receipt is absent.
     ui_refused = bool(re.search(r"Website refused request \(HTTP (?:403|429)\)", instrumentation))
     refused = wire_refused or ui_refused
+    provenance_complete = (
+        train == EXPECTED_TRAIN and origin_day is not None and origin_day >= 0 and
+        run_date is not None and identity == "INFERRED" and parsed == "SITE_COMPARISON" and
+        site_claim is not None and published_at is not None and checked_at is not None and
+        claim_time is not None and page_age is not None and 0 <= page_age <= 300 and
+        event_at is not None and event_age is not None and event_age >= 0 and
+        event_at <= published_at <= checked_at
+    )
     accepted = test_passed and site_answered and not refused and \
-        transport is not None and transport.group(1) == "NETWORK_ANSWER" and \
-        rows is not None and int(rows.group(1)) > 0
+        transport == "NETWORK_ANSWER" and rows is not None and int(rows) > 0 and \
+        provenance_complete
     reason = ("PASS_SITE_CARD_AND_DEVICE_UI" if accepted else
               "WEBSITE_REFUSED_WIRE" if wire_refused else
               "WEBSITE_REFUSED_UI_DIARY_UNAVAILABLE" if ui_refused else
@@ -37,21 +89,45 @@ def verdict(instrumentation: str, diary: str, process_rc: int) -> dict:
     return {"verdict": reason, "accepted": accepted, "instrumentationPassed": test_passed,
             "websiteGetCount": len(attempted) if attempted else None, "websiteAnswered": site_answered,
             "websiteRefused": refused, "wireReceiptAvailable": bool(attempted),
-            "sourceTransport": transport.group(1) if transport else "unknown",
-            "siteRows": int(rows.group(1)) if rows else 0,
-            "trainNumber": train.group(1) if train else "unknown",
+            "source": HOST, "sourceTransport": transport or "unknown",
+            "siteRows": int(rows) if rows else 0,
+            "trainNumber": train or "unknown", "originDay": origin_day,
+            "originRunDateIst": run_date,
+            "runDateBasis": "inferred_from_selected_timetable; site does not publish run date",
+            "runIdentity": identity or "unknown",
+            "siteClaimStation": site_claim.group(1) if site_claim else "unknown",
+            "siteClaimMinuteFromOrigin": event_minute,
+            "siteClaimTimeIst": claim_time,
+            "siteClaimAgeSecondsAtCheck": event_age,
+            "pagePublishedAtIst": _ist_time(published_at),
+            "pageAgeSecondsAtCheck": page_age,
+            "checkedAtIst": _ist_time(checked_at),
+            "provenanceComplete": provenance_complete,
             "googlePhoneAppFeed": False, "browserEngineRequest": True,
             "websiteGetCountScope": "main_document_navigation_only",
-            "note": "Emulator WebView + independent .org.in website; not owner's Chrome or Google WIMT app"}
+            "note": "Website-published station claim, not independently verified movement/GPS; "
+                    "emulator WebView, not owner's phone or Google WIMT app"}
 
 
 def self_test() -> None:
+    published = int((dt.datetime(2026, 11, 12, 21, 5, tzinfo=IST) - EPOCH_UTC)
+                    .total_seconds() * 1_000)
+    checked = published + 30_000
     good = ("11-05 [HTTP] GET whereismytrain.org.in try#1 -> answered 108395B\n"
-            "11-05 [EVIDENCE] source=whereismytrain.org.in (website) train=20652 "
-            "transport=NETWORK_ANSWER siteRows=10 cdnRequestId=PRIVATE\n")
+            "11-05 [EVIDENCE] source=whereismytrain.org.in (website) train=16227 "
+            "originDay=20769 transport=NETWORK_ANSWER bytes=108395 sha256_16=0123456789abcdef "
+            "parsed=SITE_COMPARISON runIdentity=INFERRED primaryActuals=0 primaryMarker=none "
+            "siteRows=10 siteClaim=RRB:1217 pagePublishedAt=" + str(published) +
+            " checkedAt=" + str(checked) + "\n")
+    result = verdict("OK (1 test)", good, 0)
+    assert result["accepted"]
+    assert result["originRunDateIst"] == "2026-11-12"
+    assert result["siteClaimTimeIst"] == "2026-11-12T20:17:00+05:30"
+    assert result["siteClaimAgeSecondsAtCheck"] == 2_910
+    assert result["pageAgeSecondsAtCheck"] == 30
     denied = good.replace("answered 108395B", "HTTP HTTP 403").replace(
-        "transport=NETWORK_ANSWER siteRows=10", "transport=FAILED_OR_UNUSABLE siteRows=0")
-    assert verdict("OK (1 test)", good, 0)["accepted"]
+        "transport=NETWORK_ANSWER", "transport=FAILED_OR_UNUSABLE").replace(
+        "siteRows=10 siteClaim=RRB:1217", "siteRows=0 siteClaim=none")
     assert verdict("OK (1 test)", denied, 0)["verdict"] == "WEBSITE_REFUSED_WIRE"
     no_diary = verdict("java.lang.AssertionError: warning='Website refused request (HTTP 403)'\n"
                        "FAILURES!!!\nTests run: 1,  Failures: 1", "", 0)
@@ -63,8 +139,14 @@ def self_test() -> None:
     assert not verdict("FAILURES!!!", good, 0)["accepted"]
     assert not verdict("OK (1 test)", good, 1)["accepted"]
     assert not verdict("", good, 0)["accepted"]
-    assert "PRIVATE" not in json.dumps(verdict("OK (1 test)", good, 0))
-    print("offline strict gate and diary redaction tests passed")
+    stale = good.replace(f"pagePublishedAt={published}", f"pagePublishedAt={checked - 301_000}")
+    assert not verdict("OK (1 test)", stale, 0)["accepted"]
+    later_claim = good.replace("siteClaim=RRB:1217", "siteClaim=RRB:1300")
+    assert not verdict("OK (1 test)", later_claim, 0)["accepted"]
+    wrong_train = good.replace("train=16227", "train=20652")
+    assert not verdict("OK (1 test)", wrong_train, 0)["accepted"]
+    assert "0123456789abcdef" not in json.dumps(result)
+    print("offline strict gate, train/run/event/page freshness and diary-redaction tests passed")
 
 
 if __name__ == "__main__":

@@ -17,22 +17,16 @@ import java.util.TimeZone
  * The independent .org.in website is not Google's WIMT phone-app feed. */
 @RunWith(AndroidJUnit4::class)
 class WimtWebsiteLiveAcceptanceTest {
-    @Test fun websiteRefreshMustPaintARealSourceQualifiedPastCard() {
-        // The site omits the origin run date. A completed or future service cannot
-        // qualify its cards for this test merely because its page answered. Use a
-        // train whose known timetable is in flight at this IST hour; outside these
-        // windows fail before making any site request rather than claiming success.
+    @Test fun websiteRefreshMustPaintARealSourceQualifiedPastCardFor16227() {
+        // The site omits the origin run date. Keep this acceptance pinned to the
+        // requested train; never substitute another train merely to get a green
+        // result. 16227's overnight origin run is unambiguous only in these IST
+        // windows. Outside them, fail before making any website request.
         val hour = Calendar.getInstance(TimeZone.getTimeZone("Asia/Kolkata"))
             .get(Calendar.HOUR_OF_DAY)
-        val number = when (hour) {
-            in 0..4 -> "16227"  // yesterday's MYS -> TLGP overnight run;
-                                    // number-mode search picks the nearest origin day
-            in 5..11 -> "20652"  // TLGP -> SBC morning service
-            in 12..13 -> "12002" // NDLS -> BPL scheduled 06:00-14:00; timetable candidate only
-            in 15..19 -> "20651" // SBC -> TLGP afternoon service
-            in 20..23 -> "16227" // MYS -> TLGP overnight service
-            else -> error("no known unambiguously active website test train at IST hour $hour")
-        }
+        assertTrue("train 16227 has no active overnight test window at IST hour $hour",
+            hour in 0..4 || hour in 20..23)
+        val number = "16227" // MYS -> TLGP; early-hours search resolves yesterday's origin day.
         try {
             println("WIMT_DEVICE_SELECTED_TRAIN=$number (timetable candidate, not live position)")
             E2E.launch()
