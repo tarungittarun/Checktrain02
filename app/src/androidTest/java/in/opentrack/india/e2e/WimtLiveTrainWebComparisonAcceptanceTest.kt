@@ -61,7 +61,9 @@ class WimtLiveTrainWebComparisonAcceptanceTest {
         val webOnlyEventFields = mutableListOf<String>()
         val screenshots = mutableListOf<String>()
         var stopAfterHostFailure: Boolean = false
-        var defaultResetSucceeded: Boolean = true
+        var defaultActiveSourceRestored: Boolean = false
+        var defaultPreferenceRestored: Boolean = false
+        var defaultResetSucceeded: Boolean = false
 
         fun toJson(): JSONObject = JSONObject().apply {
             put("trainNo", trainNo)
@@ -95,6 +97,8 @@ class WimtLiveTrainWebComparisonAcceptanceTest {
             put("webOnlyEventFields", JSONArray(webOnlyEventFields))
             put("screenshots", JSONArray(screenshots))
             put("stopAfterHostFailure", stopAfterHostFailure)
+            put("defaultActiveSourceRestored", defaultActiveSourceRestored)
+            put("defaultPreferenceRestored", defaultPreferenceRestored)
             put("defaultResetSucceeded", defaultResetSucceeded)
         }
 
@@ -127,7 +131,7 @@ class WimtLiveTrainWebComparisonAcceptanceTest {
                             screenshots += tag
                         }
                     }
-                    defaultResetSucceeded = resetDefaultToNtes()
+                    defaultResetSucceeded = runCatching { resetDefaultToNtes(this) }.getOrDefault(false)
                     if (!defaultResetSucceeded) stopAfterHostFailure = true
                 }
             }
@@ -349,11 +353,16 @@ class WimtLiveTrainWebComparisonAcceptanceTest {
         return result
         } finally {
             if (sourceChoiceTouched) {
-                result.defaultResetSucceeded = runCatching { resetDefaultToNtes() }.getOrDefault(false)
+                result.defaultResetSucceeded = runCatching { resetDefaultToNtes(result) }.getOrDefault(false)
                 if (!result.defaultResetSucceeded) {
                     result.stopAfterHostFailure = true
                     result.reason = listOf(result.reason,
-                        "Could not restore NTES as the next iteration's default source.")
+                        "Could not persist NTES as the next tracking screen's default source.")
+                        .filter { it.isNotBlank() }.joinToString(" ")
+                } else if (!result.defaultActiveSourceRestored) {
+                    result.reason = listOf(result.reason,
+                        "NTES is verified as the saved next-screen default in Settings, but the current " +
+                            "source selector did not switch to NTES.")
                         .filter { it.isNotBlank() }.joinToString(" ")
                 }
             }
@@ -417,25 +426,70 @@ class WimtLiveTrainWebComparisonAcceptanceTest {
         }
     }
 
-    private fun resetDefaultToNtes(): Boolean {
-        if (!E2E.visible("sourceSpinner", 500)) {
+    private fun resetDefaultToNtes(result: Attempt): Boolean {
+        dismissSourceDetailsDialogStack()
+        var activeRestored = false
+        var backSteps = 0
+        while (!E2E.visible("sourceSpinner", 500) && backSteps < 3) {
             E2E.ui.pressBack()
             E2E.ui.waitForIdle()
+            backSteps++
         }
-        if (!E2E.reveal("sourceSpinner", "scroller")) return false
-        val current = E2E.find("sourceSpinner")?.contentDescription.orEmpty()
-        if (current.contains("Selected NTES · official", true)) return true
-        if (!E2E.tap("sourceSpinner")) return false
-        val ntes = E2E.ui.wait(Until.findObject(By.textContains("NTES · official")), E2E.LOCAL_MS)
-            ?: return false
-        ntes.click() // restore the next iteration's clean default; this is not WIMT fallback evidence
-        val deadline = System.currentTimeMillis() + E2E.NETWORK_MS + 20_000L
+        if (E2E.reveal("sourceSpinner", "scroller")) {
+            val current = E2E.find("sourceSpinner")?.contentDescription.orEmpty()
+            activeRestored = current.contains("Selected NTES · official", true)
+            if (!activeRestored && E2E.tap("sourceSpinner")) {
+                val ntes = E2E.ui.wait(
+                    Until.findObject(By.textContains("NTES · official")), E2E.LOCAL_MS)
+                if (ntes != null) {
+                    ntes.click() // writes the intended default even when the current NTES feed is unavailable
+                    val deadline = System.currentTimeMillis() + E2E.NETWORK_MS + 20_000L
+                    while (System.currentTimeMillis() < deadline) {
+                        val selected = E2E.find("sourceSpinner", 500)?.contentDescription.orEmpty()
+                        if (selected.contains("Selected NTES · official", true)) {
+                            activeRestored = true
+                            break
+                        }
+                        Thread.sleep(250)
+                    }
+                }
+            }
+        }
+        result.defaultActiveSourceRestored = activeRestored
+        result.defaultPreferenceRestored = settingsShowsNtesAsDefault()
+        result.defaultResetSucceeded = result.defaultPreferenceRestored
+        return result.defaultResetSucceeded
+    }
+
+    /**
+     * A source may be unavailable on this train, so the tracking spinner can legitimately keep showing
+     * the prior usable source after the traveller changes the saved default. Verify the persisted default
+     * through the visible Settings control; the next candidate is then required to open with NTES selected.
+     */
+    private fun settingsShowsNtesAsDefault(): Boolean {
+        var backs = 0
+        while (!E2E.visible("settings", 500) && backs < 3) {
+            E2E.ui.pressBack()
+            E2E.ui.waitForIdle()
+            backs++
+        }
+        if (!E2E.visible("settings", 1_000) || !E2E.tap("settings", 1_000)) return false
+        val deadline = System.currentTimeMillis() + E2E.LOCAL_MS
+        var ready = false
         while (System.currentTimeMillis() < deadline) {
-            val selected = E2E.find("sourceSpinner", 500)?.contentDescription.orEmpty()
-            if (selected.contains("Selected NTES · official", true)) return true
-            Thread.sleep(250)
+            if (E2E.text("state", 300).isNotBlank()) {
+                ready = true
+                break
+            }
+            Thread.sleep(150)
         }
-        return false
+        val saved = ready && E2E.reveal("defaultTrackingSource", "settingsScroll") &&
+            E2E.find("defaultTrackingSource")?.contentDescription.orEmpty()
+                .contains("NTES · official", true)
+        E2E.ui.pressBack()
+        E2E.ui.waitForIdle()
+        val returnedToSearch = runCatching { E2E.awaitSearchScreen(); true }.getOrDefault(false)
+        return saved && returnedToSearch
     }
 
     private fun shot(result: Attempt, tag: String) {

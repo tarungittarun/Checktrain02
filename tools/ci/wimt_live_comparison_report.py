@@ -75,6 +75,7 @@ def _strict_attempt(attempt: dict) -> bool:
             attempt.get("webDateMatched") is True and
             attempt.get("webRouteMatched") is True and
             attempt.get("webTrainNumberEchoMatched") is not False and
+            attempt.get("defaultPreferenceRestored") is True and
             attempt.get("defaultResetSucceeded") is True and
             attempt.get("stopAfterHostFailure") is False and
             isinstance(attempt.get("overlappingEventFields"), int) and
@@ -234,6 +235,7 @@ def _valid_attempt(train: str) -> dict:
         "webSelected": True, "webHttpStatus": 200, "webSourceRows": 4, "webFresh": True,
         "webDateMatched": True, "webRouteMatched": True, "webTrainNumberEchoMatched": None,
         "webFreshestRowAgeSeconds": 40,
+        "defaultActiveSourceRestored": True, "defaultPreferenceRestored": True,
         "defaultResetSucceeded": True, "stopAfterHostFailure": False,
         "overlappingEventFields": 2, "matchedEventFields": 1,
         "mismatchFields": ["SBC arrival app=10:19 web=10:20"],

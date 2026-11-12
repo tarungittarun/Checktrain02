@@ -89,6 +89,17 @@ class WimtLiveComparisonReportTest(unittest.TestCase):
         self.assertFalse(report["accepted"])
         self.assertEqual(1, report["completedComparisons"])
 
+    def test_comparison_without_verified_saved_default_does_not_count(self):
+        attempts = json.loads(json.dumps(self.attempts))
+        attempts[0]["defaultPreferenceRestored"] = False
+        attempts[0]["defaultResetSucceeded"] = False
+        log = "\n".join(
+            "WIMT_MULTI_ATTEMPT_JSON=" + json.dumps(row) for row in attempts
+        ) + "\n" + PASS_LINE
+        report = make_report("OK (1 test)", log, 0, self.screens)
+        self.assertFalse(report["accepted"])
+        self.assertEqual(2, report["completedComparisons"])
+
     def test_missing_capture_or_test_verdict_never_passes(self):
         report = make_report("FAILURES!!!", self.device_log, 1, "{}")
         self.assertFalse(report["accepted"])
