@@ -282,6 +282,7 @@ jobs:
   # comparison path for the same train/date. Both request the same undocumented
   # endpoint, which may itself be server-cached; neither proves Google-app parity.
   # A one-use push marker is the authorized fallback when dispatch is denied.
+  # Pushes must also touch a path in the workflow's top-level paths filter.
   live_api_device:
     if: (github.event_name == 'workflow_dispatch' && inputs.source == 'live-api') || (github.event_name == 'push' && contains(github.event.head_commit.message, '[wimt-live-api-device]'))
     runs-on: ubuntu-latest
