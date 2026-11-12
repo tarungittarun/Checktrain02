@@ -276,11 +276,11 @@ class RefQueries(private val ref: RefDb) {
      * The status-chip line: how many trains are on this device, and **how old the schedule really is**.
      *
      * This line used to print `built_at` - the moment the ETL repacked the asset - as if it were the
-     * timetable's date, so a phone in October showed "timetable 11 Oct 2026, 22:27 IST" over an upstream
-     * dataset last revised in June. A traveller who believes the chip is the *date of the data* will read a
-     * renumbered train as a wrong train, and will not forgive the app for it; this product's one non-negotiable
-     * rule is that nothing may look fresher than it is. So the chip now carries the upstream vintage - the
-     * commit date of the source dumps, recorded at build time - and says plainly when that is old.
+     * timetable's date. A traveller who believes the chip is the *date of the data* may trust a stale route
+     * or miss a renumbered train; this product's one non-negotiable rule is that nothing may look fresher than
+     * it is. The chip now uses the oldest last-touch date of the schedule/route input files, recorded at build
+     * time, and says plainly when that source history is old. A commit date still does not verify accuracy:
+     * `data_trust` remains a separate known-truth gate.
      */
     fun dataVersion(): String = ref.use { db ->
         val trains = db.rawQuery("SELECT COUNT(*) FROM trains", null).use { c ->
@@ -291,19 +291,21 @@ class RefQueries(private val ref: RefDb) {
         // 2022-23 renumbering is not "113 days old" - that framing borrowed authority from a git commit date
         // and was itself a lie - so when the gate says the data disagrees with reality, the date stops being
         // the headline and the doubt is.
-        val vintage = db.metaString("source_vintage")
+        // Never substitute a repo-tip date here: it may be newer than the actual timetable files.
+        val vintage = db.metaString("timetable_vintage")?.takeIf { it.isNotBlank() }
         when (db.metaString("data_trust")) {
             "verified" -> "${Text.group(trains)} trains · " + vintageLabel(vintage)
             null, "" -> "${Text.group(trains)} trains · " +
                 (if (vintage.isNullOrBlank()) "timetable not checked against reality"
                  else "timetable not checked against reality (copy from $vintage)")
-            else -> "${Text.group(trains)} trains · timetable UNVERIFIED: numbers/names disagree with the " +
-                "live railway data of " + (vintage ?: "an unknown date") + " - verify before travelling"
+            else -> "${Text.group(trains)} trains · timetable UNVERIFIED: fails known-truth checks; " +
+                "schedule/route files last changed " + (vintage ?: "on an unknown date") +
+                " - verify before travelling"
         }
     }
 
     /**
-     * The chip's second half. [vintage] is an ISO `yyyy-mm-dd` from the upstream clone; a missing or
+     * The chip's second half. [vintage] is an ISO `yyyy-mm-dd` from the schedule/route file history; a missing or
      * unparseable one is reported as unknown rather than quietly replaced with today, which is the mistake
      * this replaces. Older than a quarter is *said*: Indian Railways revises timetables roughly that often,
      * and a renumbering is exactly what a passenger cannot detect on their own.

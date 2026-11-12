@@ -300,6 +300,53 @@ class OrgWebsiteStatusTest {
         assertTrue(unmapped.qualificationNote.orEmpty().contains("route position unverified"))
     }
 
+    @Test fun `on-time past-card arrival stays in website comparison but not the event ledger`() {
+        val run = SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).apply {
+            timeZone = TimeZone.getTimeZone("UTC")
+        }.parse("2026-11-12")!!.time / 86_400_000L
+        val checked = SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z", Locale.ROOT)
+            .parse("2026-11-13 00:22:30 +0530")!!.time
+        val currentRoute = TrainRoute("16227", "MYS TLGP EXP", "MYS", "Mysuru",
+            "TLGP", "Talguppa", 510, 560, 127, null, listOf(
+                stop(1, "MYS", null, 1180, 0), stop(2, "SBC", 1385, 1395, 138),
+                stop(3, "MWM", 1400, 1401, 141), stop(4, "YPR", 1406, 1408, 144),
+                stop(5, "TK", 1453, 1455, 209), stop(6, "TTR", 1507, 1508, 264),
+                stop(7, "TLGP", 1740, null, 510)), emptyList())
+        // The attached WIMT screenshot shows MWM/YPR's bold arrival clock equal
+        // to the grey schedule clock, while their separate departure clocks differ.
+        // This fixture exercises that two-clock shape; it is not a captured HTML page.
+        val html = """<html><h1>16227 Running Status</h1><p>Source: MYS</p>
+            <p>Destination: TLGP</p><p>Last Updated: 12:21:55 AM</p>
+            ${card("SBC", "bg-green-50 opacity-90", "10:51 PM", "11:05 PM", "11:18 PM", "11:15 PM")}
+            ${card("MWM", "bg-green-50 opacity-90", "11:20 PM", "11:20 PM", "11:24 PM", "11:21 PM")}
+            ${card("YPR", "bg-green-50 opacity-90", "11:26 PM", "11:26 PM", "11:32 PM", "11:28 PM")}
+            ${card("TK", "bg-green-50 opacity-90", "12:20 AM", "12:13 AM", "12:23 AM", "12:15 AM")}
+            </html>""".trimIndent()
+        val outcome = OrgWebsiteStatus.parse(html, "16227", run, checked, currentRoute)
+        val report = outcome.report ?: error(outcome.reason)
+        assertEquals("TK", report.anchorCode)
+        assertEquals(1400, report.siteClocks["MWM"]?.arrivalMin)
+        assertEquals(1404, report.siteClocks["MWM"]?.departureMin)
+        assertNull("an on-time site claim is not an NTES/event-ledger arrival",
+            report.rows["MWM"]?.actualArrivalMin)
+        assertEquals(1404, report.rows["MWM"]?.actualDepartureMin)
+        assertEquals(1406, report.siteClocks["YPR"]?.arrivalMin)
+        assertNull(report.rows["YPR"]?.actualArrivalMin)
+
+        val visible = `in`.opentrack.india.ui.WebsiteReportDisplay.displayedClocks(
+            report, run, currentRoute.stops.map { it.code }, checked)
+        assertEquals(1400, visible["MWM"]?.arrivalMin)
+        assertEquals(1404, visible["MWM"]?.departureMin)
+        val missingNtesArrival = TrackModel.Stop(seq = 3, code = "MWM", name = "Malleswaram",
+            schedArr = 1400, schedDep = 1401, showArr = 1400, showDep = 1401, delay = null,
+            source = TrackModel.MinuteSource.SCHEDULE, platform = null,
+            state = TrackModel.State.PASSED, isAnchor = false, kmFromOrigin = 141,
+            kmFromBoard = 0, kmRemaining = 369, showKm = false, isBoarding = false,
+            isAlighting = false, minutesFromNow = null)
+        assertEquals("Website claim · arr 23:20 · dep 23:24",
+            `in`.opentrack.india.ui.WebsiteGapUi.caption(missingNtesArrival, visible["MWM"]))
+    }
+
     @Test fun `website update precision is preserved without inventing seconds`() {
         val precise = OrgWebsiteStatus.parse(page, "16227", day, now, route).report!!
         val coarse = OrgWebsiteStatus.parse(page.replace("06:06:19 AM", "06:06 AM"),

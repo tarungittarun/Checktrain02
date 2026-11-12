@@ -88,6 +88,8 @@ jobs:
         run: python3 tools/ci/test_check_refs.py
       - name: Hygiene self-tests (the tool that deletes artifacts must classify, not guess)
         run: python3 tools/ci/test_artifact_hygiene.py
+      - name: Reference-data file-vintage and freshness self-tests
+        run: python3 tools/ci/test_build_refdb_vintage.py
       - name: ETL importability + schema constant agreement
         run: |
           python3 -c "import sys; sys.path.insert(0, 'tools'); import build_refdb; print('SCHEMA_VERSION', build_refdb.SCHEMA_VERSION)"

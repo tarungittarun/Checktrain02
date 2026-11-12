@@ -60,3 +60,43 @@ if summary:
     with open(summary, "a", encoding="utf-8") as fh:
         fh.write("### Offline data vs known truths\n\n```\n%s\n```\n\n" % data_truths.report(res))
 GATEEOF
+
+# Timetable age is based on the last commit touching the schedule/route input files,
+# not the clone tip or this build's timestamp. Commit age still does not prove accuracy.
+python3 - "$out" <<'VINTAGEEOF'
+import gzip, json, os, sqlite3, sys
+blob = open(sys.argv[1], "rb").read()
+path = "/tmp/refdb-vintage.db"
+open(path, "wb").write(gzip.decompress(blob) if blob[:2] == b"\x1f\x8b" else blob)
+db = sqlite3.connect(path)
+meta = dict(db.execute("SELECT k,v FROM meta WHERE k IN "
+                       "('timetable_vintage','timetable_age_days','timetable_freshness',"
+                       "'source_vintage','run_days_vintage','stations_vintage','source_provenance',"
+                       "'data_trust','data_truth_problems')"))
+db.close()
+try:
+    provenance = json.loads(meta.get("source_provenance", "{}"))
+except (TypeError, ValueError):
+    provenance = {}
+lines = [
+    "### Timetable input vintage (source-history age, not correctness evidence)",
+    "",
+    f"- Schedule/route files last changed: **{meta.get('timetable_vintage') or 'unknown'}**",
+    f"- Age at build: **{meta.get('timetable_age_days') or 'unknown'} days** "
+    f"({meta.get('timetable_freshness', 'unknown')})",
+    f"- Historical repository-tip vintage: {meta.get('source_vintage') or 'unknown'}",
+    f"- Station-master vintage: {meta.get('stations_vintage') or 'unknown'}",
+    f"- Run-day-overlay vintage: {meta.get('run_days_vintage') or 'unknown'}",
+    f"- Known-truth verdict: **{meta.get('data_trust', 'unverified')}**",
+    "- These commit dates do not establish current or correct schedules.",
+]
+for repo, details in sorted(provenance.items()):
+    for path, info in sorted((details.get("files") or {}).items()):
+        lines.append(f"- `{repo}/{path}` last touched: {info.get('date') or 'unknown'} "
+                     f"(commit `{(info.get('commit') or '')[:12] or 'unknown'}`)")
+print("\n".join(lines))
+summary = os.environ.get("GITHUB_STEP_SUMMARY")
+if summary:
+    with open(summary, "a", encoding="utf-8") as fh:
+        fh.write("\n".join(lines) + "\n\n")
+VINTAGEEOF

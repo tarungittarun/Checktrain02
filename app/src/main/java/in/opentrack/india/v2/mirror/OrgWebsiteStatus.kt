@@ -188,25 +188,30 @@ object OrgWebsiteStatus {
                     val clocks = clock.findAll(section.take(650)).take(2).map { it.value }.toList()
                     val first = clocks.firstOrNull()?.let(::minute) ?: return null
                     val aligned = RailTime.alignClock(first, scheduled) ?: return null
-                    if (clocks.size == 2) {
+                    val hasSchedulePair = clocks.size == 2
+                    if (hasSchedulePair) {
                         val grey = RailTime.alignClock(minute(clocks[1]), scheduled) ?: return null
                         if (abs(grey - scheduled) > 3) return null
                     } else if (abs(aligned - scheduled) > 3) return null
-                    return aligned.takeIf { it in originDep..(originDep + 1440) &&
-                        abs(it - scheduled) <= 360 }
+                    // Keep an explicitly paired on-time website clock in the
+                    // comparison column. It is still a site claim, not an NTES
+                    // actual; the independent event gate below continues to
+                    // reject schedule-equal clocks as train events.
+                    return aligned.takeIf {
+                        (it != scheduled || hasSchedulePair) &&
+                            it in originDep..(originDep + 1440) && abs(it - scheduled) <= 360
+                    }
                 }
-                // The first clock can be the *timetable echoed in the website's
-                // prominent slot*. In the owner's 20652 card, arrival 09:37 was
-                // followed by a prominent 07:10 departure: 07:10 was exactly STD,
-                // not an observed departure. Do not paint either schedule echo as
-                // a website event, and reject a backwards pair even if both differ.
+                // The first clock is the site's displayed value; the second grey
+                // clock is its schedule. Preserve an exact match in SiteClocks so
+                // an on-time arrival is not lost from the WEBSITE comparison.
+                // It does not enter `rows` below unless it passes the stricter
+                // event gate. Also reject a backwards pair even if both differ.
                 val shownArr = firstClock(part.substringAfter("<!-- Arrival -->", "")
                     .substringBefore("<!-- Departure -->"), halt.arrivalMin)
-                    ?.takeUnless { it == halt.arrivalMin }
                 val shownDep = firstClock(part.substringAfter("<!-- Departure -->", "")
                     .take(900), halt.departureMin)
-                    ?.takeUnless { it == halt.departureMin ||
-                        shownArr != null && it < shownArr }
+                    ?.takeUnless { shownArr != null && it < shownArr }
                 val candidate = SiteClocks(shownArr, shownDep, !pastCard && !highlightedCard)
                 val previous = siteClocks[code]
                 if ((shownArr != null || shownDep != null) &&

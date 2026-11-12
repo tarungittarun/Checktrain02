@@ -58,6 +58,33 @@ class InlineRouteRenderTest {
         assertEquals(View.GONE, next.trainMarker.visibility)
     }
 
+    @Test fun onTimePastWebsiteArrivalRemainsVisibleBesideItsDeparture() {
+        val ctx = RuntimeEnvironment.getApplication()
+        val adapter = StopAdapter()
+        val mwm = TrackModel.Stop(2, "MWM", "Malleswaram", 1400, 1401,
+            null, 1404, 3, TrackModel.MinuteSource.SITE_REPORTED, "2",
+            TrackModel.State.PASSED, false, 141, 0, 369, false, false, false, -3)
+        val day = 20769L // 12 Nov 2026, the supplied 16227 timetable-linked run
+        val pageAt = `in`.opentrack.india.core.RailTime.railMinuteToEpochMillis(day, 1420)
+        val site = `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.Report(
+            mapOf("MWM" to `in`.opentrack.india.model.LiveStopFields(actualDepartureMin = 1404)),
+            "MWM", true, 1404, pageAt, siteClocks = mapOf(
+                "MWM" to `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.SiteClocks(
+                    1400, 1404, false)))
+        adapter.websiteCardTimes = WebsiteReportDisplay.displayedClocks(site, day,
+            listOf("SBC", "MWM"), pageAt + 30_000L)
+        adapter.haltMarker = TableMarker.Halt("MWM", "Last website departure", true)
+        adapter.submitList(listOf(mwm))
+        val row = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
+        adapter.onBindViewHolder(row, 0)
+        assertEquals("23:20", row.liveArr.text.toString())
+        assertEquals("23:24", row.liveDep.text.toString())
+        assertTrue(row.liveArr.contentDescription.contains("Website displayed arrival"))
+        assertTrue(row.liveDep.contentDescription.contains("Website displayed departure"))
+        assertTrue(row.liveArr.contentDescription.contains("not a current position"))
+        assertEquals(ctx.getColor(R.color.warn), row.liveArr.currentTextColor)
+    }
+
     @Test fun websitePastTipturFillsOnlyTheLabelledGapBesideNtesNotItsActColumn() {
         val ctx = RuntimeEnvironment.getApplication()
         val adapter = StopAdapter()

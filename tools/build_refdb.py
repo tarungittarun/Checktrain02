@@ -61,6 +61,7 @@ import subprocess
 import sys
 import time
 import unicodedata
+from datetime import datetime, timezone
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any, Iterable
@@ -89,17 +90,100 @@ ASSET_SOFT_LIMIT_MB = 6.0      # warn (not fail) if the gzipped asset would brea
 ENDPOINT_PAT = re.compile(r"^(?P<name>.*?)\s*-\s*(?P<code>[A-Z0-9]{2,6})$")
 
 
-# Filled by the source loader: the commit date at the tip of each upstream clone. Recorded in `meta` as
-# `source_vintage`, because the app has to tell a traveller how old their timetable *is* - and the ETL's own
-# build stamp answers a different question (when we repacked it), which is not the one anyone asks.
-SOURCE_VINTAGES: dict[str, str] = {}
+# Filled by the source loader: per-file commit date, commit ID and upstream repo HEAD. A repo-level
+# commit can be a docs-only change, so timetable vintage is keyed to the actual data paths as well.
+# These dates describe source history, not an independently audited effective date for each train.
+SOURCE_PROVENANCE: dict[str, dict[str, Any]] = {}
 
 
-def git_head_date(dest: str) -> str:
-    """`yyyy-mm-dd` of the clone's HEAD commit, or "" if git will not say."""
-    r = subprocess.run(["git", "-C", dest, "log", "-1", "--format=%cd", "--date=short"],
-                       capture_output=True, text=True)
-    return (r.stdout or "").strip()
+def git_provenance(dest: str, paths: list[str]) -> dict[str, Any]:
+    """Return repo HEAD and last-touch commit metadata for the declared source paths."""
+    head = subprocess.run(["git", "-C", dest, "log", "-1", "--format=%H%x09%cI"],
+                          capture_output=True, text=True)
+    head_parts = (head.stdout or "").strip().split("\t", 1)
+    shallow = subprocess.run(["git", "-C", dest, "rev-parse", "--is-shallow-repository"],
+                             capture_output=True, text=True)
+    history_complete = shallow.returncode == 0 and shallow.stdout.strip() == "false"
+    files: dict[str, dict[str, str]] = {}
+    for path in paths:
+        if not history_complete:
+            # A depth-limited checkout can show a recent repo tip while hiding the older
+            # commit that last touched this data file. Report unknown rather than misdate it.
+            files[path] = {"commit": "", "date": ""}
+            continue
+        result = subprocess.run(["git", "-C", dest, "log", "-1", "--format=%H%x09%cI", "--", path],
+                                capture_output=True, text=True)
+        parts = (result.stdout or "").strip().split("\t", 1)
+        if len(parts) == 2:
+            files[path] = {"commit": parts[0], "date": parts[1][:10]}
+        else:
+            files[path] = {"commit": "", "date": ""}
+    return {
+        "head_commit": head_parts[0] if head_parts else "",
+        "head_date": head_parts[1][:10] if len(head_parts) > 1 else "",
+        "history_complete": history_complete,
+        "files": files,
+    }
+
+
+def source_head_vintage(provenance: dict[str, dict[str, Any]]) -> str | None:
+    """Oldest repository-head date; retained for historical auxiliary-asset compatibility."""
+    dates = [repo.get("head_date") for repo in provenance.values() if repo.get("head_date")]
+    return min(dates) if dates else None
+
+
+def declared_paths_for_roles(roles: set[str]) -> set[tuple[str, str]]:
+    return {(spec["repo"], path) for spec in SOURCES if spec["role"] in roles
+            for path in spec["files"]}
+
+
+def file_vintage(provenance: dict[str, dict[str, Any]],
+                 paths: set[tuple[str, str]]) -> str | None:
+    """Oldest last-touch date only when history exists for every selected source file."""
+    if not paths:
+        return None
+    dates: list[str] = []
+    for repo, path in paths:
+        date = ((provenance.get(repo, {}).get("files") or {}).get(path) or {}).get("date")
+        if not date or not _valid_iso_date(date):
+            return None
+        dates.append(date)
+    return min(dates)
+
+
+def timetable_vintage(provenance: dict[str, dict[str, Any]]) -> str | None:
+    """Vintage of route/schedule inputs; excludes station names and run-day overlays."""
+    schedule_inputs = {
+        (spec["repo"], path)
+        for spec in SOURCES if spec["role"] in {"primary", "extra"}
+        for path in spec["files"] if path != "stations.json"
+    }
+    return file_vintage(provenance, schedule_inputs)
+
+
+def _valid_iso_date(value: str) -> bool:
+    try:
+        parsed = datetime.strptime(value, "%Y-%m-%d").date()
+        return parsed.isoformat() == value
+    except ValueError:
+        return False
+
+
+def freshness_snapshot(vintage: str | None, today: str | None = None) -> dict[str, Any]:
+    """A reproducible, date-only age assessment. It does not validate the source's accuracy."""
+    if not vintage or not _valid_iso_date(vintage):
+        return {"as_of": vintage, "age_days": None, "status": "unknown"}
+    evaluation_date = today or os.environ.get("SOURCE_DATE_EPOCH")
+    if evaluation_date and evaluation_date.isdigit():
+        evaluation_date = time.strftime("%Y-%m-%d", time.gmtime(int(evaluation_date)))
+    if not evaluation_date:
+        evaluation_date = datetime.now(timezone.utc).date().isoformat()
+    if not _valid_iso_date(evaluation_date):
+        raise ValueError(f"invalid freshness evaluation date: {evaluation_date}")
+    age_days = (datetime.strptime(evaluation_date, "%Y-%m-%d").date() -
+                datetime.strptime(vintage, "%Y-%m-%d").date()).days
+    status = "future_dated" if age_days < 0 else "stale" if age_days > 90 else "recent"
+    return {"as_of": vintage, "age_days": age_days, "status": status}
 
 
 def built_at() -> str:
@@ -364,8 +448,8 @@ def fetch_sources(cache_dir: str, allow_clone: bool) -> dict[str, dict[str, str]
     """Ensure every declared source file exists locally; return {repo: {basename: abspath}}.
 
     Network policy: we only ever `git clone` from github.com - reproducible, identical in CI, and
-    nothing is uploaded anywhere. Clones are depth-1 + sparse so we pull the handful of JSON files
-    we need instead of a repo's history.
+    nothing is uploaded anywhere. Clones are sparse and omit historical blobs, but retain commit history:
+    per-file last-touch dates cannot be reported honestly from a depth-1 checkout.
     """
     os.makedirs(cache_dir, exist_ok=True)
     out: dict[str, dict[str, str]] = {}
@@ -376,28 +460,51 @@ def fetch_sources(cache_dir: str, allow_clone: bool) -> dict[str, dict[str, str]
         if missing:
             if not allow_clone:
                 raise SystemExit(f"[etl] missing {missing} in {dest} and --no-clone was set")
-            log(f"cloning {repo} (depth 1, sparse: {want})")
+            log(f"cloning {repo} (sparse: {want})")
             if os.path.isdir(os.path.join(dest, ".git")):
                 # already cloned for another role: widen the sparse cone, do not re-clone
                 subprocess.run(["git", "-C", dest, "sparse-checkout", "set", "--no-cone",
-                                *["/" + f for f in want], *["!" + f for f in []]],
+                                *["/" + f for f in want]],
                               capture_output=True, text=True)
                 subprocess.run(["git", "-C", dest, "checkout", "HEAD", "--", *want],
                               capture_output=True, text=True)
             else:
                 subprocess.run(["rm", "-rf", dest], capture_output=True, text=True)
-                subprocess.run(["git", "clone", "--depth", "1", "--filter=blob:none", "--sparse",
+                subprocess.run(["git", "clone", "--filter=blob:none", "--sparse",
                                f"https://github.com/{repo}.git", dest],
                               check=True, capture_output=True, text=True)
                 subprocess.run(["git", "-C", dest, "sparse-checkout", "set", "--no-cone",
                                *["/" + f for f in want]],
                               check=True, capture_output=True, text=True)
-            still = [f for f in want if not os.path.isfile(os.path.join(dest, f))]
-            if still:
-                raise SystemExit(f"[etl] source still missing after clone: {repo} {still}")
+        shallow = subprocess.run(["git", "-C", dest, "rev-parse", "--is-shallow-repository"],
+                                 capture_output=True, text=True)
+        if allow_clone:
+            # Refresh an existing cache too: a successful build must use the current upstream
+            # default branch, not yesterday's clone. Commit metadata is fetched without old blobs.
+            fetch_args = ["git", "-C", dest, "fetch"]
+            if shallow.returncode == 0 and shallow.stdout.strip() == "true":
+                log(f"fetching commit history for per-file vintage in {repo}")
+                fetch_args.append("--unshallow")
+            fetch_args.extend(["--filter=blob:none", "origin"])
+            subprocess.run(fetch_args, check=True, capture_output=True, text=True)
+            subprocess.run(["git", "-C", dest, "remote", "set-head", "origin", "--auto"],
+                           check=True, capture_output=True, text=True)
+            default_ref = subprocess.run(["git", "-C", dest, "symbolic-ref", "-q",
+                                          "refs/remotes/origin/HEAD"], capture_output=True, text=True)
+            if default_ref.returncode != 0:
+                raise SystemExit(f"[etl] cannot identify default branch for source repo {repo}")
+            subprocess.run(["git", "-C", dest, "checkout", "--force", "--detach",
+                            default_ref.stdout.strip()], check=True, capture_output=True, text=True)
+        still = [f for f in want if not os.path.isfile(os.path.join(dest, f))]
+        if still:
+            raise SystemExit(f"[etl] source still missing after refresh: {repo} {still}")
         out[repo] = {f: os.path.join(dest, f) for f in want}
-        SOURCE_VINTAGES[repo] = git_head_date(dest)
-        log(f"{repo}: upstream data last revised {SOURCE_VINTAGES[repo] or 'unknown'}")
+        SOURCE_PROVENANCE[repo] = git_provenance(dest, want)
+        file_dates = sorted({item["date"] for item in SOURCE_PROVENANCE[repo]["files"].values()
+                             if item.get("date")})
+        log(f"{repo}: data files last changed " +
+            (", ".join(file_dates) if file_dates else "on an unknown date") +
+            f" (repo head {SOURCE_PROVENANCE[repo]['head_date'] or 'unknown'})")
     return out
 
 
@@ -572,7 +679,8 @@ CREATE TABLE station_trains(
 
 
 def write_db(db_path: str, stations: dict[str, dict[str, Any]], models: dict[str, TrainModel],
-             halts_only: bool, profile: str, stats: dict[str, int]
+             halts_only: bool, profile: str, stats: dict[str, int],
+             build_stamp: str | None = None
              ) -> dict[str, list[list[float]]]:
     if os.path.exists(db_path):
         os.remove(db_path)
@@ -714,13 +822,33 @@ def write_db(db_path: str, stations: dict[str, dict[str, Any]], models: dict[str
 
     db.execute("UPDATE stations SET rank=(SELECT COUNT(*) FROM station_trains t "
                "WHERE t.station_code = stations.code)")
+    stamp = build_stamp or built_at()
+    schedule_paths = declared_paths_for_roles({"primary", "extra"}) - {
+        (spec["repo"], "stations.json") for spec in SOURCES if spec["role"] == "primary"
+    }
+    run_day_vintage = file_vintage(SOURCE_PROVENANCE, declared_paths_for_roles({"run_days"}))
+    station_paths = {(spec["repo"], path) for spec in SOURCES if spec["role"] == "primary"
+                     for path in spec["files"] if path == "stations.json"}
+    schedule_vintage = file_vintage(SOURCE_PROVENANCE, schedule_paths)
+    freshness = freshness_snapshot(schedule_vintage, stamp[:10])
+    repo_heads = {repo: meta.get("head_date", "") for repo, meta in SOURCE_PROVENANCE.items()}
+    log("timetable file vintage: " + (schedule_vintage or "unknown") +
+        f"; freshness={freshness['status']}" +
+        (f", {freshness['age_days']} days at build date {stamp[:10]}" if freshness["age_days"] is not None else "") +
+        "; source history dates do not verify timetable correctness")
     for k, v in [("schema_version", SCHEMA_VERSION), ("profile", profile),
-                 ("built_at", built_at()),
-                 # The LEAST fresh upstream date, deliberately. The timetable comes from the primary dump; a
-                 # run-days overlay revised two months later does not make the departure times newer, and
-                 # reporting max() here would repeat the overstatement the build stamp was guilty of.
-                 ("source_vintage", min((v for v in SOURCE_VINTAGES.values() if v), default="")),
-                 ("source_vintages", ";".join(f"{k.split('/')[-1]}@{v}" for k, v in sorted(SOURCE_VINTAGES.items()))),
+                 ("built_at", stamp),
+                 # Keep the repo-tip vintage for the historical corridor asset contract;
+                 # the app's data-age label uses `timetable_vintage` below, derived from the
+                 # last commit touching schedule/route files, not this tip or the repack date.
+                 ("source_vintage", min((v for v in repo_heads.values() if v), default="")),
+                 ("source_vintages", ";".join(f"{k.split('/')[-1]}@{v}" for k, v in sorted(repo_heads.items()))),
+                 ("timetable_vintage", schedule_vintage or ""),
+                 ("timetable_freshness", freshness["status"]),
+                 ("timetable_age_days", "" if freshness["age_days"] is None else freshness["age_days"]),
+                 ("stations_vintage", file_vintage(SOURCE_PROVENANCE, station_paths) or ""),
+                 ("run_days_vintage", run_day_vintage or ""),
+                 ("source_provenance", json.dumps(SOURCE_PROVENANCE, sort_keys=True, separators=(",", ":"))),
                  ("sources", ";".join(sorted({s["repo"] for s in SOURCES}))),
                  ("data_trust", trust.get("verdict", "unverified")),
                  ("data_truth_problems", "; ".join(trust.get("problems", []))[:1500]),
@@ -858,7 +986,8 @@ def main(argv=None) -> int:
 
     halts_only = args.profile == "halts"
     db_path = os.path.join(args.build_dir, f"refdb-{args.profile}.db")
-    geo = write_db(db_path, stations, models, halts_only, args.profile, stats)
+    build_stamp = built_at()
+    geo = write_db(db_path, stations, models, halts_only, args.profile, stats, build_stamp)
     log(f"built {db_path} in {time.time()-t0:.1f}s stats={dict(stats)}")
     if not args.skip_verify:
         verify(db_path)
@@ -868,10 +997,19 @@ def main(argv=None) -> int:
     with gzip.GzipFile(gz_path, "wb", compresslevel=9, mtime=0) as fh:
         fh.write(raw)
     sha = hashlib.sha256(raw).hexdigest()
+    with sqlite3.connect(db_path) as db:
+        trust_meta = dict(db.execute("SELECT k,v FROM meta WHERE k IN ('data_trust','data_truth_problems')"))
+    schedule_vintage = timetable_vintage(SOURCE_PROVENANCE)
     manifest = {"profile": args.profile, "schema_version": SCHEMA_VERSION,
                 "size_bytes": len(raw), "gz_bytes": os.path.getsize(gz_path), "sha256": sha,
-                "stats": dict(stats),
-                "built_at": built_at(), "sources": sorted({s["repo"] for s in SOURCES})}
+                "stats": dict(stats), "built_at": build_stamp,
+                "source_vintage": source_head_vintage(SOURCE_PROVENANCE) or "",
+                "timetable_vintage": schedule_vintage or "",
+                "timetable_freshness": freshness_snapshot(schedule_vintage, build_stamp[:10]),
+                "source_provenance": SOURCE_PROVENANCE,
+                "data_trust": trust_meta.get("data_trust", "unverified"),
+                "data_truth_problems": trust_meta.get("data_truth_problems", ""),
+                "sources": sorted({s["repo"] for s in SOURCES})}
     with open(os.path.join(args.build_dir, f"refdb-{args.profile}-manifest.json"), "w") as fh:
         json.dump(manifest, fh, indent=1)
 
