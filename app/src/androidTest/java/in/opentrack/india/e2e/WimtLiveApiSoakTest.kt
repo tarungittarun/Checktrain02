@@ -168,20 +168,71 @@ class WimtLiveApiSoakTest {
         )
     }
 
-    private fun enableAuto(): Boolean {
-        if (!E2E.reveal("autoSwitch", "scroller")) return false
-        if (E2E.find("autoSwitch")?.isChecked == true) {
-            if (!E2E.tap("autoSwitch") || E2E.find("autoSwitch")?.isChecked != false) return false
+    private data class AutoEnableResult(
+        val controlRevealed: Boolean,
+        val initialChecked: Boolean?,
+        val resetTap: Boolean?,
+        val checkedAfterReset: Boolean?,
+        val enableTap: Boolean?,
+        val enableRetryTap: Boolean?,
+        val checkedAfterEnable: Boolean?,
+    ) {
+        val enabled: Boolean
+            get() = controlRevealed && initialChecked != null &&
+                checkedAfterReset == false && checkedAfterEnable == true
+    }
+
+    private fun autoChecked(timeoutMs: Long = 250): Boolean? = runCatching {
+        E2E.find("autoSwitch", timeoutMs)?.isChecked
+    }.getOrNull()
+
+    private fun waitForAutoState(expected: Boolean): Boolean? {
+        val deadline = SystemClock.elapsedRealtime() + 3_000L
+        var checked = autoChecked(100)
+        while (checked != expected && SystemClock.elapsedRealtime() < deadline) {
+            Thread.sleep(100L)
+            checked = autoChecked(100)
         }
-        return E2E.tap("autoSwitch") && E2E.find("autoSwitch")?.isChecked == true
+        return checked
+    }
+
+    private fun enableAuto(): AutoEnableResult {
+        val revealed = E2E.reveal("autoSwitch", "scroller")
+        val initial = autoChecked()
+        if (!revealed || initial == null) {
+            return AutoEnableResult(revealed, initial, null, initial, null, null, initial)
+        }
+        var resetTap: Boolean? = null
+        var afterReset: Boolean? = initial
+        if (initial) {
+            resetTap = E2E.tap("autoSwitch")
+            afterReset = if (resetTap == true) waitForAutoState(false) else autoChecked()
+            if (afterReset != false) {
+                return AutoEnableResult(revealed, initial, resetTap, afterReset,
+                    null, null, afterReset)
+            }
+        }
+        val enableTap = E2E.tap("autoSwitch")
+        var afterEnable = if (enableTap) waitForAutoState(true) else autoChecked()
+        var retryTap: Boolean? = null
+        // Retry only after the first click has settled and the accessible state is
+        // still explicitly OFF; this cannot turn a successfully enabled control back OFF.
+        if (afterEnable == false) {
+            retryTap = E2E.tap("autoSwitch")
+            afterEnable = if (retryTap == true) waitForAutoState(true) else autoChecked()
+        }
+        return AutoEnableResult(revealed, initial, resetTap, afterReset,
+            enableTap, retryTap, afterEnable)
     }
 
     /** Returns true only after the opt-in toggle is observed OFF. */
     private fun disableAuto(): Boolean {
         if (!E2E.reveal("autoSwitch", "scroller")) return false
-        return if (E2E.find("autoSwitch")?.isChecked == true) {
-            E2E.tap("autoSwitch") && E2E.find("autoSwitch")?.isChecked == false
-        } else true
+        return when (autoChecked()) {
+            true -> E2E.tap("autoSwitch") && waitForAutoState(false) == false
+            false -> true
+            null -> false
+        }
     }
 
     private fun receiptSuggestsFailure(description: String): Boolean = listOf(
@@ -285,7 +336,22 @@ class WimtLiveApiSoakTest {
                 "cells=${initial.visibleCells} selected=${initial.selected} " +
                 "disclosed=${initial.disclosed}", initialOk)
 
-            assertTrue("could not enable opt-in Auto · 1 min", enableAuto())
+            val autoAttempt = enableAuto()
+            autoEnabled = autoAttempt.checkedAfterEnable != false
+            autoOffConfirmed = autoAttempt.checkedAfterEnable == false
+            writeTrace(traceFile,
+                "WIMT_SOAK_AUTO_ENABLE revealed=${autoAttempt.controlRevealed} " +
+                    "initialChecked=${autoAttempt.initialChecked ?: "unknown"} " +
+                    "resetTap=${autoAttempt.resetTap?.toString() ?: "not-needed"} " +
+                    "checkedAfterReset=${autoAttempt.checkedAfterReset ?: "unknown"} " +
+                    "enableTap=${autoAttempt.enableTap?.toString() ?: "not-attempted"} " +
+                    "enableRetryTap=${autoAttempt.enableRetryTap?.toString() ?: "not-attempted"} " +
+                    "checkedAfterEnable=${autoAttempt.checkedAfterEnable ?: "unknown"} " +
+                    "enabled=${autoAttempt.enabled}")
+            if (!autoAttempt.enabled) {
+                runCatching { E2E.shotWimt("wimt-soak-auto-enable-failed") }
+            }
+            assertTrue("could not enable opt-in Auto · 1 min", autoAttempt.enabled)
             autoEnabled = true
             autoOffConfirmed = false
             soakStartedAt = SystemClock.elapsedRealtime()

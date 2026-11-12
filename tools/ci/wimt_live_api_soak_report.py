@@ -36,6 +36,11 @@ def truth(data: dict[str, str], key: str) -> bool:
     return data.get(key, "").lower() == "true"
 
 
+def optional_truth(data: dict[str, str], key: str) -> bool | None:
+    value = data.get(key, "").lower()
+    return True if value == "true" else False if value == "false" else None
+
+
 def valid_png(path: Path) -> bool:
     try:
         with path.open("rb") as stream:
@@ -55,9 +60,11 @@ def build_report(directory: Path) -> dict:
     trace = trace_path.read_text(encoding="utf-8", errors="replace") if trace_path.is_file() else ""
     lines = trace.splitlines()
     initial_line = next((line for line in lines if "WIMT_SOAK_INITIAL " in line), "")
+    auto_enable_line = next((line for line in lines if "WIMT_SOAK_AUTO_ENABLE " in line), "")
     started_line = next((line for line in lines if "WIMT_SOAK_STARTED " in line), "")
     summary_line = next((line for line in reversed(lines) if "WIMT_SOAK_SUMMARY " in line), "")
     initial = fields(initial_line)
+    auto_enable = fields(auto_enable_line)
     started = fields(started_line)
     summary = fields(summary_line)
 
@@ -124,7 +131,12 @@ def build_report(directory: Path) -> dict:
         elif initial_line and not initial_ok:
             failure_stage = "INITIAL_WIMT_IN_APP_GATE_FAILED"
         elif initial_line and not started_line:
-            failure_stage = "AUTO_ENABLE_OR_SOAK_START_FAILED"
+            if auto_enable_line and not truth(auto_enable, "enabled"):
+                failure_stage = "AUTO_ENABLE_FAILED"
+            elif auto_enable_line:
+                failure_stage = "SOAK_START_TRACE_MISSING"
+            else:
+                failure_stage = "AUTO_ENABLE_OR_SOAK_START_FAILED"
         elif started_line and not summary_line:
             failure_stage = "SOAK_INTERRUPTED_BEFORE_FINAL_SUMMARY"
         elif summary_line and not full_duration:
@@ -150,6 +162,19 @@ def build_report(directory: Path) -> dict:
         failure_summary = "The emulator did not boot; no installed-app WIMT claim was made."
     elif not passed and failure_stage == "EMULATOR_SETUP_FAILED":
         failure_summary = "Emulator setup failed before the installed-app test could run."
+    elif not passed and failure_stage == "AUTO_ENABLE_FAILED":
+        failure_summary = (
+            "Opt-in Auto was not confirmed ON before the soak started: "
+            f"control-revealed={auto_enable.get('revealed', 'not recorded')}, "
+            f"initial-checked={auto_enable.get('initialChecked', 'not recorded')}, "
+            f"reset-tap={auto_enable.get('resetTap', 'not recorded')}, "
+            f"checked-after-reset={auto_enable.get('checkedAfterReset', 'not recorded')}, "
+            f"enable-tap={auto_enable.get('enableTap', 'not recorded')}, "
+            f"enable-retry-tap={auto_enable.get('enableRetryTap', 'not recorded')}, "
+            f"checked-after-enable={auto_enable.get('checkedAfterEnable', 'not recorded')}"
+        )
+    elif not passed and failure_stage == "SOAK_START_TRACE_MISSING":
+        failure_summary = "Auto was observed ON, but the test did not record the soak start."
     elif not passed and failure_stage == "INSTRUMENTED_DEVICE_TEST_FAILED_BEFORE_INITIAL_GATE":
         failure_summary = "The instrumented app test failed before it recorded the initial WIMT gate."
 
@@ -172,6 +197,17 @@ def build_report(directory: Path) -> dict:
             "visibleWimtAttributedCells": number(initial, "cells"),
             "selectedSource": truth(initial, "selected"),
             "provenanceDisclosed": truth(initial, "disclosed"),
+        },
+        "autoEnable": {
+            "diagnosticCaptured": bool(auto_enable_line),
+            "controlRevealed": optional_truth(auto_enable, "revealed"),
+            "initialChecked": optional_truth(auto_enable, "initialChecked"),
+            "resetTap": auto_enable.get("resetTap"),
+            "checkedAfterReset": optional_truth(auto_enable, "checkedAfterReset"),
+            "enableTap": auto_enable.get("enableTap"),
+            "enableRetryTap": auto_enable.get("enableRetryTap"),
+            "checkedAfterEnable": optional_truth(auto_enable, "checkedAfterEnable"),
+            "enabled": optional_truth(auto_enable, "enabled"),
         },
         "autoRefresh": {
             "receiptCycles": cycles,
@@ -209,6 +245,8 @@ def build_report(directory: Path) -> dict:
         f"(required: 240)",
         f"- Initial strict in-app acceptance: {'PASS' if initial_ok else 'FAIL / not established'}",
         f"- One-minute refresh receipts: {cycles} (minimum: 230); missed slots: {missed}",
+        f"- Auto before soak: initially `{auto_enable.get('initialChecked', 'not recorded')}`; "
+        f"confirmed ON `{auto_enable.get('enabled', 'not recorded')}`",
         f"- Detailed response samples: {number(summary, 'detailSamples')}",
         f"- Fresh source-stamp samples: {number(summary, 'freshSamples')}; "
         f"non-fresh or unknown: {number(summary, 'nonFreshSamples')}",
@@ -270,6 +308,19 @@ def self_test() -> None:
         assert result["durationMs"] is None
         assert result["failureStage"] == "INITIAL_WIMT_IN_APP_GATE_FAILED"
         assert "HTTP=403" in result["failureSummary"]
+        auto_failure = (
+            "WIMT_SOAK_INITIAL httpStatus=200 runDateMatched=true routeMatched=true "
+            "fresh=true rows=13 cells=3 selected=true disclosed=true accepted=true\n"
+            "WIMT_SOAK_AUTO_ENABLE revealed=true initialChecked=false resetTap=not-needed "
+            "checkedAfterReset=false enableTap=true enableRetryTap=true "
+            "checkedAfterEnable=false enabled=false\n"
+        )
+        (directory / "soak-trace.txt").write_text(auto_failure, encoding="utf-8")
+        result = build_report(directory)
+        assert not result["passed"]
+        assert result["failureStage"] == "AUTO_ENABLE_FAILED"
+        assert "checked-after-enable=false" in result["failureSummary"]
+        assert result["autoEnable"]["controlRevealed"] is True
 
 
 def main() -> int:

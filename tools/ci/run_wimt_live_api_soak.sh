@@ -17,7 +17,7 @@ finish() {
       wimt-soak-120m wimt-soak-120m-details \
       wimt-soak-180m wimt-soak-180m-details \
       wimt-soak-240m wimt-soak-240m-details \
-      wimt-soak-final-even-on-failure; do
+      wimt-soak-auto-enable-failed wimt-soak-final-even-on-failure; do
     adb exec-out run-as in.opentrack.india cat "files/evidence/$name.png" \
       > "$OUT/screens/$name.png" 2>/dev/null || rm -f "$OUT/screens/$name.png"
   done
