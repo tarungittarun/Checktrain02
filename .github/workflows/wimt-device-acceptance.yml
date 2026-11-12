@@ -292,6 +292,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 tools/ci/wimt_live_device_report.py --self-test
+          python3 tools/ci/verify_wimt_live_screens.py --self-test
           python3 -m py_compile \
             tools/ci/verify_wimt_live_screens.py \
             tools/ci/wimt_live_device_report.py \

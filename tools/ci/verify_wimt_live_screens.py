@@ -9,6 +9,7 @@ import argparse
 import json
 import re
 import sys
+import xml.etree.ElementTree as ET
 
 from verify_wimt_cache_screens import read_capture
 
@@ -20,6 +21,48 @@ REQUIRED = {
 }
 ROW_PATTERN = r"Selected WIMT \.in source-reported rows \((\d+)\):"
 
+
+def visible_wimt_time_cell_count(hierarchy: ET.Element) -> int:
+    """Count real visible table clock views; row accessibility labels repeat child clocks."""
+    count = 0
+    for node in hierarchy.iter():
+        resource_id = node.attrib.get("resource-id", "")
+        if not resource_id.startswith(f"{APP_PACKAGE}:id/") or \
+                resource_id.rsplit("/", 1)[-1] not in {"liveArr", "liveDep"}:
+            continue
+        if node.attrib.get("visible-to-user", "true").lower() != "true":
+            continue
+        description = node.attrib.get("content-desc", "")
+        if not re.search(r"WIMT \.in source-reported (?:arrival|departure) ",
+                         description, re.IGNORECASE):
+            continue
+        if description.lower().endswith("unknown"):
+            continue
+        count += 1
+    return count
+
+
+def self_test() -> None:
+    xml = (
+        '<hierarchy>'
+        '<node package="in.opentrack.india" resource-id="in.opentrack.india:id/stopRow" '
+        'visible-to-user="true" content-desc="WIMT .in source-reported arrival 08:05; '
+        'WIMT .in source-reported departure 08:09" />'
+        '<node package="in.opentrack.india" resource-id="in.opentrack.india:id/liveArr" '
+        'content-desc="WIMT .in source-reported arrival 08:05" />'
+        '<node package="in.opentrack.india" resource-id="in.opentrack.india:id/liveDep" '
+        'content-desc="WIMT .in source-reported departure 08:09" />'
+        '<node package="in.opentrack.india" resource-id="in.opentrack.india:id/liveDep" '
+        'visible-to-user="true" content-desc="WIMT .in source-reported departure unknown" />'
+        '<node package="in.opentrack.india" resource-id="in.opentrack.india:id/liveArr" '
+        'visible-to-user="false" content-desc="WIMT .in source-reported arrival 07:55" />'
+        '<node package="other.app" resource-id="other.app:id/liveArr" '
+        'visible-to-user="true" content-desc="WIMT .in source-reported arrival 07:45" />'
+        '</hierarchy>'
+    )
+    hierarchy = ET.fromstring(xml)
+    assert visible_wimt_time_cell_count(hierarchy) == 2
+    print("WIMT live screenshot verifier self-test passed: counts visible table cells, not duplicated row labels")
 
 def verify(folder: Path, accepted: bool = False) -> dict:
     captures = {label: read_capture(folder, name) for label, name in REQUIRED.items()}
@@ -42,7 +85,8 @@ def verify(folder: Path, accepted: bool = False) -> dict:
     summary_rows = int(summary_match.group(1)) if summary_match else 0
     http_match = re.search(r"\bHTTP ([1-5][0-9]{2})\b", details)
     http_status = f"HTTP {http_match.group(1)}" if http_match else None
-    cell_count = len(re.findall(r"WIMT \.in source-reported (?:arrival|departure) ", after))
+    after_hierarchy = ET.parse(captures["after"][0].with_suffix(".xml")).getroot()
+    cell_count = visible_wimt_time_cell_count(after_hierarchy)
     run_matched = "Run date echoed and matched: true" in details
     route_matched = "both route endpoints echoed and matched: true" in details
     fresh_stamp = "fresh source stamp; not event time" in details and \
@@ -77,10 +121,16 @@ def verify(folder: Path, accepted: bool = False) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("evidence", type=Path)
+    parser.add_argument("evidence", type=Path, nargs="?")
     parser.add_argument("--accepted", action="store_true",
                         help="require fresh, run/route-matched WIMT live stop clocks in the app hierarchy")
+    parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
+    if args.self_test:
+        self_test()
+        return 0
+    if args.evidence is None:
+        parser.error("evidence directory is required unless --self-test is used")
     try:
         result = verify(args.evidence, args.accepted)
     except (OSError, ValueError) as exc:

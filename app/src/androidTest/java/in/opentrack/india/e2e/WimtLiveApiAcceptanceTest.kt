@@ -91,7 +91,7 @@ class WimtLiveApiAcceptanceTest {
             // A source timestamp a few seconds ahead is not treated as fresh early. The app's
             // one-shot local recheck may update it without issuing a second HTTP request.
             E2E.ui.waitForIdle()
-            val screenshotSourceCells = visibleWimtSourceCellCount()
+            var screenshotSourceCells = visibleWimtSourceCellCount()
             E2E.shotWimt("wimt-live-after-selected-source")
 
             assertTrue("source details picker is not reachable", E2E.reveal("sourceSpinner", "scroller"))
@@ -124,15 +124,24 @@ class WimtLiveApiAcceptanceTest {
                 Thread.sleep(250)
                 rowCellCount = visibleWimtSourceCellCount()
             }
+            // Compare the instrumented assertion with a capture of this final settled table,
+            // not the earlier table state from before opening Source details.
+            E2E.ui.waitForIdle()
+            summary = E2E.text("sourceSummary", 500)
+            selected = E2E.find("sourceSpinner", 500)?.contentDescription.orEmpty()
+            rowCellCount = visibleWimtSourceCellCount()
+            E2E.shotWimt("wimt-live-after-selected-source")
+            screenshotSourceCells = visibleWimtSourceCellCount()
 
             val reportRows = Regex("""Selected WIMT \.in source-reported rows \((\d+)\):""")
                 .find(details)?.groupValues?.get(1)?.toIntOrNull() ?: 0
             val http200 = details.contains("HTTP 200")
             val runMatched = details.contains("Run date echoed and matched: true")
             val routeMatched = details.contains("both route endpoints echoed and matched: true")
-            val fresh = details.contains("fresh source stamp; not event time") &&
-                summary.contains("upstream update stamp is fresh")
-            val cellsAttributed = rowCellCount > 0 && screenshotSourceCells > 0
+            val detailsFresh = details.contains("fresh source stamp; not event time")
+            val summaryFresh = summary.contains("upstream update stamp is fresh")
+            val fresh = detailsFresh && summaryFresh
+            val cellsAttributed = rowCellCount > 0 && screenshotSourceCells == rowCellCount
             val selectedSourceVisible = selected.contains("Selected WIMT .in live-status feed", true)
             val passed = selectedSourceVisible && http200 && runMatched && routeMatched && fresh &&
                 reportRows > 0 && cellsAttributed && summary.contains("source-reported stop row")
@@ -141,7 +150,8 @@ class WimtLiveApiAcceptanceTest {
             // route IDs, event clocks, or raw transport receipt is printed to the workflow log.
             Log.i("WimtLiveApiAcceptance", "WIMT_LIVE_DEVICE_RESULT http200=$http200 " +
                 "runDateMatched=$runMatched routeMatched=$routeMatched freshUpdate=$fresh " +
-                "evidenceRows=$reportRows visibleSourceCells=$screenshotSourceCells selected=$selectedSourceVisible")
+                "evidenceRows=$reportRows visibleSourceCells=$screenshotSourceCells " +
+                "selected=$selectedSourceVisible detailsFresh=$detailsFresh summaryFresh=$summaryFresh")
             assertTrue("The installed app did not show fresh, run/date/route-matched WIMT .in stop " +
                 "times in its table; HTTP 200, stale data, a station field, timetable, or fallback " +
                 "is not acceptance. selected=$selectedSourceVisible http200=$http200 " +
