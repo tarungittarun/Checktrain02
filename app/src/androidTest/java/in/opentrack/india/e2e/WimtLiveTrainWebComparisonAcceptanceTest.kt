@@ -523,9 +523,15 @@ class WimtLiveTrainWebComparisonAcceptanceTest {
     }
 
     private fun leaveSettingsForSearch(): Boolean {
-        E2E.ui.pressBack()
+        // Use the Settings screen's visible Back control first. A system Back can be consumed by
+        // a still-focused native spinner/IME, leaving the test on Settings while looking idle.
+        val tappedBack = E2E.reveal("back", "settingsScroll", up = false) &&
+            E2E.tap("back", 1_000)
+        if (!tappedBack) E2E.ui.pressBack()
         E2E.ui.waitForIdle()
-        return runCatching { E2E.awaitSearchScreen(); true }.getOrDefault(false)
+        val searchVisible = E2E.visible("settings", E2E.LOCAL_MS) &&
+            (E2E.visible("fromBox", 1_000) || E2E.visible("editSearch", 1_000))
+        return searchVisible
     }
 
     private fun shot(result: Attempt, tag: String) {
