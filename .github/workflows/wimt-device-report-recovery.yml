@@ -13,25 +13,69 @@ on:
         description: 'Existing wimt-device-acceptance run ID; no new provider request'
         required: true
         type: string
+      artifact_name:
+        description: 'Exact evidence-artifact name from that existing run'
+        required: false
+        type: string
+        default: wimt-device-evidence
 permissions:
   actions: read
   contents: write
 jobs:
   recover:
-    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[wimt-recover]')
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[wimt-recover:')
     runs-on: ubuntu-latest
     timeout-minutes: 4
     steps:
       - uses: actions/checkout@v4
+      - name: Validate the bounded artifact parser (offline)
+        run: python3 tools/ci/wimt_recover.py --self-test
+      - name: Resolve the exact existing run and artifact
+        id: source
+        env:
+          SOURCE_RUN_INPUT: ${{ inputs.source_run }}
+          SOURCE_ARTIFACT_INPUT: ${{ inputs.artifact_name }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            source_run="$SOURCE_RUN_INPUT"
+            artifact_name="${SOURCE_ARTIFACT_INPUT:-wimt-device-evidence}"
+          else
+            source_run=$(python3 - "$GITHUB_EVENT_PATH" <<'PY'
+          import json, re, sys
+          event = json.load(open(sys.argv[1], encoding="utf-8"))
+          message = event.get("head_commit", {}).get("message", "")
+          match = re.search(r"\[wimt-recover:([0-9]+):([A-Za-z0-9._-]{1,100})\]", message)
+          if not match:
+              raise SystemExit("push recovery requires [wimt-recover:RUN_ID:ARTIFACT_NAME]")
+          print(match.group(1))
+          PY
+          )
+            artifact_name=$(python3 - "$GITHUB_EVENT_PATH" <<'PY'
+          import json, re, sys
+          event = json.load(open(sys.argv[1], encoding="utf-8"))
+          message = event.get("head_commit", {}).get("message", "")
+          match = re.search(r"\[wimt-recover:([0-9]+):([A-Za-z0-9._-]{1,100})\]", message)
+          if not match:
+              raise SystemExit("push recovery requires [wimt-recover:RUN_ID:ARTIFACT_NAME]")
+          print(match.group(2))
+          PY
+          )
+          fi
+          [[ "$source_run" =~ ^[0-9]+$ ]]
+          [[ "$artifact_name" =~ ^[A-Za-z0-9._-]{1,100}$ ]]
+          printf 'source_run=%s\n' "$source_run" >> "$GITHUB_OUTPUT"
+          printf 'artifact_name=%s\n' "$artifact_name" >> "$GITHUB_OUTPUT"
       - uses: actions/download-artifact@v4
         with:
-          name: wimt-device-evidence
-          run-id: ${{ inputs.source_run || '42026847014' }}
+          name: ${{ steps.source.outputs.artifact_name }}
+          run-id: ${{ steps.source.outputs.source_run }}
           github-token: ${{ github.token }}
           path: recovered-wimt
       - name: Report actual device failure, no further website request
         env:
           GH_TOKEN: ${{ github.token }}
+          WIMT_SOURCE_RUN: ${{ steps.source.outputs.source_run }}
+          WIMT_SOURCE_ARTIFACT: ${{ steps.source.outputs.artifact_name }}
         run: |
           python3 tools/ci/wimt_recover.py recovered-wimt
           cat recovered-wimt/recovered-report.md >> "$GITHUB_STEP_SUMMARY"
