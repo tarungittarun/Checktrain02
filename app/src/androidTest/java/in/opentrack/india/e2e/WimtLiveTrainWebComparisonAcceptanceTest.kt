@@ -357,23 +357,24 @@ class WimtLiveTrainWebComparisonAcceptanceTest {
         }
         return result
         } finally {
-            if (sourceChoiceTouched) {
-                result.defaultResetSucceeded = runCatching { resetDefaultToNtes(result) }.getOrElse {
-                    result.defaultResetFailure = "reset-exception:${it.javaClass.simpleName}"
-                    false
-                }
-                if (!result.defaultResetSucceeded) {
-                    result.stopAfterHostFailure = true
-                    result.reason = listOf(result.reason,
-                        "Could not persist NTES as the next tracking screen's default source " +
-                            "(${result.defaultResetFailure ?: "unknown reset stage"}).")
-                        .filter { it.isNotBlank() }.joinToString(" ")
-                } else if (!result.defaultActiveSourceRestored) {
-                    result.reason = listOf(result.reason,
-                        "NTES is verified as the saved next-screen default in Settings; the current " +
-                            "track screen remained on the selected WIMT source.")
-                        .filter { it.isNotBlank() }.joinToString(" ")
-                }
+            // Verify and persist NTES after every candidate, including a search miss. Otherwise
+            // a candidate that never opened a tracking result looks like a failed reset and
+            // prematurely prevents the remaining live candidates from being tried.
+            result.defaultResetSucceeded = runCatching { resetDefaultToNtes(result) }.getOrElse {
+                result.defaultResetFailure = "reset-exception:${it.javaClass.simpleName}"
+                false
+            }
+            if (!result.defaultResetSucceeded) {
+                result.stopAfterHostFailure = true
+                result.reason = listOf(result.reason,
+                    "Could not persist NTES as the next tracking screen's default source " +
+                        "(${result.defaultResetFailure ?: "unknown reset stage"}).")
+                    .filter { it.isNotBlank() }.joinToString(" ")
+            } else if (sourceChoiceTouched && !result.defaultActiveSourceRestored) {
+                result.reason = listOf(result.reason,
+                    "NTES is verified as the saved next-screen default in Settings; the current " +
+                        "track screen remained on the selected WIMT source.")
+                    .filter { it.isNotBlank() }.joinToString(" ")
             }
         }
     }
