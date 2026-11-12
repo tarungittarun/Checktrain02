@@ -91,7 +91,11 @@ class WimtLiveApiAcceptanceTest {
             // A source timestamp a few seconds ahead is not treated as fresh early. The app's
             // one-shot local recheck may update it without issuing a second HTTP request.
             E2E.ui.waitForIdle()
-            var screenshotSourceCells = visibleWimtSourceCellCount()
+            summary = E2E.text("sourceSummary", 500)
+            selected = E2E.find("sourceSpinner", 500)?.contentDescription.orEmpty()
+            val summaryAtTableCapture = summary
+            val selectedAtTableCapture = selected
+            val screenshotSourceCells = visibleWimtSourceCellCount()
             E2E.shotWimt("wimt-live-after-selected-source")
 
             assertTrue("source details picker is not reachable", E2E.reveal("sourceSpinner", "scroller"))
@@ -105,33 +109,12 @@ class WimtLiveApiAcceptanceTest {
             val details = detailsNode!!.text.orEmpty()
             E2E.shotWimt("wimt-live-source-details")
 
-            // Close both nested explanation dialogs, then read current app state. A source stamp
-            // may cross its small future-skew window while the details dialog is open.
+            // Close both nested explanation dialogs after capturing the table. Acceptance uses
+            // the summary and visible cells saved with that screenshot, not a later re-render.
             E2E.ui.pressBack()
             E2E.ui.waitForIdle()
             E2E.ui.pressBack()
             E2E.ui.waitForIdle()
-            summary = E2E.text("sourceSummary", 500)
-            selected = E2E.find("sourceSpinner", 500)?.contentDescription.orEmpty()
-
-            // Inspect only visible route cells attributed to the selected source; details rows
-            // cannot substitute for clocks rendered in the ACTUAL table.
-            var rowCellCount = visibleWimtSourceCellCount()
-            val finalTableDeadline = System.currentTimeMillis() + 10_000L
-            while (summary.contains("source-reported stop row", true) && rowCellCount == 0 &&
-                System.currentTimeMillis() < finalTableDeadline) {
-                E2E.ui.waitForIdle()
-                Thread.sleep(250)
-                rowCellCount = visibleWimtSourceCellCount()
-            }
-            // Compare the instrumented assertion with a capture of this final settled table,
-            // not the earlier table state from before opening Source details.
-            E2E.ui.waitForIdle()
-            summary = E2E.text("sourceSummary", 500)
-            selected = E2E.find("sourceSpinner", 500)?.contentDescription.orEmpty()
-            rowCellCount = visibleWimtSourceCellCount()
-            E2E.shotWimt("wimt-live-after-selected-source")
-            screenshotSourceCells = visibleWimtSourceCellCount()
 
             val reportRows = Regex("""Selected WIMT \.in source-reported rows \((\d+)\):""")
                 .find(details)?.groupValues?.get(1)?.toIntOrNull() ?: 0
@@ -139,12 +122,14 @@ class WimtLiveApiAcceptanceTest {
             val runMatched = details.contains("Run date echoed and matched: true")
             val routeMatched = details.contains("both route endpoints echoed and matched: true")
             val detailsFresh = details.contains("fresh source stamp; not event time")
-            val summaryFresh = summary.contains("upstream update stamp is fresh")
+            val summaryFresh = summaryAtTableCapture.contains("upstream update stamp is fresh")
             val fresh = detailsFresh && summaryFresh
-            val cellsAttributed = rowCellCount > 0 && screenshotSourceCells == rowCellCount
-            val selectedSourceVisible = selected.contains("Selected WIMT .in live-status feed", true)
+            val cellsAttributed = screenshotSourceCells > 0
+            val selectedSourceVisible = selectedAtTableCapture.contains(
+                "Selected WIMT .in live-status feed", true)
             val passed = selectedSourceVisible && http200 && runMatched && routeMatched && fresh &&
-                reportRows > 0 && cellsAttributed && summary.contains("source-reported stop row")
+                reportRows > 0 && cellsAttributed &&
+                summaryAtTableCapture.contains("source-reported stop row")
 
             // Safe, bounded diagnostics only: no response body, headers, cookies, URL identifiers,
             // route IDs, event clocks, or raw transport receipt is printed to the workflow log.
@@ -156,7 +141,7 @@ class WimtLiveApiAcceptanceTest {
                 "times in its table; HTTP 200, stale data, a station field, timetable, or fallback " +
                 "is not acceptance. selected=$selectedSourceVisible http200=$http200 " +
                 "runDate=$runMatched route=$routeMatched fresh=$fresh rows=$reportRows " +
-                "visibleSourceCells=$rowCellCount", passed)
+                "visibleSourceCells=$screenshotSourceCells", passed)
             Log.i("WimtLiveApiAcceptance", "WIMT_LIVE_DEVICE_VERDICT=PASS_FRESH_MATCHED_SOURCE_TIMES_IN_APP")
             E2E.assertNoSystemDialog("WIMT .in live-status source")
         } finally {
