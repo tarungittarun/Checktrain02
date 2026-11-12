@@ -701,8 +701,9 @@ class LiveViewModel(
             probeSource(it, select = false)
         }
         // A saved WIMT default is a deliberate source choice: check its direct `.in` feed once
-        // after the timetable has painted. Do not ask this endpoint on an NTES-only first load.
-        if (mirrorActiveSource == TrackingSources.WIMT)
+        // after the timetable has painted. Do not ask this endpoint on an NTES-only first load,
+        // or repeat a manual WIMT selection that completed before this first-load survey ran.
+        if (mirrorActiveSource == TrackingSources.WIMT && manualProbeSource == null)
             probeSource(TrackingSources.WIMT, select = false)
     }
 

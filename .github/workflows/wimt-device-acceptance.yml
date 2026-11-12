@@ -24,12 +24,17 @@ on:
       - 'tools/ci/test_verify_wimt_cache_screens.py'
       - 'app/src/androidTest/java/in/opentrack/india/e2e/WimtCacheLiveAcceptanceTest.kt'
       - 'app/src/androidTest/java/in/opentrack/india/e2e/WimtLiveApiAcceptanceTest.kt'
+      - 'app/src/androidTest/java/in/opentrack/india/e2e/WimtLiveTrainWebComparisonAcceptanceTest.kt'
       - 'app/src/main/java/in/opentrack/india/remote/WimtLiveProvider.kt'
       - 'app/src/test/java/in/opentrack/india/remote/WimtLiveProviderTest.kt'
       - 'tools/ci/run_wimt_live_api_device.sh'
       - 'tools/ci/verify_wimt_live_screens.py'
       - 'tools/ci/wimt_live_device_report.py'
       - 'tools/ci/build_wimt_live_pdf.py'
+      - 'tools/ci/verify_wimt_live_comparison_screens.py'
+      - 'tools/ci/wimt_live_comparison_report.py'
+      - 'tools/ci/build_wimt_live_comparison_pdf.py'
+      - 'tools/ci/test_wimt_live_comparison_report.py'
       - 'app/src/main/java/in/opentrack/india/v2/mirror/WimtCandidate.kt'
       - 'app/src/main/java/in/opentrack/india/v2/mirror/WimtCacheRequest.kt'
       - 'app/src/main/java/in/opentrack/india/v2/mirror/WebsiteRequestPacing.kt'
@@ -273,10 +278,10 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  # Same upstream /cache/live_status endpoint as the comparison path, but this
-  # job tests the installed app's selected-source integration into its stop table.
-  # The endpoint may itself be server-cached. A one-use push marker is the
-  # fallback when the GitHub integration cannot dispatch workflows.
+  # Compare the installed app's selected `.in` source with its explicit web-cache
+  # comparison path for the same train/date. Both request the same undocumented
+  # endpoint, which may itself be server-cached; neither proves Google-app parity.
+  # A one-use push marker is the authorized fallback when dispatch is denied.
   live_api_device:
     if: (github.event_name == 'workflow_dispatch' && inputs.source == 'live-api') || (github.event_name == 'push' && contains(github.event.head_commit.message, '[wimt-live-api-device]'))
     runs-on: ubuntu-latest
@@ -293,10 +298,16 @@ jobs:
           set -euo pipefail
           python3 tools/ci/wimt_live_device_report.py --self-test
           python3 tools/ci/verify_wimt_live_screens.py --self-test
+          python3 tools/ci/wimt_live_comparison_report.py --self-test
+          python3 tools/ci/verify_wimt_live_comparison_screens.py --self-test
+          python3 tools/ci/test_wimt_live_comparison_report.py
           python3 -m py_compile \
             tools/ci/verify_wimt_live_screens.py \
             tools/ci/wimt_live_device_report.py \
-            tools/ci/build_wimt_live_pdf.py
+            tools/ci/build_wimt_live_pdf.py \
+            tools/ci/verify_wimt_live_comparison_screens.py \
+            tools/ci/wimt_live_comparison_report.py \
+            tools/ci/build_wimt_live_comparison_pdf.py
           python3 tools/ci/check_kotlin_balance.py app/src
           python3 tools/ci/check_refs.py app/src/main/java
           python3 tools/ci/check_members.py
@@ -322,7 +333,18 @@ jobs:
           ./gradlew --no-daemon :app:testDebugUnitTest \
             :app:assembleDebug :app:assembleDebugAndroidTest --stacktrace
 
-      - name: Install and run one deliberate WIMT .in source selection
+      - name: Preserve the exact app and instrumentation APKs built for this device run
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wimt-live-api-installed-apks-${{ github.run_id }}
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Install the exact APKs and compare fresh WIMT data for multiple trains
         run: bash tools/ci/run_wimt_live_api_device.sh
 
       - name: Build and publish a PDF only from verified in-app captures
@@ -340,8 +362,8 @@ jobs:
               > wimt-live-device-evidence/result.json
           fi
           if python3 -m pip install --disable-pip-version-check --quiet reportlab==4.2.5; then
-            pdf="wimt-live-device-evidence/wimt-live-api-${SOURCE_RUN}.pdf"
-            if python3 tools/ci/build_wimt_live_pdf.py \
+            pdf="wimt-live-device-evidence/wimt-live-comparison-${SOURCE_RUN}.pdf"
+            if python3 tools/ci/build_wimt_live_comparison_pdf.py \
                 wimt-live-device-evidence "$pdf" "$SOURCE_RUN" "$SOURCE_SHA" \
                 > wimt-live-device-evidence/pdf-verification.json \
                 2> wimt-live-device-evidence/pdf-error.txt; then
@@ -369,21 +391,26 @@ jobs:
           result = json.loads(path.read_text(encoding='utf-8'))
           safe = {
               'source': result.get('source'),
+              'comparisonMeaning': result.get('comparisonMeaning'),
               'accepted': result.get('accepted') is True,
               'verdict': result.get('verdict'),
+              'parityVerified': result.get('parityVerified') is True,
+              'eventValuesMatch': result.get('eventValuesMatch') is True,
+              'minimumComparisons': result.get('minimumComparisons'),
+              'completedComparisons': result.get('completedComparisons'),
+              'eventMismatchCount': result.get('eventMismatchCount'),
               'installedApkTestPassed': result.get('installedApkTestPassed') is True,
               'deviceTestResultCaptured': result.get('deviceTestResultCaptured') is True,
               'evidenceConflicts': result.get('evidenceConflicts', []),
-              'liveEvidence': result.get('liveEvidence'),
-              'httpStatusVisibleInSourceDetails': result.get('httpStatusVisibleInSourceDetails'),
+              'comparisons': result.get('comparisons', []),
+              'attempts': result.get('attempts', []),
               'inAppScreensVerified': result.get('inAppScreensVerified') is True,
               'reason': result.get('reason'),
           }
-          report = '### Direct WIMT `.in` installed-app acceptance\n\n```json\n'
+          report = '### WIMT `.in` installed-app same-train/date comparison\n\n```json\n'
           report += json.dumps(safe, indent=2, sort_keys=True)
-          report += '\n```\n\nThis tests the selected-source path; the endpoint may be server-cached. '
-          report += 'It is not the app\'s comparison-only rendering path, `.org.in`, or the Google phone app. '
-          report += 'A screenshot or HTTP 200 alone is not a live-data pass.\n'
+          report += '\n```\n\nThe selected-source and explicit web-cache paths both request the same undocumented `.in/cache/live_status` endpoint; this is not independent source parity. '
+          report += 'It is not the `.org.in` website or Google's WIMT Android app. Freshness, run date, route, current-station claims and genuine app-window captures are required; HTTP 200 or a timetable alone is not acceptance.\n'
           pdf_link = Path('wimt-live-device-evidence/pdf-link.txt')
           if pdf_link.is_file():
               report += '\nActual in-app screenshot PDF: ' + pdf_link.read_text().strip().removeprefix('PDF_RELEASE_URL=') + '\n'

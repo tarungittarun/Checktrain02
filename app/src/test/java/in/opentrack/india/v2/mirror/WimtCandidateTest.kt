@@ -153,6 +153,9 @@ class WimtCandidateTest {
         assertEquals(200, r.responseStatus)
         assertTrue(r.responseReceived)
         assertEquals(setOf("YPR"), r.lines.keys)
+        assertEquals(null, r.trainNumberMatched)
+        assertTrue("the endpoint did not echo a train number in this fixture", !r.trainNumberEchoed)
+        assertTrue(r.detail.contains("response train number not echoed; request used train 20689"))
         val fourDigit = WimtCandidate.fetch("1202", day, "YPR", "SMET", setOf("YPR"), now) { url ->
             assertTrue("legacy four-digit train numbers follow the same endpoint",
                 url.contains("train_no=1202&date=14-10-2026&lang=en"))
@@ -172,6 +175,21 @@ class WimtCandidateTest {
         val invalidTo = WimtCandidate.fetch("20689", day, "YPR", "S",
             setOf("YPR"), now) { error("invalid destination code must not request the web cache") }
         assertTrue(invalidTo.lines.isEmpty())
+    }
+
+    @Test fun `web-cache fetch rejects an echoed different train number`() {
+        val wrongTrain = capture.replace("\"start_date\":", "\"train_no\":\"12951\",\"start_date\":")
+        val result = WimtCandidate.fetch("20689", day, "YPR", "SMET",
+            setOf("YPR", "BAW", "VNR", "RRB", "SMET"), now) { url ->
+            assertTrue(url.contains("train_no=20689"))
+            WimtCandidate.WireReply(wrongTrain, 200, "ok")
+        }
+        assertEquals(200, result.responseStatus)
+        assertTrue(result.responseReceived)
+        assertEquals(false, result.trainNumberMatched)
+        assertTrue(result.trainNumberEchoed)
+        assertTrue(result.lines.isEmpty())
+        assertTrue(result.detail.contains("response train number did not match requested train"))
     }
 
     @Test fun `Gravity01 clock-string rows are schedule-dated and never promoted to actuals`() {

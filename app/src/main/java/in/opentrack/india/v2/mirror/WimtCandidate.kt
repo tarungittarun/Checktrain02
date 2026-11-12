@@ -38,6 +38,9 @@ object WimtCandidate {
         /** Transport metadata is separate from parsed source claims. */
         val responseStatus: Int? = null,
         val responseReceived: Boolean = false,
+        /** Null means this web-cache response did not echo a train number. */
+        val trainNumberMatched: Boolean? = null,
+        val trainNumberEchoed: Boolean = false,
     )
     private data class ParsedTime(val railMinute: Int, val field: String)
 
@@ -84,10 +87,26 @@ object WimtCandidate {
             return Result(emptyMap(), "HTTP 200; response exceeded ${MAX_RESPONSE_BYTES / 1000} kB",
                 responseStatus = reply.status, responseReceived = true)
         }
+        val root = runCatching { JSONObject(reply.body) }.getOrNull()
+        val echoedTrain = root?.let { obj ->
+            listOf("train_no", "train_number", "trainNo").firstNotNullOfOrNull { key ->
+                obj.optString(key).trim().takeIf { it.isNotEmpty() && !it.equals("null", true) }
+            }
+        }
+        if (echoedTrain != null && echoedTrain != number) {
+            return Result(emptyMap(), "HTTP 200; response train number did not match requested train",
+                responseStatus = reply.status, responseReceived = true,
+                trainNumberMatched = false, trainNumberEchoed = true)
+        }
         val parsed = parse(reply.body, epochDay, from, to, nowMillis, knownCodes,
             knownKms, knownTimes)
-        return parsed.copy(detail = "HTTP 200; ${parsed.detail}",
-            responseStatus = reply.status, responseReceived = true)
+        val trainIdentity = if (echoedTrain == null)
+            "response train number not echoed; request used train $number"
+        else "response train number matched requested train"
+        return parsed.copy(detail = "HTTP 200; $trainIdentity; ${parsed.detail}",
+            responseStatus = reply.status, responseReceived = true,
+            trainNumberMatched = echoedTrain?.let { it == number },
+            trainNumberEchoed = echoedTrain != null)
     }
 
     fun parse(body: String, epochDay: Long, from: String, to: String, nowMillis: Long,

@@ -1,46 +1,53 @@
 #!/usr/bin/env bash
-# Install the exact debug APK, select WIMT .in once, and retain only its own in-app evidence.
+# Install the exact debug APK and compare a small set of live WIMT runs in the installed app.
+# Each source request is deliberate, read-only and single-shot; a refusal is not retried.
 set -euo pipefail
 OUT=${WIMT_LIVE_EVIDENCE_DIR:-wimt-live-device-evidence}
 mkdir -p "$OUT/screens"
 : > "$OUT/instrumentation.txt"
+: > "$OUT/device-log.txt"
 finish() {
   rc=$?
   set +e
   export PATH="${ANDROID_HOME:-/usr/local/lib/android/sdk}/platform-tools:$PATH"
-  # Pull only screenshots/hierarchies captured by E2E.shotWimt inside the running target app.
-  for name in wimt-live-before-selected-source wimt-live-after-selected-source \
-              wimt-live-source-details wimt-live-final-even-on-failure; do
-    for ext in png xml; do
-      adb exec-out run-as in.opentrack.india cat "files/evidence/$name.$ext" \
-        > "$OUT/screens/$name.$ext" 2>/dev/null || rm -f "$OUT/screens/$name.$ext"
-    done
-  done
-  adb logcat -d -s WimtLiveApiAcceptance:I > "$OUT/device-log.txt" 2>/dev/null || true
-  cat "$OUT/device-log.txt" >> "$OUT/instrumentation.txt" 2>/dev/null || true
-  screen_mode=()
-  if grep -q 'OK (1 test)' "$OUT/instrumentation.txt" && \
-     grep -q 'WIMT_LIVE_DEVICE_VERDICT=PASS_FRESH_MATCHED_SOURCE_TIMES_IN_APP' \
-       "$OUT/instrumentation.txt" && ! grep -q 'FAILURES!!!' "$OUT/instrumentation.txt"; then
-    screen_mode=(--accepted)
+  # Recover only captures named by the fresh test. The app data is cleared before each workflow run.
+  listing=$(adb shell run-as in.opentrack.india sh -c \
+    'cd files/evidence 2>/dev/null && ls wimt-compare-* 2>/dev/null' 2>/dev/null | tr -d '\r')
+  while IFS= read -r name; do
+    [[ "$name" =~ ^wimt-compare-[0-9]{4,5}-(before|app-live|app-details|web-cache|web-details|final)\.(png|xml)$ ]] || continue
+    adb exec-out run-as in.opentrack.india cat "files/evidence/$name" \
+      > "$OUT/screens/$name" 2>/dev/null || rm -f "$OUT/screens/$name"
+  done <<< "$listing"
+  adb logcat -d -s WimtMultiTrain:I > "$OUT/device-log.txt" 2>/dev/null || true
+  # The full event diff can exceed logcat's per-message limit. Recover one JSONL record
+  # written by the installed test under the target app UID, then feed it to the same verifier.
+  if adb exec-out run-as in.opentrack.india cat \
+      files/evidence/wimt-comparison-attempts.jsonl > "$OUT/attempts.jsonl" 2>/dev/null; then
+    while IFS= read -r payload; do
+      [ -n "$payload" ] || continue
+      printf 'WIMT_MULTI_ATTEMPT_JSON=%s\n' "$payload" >> "$OUT/device-log.txt"
+    done < "$OUT/attempts.jsonl"
+  else
+    : > "$OUT/attempts.jsonl"
   fi
-  if ! python3 tools/ci/verify_wimt_live_screens.py "$OUT" "${screen_mode[@]}" \
-      > "$OUT/screen-verification.json" 2> "$OUT/screen-verification-error.txt"; then
+  verify_rc=1
+  if python3 tools/ci/verify_wimt_live_comparison_screens.py "$OUT" \
+       --device-log "$OUT/device-log.txt" \
+       > "$OUT/screen-verification.json" 2> "$OUT/screen-verification-error.txt"; then
+    verify_rc=0
+  else
     rm -f "$OUT/screen-verification.json"
     cat "$OUT/screen-verification-error.txt"
-    [ "$rc" -ne 0 ] || rc=4
   fi
-  python3 tools/ci/wimt_live_device_report.py "$OUT/instrumentation.txt" "$rc" \
-    "$OUT/screen-verification.json" > "$OUT/result.json" || true
-  if [ "$rc" -eq 0 ] && ! python3 - "$OUT/result.json" <<'PY'
-import json, sys
-with open(sys.argv[1], encoding="utf-8") as f:
-    raise SystemExit(0 if json.load(f).get("accepted") is True else 1)
-PY
-  then
+  python3 tools/ci/wimt_live_comparison_report.py \
+    --instrumentation "$OUT/instrumentation.txt" \
+    --device-log "$OUT/device-log.txt" \
+    --return-code "$rc" \
+    --screen-verification "$OUT/screen-verification.json" \
+    > "$OUT/result.json"
+  report_rc=$?
+  if [ "$rc" -eq 0 ] && { [ "$verify_rc" -ne 0 ] || [ "$report_rc" -ne 0 ]; }; then
     rc=5
-    python3 tools/ci/wimt_live_device_report.py "$OUT/instrumentation.txt" "$rc" \
-      "$OUT/screen-verification.json" > "$OUT/result.json" || true
   fi
   cat "$OUT/result.json" 2>/dev/null || true
   trap - EXIT
@@ -73,18 +80,18 @@ cmp app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk /tmp/wimt-
 rm -f /tmp/wimt-live-installed.apk /tmp/wimt-live-installed-test.apk
 adb shell pm clear in.opentrack.india
 adb logcat -c
-# One deliberate `.in` source selection; the test never retries it or enables Auto refresh.
-# The app's normal first-load/identity behavior remains unchanged.
+# The installed test selects WIMT .in once per candidate and the explicit cache comparison only
+# after a direct source response qualifies. It stops after three comparisons or any host refusal.
 set +e
-timeout 240 adb shell am instrument -w -e class \
-  in.opentrack.india.e2e.WimtLiveApiAcceptanceTest#installedApkMustFetchFreshRunMatchedWimtLiveStopTimes \
+timeout 1500 adb shell am instrument -w -e class \
+  in.opentrack.india.e2e.WimtLiveTrainWebComparisonAcceptanceTest#installedApkMustCompareThreeFreshSameTrainAndDateWimtRuns \
   in.opentrack.india.test/androidx.test.runner.AndroidJUnitRunner \
   > "$OUT/instrumentation.txt" 2>&1
 rc=$?
 set -e
 if [ "$rc" -ne 0 ] || ! grep -q 'OK (1 test)' "$OUT/instrumentation.txt" || \
    grep -q 'FAILURES!!!' "$OUT/instrumentation.txt"; then
-  tail -50 "$OUT/instrumentation.txt"
+  tail -80 "$OUT/instrumentation.txt"
   exit 1
 fi
-# EXIT trap requires matching fresh source evidence and all three in-app captures before a pass.
+# EXIT trap validates every completed comparison against its genuine app-window PNG/XML captures.
