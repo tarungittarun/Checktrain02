@@ -10,6 +10,8 @@ import argparse
 import json
 import re
 import sys
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from verify_wimt_live_comparison_screens import parse_attempts
 
@@ -44,6 +46,29 @@ def _valid_capture_manifest(row: dict) -> bool:
     return True
 
 
+def _parse_ist_millis(value: str) -> int | None:
+    if not isinstance(value, str):
+        return None
+    for pattern in ("%d %b %Y %H:%M:%S.%f IST", "%d %b %Y %H:%M:%S IST"):
+        try:
+            parsed = datetime.strptime(value, pattern).replace(tzinfo=ZoneInfo("Asia/Kolkata"))
+            return int(parsed.timestamp() * 1_000)
+        except ValueError:
+            continue
+    return None
+
+
+def _web_freshness_consistent(attempt: dict) -> bool:
+    updated = _parse_ist_millis(attempt.get("webFreshestRowUpdatedAt"))
+    checked = _parse_ist_millis(attempt.get("webFreshnessCheckedAt"))
+    age_seconds = attempt.get("webFreshestRowAgeSeconds")
+    if updated is None or checked is None or not isinstance(age_seconds, int) or \
+            isinstance(age_seconds, bool):
+        return False
+    age_millis = checked - updated
+    return 0 <= age_millis <= 600_000 and age_millis // 1_000 == age_seconds
+
+
 def _strict_attempt(attempt: dict) -> bool:
     try:
         return (
@@ -72,6 +97,7 @@ def _strict_attempt(attempt: dict) -> bool:
             isinstance(attempt.get("webFreshestRowAgeSeconds"), int) and
             not isinstance(attempt.get("webFreshestRowAgeSeconds"), bool) and
             0 <= attempt["webFreshestRowAgeSeconds"] <= 600 and
+            _web_freshness_consistent(attempt) and
             attempt.get("webDateMatched") is True and
             attempt.get("webRouteMatched") is True and
             attempt.get("webTrainNumberEchoMatched") is not False and
@@ -155,6 +181,8 @@ def make_report(instrumentation: str, device_log: str, return_code: int,
                 "responseTrainNumberEchoMatched": attempt.get("webTrainNumberEchoMatched"),
                 "rowUpdateFresh": attempt.get("webFresh"),
                 "freshestRowAgeSeconds": attempt.get("webFreshestRowAgeSeconds"),
+                "freshestRowUpdatedAt": attempt.get("webFreshestRowUpdatedAt"),
+                "freshnessCheckedAt": attempt.get("webFreshnessCheckedAt"),
                 "serviceDateMatched": attempt.get("webDateMatched"),
                 "routeMatched": attempt.get("webRouteMatched"),
                 "sourceReportedRows": attempt.get("webSourceRows"),
@@ -180,6 +208,10 @@ def make_report(instrumentation: str, device_log: str, return_code: int,
                          for c in comparisons)
     all_refused = any(a.get("verdict", "").endswith(("HTTP_403_REFUSED", "HTTP_429_RATE_LIMITED"))
                       for a in attempts)
+    attempt_verdict_counts: dict[str, int] = {}
+    for attempt in attempts:
+        label = str(attempt.get("verdict", "UNKNOWN"))
+        attempt_verdict_counts[label] = attempt_verdict_counts.get(label, 0) + 1
     if accepted:
         verdict = "COMPARISONS_COMPLETE_MISMATCHES_REPORTED" if mismatch_count else \
             "COMPARISONS_COMPLETE_NO_EVENT_MISMATCH"
@@ -192,13 +224,20 @@ def make_report(instrumentation: str, device_log: str, return_code: int,
     elif conflicts:
         verdict = "CAPTURE_OR_RESULT_CONFLICT"
         reason = "The installed-test result and captured app hierarchy disagree; the comparison is not accepted."
-    elif not screenshot_verifier_ok:
+    elif complete_logged and not screenshot_verifier_ok:
         verdict = "GENUINE_COMPARISON_SCREENSHOTS_NOT_VERIFIED"
-        reason = "The run did not provide matching, validated installed-app screenshots for its comparisons."
+        reason = "At least one source comparison completed, but matching, validated installed-app screenshots were not provided."
     else:
         verdict = "INSUFFICIENT_FRESH_SAME_DATE_COMPARISONS"
-        reason = (f"Only {len(verified)} of {MIN_COMPARISONS} required comparisons met every source, "
-                  "same-date, freshness, event-row, and genuine screenshot gate.")
+        if not complete_logged:
+            reasons = ", ".join(f"{name}={count}" for name, count in sorted(attempt_verdict_counts.items()))
+            reason = (f"No attempt completed the fresh same-train/date event comparison (0 of "
+                      f"{MIN_COMPARISONS} required). Attempt verdicts: {reasons or 'none'}. "
+                      "Acceptance screenshot verification was not applicable because there were no "
+                      "completed comparisons; diagnostic capture checks do not satisfy that gate.")
+        else:
+            reason = (f"Only {len(verified)} of {MIN_COMPARISONS} required comparisons met every source, "
+                      "same-date, freshness, event-row, and genuine screenshot gate.")
 
     return {
         "source": "Selected WIMT `.in` live-status source vs the explicit WIMT web-cache comparison path; both request whereismytrain.in/cache/live_status.",
@@ -211,6 +250,7 @@ def make_report(instrumentation: str, device_log: str, return_code: int,
         "minimumComparisons": MIN_COMPARISONS,
         "completedComparisons": len(verified),
         "eventMismatchCount": mismatch_count,
+        "sourceAttemptVerdictCounts": attempt_verdict_counts,
         "installedApkTestPassed": test_pass,
         "deviceTestResultCaptured": bool(attempts),
         "inAppScreensVerified": in_app_screens_verified,
@@ -235,6 +275,8 @@ def _valid_attempt(train: str) -> dict:
         "webSelected": True, "webHttpStatus": 200, "webSourceRows": 4, "webFresh": True,
         "webDateMatched": True, "webRouteMatched": True, "webTrainNumberEchoMatched": None,
         "webFreshestRowAgeSeconds": 40,
+        "webFreshestRowUpdatedAt": "12 Oct 2026 10:21:00 IST",
+        "webFreshnessCheckedAt": "12 Oct 2026 10:21:40.000 IST",
         "defaultActiveSourceRestored": True, "defaultPreferenceRestored": True,
         "defaultResetSucceeded": True, "stopAfterHostFailure": False,
         "overlappingEventFields": 2, "matchedEventFields": 1,
@@ -274,6 +316,14 @@ def self_test() -> None:
     assert make_report("OK (1 test)", stale_log, 0, screens)["accepted"] is False
     no_screens = make_report("OK (1 test)", log, 0, "{}")
     assert no_screens["accepted"] is False
+    assert no_screens["verdict"] == "GENUINE_COMPARISON_SCREENSHOTS_NOT_VERIFIED"
+    stale_cache = _valid_attempt("16315")
+    stale_cache.update(verdict="WEB_CACHE_SOURCE_NOT_QUALIFIED", webFresh=False)
+    stale_log = "WIMT_MULTI_ATTEMPT_JSON=" + json.dumps(stale_cache)
+    incomplete = make_report("FAILURES!!!", stale_log, 1, "{}")
+    assert incomplete["accepted"] is False
+    assert incomplete["verdict"] == "INSUFFICIENT_FRESH_SAME_DATE_COMPARISONS"
+    assert incomplete["inAppScreensVerified"] is False
     refused = _valid_attempt("16315")
     refused.update(verdict="DIRECT_HTTP_403_REFUSED", directHttpStatus=403)
     refused_log = "WIMT_MULTI_ATTEMPT_JSON=" + json.dumps(refused)

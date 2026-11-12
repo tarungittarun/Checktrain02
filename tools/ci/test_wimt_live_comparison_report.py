@@ -89,6 +89,40 @@ class WimtLiveComparisonReportTest(unittest.TestCase):
         self.assertFalse(report["accepted"])
         self.assertEqual(1, report["completedComparisons"])
 
+    def test_row_age_must_reconcile_to_captured_update_and_check_times(self):
+        attempts = json.loads(json.dumps(self.attempts))
+        attempts[0]["webFreshestRowAgeSeconds"] = 41
+        log = "\n".join(
+            "WIMT_MULTI_ATTEMPT_JSON=" + json.dumps(row) for row in attempts
+        ) + "\n" + PASS_LINE
+        report = make_report("OK (1 test)", log, 0, self.screens)
+        self.assertFalse(report["accepted"])
+        self.assertEqual(2, report["completedComparisons"])
+
+    def test_zero_completed_comparisons_is_not_misreported_as_screenshot_failure(self):
+        stale = _valid_attempt("16315")
+        stale.update(verdict="WEB_CACHE_SOURCE_NOT_QUALIFIED", webFresh=False,
+                     webFreshestRowAgeSeconds=2_658,
+                     webFreshestRowUpdatedAt="12 Oct 2026 09:37:22 IST",
+                     webFreshnessCheckedAt="12 Oct 2026 10:21:40.000 IST")
+        log = "WIMT_MULTI_ATTEMPT_JSON=" + json.dumps(stale)
+        screens = json.dumps({
+            "verified": False,
+            "verificationStatus": "NO_COMPLETED_COMPARISONS_TO_VERIFY",
+            "acceptedComparisonCount": 0,
+            "comparisons": [],
+            "diagnosticOnlyAttempts": [{
+                "trainNo": "16315", "countedTowardAcceptance": False,
+                "listedCaptureCount": 5, "validPngAndAppHierarchyCount": 5,
+            }],
+        })
+        report = make_report("FAILURES!!!", log, 1, screens)
+        self.assertFalse(report["accepted"])
+        self.assertEqual("INSUFFICIENT_FRESH_SAME_DATE_COMPARISONS", report["verdict"])
+        self.assertFalse(report["inAppScreensVerified"])
+        self.assertIn("WEB_CACHE_SOURCE_NOT_QUALIFIED=1", report["reason"])
+        self.assertEqual(5, report["screenshotVerification"]["diagnosticOnlyAttempts"][0]["validPngAndAppHierarchyCount"])
+
     def test_comparison_without_verified_saved_default_does_not_count(self):
         attempts = json.loads(json.dumps(self.attempts))
         attempts[0]["defaultPreferenceRestored"] = False

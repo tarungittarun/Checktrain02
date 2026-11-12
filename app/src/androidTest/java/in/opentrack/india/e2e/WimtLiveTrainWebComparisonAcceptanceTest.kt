@@ -12,6 +12,7 @@ import org.junit.runner.RunWith
 import java.io.File
 import java.text.ParsePosition
 import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 
@@ -53,6 +54,8 @@ class WimtLiveTrainWebComparisonAcceptanceTest {
         var webTrainNumberEchoMatched: Boolean? = null
         var webFresh: Boolean = false
         var webFreshestRowAgeSeconds: Long? = null
+        var webFreshestRowUpdatedAt: String? = null
+        var webFreshnessCheckedAt: String? = null
         var webSourceRows: Int = 0
         var overlappingEventFields: Int = 0
         var matchedEventFields: Int = 0
@@ -90,6 +93,8 @@ class WimtLiveTrainWebComparisonAcceptanceTest {
             putNullable("webTrainNumberEchoMatched", webTrainNumberEchoMatched)
             put("webFresh", webFresh)
             putNullable("webFreshestRowAgeSeconds", webFreshestRowAgeSeconds)
+            putNullable("webFreshestRowUpdatedAt", webFreshestRowUpdatedAt)
+            putNullable("webFreshnessCheckedAt", webFreshnessCheckedAt)
             put("webSourceRows", webSourceRows)
             put("overlappingEventFields", overlappingEventFields)
             put("matchedEventFields", matchedEventFields)
@@ -314,8 +319,11 @@ class WimtLiveTrainWebComparisonAcceptanceTest {
         result.webSourceRows = Regex(
             "WIMT web cache: (\\d+) source-reported web-cache time row\\(s\\)")
             .find(cacheEvidence)?.groupValues?.get(1)?.toIntOrNull() ?: 0
-        val freshestUpdate = freshestWebRowUpdateMillis(cacheEvidence)
-        val ageMillis = freshestUpdate?.let { System.currentTimeMillis() - it }
+        val freshestUpdate = freshestWebRowUpdate(cacheEvidence)
+        val checkedAtMillis = System.currentTimeMillis()
+        val ageMillis = freshestUpdate?.first?.let { checkedAtMillis - it }
+        result.webFreshestRowUpdatedAt = freshestUpdate?.second
+        result.webFreshnessCheckedAt = formatIstMillis(checkedAtMillis)
         result.webFreshestRowAgeSeconds = ageMillis?.takeIf { it >= 0L }?.div(1_000L)
         result.webFresh = ageMillis != null && ageMillis in 0L..MAX_WEB_ROW_AGE_MS
         val cacheSelectionStillVisible = webSelected.contains(
@@ -575,7 +583,7 @@ class WimtLiveTrainWebComparisonAcceptanceTest {
     private fun httpStatus(text: String): Int? = Regex("(?i)HTTP\\s+(\\d{3})")
         .find(text)?.groupValues?.get(1)?.toIntOrNull()
 
-    private fun freshestWebRowUpdateMillis(details: String): Long? {
+    private fun freshestWebRowUpdate(details: String): Pair<Long, String>? {
         val formatter = SimpleDateFormat("dd MMM yyyy HH:mm:ss 'IST'", Locale.ENGLISH).apply {
             timeZone = TimeZone.getTimeZone("Asia/Kolkata")
             isLenient = false
@@ -583,12 +591,18 @@ class WimtLiveTrainWebComparisonAcceptanceTest {
         return Regex("(?i)row update (\\d{1,2} [A-Za-z]{3} \\d{4} \\d{2}:\\d{2}:\\d{2} IST)")
             .findAll(details)
             .mapNotNull { match ->
+                val text = match.groupValues[1]
                 val position = ParsePosition(0)
-                formatter.parse(match.groupValues[1], position)
-                    ?.time?.takeIf { position.index == match.groupValues[1].length }
+                formatter.parse(text, position)
+                    ?.time?.takeIf { position.index == text.length }?.let { it to text }
             }
-            .maxOrNull()
+            .maxByOrNull { it.first }
     }
+
+    private fun formatIstMillis(millis: Long): String =
+        SimpleDateFormat("dd MMM yyyy HH:mm:ss.SSS 'IST'", Locale.ENGLISH).apply {
+            timeZone = TimeZone.getTimeZone("Asia/Kolkata")
+        }.format(Date(millis))
 
     private fun parseEventRows(details: String, webCache: Boolean): Map<String, EventClocks> {
         val line = Regex("(?m)^\\s*•\\s*([A-Z0-9]{2,6})\\s*·\\s*(.+?)\\s*$")
