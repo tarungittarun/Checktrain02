@@ -13,6 +13,7 @@ import `in`.opentrack.india.remote.RailGeoRoute
 import `in`.opentrack.india.remote.OfflineCorridorMap
 import `in`.opentrack.india.remote.OfficialScheduleCache
 import `in`.opentrack.india.remote.NtesWire
+import `in`.opentrack.india.remote.WimtLiveProvider
 import `in`.opentrack.india.domain.PositionEngine
 import `in`.opentrack.india.domain.RouteBetween
 import `in`.opentrack.india.domain.Suggestion
@@ -59,6 +60,22 @@ data class ErailLiveIdentity(
     val depMinute: Int?,
     val arrMinute: Int?,
     val alightDayOffset: Int,
+)
+
+/** Sanitized WIMT provider evidence for the selector and Source details. Never carries raw JSON. */
+data class WimtLiveEvidence(
+    val detail: String,
+    val responseCode: Int?,
+    val responseBytes: Int?,
+    val runDateMatched: Boolean?,
+    val routeMatched: Boolean?,
+    val routeFromCode: String,
+    val routeToCode: String,
+    val sourceUpdateMillis: Long?,
+    val actualStopCount: Int,
+    val currentStationCode: String?,
+    val freshSourceUpdate: Boolean,
+    val checkedAtMillis: Long,
 )
 
 fun interface IdentityFetch {
@@ -154,6 +171,9 @@ class LiveViewModel(
         val staticMappedLegStarts: Set<String> = emptySet(),
         /** WIMT's *web-cache* point, only after run/event/route gates; not phone-app GPS. */
         val wimtWebPoint: WimtCandidate.WebPoint? = null,
+        /** The selected `.in` live API's own source-reported evidence; never `.org.in` or cache data. */
+        val wimtLiveEvidence: WimtLiveEvidence? = null,
+        val wimtIntermediate: WimtLiveProvider.WimtIntermediate? = null,
         /** Same-run, fresh provider station *claim*, never a measured position or Act. */
         val railYatriClaim: PublicPageChecks.StationClaim? = null,
         /** The .org.in site's own past-card claims, not Google's app or verified GPS. */
@@ -258,6 +278,11 @@ class LiveViewModel(
     private var manualErailDetail: String? = null
     private var wimtCandidate: WimtCandidate.Result? = null
     private var wimtCheckedAt = 0L
+    private var manualWimtResult: WimtLiveProvider.WimtResult? = null
+    private var manualWimtIntermediate: WimtLiveProvider.WimtIntermediate? = null
+    private var manualWimtEvidence: WimtLiveEvidence? = null
+    private var manualWimtDetail: String? = null
+    private var manualWimtCheckedAt = 0L
     private var manualProbeJob: Job? = null
     private var manualProbeSource: String? = null
     private var sourceProbeOrder = 0L
@@ -288,6 +313,10 @@ class LiveViewModel(
         }
         if (name == "erail") {
             probeSource(name) // every explicit selection is a fresh, timed attempt
+            return
+        }
+        if (name == TrackingSources.WIMT) {
+            probeSource(name) // direct `.in` live API read; never the `.org.in` page or cache branch
             return
         }
         if (name == WimtCandidate.SOURCE) {
@@ -451,6 +480,106 @@ class LiveViewModel(
             }
             if (select) manualProbeJob = job
             return job
+        } else if (name == TrackingSources.WIMT) {
+            val probeStarted = System.currentTimeMillis()
+            val job = viewModelScope.launch {
+                if (select) _mirrorState.postValue("Checking WIMT .in live-status feed…")
+                val u = _ui.value ?: return@launch
+                val route = u.staticRoute ?: u.route
+                val mapAtRequest = u.staticRoute
+                val repository = repo()
+                val pacing = WebsiteRequestPacing(app, WimtCacheRequest.PAUSE_PREFS)
+                val requestedAt = System.currentTimeMillis()
+                val paused = pacing.paused(requestedAt)
+                val result = if (paused != null) {
+                    WimtLiveProvider.WimtResult(null, paused.detail)
+                } else withContext(Dispatchers.IO) {
+                    WimtLiveProvider.fetch(trainNo, route, originEpochDay, requestedAt, { code ->
+                        mapAtRequest?.stops?.firstOrNull { it.code.equals(code, true) }?.name
+                            ?: repository?.queries?.station(code)?.name
+                    })
+                }
+                if (paused == null) pacing.observeHttpStatus(
+                    result.responseCode, responseReceived = result.responseCode != null,
+                    now = System.currentTimeMillis())
+                if (latestProbeOrder[name] != order) return@launch
+                val now = System.currentTimeMillis()
+                val identityMatched = result.runDateMatched == true && result.routeMatched == true
+                val acceptedSnapshot = result.snapshot?.takeIf { snapshot ->
+                    identityMatched && snapshot.trainNo == trainNo &&
+                        snapshot.journeyEpochDay == originEpochDay
+                }
+                val acceptedResult = result.copy(snapshot = acceptedSnapshot)
+                val freshUpdate = WimtLiveProvider.hasFreshSourceUpdate(acceptedResult, now)
+                val actualStopCount = acceptedSnapshot?.perStop?.count { (_, fields) ->
+                    fields.actualArrivalMin != null || fields.actualDepartureMin != null
+                } ?: 0
+                val hasCurrentStation = acceptedSnapshot != null &&
+                    !result.currentStationCode.isNullOrBlank()
+                val hasRunBoundReport = acceptedSnapshot != null &&
+                    (actualStopCount > 0 || hasCurrentStation)
+                val freshnessLabel = when {
+                    freshUpdate -> "upstream update stamp within ${WimtLiveProvider.FRESH_UPDATE_MAX_AGE_MS / 60_000} min; not an event clock"
+                    acceptedSnapshot?.feedStampMillis != null -> "upstream update stamp is stale"
+                    else -> "upstream update time unavailable"
+                }
+                val runLabel = when (result.runDateMatched) {
+                    true -> "response run date matched"
+                    false -> "response run date mismatched"
+                    null -> "response did not echo the requested run date"
+                }
+                val routeLabel = when (result.routeMatched) {
+                    true -> "response route endpoints matched"
+                    false -> "response route endpoints mismatched"
+                    null -> "response did not echo both route endpoints"
+                }
+                val detail = buildString {
+                    result.responseCode?.let { append("HTTP ").append(it).append(" · ") }
+                    result.responseBytes?.let { append(it).append(" bytes · ") }
+                    append(result.detail)
+                    append(" · ").append(freshnessLabel)
+                    append(" · ").append(runLabel)
+                    append(" · ").append(routeLabel)
+                }
+                val state = when {
+                    !hasRunBoundReport -> if (result.snapshot != null) "unverified" else "none"
+                    freshUpdate && actualStopCount > 0 -> "live"
+                    freshUpdate && hasCurrentStation -> "candidate"
+                    acceptedSnapshot?.feedStampMillis != null -> "last-known"
+                    else -> "unverified"
+                }
+                manualWimtResult = result
+                manualWimtIntermediate = result.intermediate.takeIf { identityMatched }
+                manualWimtDetail = detail
+                manualWimtCheckedAt = now
+                manualWimtEvidence = WimtLiveEvidence(
+                    detail = detail,
+                    responseCode = result.responseCode,
+                    responseBytes = result.responseBytes,
+                    runDateMatched = result.runDateMatched,
+                    routeMatched = result.routeMatched,
+                    routeFromCode = route.srcCode,
+                    routeToCode = route.dstCode,
+                    sourceUpdateMillis = acceptedSnapshot?.feedStampMillis,
+                    actualStopCount = actualStopCount,
+                    currentStationCode = result.currentStationCode,
+                    freshSourceUpdate = freshUpdate,
+                    checkedAtMillis = now,
+                )
+                manualProbeMs[name] = now - probeStarted
+                if (select) mirrorActiveSource = name
+                if (select) _mirrorState.postValue("WIMT .in source report: $detail")
+                val latest = _ui.value ?: u
+                _ui.value = buildUi(
+                    latest.route,
+                    lastAnswer ?: latest.answer,
+                    latest.tried,
+                    listOf("WIMT .in source report: $detail"),
+                ).copy(relayOk = latest.relayOk)
+                Diary.get()?.log("SOURCE", "$name: state=$state · $detail")
+            }
+            if (select) manualProbeJob = job
+            return job
         } else if (name == WimtCandidate.SOURCE) {
             val probeStarted = System.currentTimeMillis()
             val job = viewModelScope.launch {
@@ -543,6 +672,10 @@ class LiveViewModel(
             listOf("erail")).forEach {
             probeSource(it, select = false)
         }
+        // A saved WIMT default is a deliberate source choice: check its direct `.in` feed once
+        // after the timetable has painted. Do not ask this endpoint on an NTES-only first load.
+        if (mirrorActiveSource == TrackingSources.WIMT)
+            probeSource(TrackingSources.WIMT, select = false)
     }
 
     /**
@@ -734,8 +867,8 @@ class LiveViewModel(
         }
         val previous = lastAnswer?.position
         val selected = (if (manual) refreshTarget(auto) else mirrorActiveSource)?.takeIf {
-            it in PublicPageChecks.names || it in setOf(WimtCandidate.SOURCE, "erail",
-                ConfirmTktMirror.SOURCE, RunningStatusMirror.SOURCE) }
+            it in PublicPageChecks.names || it in setOf(TrackingSources.WIMT, WimtCandidate.SOURCE,
+                "erail", ConfirmTktMirror.SOURCE, RunningStatusMirror.SOURCE) }
         // A user-selected source gets the FIRST request. NTES is only a last fallback,
         // never an automatic preflight that delays a 0.4-second website response.
         if ((manual || `in`.opentrack.india.data.Prefs(app).batteryMode) && selected != null) {
@@ -845,13 +978,19 @@ class LiveViewModel(
      * labelled past-card timeline when the official request genuinely fails.
      * A newer HTML page clock never outranks an older train event by itself. */
     private fun bestAvailableSource(ui: Ui, rejected: String): String? =
-        listOf("NTES (official)", RunningStatusMirror.SOURCE,
+        listOf("NTES (official)", TrackingSources.WIMT, RunningStatusMirror.SOURCE,
             ConfirmTktMirror.SOURCE, "erail").firstOrNull { name ->
             name != rejected && ui.sourceStates[name]?.first == "live" &&
-                SourceEvidencePolicy.primaryActuals(name, runIdentified = true,
+                SourceEvidencePolicy.primaryActuals(name,
+                    runIdentified = if (name == TrackingSources.WIMT)
+                        ui.wimtLiveEvidence?.let { it.runDateMatched == true && it.routeMatched == true } == true
+                    else true,
                     verifiedStopMinutes = when (name) {
                         "NTES (official)" -> ui.answer.position.provenance == SourceKind.PROVIDER_NTES &&
                             ui.answer.perStop.values.any { it.actualArrivalMin != null || it.actualDepartureMin != null }
+                        TrackingSources.WIMT -> ui.wimtLiveEvidence?.let {
+                            it.freshSourceUpdate && it.actualStopCount > 0
+                        } == true
                         RunningStatusMirror.SOURCE, ConfirmTktMirror.SOURCE ->
                             freshShift() && mirrorStops[name].orEmpty().isNotEmpty()
                         "erail" -> manualErail != null &&
@@ -1645,12 +1784,40 @@ class LiveViewModel(
         val nowRail = nowRailOverride ?: nowMinute(now)
         val erailSelected = mirrorActiveSource == "erail"
         val wimtSelected = mirrorActiveSource == WimtCandidate.SOURCE
+        val wimtLiveSelected = mirrorActiveSource == TrackingSources.WIMT
+        val wimtEvidence = manualWimtEvidence
+        val wimtIdentityMatched = wimtEvidence?.let {
+            it.runDateMatched == true && it.routeMatched == true &&
+                it.routeFromCode.equals(route.srcCode, true) && it.routeToCode.equals(route.dstCode, true)
+        } == true
+        val wimtSnapshot = manualWimtResult?.snapshot?.takeIf {
+            wimtIdentityMatched && it.trainNo == trainNo && it.journeyEpochDay == originEpochDay
+        }
+        val wimtFreshNow = wimtSnapshot != null && manualWimtResult?.let {
+            WimtLiveProvider.hasFreshSourceUpdate(it, now)
+        } == true
+        val wimtAnswer = wimtSnapshot?.takeIf { wimtLiveSelected }?.let { snapshot ->
+            PositionEngine.locate(PositionEngine.Request(
+                route,
+                snapshot.copy(sourceKind = if (wimtFreshNow) SourceKind.PROVIDER else SourceKind.CACHED),
+                nowRail,
+                now,
+            ))
+        }
+        val wimtActualStopCount = wimtSnapshot?.perStop?.count { (_, fields) ->
+            fields.actualArrivalMin != null || fields.actualDepartureMin != null
+        } ?: 0
+        val wimtEvidenceForUi = wimtEvidence?.copy(
+            actualStopCount = wimtActualStopCount,
+            freshSourceUpdate = wimtFreshNow,
+        )
+        val wimtIntermediateForUi = manualWimtIntermediate.takeIf { wimtIdentityMatched }
         val officialUnavailable = mirrorActiveSource == "NTES (official)" &&
             answer.position.provenance == SourceKind.PROVIDER
         val erailAnswer = if (erailSelected) manualErail ?: answer.takeIf {
             it.position.provenance == SourceKind.PROVIDER
         } else null
-        val pos = (erailAnswer ?: answer).position
+        val pos = (wimtAnswer ?: erailAnswer ?: answer).position
         // An explicit mirror selection is an independent witness, not an overlay on
         // NTES's 15 actuals. Start from the schedule and add ONLY that mirror's
         // validated cells; otherwise the dropdown would misattribute official minutes.
@@ -1715,6 +1882,7 @@ class LiveViewModel(
                 orgReport.eventMinute)).coerceAtLeast(0L) / 1_000L,
             feedStampMillis = null)
         else if (mirrorSelected || publicSelected || wimtSelected ||
+            wimtLiveSelected && wimtAnswer == null ||
             (erailSelected && erailAnswer == null) || officialUnavailable) pos.copy(
             provenance = SourceKind.OFFLINE_SCHEDULE, anchorSeq = 0, nextSeq = 0,
             fraction = 0f, delayMinutes = null, etaNextMinute = null, feedStampMillis = null)
@@ -1722,8 +1890,10 @@ class LiveViewModel(
         val model = TrackModel.build(
             route = route, pos = tablePos,
             perStop = if (orgReport != null && orgStop != null) orgReport.rows
-                else if (mirrorSelected || wimtSelected || publicSelected || officialUnavailable) emptyMap()
+                else if (mirrorSelected || wimtSelected || publicSelected || officialUnavailable ||
+                    wimtLiveSelected && wimtAnswer == null) emptyMap()
                 else if (erailSelected) erailAnswer?.perStop.orEmpty()
+                else if (wimtLiveSelected) wimtAnswer?.perStop.orEmpty()
                 else answer.perStop,
             nowRailMinute = nowRail,
             boardSeq = route.stops.firstOrNull { it.code.equals(fromCode, true) }?.seq
@@ -1744,6 +1914,16 @@ class LiveViewModel(
                 else if (mirrorSelected && !selectedMirrorForTable ||
                     erailSelected && erailAnswer == null || officialUnavailable)
                     "No confirmed times from this source; timetable shown."
+                else if (wimtLiveSelected && wimtEvidence == null)
+                    "WIMT .in live-status feed has not been checked; timetable shown."
+                else if (wimtLiveSelected && !wimtIdentityMatched)
+                    "WIMT response did not echo a matching run date and both route endpoints; timetable shown."
+                else if (wimtLiveSelected && wimtAnswer == null)
+                    "No date- and route-matched WIMT report; timetable shown."
+                else if (wimtLiveSelected && wimtActualStopCount == 0)
+                    "WIMT reports a station field but no dated source stop clocks; position unknown."
+                else if (wimtLiveSelected)
+                    "WIMT stop clocks are source-reported; its update stamp is not an event time or GPS movement."
                 else if (wimtSelected && webPoint == null)
                     "No usable site distance point; timetable shown."
                 else if (webPoint != null) "Site distance claim, not phone location; other stops use the timetable."
@@ -1763,6 +1943,11 @@ class LiveViewModel(
                 claimStop != null -> "RailYatri · comparison only"
                 orgStop != null -> "whereismytrain.org.in · website past-card report"
                 webPoint != null -> "WIMT web · comparison only"
+                wimtLiveSelected && wimtEvidence == null -> "WIMT .in · not checked"
+                wimtLiveSelected && !wimtIdentityMatched -> "WIMT .in · run/route unverified"
+                wimtLiveSelected && !wimtFreshNow -> "WIMT .in · last-known source report"
+                wimtLiveSelected && wimtActualStopCount > 0 -> "WIMT .in · source-reported clocks"
+                wimtLiveSelected -> "WIMT .in · station field only"
                 else -> model.provenanceLabel
             },
             routeLabel = identityOverlay(route.srcCode, route.dstCode, liveIdentity?.identity)
@@ -1774,6 +1959,10 @@ class LiveViewModel(
                         "static map ${orgReport.intermediate.mapKm} km · current position unknown"
                 orgStop != null -> "Website's last past-card halt · ${orgStop.schedKm} " +
                     "scheduled km · current position unknown"
+                wimtLiveSelected && wimtIdentityMatched && wimtEvidence?.currentStationCode != null ->
+                    "WIMT current-station field ${wimtEvidence.currentStationCode} · " +
+                        (if (wimtFreshNow) "upstream update stamp fresh, not GPS or movement"
+                         else "last-known source field · current position unknown")
                 SourceEvidencePolicy.comparisonOnly(mirrorActiveSource) ->
                     "Position unknown · timetable only; compare website separately"
                 else -> model.progressLabel
@@ -1814,6 +2003,23 @@ class LiveViewModel(
                 ?: ("none" to "not answered yet")),
             ConfirmTktMirror.SOURCE to (mirrorSourceStates[ConfirmTktMirror.SOURCE]
                 ?: ("none" to "not answered yet")),
+            TrackingSources.WIMT to (wimtEvidenceForUi?.let { evidence ->
+                val state = when {
+                    !wimtIdentityMatched -> if (manualWimtResult?.snapshot != null) "unverified" else "none"
+                    evidence.actualStopCount > 0 && wimtFreshNow -> "live"
+                    evidence.currentStationCode != null && wimtFreshNow -> "candidate"
+                    evidence.sourceUpdateMillis != null -> "last-known"
+                    manualWimtResult?.snapshot != null -> "unverified"
+                    else -> "none"
+                }
+                val freshness = when {
+                    evidence.sourceUpdateMillis == null -> "upstream update time unavailable"
+                    wimtFreshNow -> "upstream update stamp is fresh; not an event time"
+                    else -> "upstream update stamp is stale; position not current"
+                }
+                state to ((manualWimtDetail ?: evidence.detail) + " · " + freshness +
+                    " · update stamp is not movement, GPS or independent train verification")
+            } ?: ("none" to "manual check available; `.in` live-status feed not checked yet")),
             WimtCandidate.SOURCE to (wimtCandidate?.let {
                 val p = it.webPoint
                 val at = route.stops.indexOfFirst { stop -> stop.code.equals(p?.precedingHalt, true) }
@@ -1869,6 +2075,8 @@ class LiveViewModel(
             // Cache rows remain read-only comparison text; the table's ACTUAL cells,
             // marker and delay are not populated from this source.
             name == WimtCandidate.SOURCE -> wimtCandidate?.lines.orEmpty()
+            name == TrackingSources.WIMT && wimtIdentityMatched ->
+                manualWimtResult?.stationLines.orEmpty()
             // Page excerpts are comparisons, never station events.
             name in PublicPageChecks.names -> emptyMap()
             else -> mirrorSourceLines[name].orEmpty()
@@ -1931,8 +2139,13 @@ class LiveViewModel(
             nowRailMinute = nowRail, tried = tried, loading = false,
             reports = selectable[mirrorActiveSource] ?: _ui.value?.reports ?: emptyMap(),
             relayOk = _ui.value?.relayOk ?: true,
-            anchorCode = if (orgReport != null) orgReport.intermediate?.precedingHalt
-                ?: orgReport.anchorCode else if (verified != null) lastReported?.code else null,
+            anchorCode = when {
+                orgReport != null -> orgReport.intermediate?.precedingHalt ?: orgReport.anchorCode
+                wimtLiveSelected && wimtIdentityMatched && wimtActualStopCount > 0 ->
+                    wimtAnswer?.anchorStopCode
+                verified != null -> lastReported?.code
+                else -> null
+            },
             actualsHeadline = verified?.first?.let { if (selected == "last known")
                 "Last known at ${clockAt(mirrorRefreshedAt)} · $it" else it },
             actualsNext = if (verified != null) nextStatement else null,
@@ -1952,6 +2165,8 @@ class LiveViewModel(
                 selected == "NTES (official)" &&
                     lastOfficialRequest?.kind == OfficialRequestReceipt.Kind.ANSWERED_WITH_ACTUALS ->
                     lastFetchAt.takeIf { it > 0 }
+                selected == TrackingSources.WIMT && manualWimtResult?.responseCode == 200 ->
+                    manualWimtCheckedAt.takeIf { it > 0 }
                 selected == "last known" -> null
                 verified != null -> mirrorRefreshedAt.takeIf { it > 0 }
                 else -> null
@@ -1963,14 +2178,18 @@ class LiveViewModel(
                 PublicPageChecks.ORG -> orgReport?.pageUpdatedAt
                 PublicPageChecks.RAIL_YATRI -> railClaim?.updateAt
                 WimtCandidate.SOURCE -> webPoint?.cacheAtMillis
+                TrackingSources.WIMT -> wimtEvidenceForUi?.sourceUpdateMillis
                 else -> null // mirror refresh clock is ours, not its publication clock
             },
             selectedSourceUpdateHasSeconds = when (selected) {
                 PublicPageChecks.ORG -> orgReport?.pageClockHasSeconds == true
                 WimtCandidate.SOURCE -> webPoint != null // ISO web cache stamp includes seconds
+                TrackingSources.WIMT -> wimtEvidenceForUi?.sourceUpdateMillis != null
                 else -> false // NTES parser does not retain the raw precision
             },
-            lastUpdated = (mirrorRefreshedAt.takeIf { it > 0 } ?: lastFetchAt.takeIf { it > 0 })
+            lastUpdated = if (selected == TrackingSources.WIMT)
+                manualWimtCheckedAt.takeIf { it > 0 }?.let { "WIMT response received ${clockAt(it)}" }
+            else (mirrorRefreshedAt.takeIf { it > 0 } ?: lastFetchAt.takeIf { it > 0 })
                 ?.let { (if (verified != null) "Verified " else "Last checked ") + clockAt(it) },
             delayDetail = receipt?.second,
             staticRoute = staticRoute,
@@ -1984,6 +2203,8 @@ class LiveViewModel(
                 else if (externalCandidate != null) route.stops.take(route.stops.size - 1)
                 .map { it.code.uppercase() }.toSet() else offline?.mappedLegStarts.orEmpty(),
             wimtWebPoint = webPoint,
+            wimtLiveEvidence = wimtEvidenceForUi,
+            wimtIntermediate = wimtIntermediateForUi,
             railYatriClaim = railClaim,
             orgWebsiteReport = orgReport,
             orgWebsiteComparisonReport = oldWebsiteComparison,

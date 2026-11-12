@@ -1,6 +1,10 @@
-# `whereismytrain.in/cache/live_status` · separate experimental web cache
+# `whereismytrain.in/cache/live_status` · direct selected source and comparison paths
 
-**Not** `whereismytrain.org.in`, and **not** Google's Where Is My Train Android app. Source: `v2/mirror/WimtCandidate.kt`, [R62](../R62-source-audit.md), [R76](../R76-position-source-evidence.md), read-only `tools/ci/probe_wimt_position.py`. The GET endpoint and `train_no`/`date`/`lang` query follow Gravity01's `WimtLiveProvider`; this port accepts both its `actual_*_time` clock fields and the cache's `actual_*_tm` epoch fields, with stricter date/route/ETA/event gates and comparison-only display. Endpoint remains undocumented and permission is unconfirmed; an answer cannot be represented as the phone app's measured position.
+**One upstream endpoint, two distinct app integrations.** Both `WimtLiveProvider` and `WimtCandidate` request `https://whereismytrain.in/cache/live_status` with `train_no`, `date`, and `lang=en`, following the shared Gravity01 provider's URL and response format. The endpoint path itself is named `/cache/`; “direct selected source” describes how the app fetches and attributes admitted stop clocks, not a claim that the server is uncached or that this is Google's phone-app feed. The endpoint and its permission are undocumented. Neither `.org.in` website rows, a fresh response stamp, nor these source claims independently verify train movement or GPS.
+
+## Comparison-only `WimtCandidate` path
+
+Source: `v2/mirror/WimtCandidate.kt`, [R62](../R62-source-audit.md), [R76](../R76-position-source-evidence.md), and read-only `tools/ci/probe_wimt_position.py`. This explicit **WIMT web cache · experimental** choice remains a comparison path: it never fills ACTUAL cells, delay, next-stop, or verified position.
 
 | Layer | Captured/parsed and used | Ignored/rejected |
 | --- | --- | --- |
@@ -14,6 +18,12 @@
 **06 Nov 2026 spot-check:** a one-time read for 20651 returned a matching dated JSON root and a 17:34 IST cache update, but fields named `actual_arrival_time` also appeared on `source: eta` rows with times **later than the observation**, e.g. TLGP at 21:45. Those are not established actuals, and a cache update is not train movement. The `.org.in` source-strict APK test remained red on HTTP 403. Do not blend these two sources.
 
 **Focused device acceptance:** `WimtCacheLiveAcceptanceTest` drives the installed app, explicitly selects this cache, and requires HTTP 200 plus at least one run-date/route-qualified row that passes ETA, future-time, and ordering gates. Numeric epoch fields also require a later row-update timestamp; clock-only fields are schedule-aligned and explicitly report age unknown when the response omits that timestamp. The row values appear in Source details, and the test asserts cache data never enters ACTUAL cells. HTTP refusal/rate-limit, no qualifying rows, a challenge/HTML body, or missing in-app screenshot evidence is a failure. Manual workflow input `source=web-cache` runs this path; it publishes the updateable debug APK as working only after strict data and screenshot checks pass.
+
+## Direct selected-source path (`WimtLiveProvider`)
+
+The new **WIMT .in live-status feed** selector calls the same `/cache/live_status` endpoint once for the selected train and origin run date, using an ordinary Android HTTPS GET (no copied cookies, spoofed browser identity, or hidden app identifiers). It parses Gravity01-style `actual_*_time` clocks and `actual_*_tm` epoch fields, but admits source times only after train/run/route identity checks, ETA/future/order guards, and an upstream update stamp within the configured freshness window. Qualified source clocks are rendered as WIMT-attributed values in the selected-source table; they are not silently borrowed from NTES. A current-station field or response timestamp is never treated as GPS or movement, and the source's own clock remains a provider claim rather than independent railway verification.
+
+**Current acceptance gate:** the opt-in `wimt-live-api-acceptance.yml` workflow builds the APKs, installs them on an Android emulator, selects this source once, and requires a fresh HTTP 200, matched run date and route, at least one admitted WIMT row, and WIMT-attributed visible table clocks. It saves actual in-app screenshots and can produce a PDF only from verified captures. The workflow is scaffolding until that device test runs; no live `.in` result is claimed by this document or by the comparison-path tests.
 
 ## Run 43103963292 · route and row-provenance follow-up
 

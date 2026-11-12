@@ -20,6 +20,10 @@ class SourceEvidencePolicyTest {
         }
         assertFalse(SourceEvidencePolicy.primaryActuals("unknown website", true, true))
         assertFalse(SourceEvidencePolicy.comparisonOnly("NTES (official)"))
+        assertFalse(SourceEvidencePolicy.comparisonOnly(TrackingSources.WIMT))
+        assertFalse(SourceEvidencePolicy.primaryActuals(TrackingSources.WIMT, false, true))
+        assertFalse(SourceEvidencePolicy.primaryActuals(TrackingSources.WIMT, true, false))
+        assertTrue(SourceEvidencePolicy.primaryActuals(TrackingSources.WIMT, true, true))
     }
 
     @Test fun onlyDatedSourceWithAdmittedMinutesCanDrivePrimaryAndFallback() {

@@ -333,7 +333,10 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         // evidence available to accessibility without a redundant banner.
         holder.marker.visibility = View.GONE
         holder.marker.text = ""
-        holder.marker.contentDescription = marker?.caption ?: ""
+        holder.marker.contentDescription = marker?.let {
+            if (sourceNameForMarker == "WIMT .in") "${it.caption} · source WIMT .in"
+            else it.caption
+        } ?: ""
         val ageLabel = marker?.takeUnless { it.caption.startsWith("RailYatri station claim") }
             ?.let { legAgeSeconds?.let(LegGeometry::ageLabel) }
         holder.markerAge.text = legAgeSeconds?.takeIf { ageLabel != null }
@@ -433,7 +436,8 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         val evidence = when (s.source) {
             TrackModel.MinuteSource.SITE_REPORTED -> "Website claim"
             TrackModel.MinuteSource.PROJECTED -> "Estimate"
-            TrackModel.MinuteSource.REPORTED -> "Reported"
+            TrackModel.MinuteSource.REPORTED -> if (sourceNameForMarker == "WIMT .in")
+                "WIMT .in source-reported" else "Reported"
             else -> "Not reported"
         }
         holder.schedArr.contentDescription = if (isFirst) "Start of route, scheduled departure ${s.schedDep?.let(RailTime::formatRailMinute) ?: "unknown"}"
@@ -517,19 +521,33 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         }
         holder.eventCaption.visibility = if (captionMinute == null) View.GONE else View.VISIBLE
         holder.eventCaption.text = captionMinute?.let { minute ->
+            val clock = RailTime.formatRailMinuteBare(minute)
+            val wimt = sourceNameForMarker == "WIMT .in"
             if (batteryMode) {
-                val event = if (marker?.website == true) "site arrival" else if (s.showDep != null)
-                    "NTES departure" else "NTES arrival"
-                "At ${RowText.of(s.name)} · as of ${RailTime.formatRailMinuteBare(minute)}" +
+                val event = when {
+                    marker?.website == true -> "site arrival"
+                    wimt -> "WIMT .in source-reported " + if (s.showDep != null) "departure" else "arrival"
+                    s.showDep != null -> "NTES departure"
+                    else -> "NTES arrival"
+                }
+                "At ${RowText.of(s.name)} · as of $clock" +
                     "\n$event · ${legAgeSeconds?.let(LegGeometry::compactAgeLabel) ?: "age unknown"}"
-            } else if (marker?.website == true)
-                "Last site arrival · ${RailTime.formatRailMinuteBare(minute)}"
-            else "At ${RowText.of(s.name)} · as on ${RailTime.formatRailMinuteBare(minute)}"
+            } else when {
+                marker?.website == true -> "Last site arrival · $clock"
+                wimt -> "WIMT .in source event · $clock"
+                else -> "At ${RowText.of(s.name)} · as on $clock"
+            }
         }.orEmpty()
-        holder.eventCaption.setTextColor(ctx.getColor(if (marker?.website == true) R.color.warn else R.color.text2))
-        holder.eventCaption.contentDescription = captionMinute?.let {
-            "${if (marker?.website == true) "Website reports" else "Last reported at"} " +
-                "${RowText.of(s.name)}, event time ${RailTime.formatRailMinute(it)}. " +
+        holder.eventCaption.setTextColor(ctx.getColor(if (marker?.website == true ||
+            sourceNameForMarker == "WIMT .in") R.color.warn else R.color.text2))
+        holder.eventCaption.contentDescription = captionMinute?.let { minute ->
+            val source = when {
+                marker?.website == true -> "Website reports"
+                sourceNameForMarker == "WIMT .in" -> "WIMT .in source reports"
+                else -> "Last reported at"
+            }
+            "$source ${if (s.showDep != null) "departure" else "arrival"} at " +
+                "${RowText.of(s.name)}, event time ${RailTime.formatRailMinute(minute)}. " +
                 "Present position unknown."
         }.orEmpty()
         val available = if (points.isEmpty()) leg?.points.orEmpty() else points.mapIndexed { index, point ->

@@ -6,13 +6,14 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class SourceIndicatorTest {
-    @Test fun explicitWimtWebCacheChoiceIsDistinctFromWebsiteAndPhoneApp() {
-        assertEquals(listOf(TrackingSources.OFFICIAL, PublicPageChecks.ORG, WimtCandidate.SOURCE),
-            TrackingSources.options)
-        assertEquals("Where Is My Train · website",
-            TrackingSources.label(PublicPageChecks.ORG))
+    @Test fun liveApiWebsiteAndCacheAreThreeDistinctSourceChoices() {
+        assertEquals(listOf(TrackingSources.OFFICIAL, TrackingSources.WIMT,
+            PublicPageChecks.ORG, WimtCandidate.SOURCE), TrackingSources.options)
+        assertEquals("WIMT .in live-status feed", TrackingSources.label(TrackingSources.WIMT))
+        assertEquals("Where Is My Train · website", TrackingSources.label(PublicPageChecks.ORG))
         assertEquals("WIMT web cache · experimental",
             TrackingSources.label(WimtCandidate.SOURCE))
+        assertEquals(TrackingSources.WIMT, TrackingSources.valid(TrackingSources.WIMT))
         assertEquals(WimtCandidate.SOURCE, TrackingSources.valid(WimtCandidate.SOURCE))
         assertEquals(TrackingSources.OFFICIAL, TrackingSources.valid("WIMT phone app"))
     }
@@ -39,6 +40,17 @@ class SourceIndicatorTest {
             "unverified", "selected origin run is not unambiguously active").label)
         assertEquals("site update too old", SourceIndicator.of(PublicPageChecks.ORG,
             "unverified", "website update clock missing or over five minutes old").label)
+    }
+
+    @Test fun liveApiStateIsNamedAsAProviderReportAndStaleFeedIsNotGreen() {
+        assertEquals("WIMT .in source report", SourceIndicator.of(
+            TrackingSources.WIMT, "live", "fresh source update and parsed stop times").label)
+        assertEquals(SourceIndicator.Tone.READY,
+            SourceIndicator.of(TrackingSources.WIMT, "live", "source-reported times").tone)
+        assertEquals(SourceIndicator.Tone.OLD,
+            SourceIndicator.of(TrackingSources.WIMT, "last-known", "update stamp is stale").tone)
+        assertEquals(SourceIndicator.Tone.CANDIDATE,
+            SourceIndicator.of(TrackingSources.WIMT, "unverified", "no source update clock").tone)
     }
 
     @Test fun siteClaimsAreAmberAndNeverLabelledAsVerifiedActuals() {

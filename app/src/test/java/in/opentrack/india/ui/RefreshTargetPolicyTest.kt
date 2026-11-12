@@ -1,6 +1,7 @@
 package `in`.opentrack.india.ui
 
 import `in`.opentrack.india.v2.mirror.PublicPageChecks
+import `in`.opentrack.india.v2.mirror.WimtCandidate
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -23,9 +24,13 @@ class RefreshTargetPolicyTest {
         assertEquals(official, RefreshTargetPolicy.afterWebsiteSurvey(official, false, true))
     }
 
-    @Test fun manualRefreshRetriesPreferredWebsiteAfterOfficialFallback() {
+    @Test fun manualRefreshRetriesPreferredSourceAfterOfficialFallback() {
         assertEquals(site, RefreshTargetPolicy.target(official, site, auto = false))
         assertEquals(site, RefreshTargetPolicy.target(site, site, auto = false))
+        assertEquals(TrackingSources.WIMT, RefreshTargetPolicy.target(
+            official, TrackingSources.WIMT, auto = false))
+        assertEquals(WimtCandidate.SOURCE, RefreshTargetPolicy.target(
+            official, WimtCandidate.SOURCE, auto = false))
     }
 
     @Test fun automaticRefreshDoesNotHammerARefusingWebsiteAfterFallback() {

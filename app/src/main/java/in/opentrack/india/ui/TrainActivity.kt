@@ -698,7 +698,7 @@ class TrainActivity : AppCompatActivity() {
         // Spinner's own accessibility text can be empty on Android even when its
         // painted child says WIMT. Expose the *selected* source to TalkBack too.
         binding.sourceSpinner.contentDescription = "Selected ${TrackingSources.label(TrackingSources.valid(ui.activeSource))}. " +
-            "Choose NTES, Where Is My Train website, or experimental WIMT web cache. Long press for time and source details."
+            "Choose NTES, WIMT .in live-status feed, Where Is My Train website, or experimental WIMT web cache. Long press for time and source details."
         binding.refresh.contentDescription = if (vm.refreshTarget(auto = false) != ui.activeSource)
             "Retry selected website first; NTES currently shown as fallback. Drag to move in lower half"
         else "Refresh selected source; drag to move in lower half"
@@ -718,6 +718,7 @@ class TrainActivity : AppCompatActivity() {
                         val (state, detail) = spinnerStates[names[position]] ?: ("none" to "checking on first load")
                         val indicator = SourceIndicator.of(names[position], state, detail)
                         val shortName = when (names[position]) {
+                            TrackingSources.WIMT -> "WIMT .in"
                             `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG -> "WIMT site"
                             `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE -> "WIMT cache"
                             else -> "NTES"
@@ -814,11 +815,29 @@ class TrainActivity : AppCompatActivity() {
                 ui.sourceStates[selected]?.first != "live"
         } == true
         val wimtRows = ui.sourceLines[`in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE].orEmpty()
+        val wimtLiveRows = ui.sourceLines[TrackingSources.WIMT].orEmpty()
+        val wimtLiveEvidence = ui.wimtLiveEvidence
+        val wimtLiveSummary = when {
+            wimtLiveEvidence == null -> "WIMT .in live-status feed has not been checked yet."
+            wimtLiveEvidence.runDateMatched != true || wimtLiveEvidence.routeMatched != true ->
+                "WIMT .in response is not confirmed for this run and both route endpoints; timetable shown. " +
+                    (wimtLiveEvidence.detail.take(220))
+            wimtLiveEvidence.actualStopCount > 0 ->
+                "WIMT .in: ${wimtLiveEvidence.actualStopCount} source-reported stop row(s); " +
+                    (if (wimtLiveEvidence.freshSourceUpdate)
+                        "upstream update stamp is fresh" else "last-known source report") +
+                    ". Update stamp is not an event time. Not GPS or independent train verification."
+            wimtLiveEvidence.currentStationCode != null ->
+                "WIMT current-station field says ${wimtLiveEvidence.currentStationCode}; " +
+                    "no qualifying dated stop clocks, so current position is unknown."
+            else -> "WIMT .in returned no qualifying dated stop clocks; timetable shown."
+        }
         // Keep web-cache claims separate from the ACTUAL table. Its own data summary
         // appears only when that experimental source is deliberately selected.
         sourceSummaryWanted = (
             ui.websiteGap != null || ui.alternateSiteHint != null ||
                 publicCheck != null && ui.orgWebsiteReport == null ||
+            ui.activeSource == TrackingSources.WIMT ||
             ui.activeSource == `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE || mirrorWithoutTimes
         )
         binding.sourceSummary.visibility = if (heroExpanded && sourceSummaryWanted) View.VISIBLE else View.GONE
@@ -838,6 +857,7 @@ class TrainActivity : AppCompatActivity() {
             View.OnClickListener { vm.setActiveSource(`in`.opentrack.india.v2.mirror.PublicPageChecks.ORG) }
             else null)
         binding.sourceSummary.text = when {
+            ui.activeSource == TrackingSources.WIMT -> wimtLiveSummary
             showingWimtRows ->
                 "WIMT web cache: ${wimtRows.size} source-reported web-cache time row(s), unverified, not railway ACTUAL. Open Source details."
             ui.alternateSiteHint != null -> ui.alternateSiteHint
@@ -853,11 +873,21 @@ class TrainActivity : AppCompatActivity() {
             ui.wimtWebPoint != null -> "WEB CACHE · COMPARISON"
             ui.orgWebsiteReport != null -> "SITE REPORT"
             ui.railYatriClaim != null -> "RAILYATRI CLAIM"
-            m.rows.any { it.source == TrackModel.MinuteSource.REPORTED } -> "NTES REPORT"
+            ui.activeSource == TrackingSources.WIMT &&
+                (wimtLiveEvidence?.actualStopCount ?: 0) > 0 ->
+                "WIMT .IN · SOURCE CLOCKS"
+            ui.activeSource == TrackingSources.WIMT && wimtLiveEvidence?.currentStationCode != null ->
+                "WIMT .IN · STATION FIELD"
+            m.rows.any { it.source == TrackModel.MinuteSource.REPORTED } &&
+                ui.activeSource == "NTES (official)" -> "NTES REPORT"
+            m.rows.any { it.source == TrackModel.MinuteSource.REPORTED } &&
+                ui.activeSource == TrackingSources.WIMT -> "WIMT .IN REPORT"
+            m.rows.any { it.source == TrackModel.MinuteSource.REPORTED } -> "SOURCE REPORT"
             else -> "TIMETABLE ONLY"
         }
         binding.heroEyebrow.setTextColor(getColor(if (ui.wimtWebPoint != null ||
-            ui.orgWebsiteReport != null || ui.railYatriClaim != null) R.color.warn else R.color.live))
+            ui.orgWebsiteReport != null || ui.railYatriClaim != null ||
+            ui.activeSource == TrackingSources.WIMT) R.color.warn else R.color.live))
         // Site first clocks belong in the WEBSITE column. Neither their page age
         // nor a revisable last-card departure moves the train out of this halt.
         val leg = ui.orgWebsiteReport?.let { report ->
@@ -871,14 +901,18 @@ class TrainActivity : AppCompatActivity() {
         } ?: if (SourceEvidencePolicy.comparisonOnly(ui.activeSource)) null
             else if (ui.activeSource in setOf("NTES (official)", "erail", "last known",
                 `in`.opentrack.india.v2.mirror.RunningStatusMirror.SOURCE,
-                `in`.opentrack.india.v2.mirror.ConfirmTktMirror.SOURCE)) {
+                `in`.opentrack.india.v2.mirror.ConfirmTktMirror.SOURCE, TrackingSources.WIMT)) {
                 val reported = m.rows.firstOrNull { it.code.equals(ui.anchorCode, true) &&
                     it.source == TrackModel.MinuteSource.REPORTED &&
                     (it.showArr != null || it.showDep != null) } ?: m.rows.lastOrNull {
                     it.source == TrackModel.MinuteSource.REPORTED &&
                         (it.showArr != null || it.showDep != null) }
                 reported?.let { row ->
-                    if (row.showDep != null)
+                    // WIMT's stop clock proves an event at the halt, not movement since
+                    // that event. Keep its marker at the source-reported halt.
+                    if (ui.activeSource == TrackingSources.WIMT)
+                        RouteBetween.reportedHaltLeg(ui.route, ui.staticRoute, row.code)
+                    else if (row.showDep != null)
                         RouteBetween.departureCueLeg(ui.route, ui.staticRoute, row.code)
                     else RouteBetween.reportedHaltLeg(ui.route, ui.staticRoute, row.code)
                 }
@@ -1118,9 +1152,13 @@ class TrainActivity : AppCompatActivity() {
         stopAdapter.mappedAnchorKm = ui.staticRoute?.stops.orEmpty()
             .associate { it.code.uppercase() to it.schedKm }
         stopAdapter.setRoutePoints(RouteBetween.groupedPoints(ui.staticRoute, ui.route))
-        stopAdapter.sourceNameForMarker = if (ui.activeSource == "NTES (official)") "NTES"
-            else if (ui.activeSource == "last known") "Saved report"
-            else ui.activeSource ?: "Source"
+        stopAdapter.sourceNameForMarker = when (ui.activeSource) {
+            "NTES (official)" -> "NTES"
+            TrackingSources.WIMT -> "WIMT .in"
+            "last known" -> "Saved report"
+            `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG -> "Website"
+            else -> ui.activeSource ?: "Source"
+        }
         stopAdapter.legWebsiteEventMinute = ui.orgWebsiteReport
             ?.takeIf { it.intermediate != null }?.eventMinute
         stopAdapter.setProjectedLeg(leg)
@@ -1201,6 +1239,44 @@ class TrainActivity : AppCompatActivity() {
                 "point time ${RailTime.formatClock(p.eventAtMillis)} IST; " +
                 "cache clock is not movement. Not WIMT phone-app GPS or verified Act.\n\n")
             else append(sourceText(ui.model)).append("\n\n")
+            if (ui.activeSource == TrackingSources.WIMT) {
+                val evidence = ui.wimtLiveEvidence
+                val rows = ui.sourceLines[TrackingSources.WIMT].orEmpty().values.toList()
+                append("Selected WIMT .in live-status response · ")
+                append(evidence?.responseCode?.let { "HTTP $it" } ?: "no HTTP response")
+                evidence?.responseBytes?.let { append(" · $it bytes") }
+                append("\nRun date echoed and matched: ").append(evidence?.runDateMatched?.toString() ?: "not echoed")
+                append(" · both route endpoints echoed and matched: ")
+                    .append(evidence?.routeMatched?.toString() ?: "not echoed")
+                append("\n").append(evidence?.detail ?: "No WIMT .in request has completed.")
+                val stamp = evidence?.sourceUpdateMillis
+                append("\nUpstream update stamp: ")
+                append(stamp?.let(RailTime::formatClockSeconds) ?: "unavailable")
+                append(" IST · ").append(when {
+                    stamp == null -> "freshness unknown"
+                    evidence.freshSourceUpdate -> "fresh source stamp; not event time"
+                    else -> "stale source stamp; current position unknown"
+                })
+                val intermediate = ui.wimtIntermediate
+                if (intermediate != null) {
+                    append("\nCurrent-station field claims ${intermediate.name} (${intermediate.code}) " +
+                        "between ${intermediate.precedingHalt} and ${intermediate.followingHalt}; " +
+                        "this is a source station claim, not GPS or measured distance.")
+                    intermediate.eventMinute?.let { minute ->
+                        val eventAt = RailTime.railMinuteToEpochMillis(vm.originDate, minute)
+                        append("\nIntermediate source event ").append(RailTime.formatRailMinute(minute))
+                            .append(" · ").append(if (eventAt <= System.currentTimeMillis())
+                                TableMarker.elapsedLabel(System.currentTimeMillis() - eventAt) + " old"
+                                else "event clock is in the future")
+                    }
+                }
+                append("\nSelected WIMT .in source-reported rows (${rows.size}):\n")
+                if (rows.isEmpty()) append("No source stop clock passed the current run/route parser gates.\n")
+                else rows.take(12).forEach { append("• ").append(it).append('\n') }
+                if (rows.size > 12) append("… ${rows.size - 12} additional rows omitted.\n")
+                append("These are source-reported clocks, not NTES actuals, independent verification, " +
+                    "GPS or movement inferred from the request time.\n\n")
+            }
             ui.sourceStates.forEach { (name, status) ->
                 append(sourceName(name)).append(": ")
                 // Keep long source diagnostics in the copied diary, not in the tracking UI.
@@ -1251,13 +1327,19 @@ class TrainActivity : AppCompatActivity() {
                     if (rows.size > 12) append("… ${rows.size - 12} additional source rows omitted.\n")
                 }
             }
-            append("\nWIMT web cache is not the WIMT phone app. ")
-            append("Site claims are not verified actuals. Station distances can differ between maps.")
+            if (ui.activeSource == TrackingSources.WIMT) {
+                append("\nWIMT .in data is source-reported, not independent train verification or GPS. ")
+                append("The upstream update stamp is not an event clock or movement.")
+            } else {
+                append("\nWIMT web cache is not the WIMT phone app. ")
+                append("Site claims are not verified actuals. Station distances can differ between maps.")
+            }
             ui.lastUpdated?.let { append("\n").append(it) }
         }
     }
 
     private fun sourceName(name: String): String = when (name) {
+        TrackingSources.WIMT -> "WIMT .in live feed"
         `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE -> "WIMT web cache"
         "NTES (official)" -> "NTES · official"
         else -> name
@@ -1274,8 +1356,10 @@ class TrainActivity : AppCompatActivity() {
 
     private fun updateTableMarker(ui: LiveViewModel.Ui) {
         val rows = ui.model.rows
-        val fromOfficial = ui.activeSource in listOf("NTES (official)", "erail", "last known")
-        val anchor = ui.anchorCode ?: if (fromOfficial) ui.answer.anchorStopCode else null
+        val fromOfficial = ui.activeSource in listOf("NTES (official)", "erail", "last known",
+            TrackingSources.WIMT)
+        val anchor = ui.anchorCode ?: if (fromOfficial && ui.activeSource != TrackingSources.WIMT)
+            ui.answer.anchorStopCode else null
         val now = System.currentTimeMillis()
         stopAdapter.websitePendingDeparture = null
         if (WebsiteReportDisplay.selected(ui.activeSource))
@@ -1327,6 +1411,8 @@ class TrainActivity : AppCompatActivity() {
                 val minute = (timedHalt.showDep ?: timedHalt.showArr)!!
                 val clock = RailTime.formatRailMinute(minute)
                 binding.age.text = "Freshness: $elapsed · event $clock"
+                binding.age.contentDescription = "Last NTES event at ${timedHalt.name}, " +
+                    "$clock; $elapsed; present position and current delay unknown"
                 // A new HTTP answer with the same last-stop time cannot redate the delay.
                 // This is the delay *then*, not a prediction of the train's delay now.
                 if (ui.model.delayLabel != "—") {
@@ -1335,8 +1421,45 @@ class TrainActivity : AppCompatActivity() {
                         "reported stop ${timedHalt.name} at $clock; current delay unknown"
                 }
             }
+            ui.activeSource == TrackingSources.WIMT && timedHalt != null && elapsed != null -> {
+                val minute = (timedHalt.showDep ?: timedHalt.showArr)!!
+                val clock = RailTime.formatRailMinute(minute)
+                binding.age.text = "WIMT event · $elapsed · $clock"
+                binding.age.contentDescription = "Last WIMT .in source-reported stop event " +
+                    "at ${timedHalt.name}, $clock; $elapsed. The response time is not an event; " +
+                    "present position and current delay are unknown."
+                // This is the source's delay at that reported event, not a new estimate of now.
+                if (ui.model.delayLabel != "—") {
+                    binding.delay.text = "${ui.model.delayLabel} · $clock"
+                    binding.delay.contentDescription = "${ui.model.delayLabel} at the last " +
+                        "WIMT .in source-reported stop ${timedHalt.name} at $clock; current delay unknown"
+                }
+            }
+            ui.activeSource == TrackingSources.WIMT -> {
+                // Never let PositionEngine's HTTP-receipt age stand in for a missing station event.
+                val intermediateMinute = ui.wimtIntermediate?.eventMinute
+                if (intermediateMinute != null) {
+                    val eventAt = RailTime.railMinuteToEpochMillis(vm.originDate, intermediateMinute)
+                    val intermediateAge = eventAt.takeIf { it <= now }?.let {
+                        TableMarker.elapsedLabel(now - it) + " ago"
+                    } ?: "event clock is in the future"
+                    binding.age.text = "WIMT intermediate · $intermediateAge"
+                    binding.age.contentDescription = "WIMT .in reports an intermediate event at " +
+                        "${ui.wimtIntermediate?.name}, ${RailTime.formatRailMinute(intermediateMinute)}; " +
+                        "$intermediateAge. This source report is not GPS or proof of present position."
+                } else {
+                    binding.age.text = "WIMT event time unavailable"
+                    binding.age.contentDescription = "No qualifying WIMT .in stop event time; " +
+                        "response receipt and upstream update stamp are not event ages. " +
+                        "Present position unknown."
+                }
+            }
         }
-        val stale = SourceFreshness.isStale(eventAt, now)
+        val freshnessEventAt = if (ui.activeSource == TrackingSources.WIMT && eventAt == null)
+            ui.wimtIntermediate?.eventMinute?.let {
+                RailTime.railMinuteToEpochMillis(vm.originDate, it)
+            } else eventAt
+        val stale = SourceFreshness.isStale(freshnessEventAt, now)
         binding.age.setTextColor(getColor(if (stale) R.color.late else R.color.text3))
         if (stale && WebsiteReportDisplay.selected(ui.activeSource) &&
             ui.orgWebsiteReport != null) {
@@ -1346,6 +1469,10 @@ class TrainActivity : AppCompatActivity() {
             binding.provenance.setTextColor(getColor(R.color.late))
         } else if (stale && ui.activeSource == "NTES (official)" && eventAt != null) {
             binding.provenance.text = "NTES · last reported stop · stale"
+            binding.provenance.setBackgroundResource(R.drawable.bg_badge_problem)
+            binding.provenance.setTextColor(getColor(R.color.late))
+        } else if (stale && ui.activeSource == TrackingSources.WIMT && freshnessEventAt != null) {
+            binding.provenance.text = "WIMT .in · source event · stale"
             binding.provenance.setBackgroundResource(R.drawable.bg_badge_problem)
             binding.provenance.setTextColor(getColor(R.color.late))
         }

@@ -13,6 +13,12 @@ object SourceIndicator {
     fun of(name: String, state: String, detail: String): Indicator = when {
         name == WimtCandidate.SOURCE && state in setOf("live", "comparison", "candidate") ->
             Indicator(Tone.CANDIDATE, "web cache · unverified")
+        name == TrackingSources.WIMT && state == "live" ->
+            Indicator(Tone.READY, "WIMT .in source report")
+        name == TrackingSources.WIMT && state == "last-known" ->
+            Indicator(Tone.OLD, "WIMT report · stale")
+        name == TrackingSources.WIMT && state == "unverified" ->
+            Indicator(Tone.CANDIDATE, "WIMT report · freshness unknown")
         state == "live" -> Indicator(Tone.READY, "reported times")
         state == "candidate" && name == PublicPageChecks.ORG ->
             Indicator(Tone.CANDIDATE, "site stops · unverified")
