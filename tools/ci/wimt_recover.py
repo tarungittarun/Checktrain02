@@ -20,7 +20,8 @@ def brief(log: str) -> list[str]:
     lines = []
     patterns = ("FAILURES!!!", "java.lang.AssertionError", "java.lang.IllegalStateException",
                 "no known unambiguously active", "INSTRUMENTATION_FAILED",
-                "INSTRUMENTATION_RESULT:", "Tests run:", "Process crashed", "OK (", "AssertionError:")
+                "INSTRUMENTATION_RESULT:", "Tests run:", "Process crashed", "OK (", "AssertionError:",
+                "Process completed with exit code", "FAILURE:")
     for line in log.splitlines():
         if any(k in line for k in patterns):
             # This test's assertions include public UI labels only; still do not
@@ -36,6 +37,13 @@ def _read_json(path: Path):
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
+
+
+def _read_text(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
 
 
 def summarize_live_artifact(folder: Path, original: dict,
@@ -126,6 +134,11 @@ def summarize_live_artifact(folder: Path, original: dict,
         "webSourceRows": attempt.get("webSourceRows"),
         "overlappingEventFields": attempt.get("overlappingEventFields"),
     } for attempt in attempts]
+    failed_step_log = _read_text(folder / "failed-step-log.txt")
+    instrumentation_log = _read_text(folder / "instrumentation.txt")
+    recorded_log_status = _read_text(folder / "failed-step-log-status.txt").strip()
+    if recorded_log_status not in ("available", "unavailable"):
+        recorded_log_status = "not-recorded"
 
     if recovery_summary is not None:
         diagnosis = (
@@ -170,6 +183,11 @@ def summarize_live_artifact(folder: Path, original: dict,
             "contextCheckedCaptureCount": sum(
                 capture.get("diagnosticValid") is True for capture in diagnostic_captures),
         },
+        "failedStepLog": {
+            "retrievalStatus": recorded_log_status,
+            "boundedFailureLines": brief(failed_step_log),
+            "boundedInstrumentationLines": brief(instrumentation_log),
+        },
         "artifactCaptureFiles": {
             "pngFiles": sum(path.suffix == ".png" for path in capture_paths),
             "xmlFiles": sum(path.suffix == ".xml" for path in capture_paths),
@@ -211,6 +229,12 @@ def _self_test() -> None:
             "screenshots": ["wimt-compare-12301-app-live"],
         }
         (folder / "screens" / "wimt-compare-12301-app-live.png").write_bytes(b"png")
+        (folder / "failed-step-log.txt").write_text(
+            "Process completed with exit code 1.\n", encoding="utf-8")
+        (folder / "failed-step-log-status.txt").write_text("available\n", encoding="utf-8")
+        (folder / "instrumentation.txt").write_text(
+            "FAILURES!!!\njava.lang.AssertionError: expected three comparisons\n",
+            encoding="utf-8")
         result = {
             "accepted": False,
             "verdict": "INSUFFICIENT_FRESH_SAME_DATE_COMPARISONS",
@@ -233,6 +257,11 @@ def _self_test() -> None:
         assert summary["artifactCaptureFiles"]["expectedPngFilesPresentAndNonempty"] == 1
         assert summary["artifactCaptureFiles"]["expectedXmlFilesPresentAndNonempty"] == 0
         assert "no app-private capture listing" in summary["captureDiagnosis"]
+        assert summary["failedStepLog"]["retrievalStatus"] == "available"
+        assert "Process completed with exit code" in \
+            summary["failedStepLog"]["boundedFailureLines"][0]
+        assert "FAILURES!!!" in \
+            summary["failedStepLog"]["boundedInstrumentationLines"][0]
     print("WIMT artifact recovery self-test passed (no network or provider request)")
 
 

@@ -71,6 +71,23 @@ jobs:
           run-id: ${{ steps.source.outputs.source_run }}
           github-token: ${{ github.token }}
           path: recovered-wimt
+      - name: Retrieve original failed-step log (GitHub-only; no provider request)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WIMT_SOURCE_RUN: ${{ steps.source.outputs.source_run }}
+        run: |
+          set +e
+          gh run view "$WIMT_SOURCE_RUN" --repo "$GITHUB_REPOSITORY" --log-failed \
+            > recovered-wimt/failed-step-log.txt \
+            2> recovered-wimt/failed-step-log-fetch-error.txt
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ] && [ -s recovered-wimt/failed-step-log.txt ]; then
+            printf 'available\n' > recovered-wimt/failed-step-log-status.txt
+          else
+            printf 'unavailable\n' > recovered-wimt/failed-step-log-status.txt
+            echo '::warning::Could not retrieve the original failed-step log; artifact diagnosis continues.'
+          fi
       - name: Report actual device failure, no further website request
         env:
           GH_TOKEN: ${{ github.token }}
