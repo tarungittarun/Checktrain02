@@ -445,7 +445,7 @@ Render.save("02-track-live", shot.bitmap)
         val descriptions = (0 until list.childCount).flatMap { index ->
             val row = list.getChildAt(index)
             listOf(R.id.liveArr, R.id.liveDep).map { id ->
-                row.findViewById<TextView>(id).contentDescription.orEmpty()
+                row.findViewById<TextView>(id).contentDescription?.toString().orEmpty()
             }
         }
         assertTrue("reported stop clocks must be relabelled for the selected WIMT source",

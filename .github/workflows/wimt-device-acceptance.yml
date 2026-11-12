@@ -37,6 +37,7 @@ on:
       - 'app/src/test/java/in/opentrack/india/v2/mirror/WimtCacheRequestTest.kt'
       - 'app/src/test/java/in/opentrack/india/v2/mirror/WebsiteRequestPacingTest.kt'
       - 'app/src/test/java/in/opentrack/india/ui/SourceIndicatorTest.kt'
+      - 'app/src/test/java/in/opentrack/india/ui/ScreenRenderTest.kt'
       - 'app/src/main/java/in/opentrack/india/ui/TrackingSources.kt'
       - 'app/src/main/java/in/opentrack/india/ui/SourceIndicator.kt'
       - 'app/src/main/java/in/opentrack/india/ui/TrainActivity.kt'
