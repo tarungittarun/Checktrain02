@@ -233,8 +233,8 @@ class WimtLiveTrainWebComparisonAcceptanceTest {
         liveItem.click() // one deliberate selected-source GET; no retry or Auto refresh
         result.directSelected = true
         val (liveSelected, liveSummary) = awaitSource("Selected WIMT .in live-status feed")
-        shot(result, "$prefix-app-live")
         result.directVisibleTimeCells = visibleWimtSourceCellCount()
+        shot(result, "$prefix-app-live")
         val liveDetails = openSourceDetails(
             "$prefix-app-details",
             By.textContains("Selected WIMT .in live-status response"),
@@ -541,12 +541,27 @@ class WimtLiveTrainWebComparisonAcceptanceTest {
     }
 
     private fun visibleWimtSourceCellCount(): Int {
-        val cells = E2E.all(By.res(E2E.PKG, "liveArr")) + E2E.all(By.res(E2E.PKG, "liveDep"))
-        return cells.count {
-            val description = it.contentDescription.orEmpty()
-            description.contains("WIMT .in source-reported", true) &&
-                !description.endsWith("unknown", true)
+        fun countVisibleCells(): Int {
+            val cells = E2E.all(By.res(E2E.PKG, "liveArr")) + E2E.all(By.res(E2E.PKG, "liveDep"))
+            return cells.count {
+                val description = it.contentDescription.orEmpty()
+                description.contains("WIMT .in source-reported", true) &&
+                    !description.endsWith("unknown", true)
+            }
         }
+
+        countVisibleCells().takeIf { it > 0 }?.let { return it }
+        // The selected source can report real event clocks at stops outside the current RecyclerView
+        // viewport (the screen initially focuses its current station). Scroll the actual stop list in
+        // both directions and require a visible, source-attributed cell; details text alone is not enough.
+        for (up in listOf(false, true)) {
+            repeat(8) {
+                if (!E2E.swipeIn("stops", up)) return countVisibleCells()
+                E2E.ui.waitForIdle()
+                countVisibleCells().takeIf { it > 0 }?.let { return it }
+            }
+        }
+        return countVisibleCells()
     }
 
     private fun parseServiceDate(text: String): String? = Regex(
