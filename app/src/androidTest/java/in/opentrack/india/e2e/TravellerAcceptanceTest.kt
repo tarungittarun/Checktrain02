@@ -42,20 +42,31 @@ class TravellerAcceptanceTest {
         assertEquals("Track opened a DIFFERENT train from the ticket", "12627", E2E.text("trainNo"))
     }
 
-    private fun textContains(text: String, timeoutMs: Long = E2E.LOCAL_MS): String {
-        // Android AlertDialog buttons may expose their theme-transformed all-caps
-        // label (CANCEL) to UiAutomator even though the builder says "Cancel".
-        val pattern = "(?i).*${Regex.escape(text)}.*"
-        return E2E.ui.wait(Until.findObject(By.textMatches(pattern)), timeoutMs)?.text.orEmpty()
+    private fun findTextContains(text: String, timeoutMs: Long): androidx.test.uiautomator.UiObject2? {
+        // AlertDialog buttons may expose their theme-transformed all-caps label
+        // (CANCEL) to UiAutomator even though the builder says "Cancel". Try the
+        // conventional label first, then its all-caps rendering with the same API
+        // used by the rest of this device suite.
+        val firstWait = minOf(timeoutMs, 250L)
+        E2E.ui.wait(Until.findObject(By.textContains(text)), firstWait)?.let { return it }
+        val remaining = (timeoutMs - firstWait).coerceAtLeast(1L)
+        return E2E.ui.wait(Until.findObject(By.textContains(text.uppercase(java.util.Locale.ROOT))),
+            remaining)
     }
 
+    private fun textContains(text: String, timeoutMs: Long = E2E.LOCAL_MS): String =
+        findTextContains(text, timeoutMs)?.text.orEmpty()
+
     private fun tapTextContains(text: String, timeoutMs: Long = E2E.LOCAL_MS): Boolean {
-        val pattern = "(?i).*${Regex.escape(text)}.*"
-        val node = E2E.ui.wait(Until.findObject(By.textMatches(pattern)), timeoutMs) ?: return false
+        val node = findTextContains(text, timeoutMs) ?: return false
         node.click()
         E2E.ui.waitForIdle()
         return true
     }
+
+    private fun visibleTextNodes(): String = E2E.all(By.clazz("android.widget.TextView"))
+        .mapNotNull { runCatching { it.text?.toString()?.trim() }.getOrNull()?.takeIf { it.isNotBlank() } }
+        .distinct().joinToString(" | ")
 
     /** CI installs with runtime grants, but accept the real Android prompt if a
      * profile/API still presents one. This only clicks a visible system choice. */
@@ -282,7 +293,8 @@ class TravellerAcceptanceTest {
             E2E.all(By.clazz("android.widget.TextView")).any {
                 it.text.orEmpty().matches(Regex(".*\\([A-Z0-9]{2,6}\\).*"))
             })
-        assertTrue("Preceding-station chooser has no clear cancel action", tapTextContains("Cancel"))
+        assertTrue("Preceding-station chooser has no clear cancel action; visible text: ${visibleTextNodes()}",
+            tapTextContains("Cancel"))
         assertEquals("cancelling trigger selection must not arm an alert", "Alert", E2E.text("arrivalAlert"))
 
         openAlertChoices()
