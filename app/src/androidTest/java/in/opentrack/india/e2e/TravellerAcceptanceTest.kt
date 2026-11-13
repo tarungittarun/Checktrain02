@@ -64,16 +64,23 @@ class TravellerAcceptanceTest {
         return true
     }
 
+    private fun visibleOnScreen(node: androidx.test.uiautomator.UiObject2?): Boolean {
+        val bounds = node?.visibleBounds ?: return false
+        return bounds.width() > 0 && bounds.height() > 0
+    }
+
+    private fun visibleResource(name: String): Boolean =
+        visibleOnScreen(E2E.find(name, 300))
+
     private fun visibleInScroll(node: androidx.test.uiautomator.UiObject2?, container: String): Boolean {
-        if (node == null) return false
-        val item = node.visibleBounds
+        if (!visibleOnScreen(node)) return false
+        val item = node!!.visibleBounds
         val viewport = E2E.find(container, 500)?.visibleBounds ?: return false
         val visibleLeft = maxOf(item.left, viewport.left)
         val visibleTop = maxOf(item.top, viewport.top)
         val visibleRight = minOf(item.right, viewport.right)
         val visibleBottom = minOf(item.bottom, viewport.bottom)
-        return item.width() > 0 && item.height() > 0 &&
-            visibleRight > visibleLeft && visibleBottom > visibleTop
+        return visibleRight > visibleLeft && visibleBottom > visibleTop
     }
 
     private fun revealTextContains(text: String, container: String, swipes: Int = 6,
@@ -81,15 +88,6 @@ class TravellerAcceptanceTest {
         repeat(swipes + 1) { attempt ->
             val node = findTextContains(text, 300)
             if (visibleInScroll(node, container)) return true
-            if (attempt == swipes || !E2E.swipeIn(container, up = up)) return false
-        }
-        return false
-    }
-
-    private fun revealResource(name: String, container: String, swipes: Int = 6,
-                               up: Boolean = true): Boolean {
-        repeat(swipes + 1) { attempt ->
-            if (visibleInScroll(E2E.find(name, 300), container)) return true
             if (attempt == swipes || !E2E.swipeIn(container, up = up)) return false
         }
         return false
@@ -117,8 +115,8 @@ class TravellerAcceptanceTest {
     }
 
     private fun openAlertChoices(screenshotTag: String? = null) {
-        assertTrue("Arrival alert control is not reachable",
-            revealResource("arrivalAlert", "scroller", swipes = 4) && E2E.tap("arrivalAlert"))
+        assertTrue("Arrival alert control is not visible on screen",
+            visibleResource("arrivalAlert") && E2E.tap("arrivalAlert"))
         allowPermissionIfPrompted()
         assertTrue("Alert trigger chooser did not open: ${textContains("No route for this alert", 300)}",
             E2E.ui.wait(Until.hasObject(By.textContains("Arrival alert · train 12627")),
@@ -333,7 +331,7 @@ class TravellerAcceptanceTest {
     @Test fun arrivalAlertSetupShowsTriggersPreferencesAndSaveCancel() {
         openTicketTrain()
         assertTrue("Arrival alert control is not visible on the journey screen",
-            revealResource("arrivalAlert", "scroller", swipes = 4))
+            visibleResource("arrivalAlert"))
         E2E.shotRequired("alert-journey-entry")
         openAlertChoices()
         E2E.shotRequired("alert-trigger-chooser-top")
@@ -353,7 +351,7 @@ class TravellerAcceptanceTest {
         assertTrue("Top-level trigger chooser did not cancel", tapTextContains("Cancel"))
         assertEquals("cancelling the trigger chooser must not arm an alert", "Alert", E2E.text("arrivalAlert"))
         assertTrue("Journey alert control is not visible after chooser cancellation",
-            revealResource("arrivalAlert", "scroller", swipes = 4))
+            visibleResource("arrivalAlert"))
         E2E.shotRequired("alert-trigger-chooser-cancelled")
 
         openAlertChoices("alert-chooser-reopened-after-cancel")
@@ -372,7 +370,7 @@ class TravellerAcceptanceTest {
             tapTextContains("Cancel"))
         assertEquals("cancelling trigger selection must not arm an alert", "Alert", E2E.text("arrivalAlert"))
         assertTrue("Journey control is not visible after cancelling station selection",
-            revealResource("arrivalAlert", "scroller", swipes = 4))
+            visibleResource("arrivalAlert"))
         E2E.shotRequired("alert-trigger-cancelled")
 
         openAlertChoices("alert-chooser-reopened-for-station-select")
@@ -411,7 +409,7 @@ class TravellerAcceptanceTest {
         assertTrue("Cancel after station selection did not close setup", tapTextContains("Cancel"))
         assertEquals("cancelling a preceding-station alert must not arm it", "Alert", E2E.text("arrivalAlert"))
         assertTrue("Journey control is not visible after cancelling station preferences",
-            revealResource("arrivalAlert", "scroller", swipes = 4))
+            visibleResource("arrivalAlert"))
         E2E.shotRequired("alert-preceding-station-cancelled")
 
         openAlertChoices("alert-chooser-reopened-for-destination")
@@ -438,7 +436,7 @@ class TravellerAcceptanceTest {
         assertTrue("Cancel did not close alert setup", tapTextContains("Cancel"))
         assertEquals("cancelling preferences must not create an alert", "Alert", E2E.text("arrivalAlert"))
         assertTrue("Journey control is not visible after cancelling destination preferences",
-            revealResource("arrivalAlert", "scroller", swipes = 4))
+            visibleResource("arrivalAlert"))
         E2E.shotRequired("alert-destination-cancelled")
 
         openAlertChoices("alert-chooser-reopened-for-distance")
@@ -470,8 +468,8 @@ class TravellerAcceptanceTest {
             E2E.ui.wait(Until.hasObject(By.text("Alert on")), E2E.NETWORK_MS))
         assertTrue("Saved alert is not visible on its control",
             E2E.text("arrivalAlert") == "Alert on")
-        assertTrue("Saved alert control is not visible in the journey scroll",
-            revealResource("arrivalAlert", "scroller", swipes = 4))
+        assertTrue("Saved alert control is not visible on the journey screen",
+            visibleResource("arrivalAlert"))
         E2E.shotRequired("alert-saved-on-journey")
         assertTrue("Saved alert actions cannot be reopened", E2E.tap("arrivalAlert"))
         val addAnother = findTextContains("Add another", E2E.LOCAL_MS)
@@ -530,8 +528,8 @@ class TravellerAcceptanceTest {
         assertTrue("Cancel alert did not return to the journey screen",
             E2E.ui.wait(Until.hasObject(E2E.res("arrivalAlert")), E2E.NETWORK_MS))
         assertEquals("Alert", E2E.text("arrivalAlert"))
-        assertTrue("Returned journey alert is not visible in its scroll",
-            revealResource("arrivalAlert", "scroller", swipes = 4))
+        assertTrue("Returned journey alert is not visible on screen",
+            visibleResource("arrivalAlert"))
         E2E.shotRequired("alert-returned-to-journey")
     }
 

@@ -21,6 +21,32 @@ internal fun decodeJavascriptStringResult(encoded: String?): String = runCatchin
     JSONTokener(encoded ?: "null").nextValue() as? String ?: ""
 }.getOrDefault("")
 
+private const val MAX_WEBSITE_HTML = 1_000_000
+private val stationCardRoot = Regex(
+    """(?is)<div\b(?=[^>]*\bclass\s*=\s*["'][^"']*\bflex-grow\b)(?=[^>]*\bclass\s*=\s*["'][^"']*\brounded-lg\b)[^>]*>""")
+
+/** Pure DOM-readiness check: do not confuse a page shell or a timetable echo with populated cards. */
+internal fun hasPopulatedTrainDocument(html: String, trainNo: String): Boolean {
+    if (html.isBlank() || html.length > MAX_WEBSITE_HTML) return false
+    val visible = html.replace(Regex("(?is)<script\\b[^>]*>.*?</script>"), " ")
+        .replace(Regex("(?is)<style\\b[^>]*>.*?</style>"), " ")
+        .replace(Regex("(?s)<[^>]*>"), " ")
+        .replace("&nbsp;", " ", ignoreCase = true)
+        .replace("&#160;", " ", ignoreCase = true)
+        .replace(Regex("\\s+"), " ")
+    val identity = Regex("(?i)\\b${Regex.escape(trainNo)}\\b").containsMatchIn(visible)
+    val update = Regex("(?i)\\bLast\\s+Updated\\s*:\\s*\\d{1,2}:\\d{2}(?::\\d{2})?\\s*(?:AM|PM)")
+        .containsMatchIn(visible)
+    val source = Regex("(?i)\\bSource:\\s*[A-Z0-9]{1,6}\\b").containsMatchIn(visible)
+    val destination = Regex("(?i)\\bDestination:\\s*[A-Z0-9]{1,6}\\b")
+        .containsMatchIn(visible)
+    val card = Regex("(?i)<!--\\s*Station Details Card\\s*-->").containsMatchIn(html) ||
+        stationCardRoot.containsMatchIn(html)
+    val clock = Regex("(?is)\\b(?:ARRIVAL|DEPARTURE)\\b.{0,900}?\\b\\d{1,2}:\\d{2}\\s*(?:AM|PM)\\b")
+        .containsMatchIn(html)
+    return identity && update && source && destination && card && clock
+}
+
 /** The selected independent website's document navigation through Android's actual WebView engine.
  * This is NOT a forged Chrome header set, Google's WIMT phone app, or a way to solve a challenge.
  * WebView has its own browser version and network/session identity; a 403 remains a refusal.
@@ -33,31 +59,6 @@ object WebsiteBrowserRequest {
     private const val TIMEOUT_MS = 12_000L
     private const val DOM_READINESS_WAIT_MS = 2_000L
     private const val DOM_READINESS_POLL_MS = 200L
-    private const val MAX_HTML = 1_000_000
-    private val stationCardRoot = Regex(
-        """(?is)<div\b(?=[^>]*\bclass\s*=\s*["'][^"']*\bflex-grow\b)(?=[^>]*\bclass\s*=\s*["'][^"']*\brounded-lg\b)[^>]*>""")
-
-    private fun hasPopulatedTrainDocument(html: String, trainNo: String): Boolean {
-        if (html.isBlank() || html.length > MAX_HTML) return false
-        val visible = html.replace(Regex("(?is)<script\\b[^>]*>.*?</script>"), " ")
-            .replace(Regex("(?is)<style\\b[^>]*>.*?</style>"), " ")
-            .replace(Regex("(?s)<[^>]*>"), " ")
-            .replace("&nbsp;", " ", ignoreCase = true)
-            .replace("&#160;", " ", ignoreCase = true)
-            .replace(Regex("\\s+"), " ")
-        val identity = Regex("(?i)\\b${Regex.escape(trainNo)}\\b").containsMatchIn(visible)
-        val update = Regex("(?i)\\bLast\\s+Updated\\s*:\\s*\\d{1,2}:\\d{2}(?::\\d{2})?\\s*(?:AM|PM)")
-            .containsMatchIn(visible)
-        val source = Regex("(?i)\\bSource:\\s*[A-Z0-9]{1,6}\\b").containsMatchIn(visible)
-        val destination = Regex("(?i)\\bDestination:\\s*[A-Z0-9]{1,6}\\b")
-            .containsMatchIn(visible)
-        val card = Regex("(?i)<!--\\s*Station Details Card\\s*-->").containsMatchIn(html) ||
-            stationCardRoot.containsMatchIn(html)
-        val clock = Regex("(?is)\\b(?:ARRIVAL|DEPARTURE)\\b.{0,900}?\\b\\d{1,2}:\\d{2}\\s*(?:AM|PM)\\b")
-            .containsMatchIn(html)
-        return identity && update && source && destination && card && clock
-    }
-
     fun document(context: Context, url: String): Http.Result {
         if (!allowed.matches(url)) return Http.Result.Failed(Http.Result.Kind.HTTP, "invalid website URL")
         if (Looper.myLooper() == Looper.getMainLooper())
@@ -118,11 +119,11 @@ object WebsiteBrowserRequest {
             if (finished.get()) return
             val browser = view ?: return
             browser.evaluateJavascript("(function(){var h=document.documentElement&&document.documentElement.outerHTML||'';" +
-                "return h.length<=${WebsiteBrowserRequest.MAX_HTML}?h:'';})()") { encoded ->
+                "return h.length<=${MAX_WEBSITE_HTML}?h:'';})()") { encoded ->
                 if (finished.get()) return@evaluateJavascript
                 val html = decodeJavascriptStringResult(encoded)
                 val elapsed = SystemClock.elapsedRealtime() - readinessStartedAt
-                val populated = WebsiteBrowserRequest.hasPopulatedTrainDocument(html, expectedTrain)
+                val populated = hasPopulatedTrainDocument(html, expectedTrain)
                 when {
                     populated -> finish(Http.Result.Ok(html, fromCache = false, ageMillis = 0))
                     elapsed >= WebsiteBrowserRequest.DOM_READINESS_WAIT_MS && html.isNotBlank() ->
