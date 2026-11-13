@@ -69,8 +69,8 @@ class TravellerAcceptanceTest {
         .distinct().joinToString(" | ")
 
     private fun precedingStationChoices(): List<androidx.test.uiautomator.UiObject2> =
-        E2E.all(By.textContains("(")).filter {
-            it.text.orEmpty().matches(Regex(""".*\([A-Z0-9]{2,6}\).*"""))
+        E2E.all(By.clazz("android.widget.TextView")).filter {
+            it.text.orEmpty().trim().matches(Regex(""".*\([A-Z0-9]{2,6}\)$"""))
         }
 
     /** CI installs with runtime grants, but accept the real Android prompt if a
@@ -377,6 +377,14 @@ class TravellerAcceptanceTest {
         assertTrue("Active alert history lost the selected interval",
             E2E.ui.wait(Until.hasObject(By.textContains("check every 5 minutes")), E2E.LOCAL_MS))
         assertTrue("An armed alert has no ID-scoped cancel action", tapTextContains("Cancel alert"))
+        assertTrue("Cancellation confirmation did not open",
+            E2E.ui.wait(Until.hasObject(By.textContains("Cancel alert for train")), E2E.LOCAL_MS))
+        val confirmCancel = E2E.all(By.clazz("android.widget.Button"))
+            .firstOrNull { it.text.orEmpty().equals("Cancel alert", ignoreCase = true) }
+        assertTrue("The specific alert cannot be confirmed for cancellation",
+            confirmCancel != null)
+        confirmCancel!!.click()
+        E2E.ui.waitForIdle()
         assertTrue("Cancellation is not retained in past alert history",
             E2E.ui.wait(Until.hasObject(By.textContains("Stopped or cancelled")), E2E.LOCAL_MS))
         E2E.ui.pressBack()
