@@ -94,7 +94,9 @@ getOrPut getOrElse onFailure onSuccess awaitCancellable current isDisposed dispo
 # DisplayMetrics.density, Layout.getLineWidth.
 # the live-feed client: javax.crypto, java.security, org.json and the stdlib calls on their results
 init doFinal indices optJSONObject optBoolean opt optString has keys getJSONArray encodeToString decode nextBytes lines
-setPrimaryClip
+setPrimaryClip isNull createNotificationChannel getNotificationChannel setSound setVibrate isFinite vibrate isPlaying getButton setOnShowListener setPositiveButton setNeutralButton checkedRadioButtonId
+# Android notifications, channels, dialog controls, and numeric location checks used by the opt-in
+# foreground arrival monitor; these are Android framework/stdlib surfaces, not project receiver APIs.
 # Android Drawable bounds and Bitmap pixel-parity checks in the source-neutral route render tests.
 setBounds sameAs
 # Android ViewGroup translates measured clock bounds into shared route-item coordinates.
@@ -125,6 +127,8 @@ fontMetrics ascent descent
 scrollToPositionWithOffset findViewByPosition smoothScrollTo
 # bind every route row in the shipped-data render test without assuming off-screen RecyclerView children exist
 itemCount createViewHolder getItemViewType bindViewHolder itemView
+# Robolectric's ActivityController recreates the real search activity to verify state restoration.
+recreate
 # stale-while-revalidate mirror cache (2026-10-12): org.json reads + sorted-view walk + time format
 optLong optInt SimpleDateFormat format Date Locale US put sortedByDescending second
 isNullOrBlank containsKey isNullOrEmpty takeWhile toLongOrNull substringAfter asSequence toList filter

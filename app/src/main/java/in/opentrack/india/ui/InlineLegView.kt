@@ -30,7 +30,7 @@ class InlineLegView @JvmOverloads constructor(
         set(value) { field = value; invalidate() }
     /** Battery mode draws ONLY a qualified last-event sketch, never the map canvas. */
     var batteryOutline: Boolean = false
-        set(value) { if (field != value) { field = value; invalidate() } }
+        set(value) { if (field != value) { field = value; requestLayout(); invalidate() } }
     /** Untimed map-only legs need a full touch target, not a tall empty train leg. */
     /** Distances rescaled from an older corridor, never a current train timetable. */
     var historicalMap: Boolean = false
@@ -49,10 +49,16 @@ class InlineLegView @JvmOverloads constructor(
             LegGeometry.expandedHeightDp(projection!!.points, distanceKm)
             else if (compactStatic) LegGeometry.compactMappedHeightDp(distanceKm)
             else LegGeometry.heightDp(distanceKm, screenDp)
-        // The named website event needs room for At / As on and age below the train,
-        // even if its scheduled leg is only a few kilometres long.
-        val height = if (!showLabels && projection?.markerKind == RouteBetween.MarkerKind.SITE_INTERMEDIATE)
-            baseHeight.coerceAtLeast(76) else baseHeight
+        // Battery mode shows named points in compact cards below this ruler. Keep only
+        // the reported-site sketch here; using expanded map height for a hidden canvas
+        // created hundreds of pixels of empty rail between otherwise adjacent stations.
+        // Normal mode keeps its distance-proportional map and labels unchanged.
+        val height = when {
+            batteryOutline -> LegGeometry.BATTERY_EVENT_HEIGHT_DP
+            !showLabels && projection?.markerKind == RouteBetween.MarkerKind.SITE_INTERMEDIATE ->
+                baseHeight.coerceAtLeast(76)
+            else -> baseHeight
+        }
         setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), dp(height.toFloat()).roundToInt())
     }
 
@@ -72,9 +78,12 @@ class InlineLegView @JvmOverloads constructor(
             .coerceAtLeast(0)
         val proportion = ((fraction - breaks[segment]) /
             (breaks[segment + 1] - breaks[segment]).coerceAtLeast(.001f)).coerceIn(0f, 1f)
-        val y = if (showLabels && positions.isNotEmpty())
-            heights[segment] + (heights[segment + 1] - heights[segment]) * proportion
-            else y0 + (y1 - y0) * fraction
+        val y = when {
+            batteryOutline -> y0 + (y1 - y0) * fraction
+            showLabels && positions.isNotEmpty() ->
+                heights[segment] + (heights[segment + 1] - heights[segment]) * proportion
+            else -> y0 + (y1 - y0) * fraction
+        }
         return dp(RouteRailGeometry.X_DP) to y
     }
 
@@ -261,6 +270,8 @@ class InlineLegView @JvmOverloads constructor(
 /** A short leg leaves room for three halt rows in the first route viewport.
  * Both spacing and age are functions of source/map facts, never of elapsed train travel. */
 object LegGeometry {
+    const val BATTERY_EVENT_HEIGHT_DP = 78
+
     fun heightDp(distanceKm: Int, screenHeightDp: Float = 760f): Int {
         // Keep three named halts in the first phone viewport even on a 65-km
         // last-reported leg. Still grows with the *scheduled distance*, never time.

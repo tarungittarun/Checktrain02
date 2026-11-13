@@ -4,6 +4,7 @@
      worse, restore a stale live snapshot onto a new phone. -->
 <full-backup-content>
     <include domain="sharedpref" path="." />
+    <exclude domain="sharedpref" path="journey_arrival_alert.xml" />
     <exclude domain="file" path="ref" />
     <exclude domain="file" path="live" />
     <exclude domain="cache" path="." />

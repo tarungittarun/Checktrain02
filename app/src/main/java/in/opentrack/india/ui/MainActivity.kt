@@ -45,6 +45,7 @@ class MainActivity : AppCompatActivity() {
     private var searchCollapsed = false
     private var sortMode = TrainResultsDisplay.Sort.SUGGESTED
     private var keyboardOpen = false
+    private var stateReady = false
 
     /** With no hits, a weighted empty RecyclerView reserved a black strip above the IME.
      * Let the form card extend to the keyboard; never hide populated search results. */
@@ -96,6 +97,7 @@ class MainActivity : AppCompatActivity() {
                     MainViewModel(app) as T
             }
         )[MainViewModel::class.java]
+        stateReady = true
         draftSearch = savedInstanceState?.getBoolean("draftSearch") ?: false
 
         adapter = TrainHitAdapter { hit ->
@@ -137,6 +139,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         wireBoxes()
+        restoreSearchDraft(savedInstanceState)
         binding.find.setOnClickListener { runSearch() }
         binding.homeBrand.setOnClickListener {
             // Re-selecting Stations used to clear the ViewModel report while leaving
@@ -162,6 +165,7 @@ class MainActivity : AppCompatActivity() {
             if (vm.results.value != null) enterDraft()
             vm.setDate(RailTime.todayEpochDay(), RailTime.istMinuteOfDay(System.currentTimeMillis()))
             renderDate()
+            persistSearchDraft()
         }
         binding.settings.setOnClickListener {
             startActivity(Intent(this, SettingsActivity::class.java))
@@ -186,19 +190,77 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
-        if (savedInstanceState == null) selectMode(MainViewModel.Mode.STATIONS)
-        else renderMode(vm.mode)
+        renderMode(vm.mode)
         renderDate()
-        restoreLast()
+        if (!Prefs(this).hasSearchDraft) restoreLast()
         vm.prepare()
         if (savedInstanceState?.getBoolean("searchCollapsed") == true) setSearchCollapsed(true)
         if (draftSearch) enterDraft()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
+        persistSearchDraft()
         outState.putBoolean("searchCollapsed", searchCollapsed)
         outState.putBoolean("draftSearch", draftSearch)
+        outState.putString(STATE_FROM_TEXT, binding.fromBox.text)
+        outState.putString(STATE_FROM_CODE, binding.fromBox.resolvedCode)
+        outState.putString(STATE_TO_TEXT, binding.toBox.text)
+        outState.putString(STATE_TO_CODE, binding.toBox.resolvedCode)
+        outState.putString(STATE_TRAIN_TEXT, binding.trainBox.text)
+        outState.putString(STATE_TRAIN_CODE, binding.trainBox.resolvedCode)
+        outState.putString(STATE_MODE, vm.mode.name)
+        outState.putLong(STATE_EPOCH_DAY, vm.targetEpochDay)
+        outState.putInt(STATE_MINUTE, vm.targetMinuteOfDay)
         super.onSaveInstanceState(outState)
+    }
+
+    override fun onStop() {
+        persistSearchDraft()
+        super.onStop()
+    }
+
+    private fun persistSearchDraft() {
+        if (!stateReady) return
+        val prefs = Prefs(this)
+        val from = binding.fromBox.text
+        val to = binding.toBox.text
+        val train = binding.trainBox.text
+        if (!draftSearch && !prefs.hasSearchDraft &&
+            from.isBlank() && to.isBlank() && train.isBlank()) return
+        prefs.saveSearchDraft(
+            from, binding.fromBox.resolvedCode,
+            to, binding.toBox.resolvedCode,
+            train, binding.trainBox.resolvedCode,
+            vm.mode.name, vm.targetEpochDay, vm.targetMinuteOfDay,
+        )
+    }
+
+    private fun restoreSearchDraft(saved: Bundle?) {
+        val prefs = Prefs(this)
+        val savedMode = saved?.getString(STATE_MODE) ?: prefs.searchMode
+        val mode = runCatching { MainViewModel.Mode.valueOf(savedMode) }
+            .getOrDefault(MainViewModel.Mode.STATIONS)
+        if (vm.mode != mode) vm.setMode(mode)
+
+        val savedDay = saved?.takeIf { it.containsKey(STATE_EPOCH_DAY) }
+            ?.getLong(STATE_EPOCH_DAY) ?: prefs.searchEpochDay
+        val savedMinute = saved?.takeIf { it.containsKey(STATE_MINUTE) }
+            ?.getInt(STATE_MINUTE) ?: prefs.searchMinuteOfDay
+        if (savedDay > 0L && savedMinute in 0..1439 &&
+            (vm.targetEpochDay != savedDay || vm.targetMinuteOfDay != savedMinute))
+            vm.setDate(savedDay, savedMinute)
+
+        if (saved != null || prefs.hasSearchDraft) {
+            binding.fromBox.setTextShown(saved?.getString(STATE_FROM_TEXT) ?: prefs.searchFromText)
+            binding.fromBox.resolvedCode = (saved?.getString(STATE_FROM_CODE)
+                ?: prefs.searchFromResolved).ifBlank { null }
+            binding.toBox.setTextShown(saved?.getString(STATE_TO_TEXT) ?: prefs.searchToText)
+            binding.toBox.resolvedCode = (saved?.getString(STATE_TO_CODE)
+                ?: prefs.searchToResolved).ifBlank { null }
+            binding.trainBox.setTextShown(saved?.getString(STATE_TRAIN_TEXT) ?: prefs.searchTrainText)
+            binding.trainBox.resolvedCode = (saved?.getString(STATE_TRAIN_CODE)
+                ?: prefs.searchTrainResolved).ifBlank { null }
+        }
     }
 
     private fun setSearchCollapsed(collapsed: Boolean) {
@@ -236,13 +298,13 @@ class MainActivity : AppCompatActivity() {
         }
         listOf(binding.fromBox, binding.toBox).forEach { box ->
             box.suggester = stationSuggester
-            box.onEdit = { enterDraft() }
-            box.onPick = null
+            box.onEdit = { enterDraft(); persistSearchDraft() }
+            box.onPick = { persistSearchDraft() }
             box.onSearch = null
         }
         binding.trainBox.suggester = trainSuggester
-        binding.trainBox.onEdit = { enterDraft() }
-        binding.trainBox.onPick = null
+        binding.trainBox.onEdit = { enterDraft(); persistSearchDraft() }
+        binding.trainBox.onPick = { persistSearchDraft() }
         binding.trainBox.onSearch = null
         binding.fromBox.hint = getString(R.string.hint_from)
         binding.toBox.hint = getString(R.string.hint_to)
@@ -264,6 +326,7 @@ class MainActivity : AppCompatActivity() {
         (getSystemService(INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager)
             ?.hideSoftInputFromWindow(binding.root.windowToken, 0)
         binding.searchCardScroll.post { binding.searchCardScroll.scrollTo(0, 0) }
+        persistSearchDraft()
     }
 
     /** Reopens the last search: the common case is "same pair, again tomorrow". */
@@ -276,11 +339,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun selectMode(mode: MainViewModel.Mode) {
+        persistSearchDraft()
         if (vm.mode != mode) {
             vm.setMode(mode)
             adapter.submitList(emptyList()) // never leave old-mode rows under a new question
         }
         renderMode(mode)
+        persistSearchDraft()
     }
 
     private fun renderMode(mode: MainViewModel.Mode) {
@@ -305,6 +370,7 @@ class MainActivity : AppCompatActivity() {
             RailTime.todayEpochDay() - 1, RailTime.todayEpochDay() + 1)
         vm.setDate(day, vm.targetMinuteOfDay)
         renderDate()
+        persistSearchDraft()
     }
 
     private fun renderDate() {
@@ -332,6 +398,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun runSearch() {
+        persistSearchDraft()
         keepSearchOpen = false
         // Otherwise the keyboard covers the result/validation sentence below the search card.
         (getSystemService(INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager)
@@ -499,5 +566,17 @@ class MainActivity : AppCompatActivity() {
                 putExtra(TrainActivity.EXTRA_ORIGIN_EPOCH_DAY, hit.originDateEpochDay)
             }
         )
+    }
+
+    private companion object {
+        const val STATE_FROM_TEXT = "search.from.text"
+        const val STATE_FROM_CODE = "search.from.code"
+        const val STATE_TO_TEXT = "search.to.text"
+        const val STATE_TO_CODE = "search.to.code"
+        const val STATE_TRAIN_TEXT = "search.train.text"
+        const val STATE_TRAIN_CODE = "search.train.code"
+        const val STATE_MODE = "search.mode"
+        const val STATE_EPOCH_DAY = "search.epochDay"
+        const val STATE_MINUTE = "search.minute"
     }
 }

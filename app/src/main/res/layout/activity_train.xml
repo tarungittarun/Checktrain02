@@ -65,6 +65,22 @@
                 android:paddingStart="8dp" android:paddingEnd="8dp"
                 android:paddingTop="7dp" android:paddingBottom="7dp"
                 android:gravity="center" />
+            <TextView
+                android:id="@+id/arrivalAlert"
+                style="@style/TextMeta"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:layout_marginStart="6dp"
+                android:background="@drawable/bg_inset"
+                android:clickable="true"
+                android:focusable="true"
+                android:gravity="center"
+                android:minWidth="56dp"
+                android:paddingStart="8dp"
+                android:paddingEnd="8dp"
+                android:text="Alert"
+                android:textColor="@color/text1"
+                android:contentDescription="Configure an arrival alert" />
         </LinearLayout>
         <LinearLayout
             android:layout_width="match_parent"

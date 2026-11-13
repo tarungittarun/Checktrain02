@@ -4,10 +4,16 @@ import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
 import android.animation.ObjectAnimator
 import android.animation.ValueAnimator
+import android.Manifest
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import android.view.animation.LinearInterpolator
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.os.Bundle
 import android.os.SystemClock
 import android.util.Log
@@ -16,13 +22,28 @@ import android.widget.TextView
 import android.widget.ArrayAdapter
 import android.widget.Toast
 import android.view.View
+import android.view.ViewGroup
 import android.view.ViewTreeObserver
 import android.view.MotionEvent
 import android.view.ViewConfiguration
 import `in`.opentrack.india.domain.RouteBetween
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
+import `in`.opentrack.india.alarm.AlertFeedback
+import `in`.opentrack.india.alarm.AlertState
+import `in`.opentrack.india.alarm.AlertTrigger
+import `in`.opentrack.india.alarm.JourneyAlarmConfig
+import `in`.opentrack.india.alarm.JourneyAlarmNotifications
+import `in`.opentrack.india.alarm.JourneyAlarmPolicy
+import `in`.opentrack.india.alarm.JourneyAlarmService
+import `in`.opentrack.india.alarm.JourneyAlarmStore
+import `in`.opentrack.india.model.StopRow
+import `in`.opentrack.india.model.TrainRoute
 import androidx.recyclerview.widget.LinearLayoutManager
 import `in`.opentrack.india.App
 import `in`.opentrack.india.core.BuildStamp
@@ -52,6 +73,27 @@ class TrainActivity : AppCompatActivity() {
     private lateinit var vm: LiveViewModel
     private lateinit var stopAdapter: StopAdapter
     private lateinit var connectionCue: ConnectionIssueCue
+    private var pendingNotificationAction: (() -> Unit)? = null
+    private var pendingLocationAction: (() -> Unit)? = null
+    private val alarmStoreListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
+        runOnUiThread { refreshArrivalAlertButton() }
+    }
+    private val notificationPermissionRequest = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()) { granted ->
+        val action = pendingNotificationAction
+        pendingNotificationAction = null
+        if (granted && notificationMonitorAvailable()) action?.invoke() else explainPermissionNeeded(
+            "Notifications are needed for the ongoing monitor and its arrival alert.")
+    }
+    private val locationPermissionRequest = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
+        val action = pendingLocationAction
+        pendingLocationAction = null
+        val granted = permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true ||
+            permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true
+        if (granted) action?.invoke() else explainPermissionNeeded(
+            "Phone location was not allowed, so the distance alert was not started.")
+    }
     /** A new anchor scrolls once; a manual successful refresh scrolls even at the SAME anchor. */
     private var lastAnchor: String? = null
     private var initialReportedFocusDone = false
@@ -396,6 +438,8 @@ class TrainActivity : AppCompatActivity() {
             true
         }
         binding.back.setOnClickListener { finish() }
+        binding.arrivalAlert.setOnClickListener { onArrivalAlertClick() }
+        refreshArrivalAlertButton()
         // Long-press the provenance badge to copy a live-feed report. It lives on that chip rather than in
         // Settings because the chip is what a traveller looks at when the screen is not telling the truth as
         // they know it — and the copied text is precisely what turns "it doesn't work" into something fixable
@@ -476,6 +520,387 @@ class TrainActivity : AppCompatActivity() {
         vm.error.observe(this) { msg ->
             errorText = msg
             renderNote()
+        }
+    }
+
+    private fun refreshArrivalAlertButton() {
+        val snapshot = JourneyAlarmStore.read(this)
+        val (text, description) = when (snapshot?.state) {
+            AlertState.ARMED -> "Alert on" to
+                "Arrival alert is armed for train ${snapshot.config.trainNo}; tap to view or cancel"
+            AlertState.RINGING -> "Stop alarm" to
+                "Arrival alarm is ringing; tap to stop it"
+            AlertState.FIRED -> "Alert sent" to
+                "Arrival alert was sent; tap to review or set another"
+            AlertState.MISSED -> "Alert missed" to
+                "The selected station event was not reported in time; tap for details"
+            AlertState.DISMISSED -> "Alert" to "Alarm stopped; tap to set an arrival alert"
+            null -> "Alert" to "Configure an arrival alert"
+        }
+        binding.arrivalAlert.text = text
+        binding.arrivalAlert.contentDescription = description
+    }
+
+    private fun onArrivalAlertClick() {
+        when (val saved = JourneyAlarmStore.read(this)) {
+            null -> requestNotificationAccess { loadJourneyForAlarm() }
+            else -> when (saved.state) {
+                AlertState.ARMED, AlertState.RINGING, AlertState.FIRED,
+                AlertState.MISSED, AlertState.DISMISSED -> showSavedAlarm(saved)
+            }
+        }
+    }
+
+    private fun showSavedAlarm(snapshot: `in`.opentrack.india.alarm.JourneyAlarmSnapshot) {
+        val c = snapshot.config
+        val title = when (snapshot.state) {
+            AlertState.ARMED -> "Arrival alert · monitoring"
+            AlertState.RINGING -> "Arrival alarm · ringing"
+            AlertState.FIRED -> "Arrival alert · sent"
+            AlertState.MISSED -> "Arrival alert · trigger not reported"
+            AlertState.DISMISSED -> "Arrival alert stopped"
+        }
+        val lines = mutableListOf(snapshot.status)
+        if (snapshot.lastCheckedAtMillis > 0L)
+            lines += "Last check · ${RailTime.formatClock(snapshot.lastCheckedAtMillis)} IST"
+        if (snapshot.evidenceAtMillis > 0L)
+            lines += "Event time · ${RailTime.formatClock(snapshot.evidenceAtMillis)} IST · " +
+                SourceFreshness.label(snapshot.evidenceAtMillis, System.currentTimeMillis())
+        if (snapshot.state == AlertState.ARMED)
+            lines += "An ongoing notification shows the monitor is active. Android or network restrictions may still delay or stop checks."
+        val builder = AlertDialog.Builder(this).setTitle(title)
+            .setMessage(lines.joinToString("\n\n"))
+        when (snapshot.state) {
+            AlertState.ARMED -> {
+                builder.setPositiveButton("Cancel alert") { _, _ ->
+                    JourneyAlarmService.cancel(this)
+                    refreshArrivalAlertButton()
+                }.setNeutralButton("Replace") { _, _ ->
+                    JourneyAlarmService.cancel(this)
+                    requestNotificationAccess { loadJourneyForAlarm() }
+                }.setNegativeButton("Keep", null)
+            }
+            AlertState.RINGING -> builder
+                .setPositiveButton("Stop alarm") {
+                        _, _ -> JourneyAlarmService.cancel(this); refreshArrivalAlertButton()
+                }.setNegativeButton("Keep ringing", null)
+            else -> builder.setPositiveButton("Set another") { _, _ ->
+                JourneyAlarmService.cancel(this)
+                requestNotificationAccess { loadJourneyForAlarm() }
+            }.setNegativeButton("Close", null)
+        }
+        builder.show().also(::paintBatteryDialog)
+    }
+
+    private fun requestNotificationAccess(action: () -> Unit) {
+        JourneyAlarmNotifications.ensureChannels(this)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED) {
+            pendingNotificationAction = action
+            notificationPermissionRequest.launch(Manifest.permission.POST_NOTIFICATIONS)
+            return
+        }
+        if (!notificationMonitorAvailable()) {
+            explainPermissionNeeded("Enable notifications for TrackTrain, including the Arrival alert monitoring channel.")
+            return
+        }
+        action()
+    }
+
+    private fun notificationMonitorAvailable(): Boolean {
+        if (!androidx.core.app.NotificationManagerCompat.from(this).areNotificationsEnabled()) return false
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return true
+        val manager = getSystemService(android.app.NotificationManager::class.java) ?: return false
+        return manager.getNotificationChannel(JourneyAlarmNotifications.MONITOR_CHANNEL)
+            ?.importance != android.app.NotificationManager.IMPORTANCE_NONE
+    }
+
+    private fun alertChannelAvailable(feedback: AlertFeedback): Boolean {
+        if (!notificationMonitorAvailable()) return false
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return true
+        val channel = when (feedback) {
+            AlertFeedback.NOTIFICATION -> JourneyAlarmNotifications.NOTIFICATION_CHANNEL
+            AlertFeedback.VIBRATION -> JourneyAlarmNotifications.VIBRATION_CHANNEL
+            AlertFeedback.RING_UNTIL_STOPPED -> JourneyAlarmNotifications.RING_CHANNEL
+        }
+        val manager = getSystemService(android.app.NotificationManager::class.java) ?: return false
+        return manager.getNotificationChannel(channel)?.importance !=
+            android.app.NotificationManager.IMPORTANCE_NONE
+    }
+
+    private fun explainPermissionNeeded(message: String) {
+        AlertDialog.Builder(this)
+            .setTitle("Permission needed for arrival alerts")
+            .setMessage(message + "\n\nYou can enable it in Android app settings and try again.")
+            .setPositiveButton("Open app settings") { _, _ ->
+                runCatching {
+                    startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                        .setData(Uri.parse("package:$packageName")))
+                }
+            }
+            .setNegativeButton("Not now", null)
+            .show().also(::paintBatteryDialog)
+    }
+
+    private fun requestLocationAccess(action: () -> Unit) {
+        val fine = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) ==
+            PackageManager.PERMISSION_GRANTED
+        if (fine) {
+            action()
+            return
+        }
+        pendingLocationAction = action
+        // Android 12+ presents Approximate/Precise as one choice when both permissions are requested.
+        // Coarse is enough to start the monitor, but the policy still waits unless a fix is accurate.
+        locationPermissionRequest.launch(arrayOf(
+            Manifest.permission.ACCESS_COARSE_LOCATION,
+            Manifest.permission.ACCESS_FINE_LOCATION,
+        ))
+    }
+
+    private fun loadJourneyForAlarm() {
+        val trainNo = intent.getStringExtra(EXTRA_TRAIN_NO).orEmpty()
+        val fromCode = intent.getStringExtra(EXTRA_FROM).orEmpty()
+        val toCode = intent.getStringExtra(EXTRA_TO).orEmpty()
+        val day = intent.getLongExtra(EXTRA_ORIGIN_EPOCH_DAY, RailTime.todayEpochDay())
+        lifecycleScope.launch {
+            val repo = runCatching { (application as App).repository() }.getOrNull()
+            val route = runCatching { repo?.savedSchedule(trainNo, fromCode, toCode, day) }.getOrNull()
+                ?: runCatching { repo?.route(trainNo) }.getOrNull()
+                ?: lastUi?.route?.takeIf { it.trainNo == trainNo }
+            val from = route?.stops?.firstOrNull { it.code.equals(fromCode, true) }
+            val to = route?.stops?.firstOrNull { it.code.equals(toCode, true) }
+            if (route == null || from == null || to == null || to.seq <= from.seq) {
+                AlertDialog.Builder(this@TrainActivity)
+                    .setTitle("No route for this alert")
+                    .setMessage("The selected boarding and destination stops are not on a usable ordered route for train $trainNo. No timetable-only or mismatched-route alert was created.")
+                    .setPositiveButton("Close", null).show().also(::paintBatteryDialog)
+                return@launch
+            }
+            showAlertTriggerChoices(route, from, to)
+        }
+    }
+
+    private fun showAlertTriggerChoices(route: TrainRoute, from: StopRow, to: StopRow) {
+        val intermediate = route.stops.filter { it.seq > from.seq && it.seq < to.seq }
+        val labels = mutableListOf<String>()
+        val actions = mutableListOf<() -> Unit>()
+        labels += "At destination · ${RowText.of(to.name)}"
+        actions += { showAlertPreferences(alarmConfig(route, from, to,
+            AlertTrigger.DESTINATION_REPORT, to, 0)) }
+        if (intermediate.isNotEmpty()) {
+            labels += "At a preceding station…"
+            actions += { showPrecedingStationChoices(route, from, to, intermediate) }
+        }
+        for (distance in listOf(2, 5, 10)) {
+            labels += "Within $distance km of destination · phone location"
+            actions += { showAlertPreferences(alarmConfig(route, from, to,
+                AlertTrigger.PHONE_DISTANCE, to, distance)) }
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Arrival alert · train ${route.trainNo}")
+            .setMessage("Choose what can trigger the alert. Station events must be reported by a live running-status source.")
+            .setItems(labels.toTypedArray()) { _, which -> actions.getOrNull(which)?.invoke() }
+            .setNegativeButton("Cancel", null)
+            .show().also(::paintBatteryDialog)
+    }
+
+    private fun showPrecedingStationChoices(route: TrainRoute, from: StopRow, to: StopRow,
+                                            stops: List<StopRow>) {
+        AlertDialog.Builder(this)
+            .setTitle("Choose a preceding station")
+            .setItems(stops.map { "${RowText.of(it.name)} (${it.code})" }.toTypedArray()) { _, which ->
+                stops.getOrNull(which)?.let { stop ->
+                    showAlertPreferences(alarmConfig(route, from, to,
+                        AlertTrigger.PREVIOUS_STOP_REPORT, stop, 0))
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show().also(::paintBatteryDialog)
+    }
+
+    private fun alarmConfig(route: TrainRoute, from: StopRow, to: StopRow,
+                            trigger: AlertTrigger, triggerStop: StopRow,
+                            distanceKm: Int): JourneyAlarmConfig = JourneyAlarmConfig(
+        trainNo = route.trainNo, trainName = route.trainName,
+        fromCode = from.code, toCode = to.code, toName = RowText.of(to.name), toSeq = to.seq,
+        trigger = trigger, triggerCode = triggerStop.code,
+        triggerName = RowText.of(triggerStop.name), triggerSeq = triggerStop.seq,
+        distanceKm = distanceKm, feedback = AlertFeedback.NOTIFICATION,
+        intervalMinutes = if (batteryAtCreate) 5 else 2,
+        originEpochDay = intent.getLongExtra(EXTRA_ORIGIN_EPOCH_DAY, RailTime.todayEpochDay()),
+        baselineSeq = 0, baselineEventMinute = null, createdAtMillis = System.currentTimeMillis(),
+    )
+
+    private fun showAlertPreferences(config: JourneyAlarmConfig) {
+        val body = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(alertDp(20), alertDp(4), alertDp(20), alertDp(8))
+        }
+        fun section(text: String) {
+            body.addView(TextView(this).apply {
+                this.text = text
+                textSize = 14f
+                typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+                setTextColor(getColor(R.color.text1))
+                setPadding(0, alertDp(8), 0, alertDp(3))
+            })
+        }
+        fun radio(group: android.widget.RadioGroup, text: String): Int {
+            val button = android.widget.RadioButton(this).apply {
+                id = group.childCount + 1
+                this.text = text
+                textSize = 14f
+                setTextColor(getColor(R.color.text1))
+                minHeight = alertDp(42)
+            }
+            group.addView(button, android.widget.RadioGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            return button.id
+        }
+        section("Alert style")
+        val feedbackGroup = android.widget.RadioGroup(this).apply {
+            orientation = android.widget.RadioGroup.VERTICAL
+        }
+        val feedbackIds = listOf(
+            AlertFeedback.NOTIFICATION to radio(feedbackGroup, "Notification · one alert"),
+            AlertFeedback.VIBRATION to radio(feedbackGroup, "Vibration · one pattern"),
+            AlertFeedback.RING_UNTIL_STOPPED to radio(feedbackGroup, "Ring until I stop it"),
+        )
+        feedbackGroup.check(feedbackIds.first().second)
+        body.addView(feedbackGroup)
+
+        section("Check interval")
+        val intervalGroup = android.widget.RadioGroup(this).apply {
+            orientation = android.widget.RadioGroup.VERTICAL
+        }
+        val intervals = listOf(1, 2, 5)
+        val intervalIds = intervals.map { minutes ->
+            val suffix = if (minutes == 5) " · lower background work" else ""
+            minutes to radio(intervalGroup, "$minutes ${if (minutes == 1) "minute" else "minutes"}$suffix")
+        }
+        intervalGroup.check(intervalIds.firstOrNull { it.first == config.intervalMinutes }?.second
+            ?: intervalIds.last().second)
+        body.addView(intervalGroup)
+
+        val note = TextView(this).apply {
+            text = buildString {
+                append("Station alerts use fresh, route-matched NTES/erail source-reported times, not independently verified. Timetables, the whereismytrain.org.in website, and whereismytrain.in feed/cache clocks do not trigger them. The separate Google WIMT app is not used. ")
+                if (config.trigger == AlertTrigger.PHONE_DISTANCE)
+                    append("Distance uses phone location, a movement heuristic, and straight-line distance—not train GPS. A fresh fix within 250 m accuracy is required; approximate-only location may keep it waiting. ")
+                append("An ongoing notification is required. Android, network, location, muted-channel, force-stop, and reboot limits can delay or stop monitoring. DND or device sound settings may mute feedback.")
+            }
+            textSize = 12f
+            setTextColor(getColor(R.color.text2))
+            setPadding(0, alertDp(12), 0, alertDp(8))
+        }
+        body.addView(note)
+        val scroll = android.widget.ScrollView(this).apply {
+            isFillViewport = false
+            addView(body, android.widget.ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Arrival alert options")
+            .setView(scroll)
+            .setPositiveButton("Set alert", null)
+            .setNegativeButton("Cancel", null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val selectedFeedback = feedbackIds.firstOrNull {
+                    it.second == feedbackGroup.checkedRadioButtonId
+                }?.first ?: AlertFeedback.NOTIFICATION
+                val interval = intervalIds.firstOrNull {
+                    it.second == intervalGroup.checkedRadioButtonId
+                }?.first ?: 5
+                if (!alertChannelAvailable(selectedFeedback)) {
+                    explainPermissionNeeded("Enable the selected arrival-alert notification channel in Android settings.")
+                    return@setOnClickListener
+                }
+                val selected = config.copy(feedback = selectedFeedback,
+                    intervalMinutes = interval, createdAtMillis = System.currentTimeMillis())
+                dialog.dismiss()
+                if (selected.trigger == AlertTrigger.PHONE_DISTANCE)
+                    requestLocationAccess { beginJourneyAlarm(selected) }
+                else beginJourneyAlarm(selected)
+            }
+        }
+        dialog.show()
+        BatteryMode.paint(scroll)
+        paintBatteryDialog(dialog)
+    }
+
+    private fun alertDp(value: Int): Int =
+        (value * resources.displayMetrics.density + 0.5f).toInt()
+
+    private fun beginJourneyAlarm(config: JourneyAlarmConfig) {
+        binding.arrivalAlert.isEnabled = false
+        binding.arrivalAlert.text = "Checking…"
+        lifecycleScope.launch {
+            val armedConfig = config.copy(createdAtMillis = System.currentTimeMillis())
+            try {
+                val repo = (application as App).repository()
+                val monitorRoute = repo?.savedSchedule(config.trainNo, config.fromCode,
+                    config.toCode, config.originEpochDay) ?: repo?.route(config.trainNo)
+                    ?: lastUi?.route?.takeIf { it.trainNo == config.trainNo }
+                val monitorFrom = monitorRoute?.stops?.firstOrNull {
+                    it.code.equals(config.fromCode, true)
+                }
+                val monitorTo = monitorRoute?.stops?.firstOrNull {
+                    it.code.equals(config.toCode, true)
+                }
+                val monitorTrigger = monitorRoute?.stops?.firstOrNull {
+                    it.code.equals(config.triggerCode, true)
+                }
+                if (monitorRoute == null || monitorFrom == null || monitorTo == null ||
+                    monitorTrigger == null || monitorFrom.seq >= monitorTo.seq ||
+                    monitorTo.seq != config.toSeq || monitorTrigger.seq != config.triggerSeq ||
+                    monitorTrigger.seq <= monitorFrom.seq || monitorTrigger.seq > monitorTo.seq) {
+                    AlertDialog.Builder(this@TrainActivity)
+                        .setTitle("Background route unavailable")
+                        .setMessage("No stored route exactly matches the selected boarding, destination, and trigger sequence. The monitor was not started.")
+                        .setPositiveButton("Close", null).show().also(::paintBatteryDialog)
+                    return@launch
+                }
+
+                var baseline = JourneyAlarmPolicy.Baseline()
+                if (config.trigger != AlertTrigger.PHONE_DISTANCE) {
+                    val current = runCatching {
+                        repo?.live(config.trainNo, config.fromCode, config.toCode,
+                            config.originEpochDay, allowOverride = false, includeLocation = false)
+                    }.getOrNull()
+                    if (current != null)
+                        baseline = JourneyAlarmPolicy.baseline(armedConfig, current.route, current.answer)
+                    if (baseline.seq >= config.triggerSeq) {
+                        val detail = if (baseline.eventMinute != null)
+                            "A current running-status reply already places train ${config.trainNo} at or beyond ${config.triggerName} (${RailTime.formatRailMinute(baseline.eventMinute)}). To avoid replaying an old event, no alert was armed. Choose a later trigger or distance instead."
+                        else "The current running-status reply is already at or beyond ${config.triggerName}, but its event time is unknown. No alert was armed. Choose a later trigger or distance instead."
+                        AlertDialog.Builder(this@TrainActivity)
+                            .setTitle("Trigger already reached")
+                            .setMessage(detail)
+                            .setPositiveButton("Close", null).show().also(::paintBatteryDialog)
+                        return@launch
+                    }
+                }
+                val ready = armedConfig.copy(baselineSeq = baseline.seq,
+                    baselineEventMinute = baseline.eventMinute)
+                JourneyAlarmService.start(this@TrainActivity, ready)
+                Toast.makeText(this@TrainActivity,
+                    "Arrival alert armed · ongoing notification shows monitoring status",
+                    Toast.LENGTH_LONG).show()
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                AlertDialog.Builder(this@TrainActivity)
+                    .setTitle("Could not start arrival alert")
+                    .setMessage("${failure.javaClass.simpleName}: ${failure.message.orEmpty().take(180)}")
+                    .setPositiveButton("Close", null).show().also(::paintBatteryDialog)
+            } finally {
+                binding.arrivalAlert.isEnabled = true
+                refreshArrivalAlertButton()
+            }
         }
     }
 
@@ -1817,6 +2242,8 @@ class TrainActivity : AppCompatActivity() {
             recreate() // returning from Settings: restore the exact original view tree when off
             return
         }
+        JourneyAlarmStore.register(this, alarmStoreListener)
+        refreshArrivalAlertButton()
         screenStarted = true
         vm.start()
         binding.stops.removeCallbacks(ageTicker)
@@ -1838,6 +2265,7 @@ class TrainActivity : AppCompatActivity() {
         refreshSpin = null
         binding.refreshGlyph.rotation = 0f
         expansionAnimator?.cancel()
+        JourneyAlarmStore.unregister(this, alarmStoreListener)
         super.onStop()
     }
 

@@ -71,6 +71,53 @@ class Prefs(context: Context) {
         get() = sp.getString(KEY_LAST_TO, "").orEmpty()
         set(v) = sp.edit().putString(KEY_LAST_TO, v).apply()
 
+    /** The in-progress search form, separate from completed recent journeys. */
+    var hasSearchDraft: Boolean
+        get() = sp.getBoolean(KEY_HAS_SEARCH_DRAFT, false)
+        set(v) = sp.edit().putBoolean(KEY_HAS_SEARCH_DRAFT, v).apply()
+    var searchFromText: String
+        get() = sp.getString(KEY_SEARCH_FROM_TEXT, "").orEmpty()
+        set(v) = sp.edit().putString(KEY_SEARCH_FROM_TEXT, v).apply()
+    var searchFromResolved: String
+        get() = sp.getString(KEY_SEARCH_FROM_RESOLVED, "").orEmpty()
+        set(v) = sp.edit().putString(KEY_SEARCH_FROM_RESOLVED, v).apply()
+    var searchToText: String
+        get() = sp.getString(KEY_SEARCH_TO_TEXT, "").orEmpty()
+        set(v) = sp.edit().putString(KEY_SEARCH_TO_TEXT, v).apply()
+    var searchToResolved: String
+        get() = sp.getString(KEY_SEARCH_TO_RESOLVED, "").orEmpty()
+        set(v) = sp.edit().putString(KEY_SEARCH_TO_RESOLVED, v).apply()
+    var searchTrainText: String
+        get() = sp.getString(KEY_SEARCH_TRAIN_TEXT, "").orEmpty()
+        set(v) = sp.edit().putString(KEY_SEARCH_TRAIN_TEXT, v).apply()
+    var searchTrainResolved: String
+        get() = sp.getString(KEY_SEARCH_TRAIN_RESOLVED, "").orEmpty()
+        set(v) = sp.edit().putString(KEY_SEARCH_TRAIN_RESOLVED, v).apply()
+    var searchMode: String
+        get() = sp.getString(KEY_SEARCH_MODE, "STATIONS").orEmpty()
+        set(v) = sp.edit().putString(KEY_SEARCH_MODE, v).apply()
+    var searchEpochDay: Long
+        get() = sp.getLong(KEY_SEARCH_EPOCH_DAY, 0L)
+        set(v) = sp.edit().putLong(KEY_SEARCH_EPOCH_DAY, v).apply()
+    var searchMinuteOfDay: Int
+        get() = sp.getInt(KEY_SEARCH_MINUTE, -1)
+        set(v) = sp.edit().putInt(KEY_SEARCH_MINUTE, v).apply()
+
+    fun saveSearchDraft(fromText: String, fromResolved: String?, toText: String,
+                        toResolved: String?, trainText: String, trainResolved: String?,
+                        mode: String, epochDay: Long, minuteOfDay: Int) = sp.edit()
+        .putBoolean(KEY_HAS_SEARCH_DRAFT, true)
+        .putString(KEY_SEARCH_FROM_TEXT, fromText)
+        .putString(KEY_SEARCH_FROM_RESOLVED, fromResolved.orEmpty())
+        .putString(KEY_SEARCH_TO_TEXT, toText)
+        .putString(KEY_SEARCH_TO_RESOLVED, toResolved.orEmpty())
+        .putString(KEY_SEARCH_TRAIN_TEXT, trainText)
+        .putString(KEY_SEARCH_TRAIN_RESOLVED, trainResolved.orEmpty())
+        .putString(KEY_SEARCH_MODE, mode)
+        .putLong(KEY_SEARCH_EPOCH_DAY, epochDay)
+        .putInt(KEY_SEARCH_MINUTE, minuteOfDay)
+        .apply()
+
     /** Most recently opened train, as `trainNo|fromCode|toCode|originEpochDay`. */
     var lastTrain: String
         get() = sp.getString(KEY_LAST_TRAIN, "").orEmpty()
@@ -110,7 +157,11 @@ class Prefs(context: Context) {
     }
 
     fun clearCaches() = sp.edit()
-        .remove(KEY_LAST_FROM).remove(KEY_LAST_TO).remove(KEY_LAST_TRAIN).remove(KEY_RECENT).apply()
+        .remove(KEY_LAST_FROM).remove(KEY_LAST_TO).remove(KEY_LAST_TRAIN).remove(KEY_RECENT)
+        .remove(KEY_HAS_SEARCH_DRAFT).remove(KEY_SEARCH_FROM_TEXT).remove(KEY_SEARCH_FROM_RESOLVED)
+        .remove(KEY_SEARCH_TO_TEXT).remove(KEY_SEARCH_TO_RESOLVED)
+        .remove(KEY_SEARCH_TRAIN_TEXT).remove(KEY_SEARCH_TRAIN_RESOLVED)
+        .remove(KEY_SEARCH_MODE).remove(KEY_SEARCH_EPOCH_DAY).remove(KEY_SEARCH_MINUTE).apply()
 
     companion object {
         private const val KEY_BATTERY_MODE = "batteryMode"
@@ -119,6 +170,16 @@ class Prefs(context: Context) {
         private const val KEY_DIARY = "diary"
         private const val KEY_LAST_FROM = "lastFrom"
         private const val KEY_LAST_TO = "lastTo"
+        private const val KEY_HAS_SEARCH_DRAFT = "hasSearchDraft"
+        private const val KEY_SEARCH_FROM_TEXT = "searchFromText"
+        private const val KEY_SEARCH_FROM_RESOLVED = "searchFromResolved"
+        private const val KEY_SEARCH_TO_TEXT = "searchToText"
+        private const val KEY_SEARCH_TO_RESOLVED = "searchToResolved"
+        private const val KEY_SEARCH_TRAIN_TEXT = "searchTrainText"
+        private const val KEY_SEARCH_TRAIN_RESOLVED = "searchTrainResolved"
+        private const val KEY_SEARCH_MODE = "searchMode"
+        private const val KEY_SEARCH_EPOCH_DAY = "searchEpochDay"
+        private const val KEY_SEARCH_MINUTE = "searchMinute"
         private const val KEY_LAST_TRAIN = "lastTrain"
         private const val KEY_ONBOARDED = "onboarded"
         private const val KEY_USE_LOCATION = "useLocation"

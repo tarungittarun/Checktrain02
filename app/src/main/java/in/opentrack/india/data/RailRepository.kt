@@ -158,6 +158,10 @@ class RailRepository private constructor(
         previous: PositionEngine.TrainPositionInput? = null,
         /** Live-list identity's two endpoint times when the bundled DB lacks this number. */
         fallbackRoute: TrainRoute? = null,
+        /** Arrival alerts use the built-in running-status sources, never a user endpoint/cache override. */
+        allowOverride: Boolean = true,
+        /** The station-event monitor does not need location; keep its background work minimal. */
+        includeLocation: Boolean = true,
     ): Live? = withContext(Dispatchers.IO) {
         // A run-checked 29-halt official schedule outranks the bundled 11-halt route.
         // Otherwise a transient NTES timeout silently reverts 16227 MYS→TLGP to SBC→SMET.
@@ -171,7 +175,7 @@ class RailRepository private constructor(
             + RailTime.istMinuteOfDay(nowMillis)).toInt()
         val chain = ProviderChain.build(
             http, store,
-            overrideUrl = prefs.overrideUrl.ifBlank { null },
+            overrideUrl = if (allowOverride) prefs.overrideUrl.ifBlank { null } else null,
             columnHint = prefs.columnHint.ifBlank { null },
             fromCode = fromCode, toCode = toCode,
         )
@@ -195,7 +199,7 @@ class RailRepository private constructor(
                 "(${route.stops.size} stops) with ${effectiveRoute.srcCode}->${effectiveRoute.dstCode} " +
                 "(${effectiveRoute.stops.size} stops)"
         }
-        val gps = if (prefs.useLocation && hasLocationPermission()) {
+        val gps = if (includeLocation && prefs.useLocation && hasLocationPermission()) {
             sensors.singleFix()?.let { sensors.evidence(it, effectiveRoute) }
         } else null
         val answer = PositionEngine.locate(
@@ -215,7 +219,10 @@ class RailRepository private constructor(
     fun hasLocationPermission(): Boolean =
         androidx.core.content.ContextCompat.checkSelfPermission(
             context, android.Manifest.permission.ACCESS_COARSE_LOCATION
-        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED ||
+            androidx.core.content.ContextCompat.checkSelfPermission(
+                context, android.Manifest.permission.ACCESS_FINE_LOCATION
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
 
     fun nearestStationsToUser(limit: Int = 3): List<StationHit> {
         val fix = sensors.latest() ?: return emptyList()

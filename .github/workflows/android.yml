@@ -168,7 +168,7 @@ jobs:
                 fi
               done
               [ "${#filters[@]}" -gt 0 ] || exit 2 ;;
-            rules) filters=(--tests 'in.opentrack.india.core.*' --tests 'in.opentrack.india.domain.*' --tests 'in.opentrack.india.data.*') ;;
+            rules) filters=(--tests 'in.opentrack.india.core.*' --tests 'in.opentrack.india.domain.*' --tests 'in.opentrack.india.data.*' --tests 'in.opentrack.india.alarm.*') ;;
             sources) filters=(--tests 'in.opentrack.india.remote.*' --tests 'in.opentrack.india.v2.*') ;;
             *) exit 2 ;;
           esac

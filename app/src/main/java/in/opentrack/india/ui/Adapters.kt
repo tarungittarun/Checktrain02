@@ -885,14 +885,11 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         }
 
         val source = mapSource?.takeIf { it.isNotBlank() } ?: "static route map"
-        val heading = label("Intermediate route points · $source", 12f,
+        val heading = label("Intermediate stations · $source", 12f,
             R.color.text1, medium = true)
         container.addView(heading, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        val explanation = label(
-            "Static map details only · no train-position report · present position unknown.",
-            11f, R.color.text2)
-        addLine(container, explanation, top = 3)
+        addLine(container, label("Map only · present position unknown.", 11f, R.color.text2), top = 3)
 
         for (point in points) {
             val card = LinearLayout(context).apply {
@@ -920,20 +917,19 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
             val timetable = point.passageMinute?.let { minute ->
-                "Timetable passage · " + (if (point.approximate) "approximate " else "route-listed ") +
+                "Timetable · " + (if (point.approximate) "~" else "listed ") +
                     RailTime.formatRailMinute(minute)
-            } ?: "Timetable passage · unavailable"
+            } ?: "Timetable · unavailable"
             addLine(card, label(timetable, 12f, R.color.text2))
 
             if (point.siteArrivalMin != null || point.siteDepartureMin != null) {
                 addLine(card, label(
-                    "whereismytrain.org.in · website past-card claim · run date inferred",
+                    "whereismytrain.org.in · claim · run inferred · unverified",
                     11f, R.color.warn, medium = true), top = 6)
-                val arrival = point.siteArrivalMin?.let(RailTime::formatRailMinute) ?: "not reported"
-                val departure = point.siteDepartureMin?.let(RailTime::formatRailMinute) ?: "not reported"
+                val arrival = point.siteArrivalMin?.let(RailTime::formatRailMinute) ?: "—"
+                val departure = point.siteDepartureMin?.let(RailTime::formatRailMinute) ?: "—"
                 addLine(card, label("Arrival $arrival · departure $departure", 12f, R.color.text1),
                     top = 3)
-                addLine(card, label("Not independently verified.", 11f, R.color.text2), top = 3)
             }
             val params = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)

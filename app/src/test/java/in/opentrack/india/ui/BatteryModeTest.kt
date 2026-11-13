@@ -130,8 +130,12 @@ class BatteryModeTest {
             kmFromOrigin = 206)
         adapter.legAgeSeconds = 9 * 60L
         adapter.legWebsiteEventMinute = 707 // 11:47 is a site card, not a page-update clock
+        val mappedPoints = (1..6).map { index ->
+            RouteBetween.LegPoint("P$index", "Mapped point $index", 185 + index,
+                index / 7f, passageMinute = 540 + index)
+        }
         adapter.setProjectedLeg(RouteBetween.LegProjection("Kadur", "Arsikere Jn",
-            0.5f, "Banavar", 186, "DRU", "ASK", emptyList(),
+            0.5f, "Banavar", 186, "DRU", "ASK", mappedPoints,
             RouteBetween.MarkerKind.SITE_INTERMEDIATE))
         adapter.submitList(listOf(kadur, arsikere))
         val holder = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
@@ -144,9 +148,16 @@ class BatteryModeTest {
         assertTrue(holder.inlineLeg.contentDescription.contains("11:47"))
         assertTrue(holder.inlineLeg.contentDescription.contains("9 min ago"))
         assertTrue(holder.inlineLeg.contentDescription.contains("present position unknown"))
+        assertTrue(holder.inlineLegGroup.performClick())
+        assertTrue("the disclosed battery cards do not need a tall hidden map canvas",
+            holder.inlineLeg.showLabels)
         val width = (360f * ctx.resources.displayMetrics.density).toInt()
         holder.inlineLeg.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+        val expectedHeight = (LegGeometry.BATTERY_EVENT_HEIGHT_DP *
+            ctx.resources.displayMetrics.density + 0.5f).toInt()
+        assertEquals("Battery-mode event marker should stay compact with many mapped points",
+            expectedHeight, holder.inlineLeg.measuredHeight)
         holder.inlineLeg.layout(0, 0, width, holder.inlineLeg.measuredHeight)
         val bitmap = Bitmap.createBitmap(width, holder.inlineLeg.height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
@@ -218,12 +229,12 @@ class BatteryModeTest {
         val firstStationCards = (0 until firstRow.batteryStations.childCount)
             .map { firstRow.batteryStations.getChildAt(it) }.filterIsInstance<LinearLayout>()
         assertEquals("one distinct card for each intermediate station", 1, firstStationCards.size)
-        assertTrue(firstDetails.contains("Intermediate route points · RailGeo"))
-        assertTrue(firstDetails.contains("Static map details only"))
-        assertTrue(firstDetails.contains("Timetable passage · route-listed 10:10"))
-        assertTrue(firstDetails.contains("whereismytrain.org.in · website past-card claim · run date inferred"))
-        assertTrue(firstDetails.contains("Arrival 10:11 · departure not reported"))
-        assertTrue(firstDetails.contains("Not independently verified."))
+        assertTrue(firstDetails.contains("Intermediate stations · RailGeo"))
+        assertTrue(firstDetails.contains("Map only · present position unknown."))
+        assertTrue(firstDetails.contains("Timetable · listed 10:10"))
+        assertTrue(firstDetails.contains("whereismytrain.org.in · claim · run inferred · unverified"))
+        assertTrue(firstDetails.contains("Arrival 10:11 · departure —"))
+        assertFalse(firstDetails.contains("Not independently verified."))
         assertFalse(firstDetails.contains("percent"))
         assertTrue(firstDetails.contains("present position unknown"))
         assertEquals(Color.WHITE, textViews(firstRow.batteryStations).first().currentTextColor)
@@ -242,7 +253,7 @@ class BatteryModeTest {
         val secondDetails = textViews(secondRow.batteryStations).joinToString("\n") {
             it.text.toString()
         }
-        assertTrue(secondDetails.contains("Timetable passage · approximate 10:31"))
+        assertTrue(secondDetails.contains("Timetable · ~10:31"))
         assertTrue(secondDetails.contains("60 km map"))
         assertTrue(secondDetails.contains("present position unknown"))
         assertTrue(secondRow.row.contentDescription.contains("tap to hide 1 intermediate stations"))

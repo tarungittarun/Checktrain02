@@ -20,12 +20,12 @@ import kotlin.math.abs
  * Two properties matter here and both come from the case study:
  *  - it must be optional. The app never blocks on a permission prompt; if the user declines, live
  *    tracking continues from the network path alone. Nothing in the product requires location.
- *  - it must be a measurement, not a tracker. One fix, in a bounded window, no history, no upload,
- *    no background use — so `ACCESS_COARSE_LOCATION` cannot become "the app is watching me".
+ *  - it must be a measurement, not a tracker. The ordinary live view asks for one bounded fix, keeps
+ *    no location history, and uploads nothing. An optional arrival-distance alert may request one fix
+ *    per user-selected check while its explicit foreground monitor is active; it is not used otherwise.
  *
- * The fix is used for exactly two things: detecting that the live feed has gone stale while the user
- * is visibly moving along the route ([PositionEngine.GpsEvidence]), and answering "how far from my
- * boarding station am I" on the results screen.
+ * The fix is used for the ordinary on-route second opinion and, only during that opt-in monitor, a
+ * coarse straight-line distance heuristic. It is never train GPS.
  */
 class SensorPositioner(private val context: Context) {
 
@@ -54,14 +54,17 @@ class SensorPositioner(private val context: Context) {
      */
     @RequiresPermission(Manifest.permission.ACCESS_COARSE_LOCATION)
     fun singleFix(timeoutMs: Long = 4_000): Fix? {
-        lastFix?.let { if (System.currentTimeMillis() - it.atMillis < timeoutMs) return it }
+        val previous = freshFix()
+        previous?.let {
+            if (System.currentTimeMillis() - it.atMillis < timeoutMs) return it
+        }
         val mgr = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
-            ?: return null
+            ?: return freshFix()
         val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER,
             LocationManager.PASSIVE_PROVIDER)
         for (name in providers) {
             val best: Location? = runCatching { mgr.getLastKnownLocation(name) }.getOrNull()
-            if (best != null && isFresh(best)) return adopt(best, null)
+            if (best != null && isFresh(best)) return adopt(best, previous)
         }
         val latch = CountDownLatch(1)
         var captured: Location? = null
@@ -69,25 +72,30 @@ class SensorPositioner(private val context: Context) {
         try {
             val minTime = maxOf(500L, timeoutMs / 4)
             listener = android.location.LocationListener { loc ->
-                if (captured == null || loc.accuracy < (captured?.accuracy ?: Float.MAX_VALUE)) {
+                if (isFresh(loc) && (captured == null ||
+                    loc.accuracy < (captured?.accuracy ?: Float.MAX_VALUE))) {
                     captured = loc
                     latch.countDown()
                 }
             }
             val provider = providers.firstOrNull { runCatching { mgr.isProviderEnabled(it) }.getOrDefault(false) }
-                ?: return lastFix
+                ?: return freshFix()
             runCatching { mgr.requestLocationUpdates(provider, minTime, 0f, listener, Looper.getMainLooper()) }
-                .onFailure { return null }
+                .onFailure { return freshFix() }
             latch.await(timeoutMs, TimeUnit.MILLISECONDS)
         } finally {
             runCatching { listener?.let { mgr.removeUpdates(it) } }
         }
-        val loc = captured ?: return lastFix
-        return adopt(loc, lastFix)
+        val loc = captured?.takeIf(::isFresh) ?: return freshFix()
+        return adopt(loc, previous)
+    }
+
+    private fun freshFix(): Fix? = lastFix?.takeIf {
+        (System.currentTimeMillis() - it.atMillis) in 0..FRESH_MS
     }
 
     private fun isFresh(loc: Location): Boolean =
-        System.currentTimeMillis() - loc.time < FRESH_MS
+        (System.currentTimeMillis() - loc.time) in 0..FRESH_MS
 
     private fun adopt(loc: Location, previous: Fix?): Fix {
         val moved = previous?.let {
@@ -97,7 +105,7 @@ class SensorPositioner(private val context: Context) {
             lat = loc.latitude, lon = loc.longitude,
             accuracyM = if (loc.hasAccuracy()) loc.accuracy else Float.MAX_VALUE,
             speedKmh = if (loc.hasSpeed()) loc.speed * 3.6f else -1f,
-            movedMeters = moved, atMillis = System.currentTimeMillis(),
+            movedMeters = moved, atMillis = loc.time,
         )
         lastFix = fix
         return fix
