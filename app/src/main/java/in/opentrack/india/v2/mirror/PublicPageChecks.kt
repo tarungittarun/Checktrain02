@@ -20,10 +20,15 @@ object PublicPageChecks {
 
     data class StationClaim(val code: String, val status: String, val updateAt: Long, val upstream: String)
     data class Result(
-        val detail: String, val checkedAt: Long, val pageAnswered: Boolean,
+        val detail: String, val checkedAt: Long,
+        /** Requested train number appears in the returned text; not a populated source timeline. */
+        val pageAnswered: Boolean,
         val stationClaim: StationClaim? = null,
         /** The other website's labelled, past-card station claims. Not independently verified Act. */
         val orgReport: OrgWebsiteStatus.Report? = null,
+        /** True only when a fresh page label and route-matched card clocks were parsed.
+         * Separate from HTTP/page response success and from a qualifying event row. */
+        val orgContentParsed: Boolean = false,
         /** A later page card that was excluded from Actual/position, with its reason. */
         val orgQualificationNote: String? = null,
         /** Page excerpts for comparison only. Never feed these into Act or position. */
@@ -50,7 +55,7 @@ object PublicPageChecks {
     /** Explain a missing destination in a returned website timeline without treating its
      * publication clock (or any comparison excerpt) as a train arrival/position. */
     fun websiteGap(result: Result?, destination: String): String? {
-        if (result?.pageAnswered != true || result.orgReport != null ||
+        if (result?.pageAnswered != true || !result.orgContentParsed || result.orgReport != null ||
             result.lines.isEmpty() || result.lines.keys.any { it.equals(destination, true) }) return null
         val lastDisplayed = result.lines.keys.last()
         val update = result.pageUpdateLabel?.let { "Page updated $it; " }.orEmpty()
@@ -121,7 +126,8 @@ object PublicPageChecks {
                 if (reply.fromCache) answer.copy(
                     detail = "Cached HTTP body (${reply.ageMillis / 60_000} min old); " +
                         answer.detail + " No fresh observation.", pageAnswered = false,
-                    stationClaim = null, orgReport = null, orgQualificationNote = null,
+                    stationClaim = null, orgReport = null, orgContentParsed = false,
+                    orgQualificationNote = null,
                     orgDistanceProbe = "cached HTTP page; no same-page distance accepted",
                     orgSiteCards = emptyList(), orgSitePageUpdatedAt = null,
                     orgSitePageClockHasSeconds = false, orgSiteClocks = emptyMap())
@@ -221,6 +227,17 @@ object PublicPageChecks {
         val wrong = selected != null && selected.replace('/', '-') != date
         val org = if (name == ORG && route != null && !wrong)
             OrgWebsiteStatus.parse(body, number, originDay, now, route, mapRoute) else null
+        // HTTP 200, a matching number somewhere in the markup, or a partial text
+        // timeline is not a populated source answer. Require a fresh page label and
+        // at least one route-matched card clock; an event row is deliberately NOT
+        // required because the visible website clocks remain comparison-only.
+        val orgContentParsed = name != ORG || org?.let {
+            it.pageUpdatedAt != null && it.siteCards.isNotEmpty() && it.siteClocks.isNotEmpty()
+        } == true
+        val orgContentNote = if (name == ORG && !orgContentParsed)
+            " · returned body did not produce a fresh, route-matched station-card clock; " +
+                "HTTP success or partial text is not accepted as populated website data"
+        else ""
         val distanceProbe = if (name == ORG && route != null)
             OrgWebsiteDistanceProbe.inspect(body, org?.report, route, mapRoute) else null
         val distanceNote = distanceProbe?.let { finding ->
@@ -240,8 +257,9 @@ object PublicPageChecks {
             (if (org?.report != null) "; source-marked past rows are website claims, NOT independently verified Act/GPS."
                 else "; NOT Act or measured position.") +
             (if (name == ORG) " not Google's WIMT phone app." else "") +
+            orgContentNote +
             (distanceNote?.let { " Same-page distance probe: $it; no extra request." } ?: ""),
-            now, true, orgReport = org?.report,
+            now, true, orgReport = org?.report, orgContentParsed = orgContentParsed,
             orgQualificationNote = org?.qualificationNote, lines = lines,
             pageUpdateLabel = if (name == ORG) updated else null,
             orgDistanceProbe = distanceNote,

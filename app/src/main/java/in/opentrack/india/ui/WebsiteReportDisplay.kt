@@ -43,23 +43,28 @@ object WebsiteReportDisplay {
         else -> SiteEventKind.EVENT
     }
 
-    fun usable(state: String?, answered: Boolean, report: OrgWebsiteStatus.Report?): Boolean =
-        state == "comparison" && answered && report != null && report.rows.isNotEmpty()
+    fun usable(state: String?, contentParsed: Boolean, report: OrgWebsiteStatus.Report?,
+               siteClocks: Map<String, OrgWebsiteStatus.SiteClocks> = emptyMap()): Boolean =
+        state == "comparison" && contentParsed &&
+            (report?.rows?.isNotEmpty() == true || siteClocks.isNotEmpty())
 
     /** Website cards occupy a separate comparison column: white predictions are prefixed
-     * with '~' and never enter Report.rows or the marker. A past/highlighted card may print
-     * a departure later than its own page stamp; keep it out until both page and device clocks
-     * have passed it. Fail closed if the site's anchor cannot be located on this route. */
+     * with '~' and never enter Report.rows or the marker. A colored card can print a departure
+     * just after its own update label (minute precision); once that minute has passed on the
+     * device, retain it here as a tilde-qualified website clock, not a source event. Keep clocks
+     * still in the future off the route arrows. Fail closed if the site's anchor is not on-route. */
     fun displayedClocks(report: OrgWebsiteStatus.Report?, originDay: Long,
         haltCodes: List<String>, now: Long): Map<String, OrgWebsiteStatus.SiteClocks> {
         if (report == null) return emptyMap()
         val anchor = report.intermediate?.precedingHalt ?: report.anchorCode
         val lastIndex = haltCodes.indexOfFirst { it.equals(anchor, ignoreCase = true) }
         if (lastIndex < 0) return emptyMap()
-        val latestPossible = minOf(now, report.pageUpdatedAt)
         fun past(minute: Int?): Int? = minute?.takeIf {
-            RailTime.railMinuteToEpochMillis(originDay, it) <= latestPossible
+            RailTime.railMinuteToEpochMillis(originDay, it) <= now
         }
+        fun afterPage(minute: Int?): Boolean = minute?.let {
+            RailTime.railMinuteToEpochMillis(originDay, it) > report.pageUpdatedAt
+        } == true
         // White-card forecasts remain visible in the WEBSITE column with a ~ prefix
         // from the adapter. They never enter Report.rows or the train marker. A later
         // source-coloured duplicate may be arrival-only, so merge its station clocks
@@ -87,6 +92,10 @@ object WebsiteReportDisplay {
                     latestClaim.departure == null && earlierSameCode?.departureMin != null,
                 cardCount = maxOf(earlierSameCode?.cardCount ?: 0,
                     report.siteCards.count { it.code.equals(latestClaim.code, true) }),
+                arrivalAfterPageUpdate = latestClaim.arrival?.afterPageUpdate
+                    ?: earlierSameCode?.arrivalAfterPageUpdate ?: false,
+                departureAfterPageUpdate = latestClaim.departure?.afterPageUpdate
+                    ?: earlierSameCode?.departureAfterPageUpdate ?: false,
             )
         }
         return displayedClaims.mapNotNull { (code, clocks) ->
@@ -94,15 +103,24 @@ object WebsiteReportDisplay {
             val isLatestClaim = latestClaim?.code?.equals(code, ignoreCase = true) == true
             if (index !in haltCodes.indices || (index > lastIndex && !clocks.forecast && !isLatestClaim))
                 return@mapNotNull null
-            // Only past/highlighted claims are gated against the upstream and device clocks.
-            // White forecasts are shown as forecasts, never as events or marker evidence.
+            // A white forecast remains visibly forecasted. For colored cards, device time
+            // prevents a future clock from occupying an arrow, but the page-update label does
+            // not erase a clock the site actually printed after that label. Such a value stays
+            // in this website-only column with '~'; it never enters Report.rows or the marker.
             val arrival = if (clocks.forecast) clocks.arrivalMin else past(clocks.arrivalMin)
             val departureRaw = if (clocks.forecast) clocks.departureMin else past(clocks.departureMin)
             val departure = departureRaw?.takeIf { dep ->
                 (arrival ?: report.rows[code]?.actualArrivalMin)?.let { dep >= it } ?: true
             }
             if (arrival == null && departure == null) null
-            else code to clocks.copy(arrivalMin = arrival, departureMin = departure)
+            else code to clocks.copy(
+                arrivalMin = arrival,
+                departureMin = departure,
+                arrivalAfterPageUpdate = !clocks.forecast && arrival != null &&
+                    (clocks.arrivalAfterPageUpdate || afterPage(arrival)),
+                departureAfterPageUpdate = !clocks.forecast && departure != null &&
+                    (clocks.departureAfterPageUpdate || afterPage(departure)),
+            )
         }.toMap()
     }
 
@@ -115,10 +133,12 @@ object WebsiteReportDisplay {
         now: Long,
     ): Map<String, OrgWebsiteStatus.SiteClocks> {
         if (pageUpdatedAt == null) return emptyMap()
-        val latestPossible = minOf(now, pageUpdatedAt)
         fun past(minute: Int?): Int? = minute?.takeIf {
-            RailTime.railMinuteToEpochMillis(originDay, it) <= latestPossible
+            RailTime.railMinuteToEpochMillis(originDay, it) <= now
         }
+        fun afterPage(minute: Int?): Boolean = minute?.let {
+            RailTime.railMinuteToEpochMillis(originDay, it) > pageUpdatedAt
+        } == true
         return siteClocks.mapNotNull { (code, clocks) ->
             if (haltCodes.none { it.equals(code, true) }) return@mapNotNull null
             val arrival = if (clocks.forecast) clocks.arrivalMin else past(clocks.arrivalMin)
@@ -128,9 +148,30 @@ object WebsiteReportDisplay {
                 arrivalForOrder == null || dep >= arrivalForOrder
             }
             if (arrival == null && departure == null) null
-            else code to clocks.copy(arrivalMin = arrival, departureMin = departure)
+            else code to clocks.copy(
+                arrivalMin = arrival,
+                departureMin = departure,
+                arrivalAfterPageUpdate = !clocks.forecast && arrival != null &&
+                    (clocks.arrivalAfterPageUpdate || afterPage(arrival)),
+                departureAfterPageUpdate = !clocks.forecast && departure != null &&
+                    (clocks.departureAfterPageUpdate || afterPage(departure)),
+            )
         }.toMap()
     }
+
+    /** Selected-source clock path. A fresh page can contain displayable route clocks
+     * without any qualifying event row; keep those clocks in the WEBSITE column rather
+     * than silently dropping them when there is no Report. */
+    fun selectedWebsiteClocks(
+        report: OrgWebsiteStatus.Report?,
+        siteClocks: Map<String, OrgWebsiteStatus.SiteClocks>,
+        originDay: Long,
+        haltCodes: List<String>,
+        pageUpdatedAt: Long?,
+        now: Long,
+    ): Map<String, OrgWebsiteStatus.SiteClocks> = report?.let {
+        displayedClocks(it, originDay, haltCodes, now)
+    } ?: displayedClocks(siteClocks, originDay, haltCodes, pageUpdatedAt, now)
 
     /** Compact, visibly qualified context for the newest colored card. These are
      * the site's own first clocks beside its timetable, not accepted train events. */
@@ -168,7 +209,8 @@ object WebsiteReportDisplay {
     }
 
     private fun siteClock(time: OrgWebsiteStatus.SiteCardTime): String =
-        time.printedText?.takeIf { it.isNotBlank() } ?: RailTime.formatRailMinute(time.minute)
+        (if (time.afterPageUpdate) "~" else "") +
+            (time.printedText?.takeIf { it.isNotBlank() } ?: RailTime.formatRailMinute(time.minute))
 
     private fun siteSchedule(time: OrgWebsiteStatus.SiteCardTime): String? =
         time.pageScheduleText?.takeIf { it.isNotBlank() }
@@ -197,6 +239,8 @@ object WebsiteReportDisplay {
             claim.platform?.let { append(" · PF ").append(it) }
             claim.statusText?.let { append(" · website status ‘").append(it).append("’") }
             duplicateNote?.let { append(" · ").append(it) }
+            if (listOfNotNull(claim.arrival, claim.departure).any { it.afterPageUpdate })
+                append(" · ~ marks a displayed clock later than the page update; not an event")
             append(" · website claim, not a verified actual")
         }
     }
@@ -262,6 +306,9 @@ object WebsiteReportDisplay {
             }
         }
         val counts = cards.groupingBy { it.code.uppercase(Locale.ROOT) }.eachCount()
+        val hasClockAfterUpdate = cards.any { card ->
+            listOfNotNull(card.arrival, card.departure).any { it.afterPageUpdate }
+        }
         return buildString {
             append(".org.in visible cards · website display only; not NTES/railway actuals, movement, or current position:\n")
             cards.sortedBy { it.cardIndex }.forEach { card ->
@@ -282,6 +329,8 @@ object WebsiteReportDisplay {
                 append('\n')
             }
             append("These page clocks and badges are kept separate from the qualifying source-event rows.")
+            if (hasClockAfterUpdate)
+                append(" A ~ clock follows the page's own update label; it remains a displayed website claim only, not a qualifying event.")
             pageUpdatedAt?.let { pageAt ->
                 append(" Page updated ").append(pageUpdateClock(pageAt, pageClockHasSeconds))
                     .append(" IST")

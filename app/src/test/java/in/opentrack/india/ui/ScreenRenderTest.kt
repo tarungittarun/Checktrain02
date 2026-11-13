@@ -1,8 +1,10 @@
 package `in`.opentrack.india.ui
 
+import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -109,6 +111,68 @@ class ScreenRenderTest {
         TrackModel.build(route, pos, per, now, boardSeq = 1, alightSeq = 9, runEpochDay = 19949L, note = null)
 
     // ------------------------------------------------------------------ the tracking screen
+
+    @Test
+    fun customArrivalAlertUsesTheAppSurfaceAndARealScrollableChoiceList() {
+        val shot = Render.render(R.layout.dialog_alert_shell, widthDp = 360f, heightDp = 660f) { host ->
+            val root = host.findViewById<ViewGroup>(R.id.alertDialogRoot)
+            root.findViewById<TextView>(R.id.alertEyebrow).text = "TRIGGER"
+            root.findViewById<TextView>(R.id.alertTitle).text = "Arrival alert · train 12627"
+            root.findViewById<TextView>(R.id.alertSubtitle).text =
+                "Choose a trigger. Review the source and options before setting an alert."
+            val cancel = root.findViewById<TextView>(R.id.alertCancel)
+            cancel.layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, Render.dp(host.context, 52f).toInt())
+            root.findViewById<View>(R.id.alertFooterSpacer).visibility = View.GONE
+            root.findViewById<View>(R.id.alertPrimary).visibility = View.GONE
+            val body = root.findViewById<LinearLayout>(R.id.alertDialogBody)
+            body.addView(TextView(host.context).apply {
+                text = "CHOOSE WHEN TO NOTIFY"
+                textSize = 11f
+                setTextColor(host.context.getColor(R.color.text3))
+                letterSpacing = 0.08f
+            })
+            val choices = listOf(
+                Triple("At destination · Talguppa", "Fresh route-matched station report only · no timetable ETA", "◎"),
+                Triple("At a preceding station…", "Choose a halt between Mysuru and Talguppa", "↗"),
+                Triple("Within 5 km", "Phone location · straight-line distance to Talguppa", "⌖"),
+                Triple("Within 2 km", "Phone location · straight-line distance to Talguppa", "⌖"),
+                Triple("Within 10 km", "Phone location · straight-line distance to Talguppa", "⌖"),
+            )
+            choices.forEachIndexed { index, (name, description, icon) ->
+                val row = LayoutInflater.from(host.context)
+                    .inflate(R.layout.item_alert_trigger, body, false)
+                row.setBackgroundResource(if (index == 0) R.drawable.ripple_alert_trigger_default
+                    else R.drawable.ripple_alert_trigger)
+                row.findViewById<TextView>(R.id.alertTriggerIcon).text = icon
+                row.findViewById<TextView>(R.id.alertTriggerName).text = name
+                row.findViewById<TextView>(R.id.alertTriggerDescription).text = description
+                row.findViewById<TextView>(R.id.alertTriggerDefault).visibility =
+                    if (index == 0) View.VISIBLE else View.GONE
+                body.addView(row, LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    bottomMargin = Render.dp(host.context, 8f).toInt()
+                })
+            }
+        }
+        val ctx = shot.context
+        val scroll = shot.root.findViewById<android.widget.ScrollView>(R.id.alertDialogScroll)
+        val body = shot.root.findViewById<LinearLayout>(R.id.alertDialogBody)
+        assertTrue("custom dialog shell did not paint its own app surface",
+            shot.countWith(ctx.getColor(R.color.surface), shot.bounds(R.id.alertDialogRoot)) > 1_000)
+        assertTrue("dialog must contain a vertically scrollable list, not clipped platform choices",
+            body.measuredHeight > scroll.height && scroll.canScrollVertically(1))
+        assertEquals("Default", shot.root.findViewById<TextView>(R.id.alertTriggerDefault).text.toString())
+        assertTrue("default trigger should be visibly highlighted",
+            shot.root.findViewById<View>(R.id.alertTriggerDefault).visibility == View.VISIBLE)
+        Render.assertNothingCut(shot.root.findViewById(R.id.alertTitle), "alert dialog title")
+        Render.assertNothingCut(shot.root.findViewById(R.id.alertSubtitle), "alert dialog subtitle")
+        for (id in listOf(R.id.alertTriggerName, R.id.alertTriggerDescription)) {
+            Render.assertNothingCut(shot.root.findViewById<TextView>(id), "alert trigger option")
+        }
+        assertTrue("dialog copy was not painted", shot.distinct(shot.bounds(R.id.alertDialogRoot)) > 40)
+        Render.save("alert-custom-trigger-choices", shot.bitmap)
+    }
 
     @Test
     fun keyboardEmptySearchUsesTheWholeVisibleCardNotAnEmptyListStrip() {

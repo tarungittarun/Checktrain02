@@ -1,6 +1,8 @@
 package `in`.opentrack.india.v2.mirror
 
 import `in`.opentrack.india.core.Http
+import `in`.opentrack.india.model.StopRow
+import `in`.opentrack.india.model.TrainRoute
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -18,6 +20,25 @@ class PublicPageChecksTest {
         "status":"D","current_station_code":"TKE",
         "previous_stations":[{"station_code":"RRB","eta":"03:38","etd":"03:40"}],
         "upcoming_stations":[{"station_code":"BDVT","eta":"04:40","etd":"04:42"}]}"""
+
+    private fun stop(seq: Int, code: String, arrival: Int?, departure: Int?, km: Int) = StopRow(
+        seq, code, "$code Jn", "KA", null, null, arrival, departure,
+        if (seq == 1) 1 else 2, km, true)
+    private val orgRoute = TrainRoute("16227", "MYS TLGP EXP", "MYS", "Mysuru",
+        "TLGP", "Talguppa", 500, 730, null, null, listOf(
+            stop(1, "MYS", null, 1180, 0),
+            stop(2, "ARU", 1610, 1612, 453),
+            stop(3, "SRF", 1745, 1747, 482),
+            stop(4, "TLGP", 1910, null, 500)), emptyList())
+    private val populatedOrgPage = """<html><h1>16227 Running Status</h1>
+        <p>Source: MYS</p><p>Destination: TLGP</p><p>Last Updated: 04:17:00 AM</p>
+        <div>Journey Timeline</div><!-- Station Details Card -->
+        <div class="flex-grow p-3 mb-3 rounded-lg ml-4 shadow-sm bg-white">
+        <h3>Shoranur (SRF)</h3>
+        <div><!-- Arrival --><div>ARRIVAL</div><div>05:10 AM</div>
+        <div>05:05 AM</div></div>
+        <div><!-- Departure --><div>DEPARTURE</div><div>05:15 AM</div>
+        <div>05:07 AM</div></div></div></html>""".trimIndent()
 
     @Test fun `relay reports returned origin provenance and station claim but never a stop event`() {
         val r = PublicPageChecks.parse(PublicPageChecks.RAIL_YATRI, relay, "16227", day, now)
@@ -62,6 +83,10 @@ class PublicPageChecksTest {
         assertTrue(orgResult.detail.contains("does not identify a selected origin date"))
         assertTrue(orgResult.detail.contains("not Google's WIMT phone app"))
         assertTrue(orgResult.detail.contains("page update label 04:19"))
+        assertTrue("the HTTP/page response is separate from its parsed source data",
+            orgResult.pageAnswered)
+        assertFalse("HTTP/text matches without a route-matched card are not populated website data",
+            orgResult.orgContentParsed)
     }
 
     @Test fun `20689 stale website timeline cannot become the phone apps SMET arrival`() {
@@ -75,19 +100,54 @@ class PublicPageChecksTest {
             <h3>Bhadravati (BDVT)</h3> ARRIVAL 01:11 PM 12:50 PM DEPARTURE 01:17 PM 12:52 PM"""
         val result = PublicPageChecks.parse(PublicPageChecks.ORG, page, "20689", run, at,
             knownCodes = setOf("BDVT", "SMET"))
-        assertTrue(result.pageAnswered)
+        assertTrue("visible HTML can answer while source-matched parsing remains absent",
+            result.pageAnswered)
+        assertFalse(result.orgContentParsed)
         assertEquals(null, result.orgReport)
         assertEquals("01:27:33 PM", result.pageUpdateLabel)
-        val gap = PublicPageChecks.websiteGap(result, "SMET")!!
+        assertEquals("incomplete text snippets do not drive a populated-page gap summary",
+            null, PublicPageChecks.websiteGap(result, "SMET"))
+        val gapEligible = result.copy(orgContentParsed = true)
+        val gap = PublicPageChecks.websiteGap(gapEligible, "SMET")!!
         assertTrue(gap.contains("no SMET arrival row"))
         assertTrue(gap.contains("Last displayed: BDVT"))
         assertTrue(gap.contains("position unknown"))
         assertTrue(gap.contains("not the phone app"))
         assertFalse(gap.contains("SMET arrived"))
-        assertEquals(null, PublicPageChecks.websiteGap(result.copy(pageAnswered = false), "SMET"))
-        assertEquals(null, PublicPageChecks.websiteGap(result.copy(lines = emptyMap()), "SMET"))
-        assertEquals(null, PublicPageChecks.websiteGap(result.copy(lines = result.lines +
+        assertEquals(null, PublicPageChecks.websiteGap(gapEligible.copy(pageAnswered = false), "SMET"))
+        assertEquals(null, PublicPageChecks.websiteGap(gapEligible.copy(lines = emptyMap()), "SMET"))
+        assertEquals(null, PublicPageChecks.websiteGap(gapEligible.copy(lines = gapEligible.lines +
             ("SMET" to "Page shows SMET: ARRIVAL 01:27 PM")), "SMET"))
+    }
+
+    @Test fun `org page requires parsed route matched card clocks not only HTTP or train text`() {
+        val incomplete = PublicPageChecks.fetch(PublicPageChecks.ORG, "16227", day, now,
+            source = "MYS", destination = "TLGP",
+            knownCodes = orgRoute.stops.map { it.code }.toSet(), route = orgRoute) {
+            assertEquals("https://whereismytrain.org.in/?trainNo=16227", it)
+            Http.Result.Ok("<h1>16227 Running Status</h1><p>Last Updated: 04:17 AM</p>",
+                fromCache = false, ageMillis = 0)
+        }
+        assertTrue("returned train text is a page answer, not proof of population",
+            incomplete.pageAnswered)
+        assertFalse(incomplete.orgContentParsed)
+        assertNull(incomplete.orgReport)
+        assertTrue(incomplete.responseDigest?.matches(Regex("[0-9a-f]{16}")) == true)
+        assertTrue(incomplete.detail.contains("HTTP success or partial text is not accepted"))
+
+        val cardsOnly = PublicPageChecks.fetch(PublicPageChecks.ORG, "16227", day, now,
+            source = "MYS", destination = "TLGP",
+            knownCodes = orgRoute.stops.map { it.code }.toSet(), route = orgRoute) {
+            Http.Result.Ok(populatedOrgPage, fromCache = false, ageMillis = 0)
+        }
+        assertTrue(cardsOnly.pageAnswered)
+        assertTrue("a parsed site clock is complete comparison data even without an event row",
+            cardsOnly.orgContentParsed)
+        assertNull("upcoming white card is not a station event", cardsOnly.orgReport)
+        assertEquals(1, cardsOnly.orgSiteCards.size)
+        assertEquals(1750, cardsOnly.orgSiteClocks["SRF"]?.arrivalMin)
+        assertEquals(1755, cardsOnly.orgSiteClocks["SRF"]?.departureMin)
+        assertTrue(cardsOnly.orgSiteClocks["SRF"]?.forecast == true)
     }
 
     @Test fun `each dropdown choice requests its own endpoint and cache never counts as fresh`() {
@@ -110,7 +170,9 @@ class PublicPageChecksTest {
         assertEquals(3, urls.distinct().size)
         assertTrue(urls[0].contains("/16227/1.json?start_day=1"))
         assertTrue(urls[1].endsWith("/trains/16227/running-status"))
-        assertTrue(urls[2].endsWith("/?trainNo=16227"))
+        assertEquals("https://whereismytrain.org.in/?trainNo=16227", urls[2])
+        assertFalse("website request must not drift onto the separate .in provider",
+            urls[2].contains("whereismytrain.in"))
 
         val cached = PublicPageChecks.fetch(PublicPageChecks.RAIL_YATRI, "16227", day, now) {
             Http.Result.Ok(relay, fromCache = true, ageMillis = 900_000)

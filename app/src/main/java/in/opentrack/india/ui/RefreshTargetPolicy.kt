@@ -10,12 +10,12 @@ object RefreshTargetPolicy {
     fun surveyWebsite(active: String?, alreadyChecked: Boolean): Boolean =
         active == PublicPageChecks.ORG && !alreadyChecked
 
-    /** A first-load website refusal must not leave an already answered official source hidden
-     * behind a blank website table. This changes only the displayed source, never the saved
-     * preference, so the next deliberate Refresh still asks the website first. */
-    fun afterWebsiteSurvey(displayed: String?, siteReportAvailable: Boolean,
+    /** A first-load refusal or unparsed page must not leave an already answered official source
+     * hidden behind a blank website table. Parsed site clocks are comparison content even when no
+     * event qualifies. This changes only the displayed source, never the saved preference. */
+    fun afterWebsiteSurvey(displayed: String?, siteContentAvailable: Boolean,
                            officialActualsAvailable: Boolean): String? =
-        if (displayed == PublicPageChecks.ORG && !siteReportAvailable && officialActualsAvailable)
+        if (displayed == PublicPageChecks.ORG && !siteContentAvailable && officialActualsAvailable)
             TrackingSources.OFFICIAL else displayed
 
     /** A fresh page fetch does not freshen an old website station event. During a

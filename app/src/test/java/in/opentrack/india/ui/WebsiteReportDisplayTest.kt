@@ -52,9 +52,14 @@ class WebsiteReportDisplayTest {
             stamp + 600_000L)["MWM"]
         assertTrue("a website white-card forecast remains visible as a forecast", forecast?.forecast == true)
         assertEquals(1396, forecast?.arrivalMin)
-        assertNull("a later fetch cannot turn a past-card schedule echo into a departure event",
-            WebsiteReportDisplay.displayedClocks(screenshot, day, stops,
-                stamp + 600_000L)["SBC"]?.departureMin)
+        val pastButAfterPage = WebsiteReportDisplay.displayedClocks(screenshot, day, stops,
+            stamp + 600_000L)["SBC"]
+        assertEquals("once device time passes it, retain the clock the site printed",
+            1395, pastButAfterPage?.departureMin)
+        assertTrue("the ~ flag distinguishes a clock later than the page's own update label",
+            pastButAfterPage?.departureAfterPageUpdate == true)
+        assertNull("a displayed site departure still cannot enter the event ledger",
+            screenshot.rows["SBC"]?.actualDepartureMin)
         assertEquals(emptyMap<String, OrgWebsiteStatus.SiteClocks>(),
             WebsiteReportDisplay.displayedClocks(screenshot, day, listOf("MYS", "MWM"), stamp))
         // An actual new page published after 23:15 can show the last site's
@@ -90,6 +95,29 @@ class WebsiteReportDisplayTest {
         assertTrue(visible["SBC"]?.forecast == true)
         assertEquals(740, visible["SBC"]?.arrivalMin)
         assertNull("a white-card forecast never enters event rows", displayed.rows["SBC"])
+    }
+
+    @Test fun eventlessParsedWebsiteClocksStillPopulateTheSelectedWebsiteColumn() {
+        val day = 20770L
+        val pageAt = `in`.opentrack.india.core.RailTime.railMinuteToEpochMillis(day, 1401) + 31_000L
+        val now = `in`.opentrack.india.core.RailTime.railMinuteToEpochMillis(day, 1402) + 46_000L
+        val cards = mapOf("MWM" to OrgWebsiteStatus.SiteClocks(
+            arrivalMin = 1401,
+            departureMin = 1402,
+            forecast = false,
+            mark = OrgWebsiteStatus.SiteCardMark.PAST,
+            arrivalAfterPageUpdate = false,
+            departureAfterPageUpdate = true,
+        ))
+        val visible = WebsiteReportDisplay.selectedWebsiteClocks(null, cards, day,
+            listOf("SBC", "MWM", "YPR"), pageAt, now)
+        assertEquals(1401, visible["MWM"]?.arrivalMin)
+        assertEquals(1402, visible["MWM"]?.departureMin)
+        assertFalse(visible["MWM"]?.arrivalAfterPageUpdate == true)
+        assertTrue("a late printed clock is visible but remains '~' qualified",
+            visible["MWM"]?.departureAfterPageUpdate == true)
+        assertTrue("a clock-only parsed page remains website comparison content",
+            WebsiteReportDisplay.usable("comparison", true, null, cards))
     }
 
     @Test fun lastWebsiteEventLabelUsesTheReportedArrivalDepartureOrPassage() {
@@ -129,6 +157,12 @@ class WebsiteReportDisplayTest {
         assertTrue(WebsiteReportDisplay.usable("comparison", true, report))
         assertFalse(WebsiteReportDisplay.usable("comparison", false, report))
         assertFalse(WebsiteReportDisplay.usable("comparison", true, null))
+        val cardsOnly = mapOf("SRF" to OrgWebsiteStatus.SiteClocks(
+            341, 343, forecast = false, mark = OrgWebsiteStatus.SiteCardMark.PAST))
+        assertTrue("a fully parsed card-clock comparison stays selectable without an event row",
+            WebsiteReportDisplay.usable("comparison", true, null, cardsOnly))
+        assertFalse("partial/unparsed HTML must not count as a usable website response",
+            WebsiteReportDisplay.usable("comparison", false, null, cardsOnly))
         assertFalse(WebsiteReportDisplay.usable("last-known", false, report))
         assertFalse(SourceEvidencePolicy.primaryActuals(site, true, true))
     }

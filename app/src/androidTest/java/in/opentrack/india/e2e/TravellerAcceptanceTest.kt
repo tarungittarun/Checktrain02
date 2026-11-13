@@ -64,6 +64,37 @@ class TravellerAcceptanceTest {
         return true
     }
 
+    private fun visibleInScroll(node: androidx.test.uiautomator.UiObject2?, container: String): Boolean {
+        if (node == null) return false
+        val item = node.visibleBounds
+        val viewport = E2E.find(container, 500)?.visibleBounds ?: return false
+        val visibleLeft = maxOf(item.left, viewport.left)
+        val visibleTop = maxOf(item.top, viewport.top)
+        val visibleRight = minOf(item.right, viewport.right)
+        val visibleBottom = minOf(item.bottom, viewport.bottom)
+        return item.width() > 0 && item.height() > 0 &&
+            visibleRight > visibleLeft && visibleBottom > visibleTop
+    }
+
+    private fun revealTextContains(text: String, container: String, swipes: Int = 6,
+                                   up: Boolean = true): Boolean {
+        repeat(swipes + 1) { attempt ->
+            val node = findTextContains(text, 300)
+            if (visibleInScroll(node, container)) return true
+            if (attempt == swipes || !E2E.swipeIn(container, up = up)) return false
+        }
+        return false
+    }
+
+    private fun revealResource(name: String, container: String, swipes: Int = 6,
+                               up: Boolean = true): Boolean {
+        repeat(swipes + 1) { attempt ->
+            if (visibleInScroll(E2E.find(name, 300), container)) return true
+            if (attempt == swipes || !E2E.swipeIn(container, up = up)) return false
+        }
+        return false
+    }
+
     private fun visibleTextNodes(): String = E2E.all(By.clazz("android.widget.TextView"))
         .mapNotNull { runCatching { it.text?.toString()?.trim() }.getOrNull()?.takeIf { it.isNotBlank() } }
         .distinct().joinToString(" | ")
@@ -85,13 +116,27 @@ class TravellerAcceptanceTest {
         }
     }
 
-    private fun openAlertChoices() {
+    private fun openAlertChoices(screenshotTag: String? = null) {
         assertTrue("Arrival alert control is not reachable",
-            E2E.reveal("arrivalAlert", "scroller", swipes = 4) && E2E.tap("arrivalAlert"))
+            revealResource("arrivalAlert", "scroller", swipes = 4) && E2E.tap("arrivalAlert"))
         allowPermissionIfPrompted()
         assertTrue("Alert trigger chooser did not open: ${textContains("No route for this alert", 300)}",
             E2E.ui.wait(Until.hasObject(By.textContains("Arrival alert · train 12627")),
                 E2E.NETWORK_MS))
+        assertTrue("arrival choices are not on the app's custom alert surface",
+            E2E.ui.wait(Until.hasObject(E2E.res("alertDialogRoot")), E2E.LOCAL_MS))
+        assertTrue("trigger options are not in the custom scrollable list",
+            E2E.ui.wait(Until.hasObject(E2E.res("alertDialogBody")), E2E.LOCAL_MS))
+        assertTrue("custom dialog lost the source-honest trigger explanation",
+            E2E.ui.wait(Until.hasObject(By.textContains("no timetable ETA")), E2E.LOCAL_MS))
+        assertTrue("Settings default is not visibly identified in the choice list",
+            E2E.ui.wait(Until.hasObject(By.text("Default")), E2E.LOCAL_MS))
+        for (distance in listOf(2, 5, 10)) assertTrue(
+            "$distance km choice is not reachable by scrolling the trigger list",
+            revealTextContains("Within $distance km", "alertDialogScroll"))
+        assertTrue("destination trigger cannot be brought back into view",
+            revealTextContains("At destination", "alertDialogScroll", up = false))
+        screenshotTag?.let { E2E.shotRequired(it) }
     }
 
     /** On a missing badge, distinguish an absent source label from a clipped
@@ -287,41 +332,94 @@ class TravellerAcceptanceTest {
 
     @Test fun arrivalAlertSetupShowsTriggersPreferencesAndSaveCancel() {
         openTicketTrain()
+        assertTrue("Arrival alert control is not visible on the journey screen",
+            revealResource("arrivalAlert", "scroller", swipes = 4))
+        E2E.shotRequired("alert-journey-entry")
         openAlertChoices()
+        E2E.shotRequired("alert-trigger-chooser-top")
+        assertTrue("last alert trigger is not reachable in the scrollable chooser",
+            revealTextContains("Within 10 km", "alertDialogScroll"))
+        E2E.shotRequired("alert-trigger-chooser-bottom")
+        assertTrue("destination trigger cannot be brought back into view",
+            revealTextContains("At destination", "alertDialogScroll", up = false))
         assertTrue("Destination report choice is hidden",
             E2E.ui.wait(Until.hasObject(By.textContains("At destination")), E2E.LOCAL_MS))
+        assertTrue("Top-level trigger chooser has no Cancel action", textContains("Cancel").isNotBlank())
         assertTrue("Preceding-station choice is hidden",
             E2E.ui.wait(Until.hasObject(By.textContains("preceding station")), E2E.LOCAL_MS))
         for (distance in listOf(2, 5, 10)) assertTrue("$distance km distance choice is hidden",
             E2E.ui.wait(Until.hasObject(By.textContains("Within $distance km")), E2E.LOCAL_MS))
         E2E.shot("traveller-alert-triggers")
+        assertTrue("Top-level trigger chooser did not cancel", tapTextContains("Cancel"))
+        assertEquals("cancelling the trigger chooser must not arm an alert", "Alert", E2E.text("arrivalAlert"))
+        assertTrue("Journey alert control is not visible after chooser cancellation",
+            revealResource("arrivalAlert", "scroller", swipes = 4))
+        E2E.shotRequired("alert-trigger-chooser-cancelled")
 
+        openAlertChoices("alert-chooser-reopened-after-cancel")
         assertTrue("Preceding-station choice did not open its station list",
             tapTextContains("preceding station"))
         assertTrue("The preceding-station chooser is absent",
             E2E.ui.wait(Until.hasObject(By.textContains("Choose a preceding station")), E2E.LOCAL_MS))
+        val firstStationOption = precedingStationChoices().firstOrNull()
         assertTrue("No preceding route station can be selected; visible text: ${visibleTextNodes()}",
-            precedingStationChoices().isNotEmpty())
+            firstStationOption != null)
+        val firstStationLabel = firstStationOption!!.text.orEmpty()
+        assertTrue("First preceding station is not visible in its chooser scroll",
+            revealTextContains(firstStationLabel, "alertDialogScroll"))
+        E2E.shotRequired("alert-preceding-station-chooser")
         assertTrue("Preceding-station chooser has no clear cancel action; visible text: ${visibleTextNodes()}",
             tapTextContains("Cancel"))
         assertEquals("cancelling trigger selection must not arm an alert", "Alert", E2E.text("arrivalAlert"))
+        assertTrue("Journey control is not visible after cancelling station selection",
+            revealResource("arrivalAlert", "scroller", swipes = 4))
+        E2E.shotRequired("alert-trigger-cancelled")
 
-        openAlertChoices()
+        openAlertChoices("alert-chooser-reopened-for-station-select")
         assertTrue("Preceding-station choice did not reopen its station list",
             tapTextContains("preceding station"))
-        val stationChoice = precedingStationChoices().firstOrNull()
+        assertTrue("Reopened station choice is not visible in its scroll",
+            revealTextContains(firstStationLabel, "alertDialogScroll"))
+        E2E.shotRequired("alert-preceding-station-reopened")
+        val stationChoice = findTextContains(firstStationLabel, E2E.LOCAL_MS)
         assertTrue("No preceding station could be selected; visible text: ${visibleTextNodes()}",
-            stationChoice != null)
+            visibleInScroll(stationChoice, "alertDialogScroll"))
         stationChoice!!.click()
         E2E.ui.waitForIdle()
         assertTrue("Selecting a preceding station did not open alert preferences",
             E2E.ui.wait(Until.hasObject(By.text("Alert style")), E2E.LOCAL_MS))
+        assertTrue("Preferences do not identify the selected preceding-station trigger",
+            E2E.ui.wait(Until.hasObject(By.textContains("At preceding station")), E2E.LOCAL_MS))
+        for (style in listOf("Notification · one alert", "Vibration · one pattern", "Ring until I stop it"))
+            assertTrue("Preceding-station alert style is not selectable: $style",
+                E2E.ui.wait(Until.hasObject(By.text(style)), E2E.LOCAL_MS))
+        for (interval in listOf("1 minute", "2 minutes", "5 minutes"))
+            assertTrue("Preceding-station interval is not selectable: $interval",
+                E2E.ui.wait(Until.hasObject(By.textContains(interval)), E2E.LOCAL_MS))
+        assertTrue("Preceding-station style is not visible in its options scroll",
+            revealTextContains("Notification · one alert", "alertDialogScroll"))
+        E2E.shotRequired("alert-preceding-station-options")
+        assertTrue("Preceding-station interval cannot be brought into view",
+            revealTextContains("5 minutes · lower background work", "alertDialogScroll"))
+        assertTrue("Station-alert source note is not visible for the chosen station",
+            revealTextContains("Station alerts use fresh, route-matched", "alertDialogScroll"))
+        val precedingEvidenceNote = textContains("Station alerts use fresh, route-matched", 500)
+        assertTrue("Preceding-station source caveat is incomplete: '$precedingEvidenceNote'",
+            precedingEvidenceNote.contains("whereismytrain.org.in") &&
+                precedingEvidenceNote.contains("not independently verified"))
+        E2E.shotRequired("alert-preceding-station-source-note")
         assertTrue("Cancel after station selection did not close setup", tapTextContains("Cancel"))
         assertEquals("cancelling a preceding-station alert must not arm it", "Alert", E2E.text("arrivalAlert"))
+        assertTrue("Journey control is not visible after cancelling station preferences",
+            revealResource("arrivalAlert", "scroller", swipes = 4))
+        E2E.shotRequired("alert-preceding-station-cancelled")
 
-        openAlertChoices()
+        openAlertChoices("alert-chooser-reopened-for-destination")
         assertTrue("Destination trigger did not open alert preferences", tapTextContains("At destination"))
         assertTrue("Alert style choices are missing", E2E.ui.wait(Until.hasObject(By.text("Alert style")), E2E.LOCAL_MS))
+        assertTrue("Destination-alert style is not visible in its options scroll",
+            revealTextContains("Notification · one alert", "alertDialogScroll"))
+        E2E.shotRequired("alert-destination-options-top")
         for (style in listOf("Notification · one alert", "Vibration · one pattern", "Ring until I stop it"))
             assertTrue("Alert style is not selectable: $style",
                 E2E.ui.wait(Until.hasObject(By.text(style)), E2E.LOCAL_MS))
@@ -330,43 +428,62 @@ class TravellerAcceptanceTest {
                 E2E.ui.wait(Until.hasObject(By.textContains(interval)), E2E.LOCAL_MS))
         assertTrue("Set alert action is absent", textContains("Set alert").isNotBlank())
         assertTrue("Setup dialog has no Cancel action", textContains("Cancel").isNotBlank())
-        var evidenceNote = textContains("Station alerts use fresh, route-matched", 500)
-        repeat(3) {
-            if (evidenceNote.isNotBlank()) return@repeat
-            val scroll = E2E.all(By.clazz("android.widget.ScrollView"))
-                .maxByOrNull { it.visibleBounds.height() } ?: return@repeat
-            val bounds = scroll.visibleBounds
-            if (bounds.height() > 100) E2E.ui.swipe(bounds.centerX(), bounds.bottom - 35,
-                bounds.centerX(), bounds.top + 35, 20)
-            evidenceNote = textContains("Station alerts use fresh, route-matched", 500)
-        }
+        assertTrue("Station alert live-evidence note is not visible in the options scroll",
+            revealTextContains("Station alerts use fresh, route-matched", "alertDialogScroll"))
+        val evidenceNote = textContains("Station alerts use fresh, route-matched", 500)
         assertTrue("Station alert live-evidence limits were not visible in setup: '$evidenceNote'",
             evidenceNote.contains("whereismytrain.org.in") &&
                 evidenceNote.contains("not independently verified"))
-        E2E.shot("traveller-alert-preferences")
+        E2E.shotRequired("alert-destination-source-note")
         assertTrue("Cancel did not close alert setup", tapTextContains("Cancel"))
         assertEquals("cancelling preferences must not create an alert", "Alert", E2E.text("arrivalAlert"))
+        assertTrue("Journey control is not visible after cancelling destination preferences",
+            revealResource("arrivalAlert", "scroller", swipes = 4))
+        E2E.shotRequired("alert-destination-cancelled")
 
-        openAlertChoices()
+        openAlertChoices("alert-chooser-reopened-for-distance")
+        assertTrue("Distance trigger is not reachable in the scrollable chooser",
+            revealTextContains("Within 2 km", "alertDialogScroll"))
         assertTrue("Distance trigger did not open alert preferences", tapTextContains("Within 2 km"))
+        assertTrue("Distance-trigger style is not visible in its options scroll",
+            revealTextContains("Notification · one alert", "alertDialogScroll"))
+        E2E.shotRequired("alert-distance-options-top")
+        assertTrue("Distance limitations are not reachable by scrolling the options",
+            revealTextContains("Distance uses phone location", "alertDialogScroll"))
         val distanceEvidenceNote = textContains("Distance uses phone location", 1_000)
         assertTrue("Distance alert limits were not explained for the selected trigger: '$distanceEvidenceNote'",
             distanceEvidenceNote.contains("250 m accuracy") &&
                 distanceEvidenceNote.contains("straight-line distance—not train GPS"))
+        E2E.shotRequired("alert-distance-source-note")
+        assertTrue("Alert style choices cannot be brought back into view",
+            revealTextContains("Vibration · one pattern", "alertDialogScroll", up = false))
         assertTrue("Vibration preference cannot be selected", tapTextContains("Vibration · one pattern"))
+        E2E.shotRequired("alert-feedback-selected")
+        assertTrue("Five-minute low-work interval cannot be brought into view",
+            revealTextContains("5 minutes · lower background work", "alertDialogScroll"))
         assertTrue("Five-minute low-work interval cannot be selected",
             tapTextContains("5 minutes · lower background work"))
+        E2E.shotRequired("alert-interval-selected")
         assertTrue("Set alert action is missing before save", tapTextContains("Set alert"))
         allowPermissionIfPrompted()
         assertTrue("Set alert did not save or start: '${textContains("Permission needed for arrival alerts", 300)}'",
             E2E.ui.wait(Until.hasObject(By.text("Alert on")), E2E.NETWORK_MS))
         assertTrue("Saved alert is not visible on its control",
             E2E.text("arrivalAlert") == "Alert on")
-        E2E.shot("traveller-alert-saved")
+        assertTrue("Saved alert control is not visible in the journey scroll",
+            revealResource("arrivalAlert", "scroller", swipes = 4))
+        E2E.shotRequired("alert-saved-on-journey")
         assertTrue("Saved alert actions cannot be reopened", E2E.tap("arrivalAlert"))
+        val addAnother = findTextContains("Add another", E2E.LOCAL_MS)
+        val manageAlerts = findTextContains("Manage alerts", E2E.LOCAL_MS)
         assertTrue("A second alert cannot be added for the same journey",
-            findTextContains("Add another", E2E.LOCAL_MS) != null)
-        assertTrue("Central alert management is not reachable from the journey",
+            addAnother != null && addAnother.visibleBounds.width() > 0 &&
+                addAnother.visibleBounds.height() > 0)
+        assertTrue("Central alert management is not visible from the journey",
+            manageAlerts != null && manageAlerts.visibleBounds.width() > 0 &&
+                manageAlerts.visibleBounds.height() > 0)
+        E2E.shotRequired("alert-active-journey-actions")
+        assertTrue("Central alert management could not be selected",
             tapTextContains("Manage alerts"))
         assertTrue("The central alert list did not open",
             E2E.ui.wait(Until.hasObject(By.textContains("ACTIVE ALERTS")), E2E.LOCAL_MS))
@@ -374,23 +491,48 @@ class TravellerAcceptanceTest {
             E2E.ui.wait(Until.hasObject(By.textContains("Within 2 km")), E2E.LOCAL_MS))
         assertTrue("Active alert history lost the selected feedback",
             E2E.ui.wait(Until.hasObject(By.textContains("Vibration · one pattern")), E2E.LOCAL_MS))
-        assertTrue("Active alert history lost the selected interval",
-            E2E.ui.wait(Until.hasObject(By.textContains("check every 5 minutes")), E2E.LOCAL_MS))
+        assertTrue("Active alert header is not visible in the management scroll",
+            revealTextContains("ACTIVE ALERTS", "alertsScroll", up = false))
+        assertTrue("Active alert trigger is not visible in the management scroll",
+            revealTextContains("Within 2 km", "alertsScroll"))
+        assertTrue("Active alert feedback is not visible in the management scroll",
+            revealTextContains("Vibration · one pattern", "alertsScroll"))
+        assertTrue("Active alert interval is not visible in the management scroll",
+            revealTextContains("check every 5 minutes", "alertsScroll"))
+        E2E.shotRequired("alert-active-management")
+        assertTrue("An armed alert's cancel action is not visible in the management scroll",
+            revealTextContains("Cancel alert", "alertsScroll"))
+        E2E.shotRequired("alert-active-cancel-action")
         assertTrue("An armed alert has no ID-scoped cancel action", tapTextContains("Cancel alert"))
         assertTrue("Cancellation confirmation did not open",
             E2E.ui.wait(Until.hasObject(By.textContains("Cancel alert for train")), E2E.LOCAL_MS))
         val confirmCancel = E2E.all(By.clazz("android.widget.Button"))
             .firstOrNull { it.text.orEmpty().equals("Cancel alert", ignoreCase = true) }
+        val keepAlert = E2E.all(By.clazz("android.widget.Button"))
+            .firstOrNull { it.text.orEmpty().equals("Keep", ignoreCase = true) }
         assertTrue("The specific alert cannot be confirmed for cancellation",
-            confirmCancel != null)
+            confirmCancel != null && confirmCancel.visibleBounds.width() > 0 &&
+                confirmCancel.visibleBounds.height() > 0)
+        assertTrue("Cancellation confirmation does not show its Keep alternative",
+            keepAlert != null && keepAlert.visibleBounds.width() > 0 &&
+                keepAlert.visibleBounds.height() > 0)
+        assertTrue("Cancellation confirmation does not explain its scope",
+            E2E.ui.wait(Until.hasObject(By.textContains("cancels only this alert")), E2E.LOCAL_MS))
+        E2E.shotRequired("alert-cancellation-confirmation")
         confirmCancel!!.click()
         E2E.ui.waitForIdle()
         assertTrue("Cancellation is not retained in past alert history",
             E2E.ui.wait(Until.hasObject(By.textContains("Stopped or cancelled")), E2E.LOCAL_MS))
+        assertTrue("Cancelled alert history is not visible in its management scroll",
+            revealTextContains("Stopped or cancelled", "alertsScroll"))
+        E2E.shotRequired("alert-cancelled-history")
         E2E.ui.pressBack()
         assertTrue("Cancel alert did not return to the journey screen",
             E2E.ui.wait(Until.hasObject(E2E.res("arrivalAlert")), E2E.NETWORK_MS))
         assertEquals("Alert", E2E.text("arrivalAlert"))
+        assertTrue("Returned journey alert is not visible in its scroll",
+            revealResource("arrivalAlert", "scroller", swipes = 4))
+        E2E.shotRequired("alert-returned-to-journey")
     }
 
     @Test fun invalidOrImpossibleTripCannotMasqueradeAsAResult() {

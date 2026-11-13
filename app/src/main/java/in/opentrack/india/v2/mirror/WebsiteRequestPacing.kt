@@ -25,7 +25,10 @@ class WebsiteRequestPacing(
 
     fun observe(result: PublicPageChecks.Result, now: Long) {
         if (result.detail.startsWith("Website request paused")) return
-        if (result.pageAnswered) {
+        // Clear a host refusal pause only after a fresh transport response, even
+        // when its body is a challenge or an incomplete station timeline. Parser
+        // flags alone are not evidence that a network request actually completed.
+        if (result.responseDigest != null && !result.fromHttpCache) {
             observeHttpStatus(null, true, now)
             return
         }

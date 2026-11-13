@@ -255,6 +255,37 @@ class OrgWebsiteStatusTest {
             report.siteClocks == later.siteClocks)
     }
 
+    @Test fun `station cards populate from rendered DOM when comments are absent and heading is nested`() {
+        val html = javaClass.classLoader!!.getResourceAsStream(
+            "org-site/16227-2026-10-26-0701.html")!!.bufferedReader().use { it.readText() }
+        val run = SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).apply {
+            timeZone = TimeZone.getTimeZone("UTC")
+        }.parse("2026-10-25")!!.time / 86_400_000L
+        val checked = SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z", Locale.ROOT)
+            .parse("2026-10-26 07:01:06 +0530")!!.time
+        val halts = route.copy(stops = listOf(
+            stop(1, "MYS", null, 1180, 0),
+            stop(2, "ARU", 1783, 1784, 453),
+            stop(3, "ANF", 1800, 1802, 468),
+            stop(4, "SRF", 1827, 1829, 482),
+            stop(5, "TLGP", 1910, null, 510)), segments = emptyList())
+        val domHtml = html
+            .replace("<!-- Station Details Card -->", "")
+            .replace("<!-- Arrival -->", "")
+            .replace("<!-- Departure -->", "")
+            .replace("""<h3 class="font-medium text-sm text-gray-800">""",
+                """<h3 class="font-medium text-sm text-gray-800"><span>""")
+            .replace("</h3>", "</span></h3>")
+        val outcome = OrgWebsiteStatus.parse(domHtml, "16227", run, checked, halts)
+        val report = outcome.report ?: error(outcome.reason)
+        assertEquals("ANF", report.anchorCode)
+        assertEquals(1813, report.rows["ANF"]?.actualArrivalMin)
+        assertEquals(1850, report.provisionalDeparture)
+        assertEquals(2, report.siteCards.size)
+        assertEquals(1813, report.siteClocks["ANF"]?.arrivalMin)
+        assertEquals(1869, report.siteClocks["SRF"]?.arrivalMin)
+    }
+
     @Test fun `website marks past card but future first clock is still a prediction`() {
         val out = OrgWebsiteStatus.parse(page, "16227", day, now, route)
         val report = out.report ?: error(out.reason)
@@ -431,6 +462,84 @@ class OrgWebsiteStatusTest {
         assertFalse("minute-only upstream label must not be shown as :00 seconds",
             minuteOnly.contains("Page updated 19:25:00 IST"))
         assertTrue(minuteOnly.contains("page age 0–55s (minute-only page clock) at check"))
+    }
+
+    @Test fun `16227 Malleswaram duplicate keeps its 2322 website clock after page update but not as an event`() {
+        val run = SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).apply {
+            timeZone = TimeZone.getTimeZone("UTC")
+        }.parse("2026-11-13")!!.time / 86_400_000L
+        val checked = SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z", Locale.ROOT)
+            .parse("2026-11-13 23:22:46 +0530")!!.time
+        val route16227 = TrainRoute("16227", "MYS TLGP EXP", "MYS", "Mysuru",
+            "TLGP", "Talguppa", 510, 560, 127, null, listOf(
+                stop(1, "MYS", null, 19 * 60 + 40, 0),
+                stop(2, "SBC", 23 * 60 + 5, 23 * 60 + 15, 138),
+                stop(3, "MWM", 23 * 60 + 20, 23 * 60 + 21, 141),
+                stop(4, "YPR", 23 * 60 + 26, 23 * 60 + 28, 144),
+                stop(5, "TLGP", 29 * 60, null, 510)), emptyList())
+        val earlierMwm = card("MWM", "bg-green-50 opacity-90", "11:21 PM", "11:20 PM",
+            "11:22 PM", "11:21 PM")
+            .replace("Station (MWM)", "Malleswaram (MWM)")
+            .replace("<span>• PF 1</span>", "<span>• PF 1</span><span>2min Late</span>")
+        val latestMwmArrivalOnly = """<!-- Station Details Card -->
+            <div class="flex-grow p-3 mb-3 rounded-lg ml-4 shadow-sm bg-blue-50">
+            <div><h3 class="font-medium">Malleswaram (MWM)</h3>
+            <span>• PF 1</span><span class="site-status">2min Late</span></div>
+            <div><!-- Arrival --><div>ARRIVAL</div><div class="font-semibold">11:21 PM</div>
+            <div class="text-xs text-gray-400">11:20 PM</div></div></div>""".trimIndent()
+        val html = """<html><h1>16227 Running Status</h1><p>Source: MYS</p>
+            <p>Destination: TLGP</p><p>Last Updated: 11:21:31 PM</p>
+            ${card("SBC", "bg-green-50 opacity-90", "11:17 PM", "11:05 PM",
+                "11:19 PM", "11:15 PM")}
+            $earlierMwm
+            $latestMwmArrivalOnly
+            </html>""".trimIndent()
+
+        // Reconstructed from the supplied diary/screenshot clocks, not represented as a raw capture.
+        val outcome = OrgWebsiteStatus.parse(html, "16227", run, checked, route16227)
+        val report = outcome.report ?: error(outcome.reason)
+        assertEquals("MWM", report.anchorCode)
+        assertEquals(23 * 60 + 21, report.eventMinute)
+        assertEquals(23 * 60 + 21, report.rows["MWM"]?.actualArrivalMin)
+        assertNull("23:22 is later than the page's 23:21:31 stamp, not a qualifying event",
+            report.rows["MWM"]?.actualDepartureMin)
+        assertTrue(outcome.reason.contains("1 claimed event(s) later than the page update clock"))
+        assertEquals(23 * 60 + 21, report.siteClocks["MWM"]?.arrivalMin)
+        assertEquals(23 * 60 + 22, report.siteClocks["MWM"]?.departureMin)
+        assertEquals("2min Late", report.latestSiteCard?.statusText)
+        assertNull("the newest blue duplicate itself is arrival-only",
+            report.latestSiteCard?.departure)
+
+        val publicResult = PublicPageChecks.parse(PublicPageChecks.ORG, html, "16227",
+            run, checked, source = "MYS", destination = "TLGP",
+            knownCodes = route16227.stops.map { it.code }.toSet(), route = route16227)
+        assertTrue(publicResult.pageAnswered)
+        assertTrue("a partial page answer must not stand in for parsed station data",
+            publicResult.orgContentParsed)
+        assertEquals(23 * 60 + 22, publicResult.orgSiteClocks["MWM"]?.departureMin)
+        assertNull(publicResult.orgReport?.rows?.get("MWM")?.actualDepartureMin)
+
+        val visible = `in`.opentrack.india.ui.WebsiteReportDisplay.displayedClocks(
+            report, run, route16227.stops.map { it.code }, checked)["MWM"]!!
+        assertEquals(23 * 60 + 21, visible.arrivalMin)
+        assertEquals(23 * 60 + 22, visible.departureMin)
+        assertFalse(visible.arrivalAfterPageUpdate)
+        assertTrue("earlier same-code card departure remains tilde-qualified",
+            visible.departureAfterPageUpdate)
+        assertTrue(visible.latestCardArrivalOnly)
+        assertEquals(2, visible.cardCount)
+
+        val brief = `in`.opentrack.india.ui.WebsiteReportDisplay.latestSiteCardBrief(
+            report, route16227)!!
+        assertTrue(brief.contains("Malleswaram (MWM)"))
+        assertTrue(brief.contains("site arr 11:21 PM"))
+        assertTrue(brief.contains("earlier same-code card displayed dep ~11:22 PM"))
+        assertTrue(brief.contains("website status ‘2min Late’"))
+        assertTrue(brief.contains("not a verified actual"))
+        val cards = `in`.opentrack.india.ui.WebsiteReportDisplay.allSiteCardsSummary(report)!!
+        assertTrue(cards.contains("ARRIVAL 11:21 PM (page schedule 11:20 PM)"))
+        assertTrue(cards.contains("DEPARTURE ~11:22 PM (page schedule 11:21 PM)"))
+        assertTrue(cards.contains("A ~ clock follows the page's own update label"))
     }
 
     @Test fun `12089 duplicate Bhadravati card retains the earlier departure without inventing an event`() {

@@ -422,16 +422,31 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         }
         val reported = s.source != TrackModel.MinuteSource.SCHEDULE
         val late: Boolean = (s.delay ?: 0) >= 3
-        fun siteTime(minute: Int?): String = when {
+        fun siteTime(minute: Int?, afterPageUpdate: Boolean): String = when {
             minute == null -> "—"
-            siteCard?.forecast == true -> "~${time(minute)}"
+            siteCard?.forecast == true || afterPageUpdate -> "~${time(minute)}"
             else -> time(minute)
         }
-        holder.liveArr.text = if (isFirst) "START" else if (siteCard != null)
-            siteTime(siteCard.arrivalMin) else time(s.showArr.takeIf { reported })
-        holder.liveDep.text = if (isLast) "END" else if (siteCard != null)
-            siteTime(siteCard.departureMin) else if (suggestedDep != null)
-            "${time(suggestedDep)}?" else time(s.showDep.takeIf { reported })
+        fun siteClockDescription(kind: String, minute: Int?, afterPageUpdate: Boolean,
+                                 lastCard: Boolean = false): String = buildString {
+            append("Website ").append(if (siteCard?.forecast == true) "forecast " else "displayed ")
+                .append(kind).append(' ')
+                .append(minute?.let(RailTime::formatRailMinute) ?: "unknown")
+            if (afterPageUpdate)
+                append("; printed after the page update label, so shown only as a website clock, not a qualifying event")
+            if (lastCard) append("; last card is not a current position")
+        }
+        holder.liveArr.text = when {
+            isFirst -> "START"
+            siteCard != null -> siteTime(siteCard.arrivalMin, siteCard.arrivalAfterPageUpdate)
+            else -> time(s.showArr.takeIf { reported })
+        }
+        holder.liveDep.text = when {
+            isLast -> "END"
+            siteCard != null -> siteTime(siteCard.departureMin, siteCard.departureAfterPageUpdate)
+            suggestedDep != null -> "${time(suggestedDep)}?"
+            else -> time(s.showDep.takeIf { reported })
+        }
         val actualDay = RouteClockUi.departureDay(
             siteCard?.departureMin ?: (suggestedDep ?: s.showDep).takeIf { reported },
             siteCard?.arrivalMin ?: s.showArr.takeIf { reported })
@@ -456,15 +471,14 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         holder.liveArr.contentDescription = if ("${s.code}:arr" in savedOfficialClocks && reported)
             "Earlier accepted NTES arrival ${s.showArr?.let(RailTime::formatRailMinute) ?: "unknown"}; saved for this run, not a new event"
             else if (isFirst) "Start of route; $evidence departure ${s.showDep?.let(RailTime::formatRailMinute) ?: "unknown"}"
-            else if (siteCard != null) "Website ${if (siteCard.forecast) "forecast" else "displayed"} arrival " +
-                (siteCard.arrivalMin?.let(RailTime::formatRailMinute) ?: "unknown")
+            else if (siteCard != null) siteClockDescription("arrival", siteCard.arrivalMin,
+                siteCard.arrivalAfterPageUpdate)
             else "$evidence arrival ${s.showArr?.takeIf { reported }?.let(RailTime::formatRailMinute) ?: "unknown"}"
         holder.liveDep.contentDescription = if ("${s.code}:dep" in savedOfficialClocks && reported)
             "Earlier accepted NTES departure ${s.showDep?.let(RailTime::formatRailMinute) ?: "unknown"}; saved for this run, not a new event"
             else if (isLast) "End of route; $evidence arrival ${s.showArr?.let(RailTime::formatRailMinute) ?: "unknown"}"
-            else if (siteCard != null) "Website ${if (siteCard.forecast) "forecast" else "displayed"} departure " +
-                (siteCard.departureMin?.let(RailTime::formatRailMinute) ?: "unknown") +
-                "; last card is not a current position"
+            else if (siteCard != null) siteClockDescription("departure", siteCard.departureMin,
+                siteCard.departureAfterPageUpdate, lastCard = true)
             else if (suggestedDep != null)
             "Unconfirmed website departure suggestion ${time(suggestedDep)}; not actual"
             else "$evidence departure ${s.showDep?.takeIf { reported }?.let(RailTime::formatRailMinute) ?: "unknown"}"

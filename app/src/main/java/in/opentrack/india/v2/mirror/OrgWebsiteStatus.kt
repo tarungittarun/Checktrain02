@@ -36,6 +36,9 @@ object OrgWebsiteStatus {
         /** A same-code later card omitted its departure; the earlier card's displayed value is retained. */
         val latestCardArrivalOnly: Boolean = false,
         val cardCount: Int = 1,
+        /** Printed site clock is later than the page's own update label; display-only, not an event. */
+        val arrivalAfterPageUpdate: Boolean = false,
+        val departureAfterPageUpdate: Boolean = false,
     )
 
     /** Printed clock plus the page's own grey timetable clock and original text. */
@@ -44,6 +47,8 @@ object OrgWebsiteStatus {
         val pageScheduleMinute: Int?,
         val printedText: String? = null,
         val pageScheduleText: String? = null,
+        /** This page visibly prints a clock later than its own update label. */
+        val afterPageUpdate: Boolean = false,
     )
 
     /** One website card exactly as rendered. Includes duplicate and upcoming cards so
@@ -134,14 +139,49 @@ object OrgWebsiteStatus {
     // not (05:50 AM). Parse the whole value; otherwise a substring matcher sees
     // "06:19 AM" inside 06:06:19 and invents a thirteen-minute-future clock.
     private val clock = Regex("(?i)\\b(\\d{1,2}):(\\d{2})(?::\\d{2})?\\s*(AM|PM)\\b")
-    private val heading = Regex("(?is)<h3\\b[^>]*>\\s*[^<]*?\\(([A-Z0-9]{1,6})\\)\\s*</h3>")
     private val headingText = Regex("(?is)<h3\\b[^>]*>(.*?)</h3>")
-    private val cardClass = Regex("(?i)^\\s*<div\\s+class=\"([^\"]+)\"")
+    private val stationCode = Regex("(?i)\\(([A-Z0-9]{1,6})\\)")
+    private val cardClass = Regex("(?is)<div\\b[^>]*\\bclass\\s*=\\s*[\"']([^\"']+)[\"']")
+    private val stationCardRoot = Regex(
+        """(?is)<div\b(?=[^>]*\bclass\s*=\s*["'][^"']*\bflex-grow\b)(?=[^>]*\bclass\s*=\s*["'][^"']*\brounded-lg\b)[^>]*>""")
     private val spanTag = Regex("(?is)<span\\b[^>]*>(.*?)</span>")
     private val platformBadge = Regex("(?i)\\bPF\\s*[A-Z0-9]{1,3}\\b")
     private val platformValue = Regex("(?i)\\bPF\\s*([A-Z0-9]{1,3})\\b")
     private val updated = Regex("(?i)\\bLast\\s+Updated\\s*:\\s*(\\d{1,2}:\\d{2}(?::\\d{2})?\\s*(?:AM|PM))")
     private val card = Regex("(?i)<!--\\s*Station Details Card\\s*-->")
+    private val arrivalMarker = Regex("(?i)<!--\\s*Arrival\\s*-->")
+    private val departureMarker = Regex("(?i)<!--\\s*Departure\\s*-->")
+    private val arrivalLabel = Regex("(?i)\\bARRIVAL\\b")
+    private val departureLabel = Regex("(?i)\\bDEPARTURE\\b")
+
+    /** Prefer the source's explicit card comments, but retain a DOM-root fallback:
+     * WebView serialization/client rendering may omit HTML comments while keeping
+     * the visible card containers and nested station headings. */
+    private fun cardParts(html: String): List<String> {
+        val comments = card.findAll(html).map { it.range.last + 1 }.toList()
+        val starts = if (comments.isNotEmpty()) comments
+            else stationCardRoot.findAll(html).map { it.range.first }.toList()
+        return starts.mapIndexedNotNull { index, start ->
+            val end = starts.getOrNull(index + 1) ?: html.length
+            html.substring(start, end).takeIf { cardClass.find(it) != null }
+        }
+    }
+
+    private fun cardSections(part: String): Pair<String, String> {
+        val arrivalCommentMatch = arrivalMarker.find(part)
+        val departureCommentMatch = departureMarker.find(part)
+        val arrivalTextMatch = if (arrivalCommentMatch == null) arrivalLabel.find(part) else null
+        val departureTextMatch = if (departureCommentMatch == null) departureLabel.find(part,
+            (arrivalTextMatch?.range?.last ?: -1) + 1) else null
+        val arrivalStart = arrivalCommentMatch?.range?.last?.plus(1)
+            ?: arrivalTextMatch?.range?.last?.plus(1)
+        val arrivalEnd = departureCommentMatch?.range?.first ?: departureTextMatch?.range?.first
+            ?: part.length
+        val departureStart = departureCommentMatch?.range?.last?.plus(1)
+            ?: departureTextMatch?.range?.last?.plus(1)
+        return (arrivalStart?.let { part.substring(it, arrivalEnd) } ?: "") to
+            (departureStart?.let { part.substring(it) } ?: "")
+    }
     private const val DAY = 86_400_000L
     private const val IST_OFFSET = 19_800_000L
 
@@ -178,7 +218,8 @@ object OrgWebsiteStatus {
         .replace(Regex("\\s+"), " ")
         .trim()
 
-    private fun pageCardTime(section: String, scheduled: Int?): SiteCardTime? {
+    private fun pageCardTime(section: String, scheduled: Int?, originDay: Long,
+                             pageUpdatedAt: Long): SiteCardTime? {
         val clocks = clock.findAll(section.take(900)).take(2).map { it.value.trim() }.toList()
         val firstText = clocks.firstOrNull() ?: return null
         val firstRaw = minute(firstText) ?: return null
@@ -188,7 +229,8 @@ object OrgWebsiteStatus {
         val schedule = scheduleRaw?.let { raw ->
             scheduled?.let { RailTime.alignClock(raw, it) } ?: raw
         }
-        return SiteCardTime(first, schedule, firstText, scheduleText)
+        val afterPageUpdate = RailTime.railMinuteToEpochMillis(originDay, first) > pageUpdatedAt
+        return SiteCardTime(first, schedule, firstText, scheduleText, afterPageUpdate)
     }
 
     /** [route] is the selected origin run's STATIC timetable; it does not attest to any live row. */
@@ -249,8 +291,11 @@ object OrgWebsiteStatus {
         var lastAcceptedCard = -1
         var latestSiteCardIndex = -1
         var latestSiteCard: SiteCardClaim? = null
-        for ((cardIndex, part) in card.split(html).drop(1).withIndex()) {
-            val code = heading.find(part)?.groupValues?.get(1)?.uppercase(Locale.ROOT) ?: continue
+        for ((cardIndex, part) in cardParts(html).withIndex()) {
+            val headingMarkup = headingText.find(part)?.groupValues?.get(1).orEmpty()
+            val headingPlain = plainText(headingMarkup)
+            val code = stationCode.find(headingPlain)?.groupValues?.get(1)
+                ?.uppercase(Locale.ROOT) ?: continue
             // Green is source-marked past, blue is highlighted, and white is upcoming.
             // None of those styles independently proves that the train moved.
             val className = cardClass.find(part)?.groupValues?.get(1).orEmpty()
@@ -262,16 +307,17 @@ object OrgWebsiteStatus {
                 else -> SiteCardMark.UPCOMING
             }
             val halt = route.stops.firstOrNull { it.code.equals(code, true) }
-            val arrSection = part.substringAfter("<!-- Arrival -->", "")
-                .substringBefore("<!-- Departure -->")
-            val depSection = part.substringAfter("<!-- Departure -->", "").take(900)
+            val (arrSection, depSection) = cardSections(part)
+            val cardHeaderEnd = listOfNotNull(
+                arrivalMarker.find(part)?.range?.first,
+                arrivalLabel.find(part)?.range?.first,
+            ).minOrNull() ?: part.length
+            val cardHeader = part.substring(0, cardHeaderEnd)
             // Keep the literal display for every card (including duplicate and white cards).
             // These values are separate from the narrowly qualified `rows` event ledger.
-            val rawArrival = pageCardTime(arrSection, halt?.arrivalMin)
-            val rawDeparture = pageCardTime(depSection, halt?.departureMin)
-            val cardHeader = part.substringBefore("<!-- Arrival -->")
-            val headingMarkup = headingText.find(cardHeader)?.groupValues?.get(1).orEmpty()
-            val stationName = plainText(headingMarkup).let { title ->
+            val rawArrival = pageCardTime(arrSection, halt?.arrivalMin, originDay, stamp)
+            val rawDeparture = pageCardTime(depSection, halt?.departureMin, originDay, stamp)
+            val stationName = headingPlain.let { title ->
                 val suffix = " ($code)"
                 if (title.endsWith(suffix, ignoreCase = true)) title.dropLast(suffix.length).trim()
                 else title
@@ -323,7 +369,9 @@ object OrgWebsiteStatus {
                     // The second clock remains the site's own printed timetable value.
                     return if ((aligned != scheduled || hasSchedulePair) &&
                         aligned in originDep..(originDep + 1440) && abs(aligned - scheduled) <= 360)
-                        SiteCardTime(aligned, pageSchedule, firstText, clocks.getOrNull(1)) else null
+                        SiteCardTime(aligned, pageSchedule, firstText, clocks.getOrNull(1),
+                            RailTime.railMinuteToEpochMillis(originDay, aligned) > stamp)
+                    else null
                 }
                 val shownArr = firstClock(arrSection, halt.arrivalMin)
                 val shownDep = firstClock(depSection, halt.departureMin)
@@ -342,6 +390,8 @@ object OrgWebsiteStatus {
                         statusText = statusText,
                         mark = mark,
                         latestCardArrivalOnly = shownArr != null && shownDep == null,
+                        arrivalAfterPageUpdate = shownArr?.afterPageUpdate == true,
+                        departureAfterPageUpdate = shownDep?.afterPageUpdate == true,
                     )
                     val previous = siteClocks[code]
                     siteClocks[code] = when {
@@ -358,6 +408,10 @@ object OrgWebsiteStatus {
                             statusText = statusText ?: previous.statusText,
                             latestCardArrivalOnly = shownArr != null && shownDep == null,
                             cardCount = previous.cardCount + 1,
+                            arrivalAfterPageUpdate = shownArr?.afterPageUpdate
+                                ?: previous.arrivalAfterPageUpdate,
+                            departureAfterPageUpdate = shownDep?.afterPageUpdate
+                                ?: previous.departureAfterPageUpdate,
                         )
                     }
                 }

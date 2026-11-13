@@ -254,6 +254,33 @@ object E2E {
         runCatching { ui.dumpWindowHierarchy(File(dir, "$tag.xml")) }
     }
 
+    /** Mandatory app-window evidence for a release traveller path. The CI acceptance job
+     * pulls this test-APK external-files directory after instrumentation; fail the test rather
+     * than silently report a pass without the requested screenshot and matching hierarchy. */
+    fun shotRequired(tag: String) {
+        require(tag.matches(Regex("[A-Za-z0-9._-]+"))) { "Unsafe screenshot tag" }
+        val ctx = InstrumentationRegistry.getInstrumentation().context
+        val external = checkNotNull(ctx.getExternalFilesDir(null)) {
+            "External test evidence storage is unavailable"
+        }
+        val dir = File(external, "evidence")
+        check(dir.mkdirs() || dir.isDirectory) { "Cannot create test screenshot directory" }
+        val image = File(dir, "$tag.png")
+        check(ui.takeScreenshot(image) && image.isFile && image.length() > 1_000L) {
+            "Screenshot $tag failed inside the running emulator"
+        }
+        val hierarchy = File(dir, "$tag.xml")
+        ui.dumpWindowHierarchy(hierarchy)
+        check(hierarchy.isFile && hierarchy.length() > 100L) {
+            "Window hierarchy $tag failed inside the running emulator"
+        }
+        val tree = hierarchy.readText()
+        check(tree.contains("package=\"$PKG\"")) {
+            "Window hierarchy $tag does not show the TrackTrain app; launcher/system content is not evidence"
+        }
+        println("E2E_SCREENSHOT $tag pngBytes=${image.length()} hierarchyBytes=${hierarchy.length()}")
+    }
+
     private fun evidenceDir(): File? {
         val ctx = InstrumentationRegistry.getInstrumentation().context
         val dir = File(ctx.getExternalFilesDir(null) ?: ctx.filesDir, "evidence")

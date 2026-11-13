@@ -9,7 +9,7 @@ object SourceEvidenceReceipt {
         result: PublicPageChecks.Result): String {
         val transport = when {
             result.fromHttpCache -> "CACHED_BODY"
-            result.pageAnswered -> "NETWORK_ANSWER"
+            result.responseDigest != null -> "NETWORK_ANSWER"
             else -> "FAILED_OR_UNUSABLE"
         }
         val parsed = when {
@@ -25,7 +25,8 @@ object SourceEvidenceReceipt {
         val siteClaim = result.orgReport?.let { it.anchorCode + ":" + it.eventMinute } ?: "none"
         return "source=$source train=$train originDay=$originDay " +
             "transport=$transport bytes=${result.responseBytes} sha256_16=${result.responseDigest ?: "none"} " +
-            "parsed=$parsed runIdentity=$identity primaryActuals=0 primaryMarker=none " +
+            "parsed=$parsed orgContentParsed=${result.orgContentParsed} runIdentity=$identity " +
+            "primaryActuals=0 primaryMarker=none " +
             "siteRows=${result.orgReport?.rows?.size ?: 0} siteCards=${result.orgSiteCards.size} " +
             "siteDisplayStops=${result.orgSiteClocks.size} siteClaim=$siteClaim " +
             "pagePublishedAt=${result.orgReport?.pageUpdatedAt ?: result.orgSitePageUpdatedAt ?: "unknown"} " +

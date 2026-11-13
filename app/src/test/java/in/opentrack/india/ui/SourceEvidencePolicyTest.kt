@@ -39,10 +39,12 @@ class SourceEvidencePolicyTest {
         val site = OrgWebsiteStatus.Report(emptyMap(), "SRF", false, 342,
             1_792_369_260_000L)
         val public = PublicPageChecks.Result("site answered", 1_792_369_300_000L, true,
-            orgReport = site, responseBytes = 106_698, responseDigest = "deadbeefdeadbeef")
+            orgReport = site, orgContentParsed = true,
+            responseBytes = 106_698, responseDigest = "deadbeefdeadbeef")
         val text = SourceEvidenceReceipt.publicPage(PublicPageChecks.ORG, "20652", 20_745L, public)
         assertTrue(text.contains("transport=NETWORK_ANSWER"))
         assertTrue(text.contains("parsed=SITE_COMPARISON"))
+        assertTrue(text.contains("orgContentParsed=true"))
         assertTrue(text.contains("runIdentity=INFERRED"))
         assertTrue(text.contains("primaryActuals=0 primaryMarker=none"))
         assertTrue(text.contains("siteRows=0 siteCards=0 siteDisplayStops=0 siteClaim=SRF:342"))

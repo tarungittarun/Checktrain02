@@ -60,6 +60,44 @@ class InlineRouteRenderTest {
         assertEquals(View.GONE, next.trainMarker.visibility)
     }
 
+    @Test fun eventlessWebsiteCardClocksStillRenderInTheSelectedWebsiteColumn() {
+        val ctx = RuntimeEnvironment.getApplication()
+        val day = 20751L
+        val pageAt = `in`.opentrack.india.core.RailTime.railMinuteToEpochMillis(day, 1870) + 30_000L
+        val now = `in`.opentrack.india.core.RailTime.railMinuteToEpochMillis(day, 1872) + 30_000L
+        val siteClocks = mapOf("SRF" to
+            `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.SiteClocks(
+                arrivalMin = 1869,
+                departureMin = 1871,
+                forecast = false,
+                mark = `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.SiteCardMark.PAST,
+            ))
+        val clocks = WebsiteReportDisplay.selectedWebsiteClocks(null, siteClocks, day,
+            listOf("MYS", "SRF", "TLGP"), pageAt, now)
+        val srf = TrackModel.Stop(2, "SRF", "Sagar Jambagaru", 1827, 1829,
+            null, null, null, TrackModel.MinuteSource.SCHEDULE, null,
+            TrackModel.State.NEXT, false, 482, 0, 0, false, false, false, null)
+        val tlgp = srf.copy(seq = 3, code = "TLGP", name = "Talguppa",
+            schedArr = 1910, schedDep = null, kmFromOrigin = 510)
+        val adapter = StopAdapter().apply {
+            websiteCardTimes = clocks
+            websiteComparisonTimes = clocks
+            submitList(listOf(srf, tlgp))
+        }
+        val holder = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
+        adapter.onBindViewHolder(holder, 0)
+        assertEquals("07:09", holder.liveArr.text.toString())
+        assertEquals("~07:11", holder.liveDep.text.toString())
+        assertTrue(holder.liveArr.contentDescription.contains("Website displayed arrival"))
+        assertTrue(holder.liveDep.contentDescription.contains("printed after the page update label"))
+        assertTrue(holder.websitePastComparison.text.toString().contains("Website claim"))
+        assertTrue(holder.websitePastComparison.contentDescription.contains("Not an NTES actual"))
+        assertEquals("clock-only website content cannot move the train marker",
+            View.GONE, holder.trainMarker.visibility)
+        assertEquals("clock-only website content does not create an event row",
+            TrackModel.MinuteSource.SCHEDULE, srf.source)
+    }
+
     @Test fun laterAmbiguousWebsiteCardPaintsAsAClaimWithoutMovingTheTrainMarker() {
         val ctx = RuntimeEnvironment.getApplication()
         val ttr = TrackModel.Stop(14, "TTR", "Tiptur", 1143, 1145, 1144, null, null,
@@ -129,6 +167,37 @@ class InlineRouteRenderTest {
         assertTrue(row.liveDep.contentDescription.contains("Website displayed departure"))
         assertTrue(row.liveDep.contentDescription.contains("not a current position"))
         assertEquals(ctx.getColor(R.color.warn), row.liveArr.currentTextColor)
+    }
+
+    @Test fun pageAheadButDevicePastSiteDepartureIsVisibleAsTildeAndNotAnEvent() {
+        val ctx = RuntimeEnvironment.getApplication()
+        val day = 20770L
+        val pageAt = `in`.opentrack.india.core.RailTime.railMinuteToEpochMillis(day, 1401) + 31_000L
+        val deviceNow = `in`.opentrack.india.core.RailTime.railMinuteToEpochMillis(day, 1402) + 46_000L
+        val report = `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.Report(
+            mapOf("MWM" to `in`.opentrack.india.model.LiveStopFields(actualArrivalMin = 1401)),
+            "MWM", false, 1401, pageAt,
+            siteClocks = mapOf("MWM" to
+                `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.SiteClocks(1401, 1402, false)))
+        val displayed = WebsiteReportDisplay.displayedClocks(report, day,
+            listOf("MWM"), deviceNow)
+        assertEquals(1402, displayed["MWM"]?.departureMin)
+        assertTrue(displayed["MWM"]?.departureAfterPageUpdate == true)
+        assertEquals("the departure remains absent from qualifying event rows",
+            null, report.rows["MWM"]?.actualDepartureMin)
+
+        val mwm = TrackModel.Stop(2, "MWM", "Malleswaram", 1400, 1401, 1401,
+            null, 1, TrackModel.MinuteSource.SITE_REPORTED, null,
+            TrackModel.State.PASSED, false, 141, 0, 369, false, false, false, null)
+        val adapter = StopAdapter().apply { websiteCardTimes = displayed }
+        adapter.submitList(listOf(mwm))
+        val holder = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
+        adapter.onBindViewHolder(holder, 0)
+        assertEquals("23:21", holder.liveArr.text.toString())
+        assertEquals("~23:22", holder.liveDep.text.toString())
+        assertTrue(holder.liveDep.contentDescription.contains("printed after the page update label"))
+        assertTrue(holder.liveDep.contentDescription.contains("not a qualifying event"))
+        assertTrue(holder.liveDep.contentDescription.contains("not a current position"))
     }
 
     @Test fun websitePastTipturFillsOnlyTheLabelledGapBesideNtesNotItsActColumn() {

@@ -7,8 +7,13 @@
 - [x] **Sort after scrolling:** deliberate sort changes reset the RecyclerView to row one immediately and again after the async sorted-list commit; background feed refreshes do not force a jump. Sort options remain departure, arrival, duration and suggested.
 - [x] Tracking-page logo and TrackTrain title use borderless click ripple, not a persistent box. Refresh remains a 48dp accessible target; animate only the blue 28dp glyph, not its button/background. Added render assertions.
 - [x] Version bumped together: versionCode **58**, versionName **1.0.57-r128**, diagnostic stamp **R128**; preserve package and signing so the APK updates existing installs.
-- [ ] Current-head Android build, JVM/render tests, publication and exact-published-APK acceptance: pending CI result.
-- [ ] Full E2E: **not requested this round and will not be launched**. Passing earlier R127 rows do not verify R128.
+- [x] Current-head Android [run 39113574250](https://github.com/tarungittarun/Checktrain02/actions/runs/39113574250) **PASS**: build, four JVM test partitions including **41/41 rendered-screen cases**, publication, six of six traveller-acceptance partitions installing the exact published APK. An earlier `aa8e09d` render gate caught an obsolete ImageButton-type assertion after the refresh-icon refactor; `3ac6747` caught the old unqualified-headline fixture and an unrelated Maven 403 in the rules runner. Both are corrected/recovered in the passing `4185696` run. This does **not** certify phone-app live data parity or the keyboard on the owner's specific device.
+- [x] Full E2E: **not run**, per request. The automatic GitHub e2e workflow [39113574280](https://github.com/tarungittarun/Checktrain02/actions/runs/39113574280) was **skipped**; no device matrix or strict audit was run on R128. Earlier R127 results do not verify R128.
 - [ ] Independent comparison with the owner's 13:27 Where Is My Train phone-app observation: **unverified**; the attached screenshot this round shows TrackTrain's station-search keyboard, not the other app's selected train/source/run. A phone-app indicator alone cannot establish a feed that this project can ingest. Ask for the train number, run date, selected TrackTrain source and source-details/diary if the revised screen still lags.
 
 PR #3 stays open and unmerged pending the owner's phone check. No strict-assertion weakening or invented train movement.
+
+## Download and scope
+
+- APK from code commit `4185696`: [app-debug.apk](https://github.com/tarungittarun/Checktrain02/releases/download/latest-apk/app-debug.apk), **11,130,488 bytes**, SHA-256 `b2bea8416fc6f68686ee36310ad18e936eaec248233db10f4c21c28d12422421`; package/signing preserved, versionCode **58**.
+- A recent HTTP/page check is **not** a recent station observation. The trust defect is corrected by qualifying BDVT as the *last event* and showing event age; the project has **not** proven that its available feeds contained the owner's 13:27 SMET arrival. A source-only update cannot truthfully turn BDVT into SMET.

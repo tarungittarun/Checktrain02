@@ -23,10 +23,13 @@ internal object WebsiteGapUi {
                 saved -> "Website claim (saved) · "
                 else -> "Website claim · "
             })
-            if (arr != null) append("arr ").append(RailTime.formatRailMinuteBare(arr))
+            if (arr != null) append("arr ")
+                .append(if (site.arrivalAfterPageUpdate) "~" else "")
+                .append(RailTime.formatRailMinuteBare(arr))
             if (dep != null) {
                 if (arr != null) append(" · ")
-                append("dep ").append(RailTime.formatRailMinuteBare(dep))
+                append("dep ").append(if (site.departureAfterPageUpdate) "~" else "")
+                    .append(RailTime.formatRailMinuteBare(dep))
             }
             if (day != null) append(" · ").append(day)
             site.arrivalScheduleMin?.let {
@@ -47,6 +50,8 @@ internal object WebsiteGapUi {
             if (site.latestCardArrivalOnly && site.departureMin != null)
                 append(" · newest duplicate card showed arrival only; earlier same-code card showed departure ")
                     .append(RailTime.formatRailMinuteBare(site.departureMin))
+            if (site.arrivalAfterPageUpdate || site.departureAfterPageUpdate)
+                append(" · ~ clock is later than the page update; website display only, not a source event")
         }
     }
 }

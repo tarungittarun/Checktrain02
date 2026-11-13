@@ -427,7 +427,7 @@ class LiveViewModel(
                 // failed request separately, so fallback selection cannot call it new.
                 val previousWebsite = publicChecks[name]
                 val previousReport = previousWebsite?.orgReport
-                val retainPreviousWebsite = name == PublicPageChecks.ORG && !resolved.pageAnswered &&
+                val retainPreviousWebsite = name == PublicPageChecks.ORG && !resolved.orgContentParsed &&
                     (previousReport != null || previousWebsite?.orgSiteCards?.isNotEmpty() == true)
                 publicChecks[name] = if (retainPreviousWebsite) resolved.copy(
                     orgReport = previousReport,
@@ -454,7 +454,7 @@ class LiveViewModel(
                             }
                     } == true
                     val display = RefreshTargetPolicy.afterWebsiteSurvey(mirrorActiveSource,
-                        resolved.orgReport != null && resolved.pageAnswered, officialActuals)
+                        resolved.orgContentParsed, officialActuals)
                     if (display != mirrorActiveSource) {
                         mirrorActiveSource = display
                         Diary.get()?.log("SOURCE", "website first-load check has no usable report; " +
@@ -464,7 +464,7 @@ class LiveViewModel(
                 _ui.value?.let { u -> _ui.value = buildUi(u.route, lastAnswer ?: u.answer, u.tried) }
                 if (select) _mirrorState.value = resolved.detail
                 Diary.get()?.log("SOURCE", "$name: ${resolved.detail}")
-                if (name == PublicPageChecks.ORG && resolved.pageAnswered &&
+                if (name == PublicPageChecks.ORG && resolved.orgContentParsed &&
                     (_ui.value?.staticRoute?.stops?.size ?: 0) > (mapAtRequest?.stops?.size ?: 0)) {
                     Diary.get()?.log("SOURCE", "static map arrived during website request; rechecking intermediate stops")
                     probeSource(name, select = false, allowMapRecheck = true)
@@ -942,7 +942,7 @@ class LiveViewModel(
                     val usable = !newerNtesFallback && (state == "live" ||
                         selected == PublicPageChecks.ORG && WebsiteReportDisplay.usable(
                             state, current.publicSourceAnswered[selected] == true,
-                            current.orgWebsiteReport) ||
+                            current.orgWebsiteReport, current.orgWebsiteSiteClocks) ||
                         state == "comparison" && selected == WimtCandidate.SOURCE &&
                             (current.wimtWebPoint != null ||
                                 current.sourceLines[selected].orEmpty().isNotEmpty()))
@@ -1094,7 +1094,8 @@ class LiveViewModel(
                     })
         } ?: PublicPageChecks.ORG.takeIf { name ->
             name != rejected && WebsiteReportDisplay.usable(ui.sourceStates[name]?.first,
-                ui.publicSourceAnswered[name] == true, ui.orgWebsiteReport)
+                ui.publicSourceAnswered[name] == true, ui.orgWebsiteReport,
+                ui.orgWebsiteSiteClocks)
         }
 
     private suspend fun refreshBody(previous: TrainPosition?) {
@@ -1436,7 +1437,7 @@ class LiveViewModel(
                             .map { it.code.uppercase() }.toSet())
                     // An early website reply used halts only. Once a dated, matched
                     // map arrives, ask it once again for its missing intermediate card.
-                    if (publicChecks[PublicPageChecks.ORG]?.pageAnswered == true)
+                    if (publicChecks[PublicPageChecks.ORG]?.orgContentParsed == true)
                         probeSource(PublicPageChecks.ORG, select = false)
                 }
             }
@@ -1456,7 +1457,7 @@ class LiveViewModel(
                         staticRouteSource = "RailGeo",
                         staticMappedLegStarts = u.route.stops.take(u.route.stops.size - 1)
                             .map { it.code.uppercase() }.toSet())
-                    if (u.staticRoute == null && publicChecks[PublicPageChecks.ORG]?.pageAnswered == true)
+                    if (u.staticRoute == null && publicChecks[PublicPageChecks.ORG]?.orgContentParsed == true)
                         probeSource(PublicPageChecks.ORG, select = false)
                 } }
                 return@launch
@@ -1494,7 +1495,7 @@ class LiveViewModel(
                     staticRouteSource = "RailGeo",
                     staticMappedLegStarts = u.route.stops.take(u.route.stops.size - 1)
                         .map { it.code.uppercase() }.toSet())
-                if (u.staticRoute == null && publicChecks[PublicPageChecks.ORG]?.pageAnswered == true)
+                if (u.staticRoute == null && publicChecks[PublicPageChecks.ORG]?.orgContentParsed == true)
                     probeSource(PublicPageChecks.ORG, select = false)
             } }
             Diary.get()?.log("ROUTE") {
@@ -2004,9 +2005,9 @@ class LiveViewModel(
             // on — no network, a timeout, a refusal, or the case this endpoint really is: it answered about
             // the train and published no arrival or departure minute at all. "No live report reached this
             // device" is the last resort, for when no source had anything more specific to say.
-            note = (if (orgReport != null && publicChecks[PublicPageChecks.ORG]?.pageAnswered == false)
-                    "Website request failed. Keeping the previous site report at its original event time; " +
-                        "position since then unknown."
+            note = (if (orgReport != null && publicChecks[PublicPageChecks.ORG]?.orgContentParsed == false)
+                    "Website response was not parsed into a complete station-card timeline. Keeping the " +
+                        "previous site report at its original event time; position since then unknown."
                 else if (orgReport != null) "Past website card clocks shown; upcoming site estimates are not arrivals. Run day inferred from timetable; last mapped site event is not current GPS."
                 else if (publicSelected) "No confirmed times from this site; timetable shown."
                 else if (mirrorSelected && !selectedMirrorForTable ||
@@ -2148,9 +2149,11 @@ class LiveViewModel(
                 "none" to (if (name == PublicPageChecks.ORG)
                     "select to check; no unsolicited website request" else "checking on first load") else
                 (if (name == PublicPageChecks.ORG && result.orgReport != null &&
-                    (!result.pageAnswered || now - result.orgReport.pageUpdatedAt !in 0L..300_000L))
+                    (!result.orgContentParsed || now - result.orgReport.pageUpdatedAt !in 0L..300_000L))
                     "last-known" else if (result.orgReport != null &&
                     now - result.orgReport.pageUpdatedAt in 0L..300_000L)
+                    "comparison" else if (name == PublicPageChecks.ORG && result.pageAnswered &&
+                    result.orgContentParsed && now - result.checkedAt in 0L..300_000L)
                     "comparison" else if (result.stationClaim != null &&
                     now - result.stationClaim.updateAt in 0L..300_000L)
                     "comparison" else "unverified") to (if (result.detail.startsWith("Website request paused"))
@@ -2295,10 +2298,14 @@ class LiveViewModel(
             actualsSource = if (verified != null) selected else null,
             sourceStates = sourceNames,
             officialRequest = lastOfficialRequest,
-            publicSourceAnswered = publicChecks.entries.associate { it.key to it.value.pageAnswered },
+            publicSourceAnswered = publicChecks.entries.associate { (name, result) ->
+                name to if (name == PublicPageChecks.ORG) result.orgContentParsed
+                    else result.pageAnswered
+            },
             selectedLoadReceiptMillis = when {
                 selected in PublicPageChecks.names -> publicChecks[selected]
-                    ?.takeIf { it.pageAnswered }?.checkedAt
+                    ?.takeIf { if (selected == PublicPageChecks.ORG) it.orgContentParsed
+                        else it.pageAnswered }?.checkedAt
                 selected == "NTES (official)" &&
                     lastOfficialRequest?.kind == OfficialRequestReceipt.Kind.ANSWERED_WITH_ACTUALS ->
                     lastFetchAt.takeIf { it > 0 }

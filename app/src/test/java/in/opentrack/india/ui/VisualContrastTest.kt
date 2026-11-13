@@ -57,6 +57,23 @@ class VisualContrastTest {
         }
         Render.save("r142-$mode-tracking", track.bitmap)
 
+        val alert = Render.render(R.layout.dialog_alert_shell) { root ->
+            root.findViewById<TextView>(R.id.alertEyebrow).text = "TRIGGER"
+            root.findViewById<TextView>(R.id.alertTitle).text = "Arrival alert · train 12627"
+            root.findViewById<TextView>(R.id.alertSubtitle).text =
+                "Choose a trigger. Review the source and options before setting an alert."
+        }
+        val alertSurface = c.getColor(R.color.surface)
+        assertTrue("$mode: custom alert dialog surface was not painted",
+            alert.countWith(alertSurface, alert.bounds(R.id.alertDialogRoot)) > 1_000)
+        assertTrue("$mode: alert title needs readable contrast",
+            ColorUtils.calculateContrast(c.getColor(R.color.text1), alertSurface) >= 7.0)
+        assertTrue("$mode: alert supporting text needs readable contrast",
+            ColorUtils.calculateContrast(c.getColor(R.color.text2), alertSurface) >= 4.5)
+        assertTrue("$mode: alert eyebrow needs readable accent contrast",
+            ColorUtils.calculateContrast(c.getColor(R.color.accent), alertSurface) >= 4.5)
+        Render.save("r166-$mode-alert-dialog", alert.bitmap)
+
         val home = Render.render(R.layout.activity_main) { root ->
             root.findViewById<View>(R.id.searchCardScroll).visibility = View.GONE
             root.findViewById<View>(R.id.searchCompact).visibility = View.VISIBLE

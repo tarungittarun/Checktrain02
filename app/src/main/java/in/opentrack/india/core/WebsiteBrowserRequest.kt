@@ -3,6 +3,7 @@ package `in`.opentrack.india.core
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.webkit.CookieManager
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
@@ -10,10 +11,15 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import org.json.JSONObject
+import org.json.JSONTokener
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+
+/** WebView returns a JavaScript string as a JSON string literal, not as a JSON object. */
+internal fun decodeJavascriptStringResult(encoded: String?): String = runCatching {
+    JSONTokener(encoded ?: "null").nextValue() as? String ?: ""
+}.getOrDefault("")
 
 /** The selected independent website's document navigation through Android's actual WebView engine.
  * This is NOT a forged Chrome header set, Google's WIMT phone app, or a way to solve a challenge.
@@ -25,7 +31,32 @@ object WebsiteBrowserRequest {
     private val gate = Any()
     private val allowed = Regex("https://whereismytrain\\.org\\.in/\\?trainNo=[0-9]{5}")
     private const val TIMEOUT_MS = 12_000L
+    private const val DOM_READINESS_WAIT_MS = 2_000L
+    private const val DOM_READINESS_POLL_MS = 200L
     private const val MAX_HTML = 1_000_000
+    private val stationCardRoot = Regex(
+        """(?is)<div\b(?=[^>]*\bclass\s*=\s*["'][^"']*\bflex-grow\b)(?=[^>]*\bclass\s*=\s*["'][^"']*\brounded-lg\b)[^>]*>""")
+
+    private fun hasPopulatedTrainDocument(html: String, trainNo: String): Boolean {
+        if (html.isBlank() || html.length > MAX_HTML) return false
+        val visible = html.replace(Regex("(?is)<script\\b[^>]*>.*?</script>"), " ")
+            .replace(Regex("(?is)<style\\b[^>]*>.*?</style>"), " ")
+            .replace(Regex("(?s)<[^>]*>"), " ")
+            .replace("&nbsp;", " ", ignoreCase = true)
+            .replace("&#160;", " ", ignoreCase = true)
+            .replace(Regex("\\s+"), " ")
+        val identity = Regex("(?i)\\b${Regex.escape(trainNo)}\\b").containsMatchIn(visible)
+        val update = Regex("(?i)\\bLast\\s+Updated\\s*:\\s*\\d{1,2}:\\d{2}(?::\\d{2})?\\s*(?:AM|PM)")
+            .containsMatchIn(visible)
+        val source = Regex("(?i)\\bSource:\\s*[A-Z0-9]{1,6}\\b").containsMatchIn(visible)
+        val destination = Regex("(?i)\\bDestination:\\s*[A-Z0-9]{1,6}\\b")
+            .containsMatchIn(visible)
+        val card = Regex("(?i)<!--\\s*Station Details Card\\s*-->").containsMatchIn(html) ||
+            stationCardRoot.containsMatchIn(html)
+        val clock = Regex("(?is)\\b(?:ARRIVAL|DEPARTURE)\\b.{0,900}?\\b\\d{1,2}:\\d{2}\\s*(?:AM|PM)\\b")
+            .containsMatchIn(html)
+        return identity && update && source && destination && card && clock
+    }
 
     fun document(context: Context, url: String): Http.Result {
         if (!allowed.matches(url)) return Http.Result.Failed(Http.Result.Kind.HTTP, "invalid website URL")
@@ -54,9 +85,12 @@ object WebsiteBrowserRequest {
     private class Pending(val context: Context, val url: String) {
         val done = CountDownLatch(1)
         private val finished = AtomicBoolean(false)
+        private val captureStarted = AtomicBoolean(false)
         @Volatile var result: Http.Result = Http.Result.Failed(Http.Result.Kind.EMPTY, "no document")
             private set
         private var view: WebView? = null // main looper only
+        private var readinessStartedAt = 0L // main looper only
+        private val expectedTrain = url.substringAfter("trainNo=")
         @Volatile var navigated: Boolean = false
             private set
 
@@ -78,6 +112,30 @@ object WebsiteBrowserRequest {
             done.countDown()
             // Do not destroy the engine from inside one of its own navigation callbacks.
             main.post { close() }
+        }
+
+        private fun captureRenderedDocument() {
+            if (finished.get()) return
+            val browser = view ?: return
+            browser.evaluateJavascript("(function(){var h=document.documentElement&&document.documentElement.outerHTML||'';" +
+                "return h.length<=${WebsiteBrowserRequest.MAX_HTML}?h:'';})()") { encoded ->
+                if (finished.get()) return@evaluateJavascript
+                val html = decodeJavascriptStringResult(encoded)
+                val elapsed = SystemClock.elapsedRealtime() - readinessStartedAt
+                val populated = WebsiteBrowserRequest.hasPopulatedTrainDocument(html, expectedTrain)
+                when {
+                    populated -> finish(Http.Result.Ok(html, fromCache = false, ageMillis = 0))
+                    elapsed >= WebsiteBrowserRequest.DOM_READINESS_WAIT_MS && html.isNotBlank() ->
+                        // Preserve a real 200 document for explicit parser diagnostics; the
+                        // source layer will reject it unless station cards/clocks really parse.
+                        finish(Http.Result.Ok(html, fromCache = false, ageMillis = 0))
+                    elapsed >= WebsiteBrowserRequest.DOM_READINESS_WAIT_MS ->
+                        finish(Http.Result.Failed(Http.Result.Kind.EMPTY,
+                            "browser document empty or oversized"))
+                    else -> main.postDelayed({ captureRenderedDocument() },
+                        WebsiteBrowserRequest.DOM_READINESS_POLL_MS)
+                }
+            }
         }
 
         fun start() {
@@ -143,17 +201,12 @@ object WebsiteBrowserRequest {
                                 "website document URL changed; no train data"))
                             return
                         }
-                        // Read the rendered document, never an unrelated page or browser error page.
-                        v.evaluateJavascript("(function(){var h=document.documentElement.outerHTML;" +
-                            "return h.length<=${MAX_HTML}?h:'';})()") { encoded ->
-                            if (finished.get()) return@evaluateJavascript
-                            val html = runCatching {
-                                JSONObject("{\"html\":${encoded ?: "null"}}")
-                                    .optString("html")
-                            }.getOrDefault("")
-                            if (html.isBlank()) finish(Http.Result.Failed(Http.Result.Kind.EMPTY,
-                                "browser document empty or oversized"))
-                            else finish(Http.Result.Ok(html, fromCache = false, ageMillis = 0))
+                        // The document may finish before client rendering/hydration has
+                        // populated its visible timetable. Poll this same DOM briefly, without
+                        // issuing another request; incomplete 200 markup remains diagnosable.
+                        if (captureStarted.compareAndSet(false, true)) {
+                            readinessStartedAt = SystemClock.elapsedRealtime()
+                            captureRenderedDocument()
                         }
                     }
                 }

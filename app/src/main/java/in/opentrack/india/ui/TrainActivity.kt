@@ -5,7 +5,10 @@ import android.animation.AnimatorListenerAdapter
 import android.animation.ObjectAnimator
 import android.animation.ValueAnimator
 import android.Manifest
+import android.app.Dialog
 import android.content.pm.PackageManager
+import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
@@ -26,10 +29,13 @@ import android.view.ViewGroup
 import android.view.ViewTreeObserver
 import android.view.MotionEvent
 import android.view.ViewConfiguration
+import android.view.Gravity
+import android.view.WindowManager
 import `in`.opentrack.india.domain.RouteBetween
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
@@ -67,6 +73,23 @@ import `in`.opentrack.india.remote.FeedProbe
  * a stale marker without saying so is the specific failure this project exists to avoid.
  */
 class TrainActivity : AppCompatActivity() {
+
+    private data class AlertTriggerChoice(
+        val title: String,
+        val description: String,
+        val icon: String,
+        val isDefault: Boolean,
+        val onSelected: () -> Unit,
+    )
+
+    private data class AlertDialogChrome(
+        val dialog: Dialog,
+        val body: android.widget.LinearLayout,
+        val cancel: TextView,
+        val spacer: View,
+        val primary: TextView,
+        val heightDp: Int,
+    )
 
     private lateinit var binding: ActivityTrainBinding
     private var batteryAtCreate = false
@@ -110,13 +133,28 @@ class TrainActivity : AppCompatActivity() {
     private var previousRefreshEvent: String? = null
     private var previousWebsiteClockKey: String? = null
 
+    private fun websiteClocksFor(ui: LiveViewModel.Ui, haltCodes: List<String>,
+                                 now: Long): Map<String, `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.SiteClocks> {
+        if (!WebsiteReportDisplay.selected(ui.activeSource)) return emptyMap()
+        return WebsiteReportDisplay.selectedWebsiteClocks(ui.orgWebsiteReport,
+            ui.orgWebsiteSiteClocks, vm.originDate, haltCodes,
+            ui.orgWebsitePageUpdatedAt, now)
+    }
+
     private fun websiteClockKey(ui: LiveViewModel.Ui?): String? {
-        val report = ui?.orgWebsiteReport ?: ui?.orgWebsiteComparisonReport
-        return WebsiteReportDisplay.displayedClocks(report, vm.originDate,
-            ui?.model?.rows?.map { it.code }.orEmpty(), System.currentTimeMillis())
-            .toSortedMap().entries.joinToString("|") { (code, value) ->
-                "$code:${value.arrivalMin}:${value.departureMin}:${value.forecast}"
-            }
+        val codes = ui?.model?.rows?.map { it.code }.orEmpty()
+        val selectedWebsite = ui != null && WebsiteReportDisplay.selected(ui.activeSource)
+        val report = if (selectedWebsite) ui?.orgWebsiteReport else ui?.orgWebsiteComparisonReport
+        val clocks = when {
+            report != null -> WebsiteReportDisplay.displayedClocks(
+                report, vm.originDate, codes, System.currentTimeMillis())
+            selectedWebsite -> websiteClocksFor(ui!!, codes, System.currentTimeMillis())
+            else -> emptyMap()
+        }
+        return clocks.toSortedMap().entries.joinToString("|") { (code, value) ->
+            "$code:${value.arrivalMin}:${value.departureMin}:${value.forecast}:" +
+                "${value.arrivalAfterPageUpdate}:${value.departureAfterPageUpdate}"
+        }
     }
 
     private fun selectedEventAt(ui: LiveViewModel.Ui?): Long? {
@@ -683,54 +721,153 @@ class TrainActivity : AppCompatActivity() {
     private fun showAlertTriggerChoices(route: TrainRoute, from: StopRow, to: StopRow) {
         val intermediate = route.stops.filter { it.seq > from.seq && it.seq < to.seq }
         val prefs = `in`.opentrack.india.data.Prefs(this)
-        val choices = mutableListOf<Triple<AlertTrigger, String, () -> Unit>>()
-        choices += Triple(AlertTrigger.DESTINATION_REPORT,
-            "At destination · ${RowText.of(to.name)} (live report)") {
+        val defaultDistance = prefs.defaultAlertDistanceKm
+        val choices = mutableListOf<AlertTriggerChoice>()
+        choices += AlertTriggerChoice(
+            title = "At destination · ${RowText.of(to.name)}",
+            description = "Fresh, route-matched station report only · no timetable ETA",
+            icon = "◎",
+            isDefault = prefs.defaultAlertTrigger == AlertTrigger.DESTINATION_REPORT,
+        ) {
             showAlertPreferences(alarmConfig(route, from, to,
                 AlertTrigger.DESTINATION_REPORT, to, 0))
         }
-        if (intermediate.isNotEmpty()) choices += Triple(AlertTrigger.PREVIOUS_STOP_REPORT,
-            "At a preceding station… (live report)") {
+        if (intermediate.isNotEmpty()) choices += AlertTriggerChoice(
+            title = "At a preceding station…",
+            description = "Choose a halt between ${RowText.of(from.name)} and ${RowText.of(to.name)}",
+            icon = "↗",
+            isDefault = prefs.defaultAlertTrigger == AlertTrigger.PREVIOUS_STOP_REPORT,
+        ) {
             showPrecedingStationChoices(route, from, to, intermediate)
         }
-        val defaultDistance = prefs.defaultAlertDistanceKm
         val distances = listOf(defaultDistance) + listOf(2, 5, 10)
             .filterNot { it == defaultDistance }
         distances.forEach { distance ->
-            choices += Triple(AlertTrigger.PHONE_DISTANCE,
-                "Within $distance km of destination · phone location" +
-                    if (distance == prefs.defaultAlertDistanceKm) " · default radius" else "") {
+            choices += AlertTriggerChoice(
+                title = "Within $distance km",
+                description = "Phone location · straight-line distance to ${RowText.of(to.name)}",
+                icon = "⌖",
+                isDefault = prefs.defaultAlertTrigger == AlertTrigger.PHONE_DISTANCE &&
+                    distance == defaultDistance,
+            ) {
                 showAlertPreferences(alarmConfig(route, from, to,
                     AlertTrigger.PHONE_DISTANCE, to, distance))
             }
         }
-        fun isDefaultChoice(choice: Triple<AlertTrigger, String, () -> Unit>): Boolean =
-            choice.first == prefs.defaultAlertTrigger &&
-                (choice.first != AlertTrigger.PHONE_DISTANCE || choice.second.endsWith(" · default radius"))
-        val ordered = choices.sortedBy { if (isDefaultChoice(it)) 0 else 1 }
-        val labels = ordered.map { choice ->
-            if (isDefaultChoice(choice)) "Default · ${choice.second}" else choice.second
-        }
-        AlertDialog.Builder(this)
-            .setTitle("Arrival alert · train ${route.trainNo}")
-            // The first choice follows Settings; every journey can select another trigger.
-            .setItems(labels.toTypedArray()) { _, which -> ordered.getOrNull(which)?.third?.invoke() }
-            .setNegativeButton("Cancel", null)
-            .show().also(::paintBatteryDialog)
+        // The Settings default is highlighted and sorted first, but every journey can
+        // still pick another trigger without changing the global preference.
+        val ordered = choices.sortedByDescending { it.isDefault }
+        val chrome = createAlertDialogChrome(
+            title = "Arrival alert · train ${route.trainNo}",
+            subtitle = "Choose a trigger. Review the source and options before setting an alert.",
+            eyebrow = "TRIGGER",
+            heightDp = 218 + ordered.size * 82,
+        )
+        addAlertSection(chrome.body, "CHOOSE WHEN TO NOTIFY")
+        ordered.forEach { addAlertTriggerOption(chrome, it) }
+        showAlertDialog(chrome)
     }
 
     private fun showPrecedingStationChoices(route: TrainRoute, from: StopRow, to: StopRow,
                                             stops: List<StopRow>) {
-        AlertDialog.Builder(this)
-            .setTitle("Choose a preceding station")
-            .setItems(stops.map { "${RowText.of(it.name)} (${it.code})" }.toTypedArray()) { _, which ->
-                stops.getOrNull(which)?.let { stop ->
+        val chrome = createAlertDialogChrome(
+            title = "Choose a preceding station",
+            subtitle = "Select a route halt between ${RowText.of(from.name)} and ${RowText.of(to.name)}.",
+            eyebrow = "LIVE REPORT TRIGGER",
+            heightDp = 218 + minOf(stops.size, 8) * 76,
+        )
+        addAlertSection(chrome.body, "STATIONS ON THIS ROUTE")
+        stops.forEachIndexed { index, stop ->
+            addAlertTriggerOption(chrome, AlertTriggerChoice(
+                title = "${RowText.of(stop.name)} (${stop.code})",
+                description = "Route station ${index + 1} of ${stops.size} · fresh report only",
+                icon = (index + 1).toString(),
+                isDefault = false,
+                onSelected = {
                     showAlertPreferences(alarmConfig(route, from, to,
                         AlertTrigger.PREVIOUS_STOP_REPORT, stop, 0))
-                }
-            }
-            .setNegativeButton("Cancel", null)
-            .show().also(::paintBatteryDialog)
+                },
+            ))
+        }
+        showAlertDialog(chrome)
+    }
+
+    private fun createAlertDialogChrome(title: String, subtitle: String,
+        eyebrow: String, heightDp: Int): AlertDialogChrome {
+        val root = layoutInflater.inflate(R.layout.dialog_alert_shell, null, false)
+        root.findViewById<TextView>(R.id.alertEyebrow).text = eyebrow
+        root.findViewById<TextView>(R.id.alertTitle).text = title
+        root.findViewById<TextView>(R.id.alertSubtitle).text = subtitle
+        val dialog = Dialog(this)
+        dialog.setContentView(root)
+        dialog.setCancelable(true)
+        dialog.setCanceledOnTouchOutside(true)
+        val body = root.findViewById<android.widget.LinearLayout>(R.id.alertDialogBody)
+        val cancel = root.findViewById<TextView>(R.id.alertCancel)
+        val spacer = root.findViewById<View>(R.id.alertFooterSpacer)
+        val primary = root.findViewById<TextView>(R.id.alertPrimary)
+        cancel.setOnClickListener { dialog.dismiss() }
+        primary.visibility = View.GONE
+        cancel.layoutParams = android.widget.LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, alertDp(52))
+        return AlertDialogChrome(dialog, body, cancel, spacer, primary, heightDp)
+    }
+
+    private fun addAlertSection(body: android.widget.LinearLayout, label: String) {
+        body.addView(TextView(this).apply {
+            text = label
+            textSize = 11f
+            typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+            setTextColor(getColor(R.color.text3))
+            letterSpacing = 0.08f
+            setPadding(alertDp(2), alertDp(4), alertDp(2), alertDp(8))
+        }, android.widget.LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+    }
+
+    private fun addAlertTriggerOption(chrome: AlertDialogChrome, choice: AlertTriggerChoice) {
+        val row = layoutInflater.inflate(R.layout.item_alert_trigger, chrome.body, false)
+        row.setBackgroundResource(if (choice.isDefault) R.drawable.ripple_alert_trigger_default
+            else R.drawable.ripple_alert_trigger)
+        row.findViewById<TextView>(R.id.alertTriggerIcon).text = choice.icon
+        row.findViewById<TextView>(R.id.alertTriggerName).text = choice.title
+        row.findViewById<TextView>(R.id.alertTriggerDescription).text = choice.description
+        row.findViewById<TextView>(R.id.alertTriggerDefault).visibility =
+            if (choice.isDefault) View.VISIBLE else View.GONE
+        row.contentDescription = buildString {
+            append(choice.title).append(". ").append(choice.description)
+            if (choice.isDefault) append(". Default choice")
+            append(". Double-tap to choose")
+        }
+        row.setOnClickListener {
+            chrome.dialog.dismiss()
+            choice.onSelected()
+        }
+        chrome.body.addView(row, android.widget.LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            bottomMargin = alertDp(8)
+        })
+    }
+
+    private fun showAlertDialog(chrome: AlertDialogChrome, showPrimary: Boolean = false) {
+        chrome.primary.visibility = if (showPrimary) View.VISIBLE else View.GONE
+        chrome.spacer.visibility = if (showPrimary) View.VISIBLE else View.GONE
+        chrome.cancel.layoutParams = if (showPrimary)
+            android.widget.LinearLayout.LayoutParams(0, alertDp(52), 1f)
+        else android.widget.LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, alertDp(52))
+        chrome.dialog.show()
+        chrome.dialog.window?.let { window ->
+            window.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+            window.setDimAmount(0.56f)
+            window.setGravity(Gravity.CENTER)
+            val width = minOf(resources.displayMetrics.widthPixels - alertDp(32), alertDp(520))
+                .coerceAtLeast(alertDp(280))
+            val maxHeight = (resources.displayMetrics.heightPixels - alertDp(56)).coerceAtLeast(alertDp(340))
+            window.setLayout(width, minOf(alertDp(chrome.heightDp), maxHeight))
+            if (batteryAtCreate) BatteryMode.paint(window.decorView, window)
+        }
     }
 
     private fun alarmConfig(route: TrainRoute, from: StopRow, to: StopRow,
@@ -748,10 +885,18 @@ class TrainActivity : AppCompatActivity() {
     )
 
     private fun showAlertPreferences(config: JourneyAlarmConfig) {
-        val body = android.widget.LinearLayout(this).apply {
-            orientation = android.widget.LinearLayout.VERTICAL
-            setPadding(alertDp(20), alertDp(4), alertDp(20), alertDp(8))
+        val triggerDetail = when (config.trigger) {
+            AlertTrigger.DESTINATION_REPORT -> "At destination · ${RowText.of(config.toName)}"
+            AlertTrigger.PREVIOUS_STOP_REPORT -> "At preceding station · ${RowText.of(config.triggerName)}"
+            AlertTrigger.PHONE_DISTANCE -> "Within ${config.distanceKm} km · phone location"
         }
+        val chrome = createAlertDialogChrome(
+            title = "Alert options",
+            subtitle = "$triggerDetail · choose feedback and check interval",
+            eyebrow = "NOTIFICATION SETUP",
+            heightDp = 700,
+        )
+        val body = chrome.body
         fun section(text: String) {
             body.addView(TextView(this).apply {
                 this.text = text
@@ -759,15 +904,19 @@ class TrainActivity : AppCompatActivity() {
                 typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
                 setTextColor(getColor(R.color.text1))
                 setPadding(0, alertDp(8), 0, alertDp(3))
-            })
+            }, android.widget.LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
         fun radio(group: android.widget.RadioGroup, text: String): Int {
             val button = android.widget.RadioButton(this).apply {
-                id = group.childCount + 1
+                id = ViewCompat.generateViewId()
                 this.text = text
                 textSize = 14f
                 setTextColor(getColor(R.color.text1))
+                buttonTintList = android.content.res.ColorStateList.valueOf(getColor(R.color.accent))
+                typeface = android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.NORMAL)
                 minHeight = alertDp(48)
+                setPadding(alertDp(6), alertDp(4), alertDp(8), alertDp(4))
             }
             group.addView(button, android.widget.RadioGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
@@ -808,43 +957,36 @@ class TrainActivity : AppCompatActivity() {
             }
             textSize = 12f
             setTextColor(getColor(R.color.text2))
-            setPadding(0, alertDp(12), 0, alertDp(8))
+            setLineSpacing(alertDp(2).toFloat(), 1f)
+            setPadding(alertDp(12), alertDp(12), alertDp(12), alertDp(12))
+            setBackgroundResource(R.drawable.bg_summary_card)
         }
-        body.addView(note)
-        val scroll = android.widget.ScrollView(this).apply {
-            isFillViewport = false
-            addView(body, ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        }
-        val dialog = AlertDialog.Builder(this)
-            .setTitle("Arrival alert options")
-            .setView(scroll)
-            .setPositiveButton("Set alert", null)
-            .setNegativeButton("Cancel", null)
-            .create()
-        dialog.setOnShowListener {
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                val selectedFeedback = feedbackIds.firstOrNull {
-                    it.second == feedbackGroup.checkedRadioButtonId
-                }?.first ?: AlertFeedback.NOTIFICATION
-                val interval = intervalIds.firstOrNull {
-                    it.second == intervalGroup.checkedRadioButtonId
-                }?.first ?: 5
-                if (!alertChannelAvailable(selectedFeedback)) {
-                    explainPermissionNeeded("Enable the selected arrival-alert notification channel in Android settings.")
-                    return@setOnClickListener
-                }
-                val selected = config.copy(feedback = selectedFeedback,
-                    intervalMinutes = interval, createdAtMillis = System.currentTimeMillis())
-                dialog.dismiss()
-                if (selected.trigger == AlertTrigger.PHONE_DISTANCE)
-                    requestLocationAccess { beginJourneyAlarm(selected) }
-                else beginJourneyAlarm(selected)
+        body.addView(note, android.widget.LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = alertDp(8)
+            bottomMargin = alertDp(8)
+        })
+        chrome.primary.text = "Set alert"
+        chrome.primary.contentDescription = "Set this arrival alert"
+        chrome.primary.setOnClickListener {
+            val selectedFeedback = feedbackIds.firstOrNull {
+                it.second == feedbackGroup.checkedRadioButtonId
+            }?.first ?: AlertFeedback.NOTIFICATION
+            val interval = intervalIds.firstOrNull {
+                it.second == intervalGroup.checkedRadioButtonId
+            }?.first ?: 5
+            if (!alertChannelAvailable(selectedFeedback)) {
+                explainPermissionNeeded("Enable the selected arrival-alert notification channel in Android settings.")
+                return@setOnClickListener
             }
+            val selected = config.copy(feedback = selectedFeedback,
+                intervalMinutes = interval, createdAtMillis = System.currentTimeMillis())
+            chrome.dialog.dismiss()
+            if (selected.trigger == AlertTrigger.PHONE_DISTANCE)
+                requestLocationAccess { beginJourneyAlarm(selected) }
+            else beginJourneyAlarm(selected)
         }
-        dialog.show()
-        BatteryMode.paint(scroll)
-        paintBatteryDialog(dialog)
+        showAlertDialog(chrome, showPrimary = true)
     }
 
     private fun alertDp(value: Int): Int =
@@ -1609,10 +1751,8 @@ class TrainActivity : AppCompatActivity() {
             ui.orgWebsiteReport?.rows.orEmpty() else emptyMap()
         stopAdapter.websiteTentativeDeparture = null
         val siteNow = System.currentTimeMillis()
-        stopAdapter.websiteCardTimes = if (WebsiteReportDisplay.selected(ui.activeSource))
-            WebsiteReportDisplay.displayedClocks(ui.orgWebsiteReport, vm.originDate,
-                ui.model.rows.map { it.code }, siteNow)
-            else emptyMap()
+        val selectedWebsiteClocks = websiteClocksFor(ui, ui.model.rows.map { it.code }, siteNow)
+        stopAdapter.websiteCardTimes = selectedWebsiteClocks
         // Keep all .org.in card fields in a website-labelled caption. When NTES is
         // selected this is a supplemental comparison only; when the site is selected
         // it explains the separate WEBSITE clock column. Neither path writes Act cells.
@@ -1624,9 +1764,7 @@ class TrainActivity : AppCompatActivity() {
         stopAdapter.websiteComparisonTimes = when {
             websiteCaptionReport != null -> WebsiteReportDisplay.displayedClocks(websiteCaptionReport,
                 vm.originDate, ui.model.rows.map { row -> row.code }, siteNow)
-            ui.activeSource == `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG ->
-                WebsiteReportDisplay.displayedClocks(ui.orgWebsiteSiteClocks, vm.originDate,
-                    ui.model.rows.map { row -> row.code }, ui.orgWebsitePageUpdatedAt, siteNow)
+            WebsiteReportDisplay.selected(ui.activeSource) -> selectedWebsiteClocks
             else -> emptyMap()
         }
         val websitePageAt = websiteCaptionReport?.pageUpdatedAt ?: ui.orgWebsitePageUpdatedAt
@@ -1892,9 +2030,11 @@ class TrainActivity : AppCompatActivity() {
             ui.answer.anchorStopCode else null
         val now = System.currentTimeMillis()
         stopAdapter.websitePendingDeparture = null
-        if (WebsiteReportDisplay.selected(ui.activeSource))
-            stopAdapter.websiteCardTimes = WebsiteReportDisplay.displayedClocks(
-                ui.orgWebsiteReport, vm.originDate, rows.map { it.code }, now)
+        if (WebsiteReportDisplay.selected(ui.activeSource)) {
+            val siteClocks = websiteClocksFor(ui, rows.map { it.code }, now)
+            stopAdapter.websiteCardTimes = siteClocks
+            stopAdapter.websiteComparisonTimes = siteClocks
+        }
         val lastStopMarker = if (WebsiteReportDisplay.selected(ui.activeSource) &&
             ui.orgWebsiteReport?.intermediate == null)
             TableMarker.atHalt(rows, ui.orgWebsiteReport?.anchorCode, vm.originDate, now)
