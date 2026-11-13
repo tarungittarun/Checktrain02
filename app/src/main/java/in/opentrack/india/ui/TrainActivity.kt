@@ -798,7 +798,7 @@ class TrainActivity : AppCompatActivity() {
         body.addView(note)
         val scroll = android.widget.ScrollView(this).apply {
             isFillViewport = false
-            addView(body, android.widget.ScrollView.LayoutParams(
+            addView(body, ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
         val dialog = AlertDialog.Builder(this)
@@ -874,8 +874,9 @@ class TrainActivity : AppCompatActivity() {
                     if (current != null)
                         baseline = JourneyAlarmPolicy.baseline(armedConfig, current.route, current.answer)
                     if (baseline.seq >= config.triggerSeq) {
-                        val detail = if (baseline.eventMinute != null)
-                            "A current running-status reply already places train ${config.trainNo} at or beyond ${config.triggerName} (${RailTime.formatRailMinute(baseline.eventMinute)}). To avoid replaying an old event, no alert was armed. Choose a later trigger or distance instead."
+                        val eventMinute = baseline.eventMinute
+                        val detail = if (eventMinute != null)
+                            "A current running-status reply already places train ${config.trainNo} at or beyond ${config.triggerName} (${RailTime.formatRailMinute(eventMinute)}). To avoid replaying an old event, no alert was armed. Choose a later trigger or distance instead."
                         else "The current running-status reply is already at or beyond ${config.triggerName}, but its event time is unknown. No alert was armed. Choose a later trigger or distance instead."
                         AlertDialog.Builder(this@TrainActivity)
                             .setTitle("Trigger already reached")
