@@ -221,6 +221,10 @@ object E2E {
         // Returning from tracking can leave search intentionally compact. Reveal it through the
         // same Edit search control a traveller sees, not through an internal Activity hook.
         if (visible("editSearch", 500)) tap("editSearch", 1_000)
+        // Search mode is intentionally persisted. Each journey setup that needs the station form
+        // must select it explicitly instead of relying on whichever mode a previous test left open.
+        if (!visible("fromBox", 500))
+            check(tap("modeStations", 1_000)) { "station search mode is unavailable" }
         check(visible("fromBox", COLD_START_MS)) { "no board-at field on the search screen" }
         val deadline = System.currentTimeMillis() + COLD_START_MS
         while (System.currentTimeMillis() < deadline) {
