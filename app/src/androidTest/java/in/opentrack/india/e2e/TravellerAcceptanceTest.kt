@@ -42,11 +42,16 @@ class TravellerAcceptanceTest {
         assertEquals("Track opened a DIFFERENT train from the ticket", "12627", E2E.text("trainNo"))
     }
 
-    private fun textContains(text: String, timeoutMs: Long = E2E.LOCAL_MS): String =
-        E2E.ui.wait(Until.findObject(By.textContains(text)), timeoutMs)?.text.orEmpty()
+    private fun textContains(text: String, timeoutMs: Long = E2E.LOCAL_MS): String {
+        // Android AlertDialog buttons may expose their theme-transformed all-caps
+        // label (CANCEL) to UiAutomator even though the builder says "Cancel".
+        val pattern = "(?i).*${Regex.escape(text)}.*"
+        return E2E.ui.wait(Until.findObject(By.textMatches(pattern)), timeoutMs)?.text.orEmpty()
+    }
 
     private fun tapTextContains(text: String, timeoutMs: Long = E2E.LOCAL_MS): Boolean {
-        val node = E2E.ui.wait(Until.findObject(By.textContains(text)), timeoutMs) ?: return false
+        val pattern = "(?i).*${Regex.escape(text)}.*"
+        val node = E2E.ui.wait(Until.findObject(By.textMatches(pattern)), timeoutMs) ?: return false
         node.click()
         E2E.ui.waitForIdle()
         return true
@@ -303,8 +308,8 @@ class TravellerAcceptanceTest {
         for (interval in listOf("1 minute", "2 minutes", "5 minutes"))
             assertTrue("Alert interval is not selectable: $interval",
                 E2E.ui.wait(Until.hasObject(By.textContains(interval)), E2E.LOCAL_MS))
-        assertTrue("Set alert action is absent", E2E.ui.wait(Until.hasObject(By.text("Set alert")), E2E.LOCAL_MS))
-        assertTrue("Setup dialog has no Cancel action", E2E.ui.wait(Until.hasObject(By.text("Cancel")), E2E.LOCAL_MS))
+        assertTrue("Set alert action is absent", textContains("Set alert").isNotBlank())
+        assertTrue("Setup dialog has no Cancel action", textContains("Cancel").isNotBlank())
         var evidenceNote = textContains("Station alerts use fresh, route-matched", 500)
         repeat(3) {
             if (evidenceNote.isNotBlank()) return@repeat
