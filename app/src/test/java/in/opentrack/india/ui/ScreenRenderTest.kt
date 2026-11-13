@@ -499,7 +499,7 @@ Render.save("02-track-live", shot.bitmap)
             }
         }
         val status = shot.root.findViewById<View>(R.id.fetchingStatus)
-        val spinner = shot.root.findViewById<ProgressBar>(R.id.fetchingSpinner)
+        val spinner = shot.root.findViewById<ProgressBar>(R.id.checkingBar)
         val label = shot.root.findViewById<TextView>(R.id.fetchingLabel)
         assertEquals(View.VISIBLE, status.visibility)
         assertTrue("fetch status should occupy more than a hairline",

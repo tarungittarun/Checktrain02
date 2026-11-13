@@ -621,9 +621,9 @@ class TrainActivity : AppCompatActivity() {
     private fun checkingSourceLabel(): String {
         val mirrorSource = if (mirrorBusy) mirrorStatus?.let { status ->
             when {
-                status.startsWith("Checking ") -> status.removePrefix("Checking ")
+                status.startsWith("Checking ") -> status.substringAfter("Checking ")
                     .substringBefore("…").trim()
-                status.startsWith("Already checking ") -> status.removePrefix("Already checking ")
+                status.startsWith("Already checking ") -> status.substringAfter("Already checking ")
                     .substringBefore(';').trim()
                 else -> null
             }

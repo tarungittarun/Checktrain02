@@ -110,8 +110,9 @@
         android:paddingBottom="6dp"
         android:visibility="gone">
 
+        <!-- Keep the stable checkingBar selector used by traveller checks. -->
         <ProgressBar
-            android:id="@+id/fetchingSpinner"
+            android:id="@+id/checkingBar"
             style="?android:attr/progressBarStyleSmall"
             android:layout_width="24dp"
             android:layout_height="24dp"

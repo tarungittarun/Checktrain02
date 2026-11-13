@@ -105,7 +105,7 @@ measureText
 compoundDrawables setCompoundDrawables
 # Android View's built-in animator/background, listener and TextView colour accessor;
 # SharedPreferences stores the draggable refresh position as orientation-safe fractions.
-animate background typeface setOnTouchListener currentTextColor getFloat
+animate background typeface setOnTouchListener currentTextColor getFloat isIndeterminate accessibilityLiveRegion
 # ViewTreeObserver is the attached-layout measurement hook for More/Less. Unlike a detached
 # UNSPECIFIED measure it yields the real height after visibility changes on large-font phones.
 viewTreeObserver addOnPreDrawListener removeOnPreDrawListener isAlive
@@ -131,6 +131,9 @@ isNullOrBlank containsKey isNullOrEmpty takeWhile toLongOrNull substringAfter as
 createConfigurationContext density getLineWidth setTextSize requestRectangleOnScreen idleFor application
 addView await childCount contentEncoding countDown disconnect filterIndexed getInt getLastKnownLocation getSystemService hasAccuracy hasSpeed ifEmpty isProviderEnabled lastModified matchEntire maxOrNull minOrNull putIfAbsent rawQuery removeUpdates requestFocus requestLocationUpdates right setOnClickListener performClick setOnEditorActionListener setOnFocusChangeListener setSelection sortedWith subList toByteArray toDouble toDoubleOrNull toLong trimEnd windowToken
 """.split())
+
+# Android's ProgressBar.isIndeterminate and View.accessibilityLiveRegion back the visible, spoken fetch status.
+# Keep these platform accessors curated here rather than teaching the scanner to ignore arbitrary properties.
 
 # `R.drawable`, `R.string`, …: nested objects of the generated R class, lowercase by convention, and the
 # names inside them are validated by check_resources.py, not here.
