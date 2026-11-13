@@ -76,6 +76,44 @@
                 android:text="@string/battery_mode_hint" />
         </LinearLayout>
 
+        <LinearLayout style="@style/Card" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:layout_marginTop="@dimen/gap"
+            android:background="@drawable/bg_card" android:orientation="vertical">
+            <TextView style="@style/FieldLabel" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:text="Arrival alert defaults" />
+            <TextView style="@style/TextMeta" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:layout_marginTop="4dp"
+                android:text="Starting choices for new alerts. Each journey can choose different trigger, feedback and check interval." />
+            <TextView style="@style/FieldLabel" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:layout_marginTop="12dp"
+                android:text="Default trigger" />
+            <Spinner android:id="@+id/defaultAlertTrigger" android:layout_width="match_parent"
+                android:layout_height="48dp" android:layout_marginTop="4dp"
+                android:background="@drawable/bg_inset"
+                android:contentDescription="Default arrival alert trigger" />
+            <TextView style="@style/FieldLabel" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:layout_marginTop="8dp"
+                android:text="Default feedback" />
+            <Spinner android:id="@+id/defaultAlertFeedback" android:layout_width="match_parent"
+                android:layout_height="48dp" android:layout_marginTop="4dp"
+                android:background="@drawable/bg_inset"
+                android:contentDescription="Default alert feedback style" />
+            <TextView style="@style/FieldLabel" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:layout_marginTop="8dp"
+                android:text="Default check interval" />
+            <Spinner android:id="@+id/defaultAlertInterval" android:layout_width="match_parent"
+                android:layout_height="48dp" android:layout_marginTop="4dp"
+                android:background="@drawable/bg_inset"
+                android:contentDescription="Default alert check interval" />
+            <TextView style="@style/FieldLabel" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:layout_marginTop="8dp"
+                android:text="Default phone-distance radius" />
+            <Spinner android:id="@+id/defaultAlertDistance" android:layout_width="match_parent"
+                android:layout_height="48dp" android:layout_marginTop="4dp"
+                android:background="@drawable/bg_inset"
+                android:contentDescription="Default phone distance to destination" />
+        </LinearLayout>
+
         <LinearLayout
             style="@style/Card"
             android:layout_width="match_parent"

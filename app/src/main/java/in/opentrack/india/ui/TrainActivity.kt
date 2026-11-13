@@ -532,89 +532,62 @@ class TrainActivity : AppCompatActivity() {
             "Within ${config.distanceKm} km of ${RowText.of(config.toName)} · phone location"
     }
 
-    private fun alertFeedbackSummary(config: JourneyAlarmConfig): String = when (config.feedback) {
-        AlertFeedback.NOTIFICATION -> "Notification · one alert"
-        AlertFeedback.VIBRATION -> "Vibration · one pattern"
-        AlertFeedback.RING_UNTIL_STOPPED -> "Ring until I stop it"
+    private fun currentJourneyAlerts(): List<`in`.opentrack.india.alarm.JourneyAlarmSnapshot> {
+        val train = intent.getStringExtra(EXTRA_TRAIN_NO).orEmpty()
+        val from = intent.getStringExtra(EXTRA_FROM).orEmpty()
+        val to = intent.getStringExtra(EXTRA_TO).orEmpty()
+        val day = intent.getLongExtra(EXTRA_ORIGIN_EPOCH_DAY, RailTime.todayEpochDay())
+        return JourneyAlarmStore.readAll(this).filter { snapshot ->
+            val c = snapshot.config
+            c.trainNo == train && c.fromCode.equals(from, true) && c.toCode.equals(to, true) &&
+                c.originEpochDay == day && (snapshot.state == AlertState.ARMED ||
+                snapshot.state == AlertState.RINGING)
+        }
     }
 
-    private fun alertIntervalSummary(config: JourneyAlarmConfig): String =
-        "${config.intervalMinutes} ${if (config.intervalMinutes == 1) "minute" else "minutes"}"
-
     private fun refreshArrivalAlertButton() {
-        val snapshot = JourneyAlarmStore.read(this)
-        val (text, description) = when (snapshot?.state) {
-            AlertState.ARMED -> "Alert on" to
-                "Arrival alert is armed for train ${snapshot.config.trainNo}; " +
-                    "${alertTriggerSummary(snapshot.config)}; ${alertFeedbackSummary(snapshot.config)}; " +
-                    "checks every ${alertIntervalSummary(snapshot.config)}; tap to view or cancel"
-            AlertState.RINGING -> "Stop alarm" to
-                "Arrival alarm is ringing; tap to stop it"
-            AlertState.FIRED -> "Alert sent" to
-                "Arrival alert was sent; tap to review or set another"
-            AlertState.MISSED -> "Alert missed" to
-                "The selected station event was not reported in time; tap for details"
-            AlertState.DISMISSED -> "Alert" to "Alarm stopped; tap to set an arrival alert"
-            null -> "Alert" to "Configure an arrival alert"
+        val active = currentJourneyAlerts()
+        val ringing = active.count { it.state == AlertState.RINGING }
+        val text: String
+        val description: String
+        when {
+            ringing > 0 -> {
+                text = if (ringing == 1) "Stop alarm" else "Alarms · $ringing"
+                description = "$ringing arrival alarm${if (ringing == 1) " is" else "s are"} ringing for this journey; open Alerts to manage each independently"
+            }
+            active.isNotEmpty() -> {
+                text = if (active.size == 1) "Alert on" else "Alerts · ${active.size}"
+                description = "${active.size} alert${if (active.size == 1) " is" else "s are"} monitoring this journey; tap to add another or manage all alerts"
+            }
+            else -> {
+                text = "Alert"
+                description = "Configure an arrival alert for this journey"
+            }
         }
         binding.arrivalAlert.text = text
         binding.arrivalAlert.contentDescription = description
     }
 
     private fun onArrivalAlertClick() {
-        when (val saved = JourneyAlarmStore.read(this)) {
-            null -> requestNotificationAccess { loadJourneyForAlarm() }
-            else -> when (saved.state) {
-                AlertState.ARMED, AlertState.RINGING, AlertState.FIRED,
-                AlertState.MISSED, AlertState.DISMISSED -> showSavedAlarm(saved)
-            }
+        val active = currentJourneyAlerts()
+        if (active.isEmpty()) {
+            requestNotificationAccess { loadJourneyForAlarm() }
+            return
         }
-    }
-
-    private fun showSavedAlarm(snapshot: `in`.opentrack.india.alarm.JourneyAlarmSnapshot) {
-        val c = snapshot.config
-        val title = when (snapshot.state) {
-            AlertState.ARMED -> "Arrival alert · monitoring"
-            AlertState.RINGING -> "Arrival alarm · ringing"
-            AlertState.FIRED -> "Arrival alert · sent"
-            AlertState.MISSED -> "Arrival alert · trigger not reported"
-            AlertState.DISMISSED -> "Arrival alert stopped"
+        val current = active.joinToString("\n") { snapshot ->
+            "• ${alertTriggerSummary(snapshot.config)} · ${snapshot.state.name.lowercase()}"
         }
-        val lines = mutableListOf(
-            "Trigger · ${alertTriggerSummary(c)}",
-            "Style · ${alertFeedbackSummary(c)}",
-            "Check interval · ${alertIntervalSummary(c)}",
-            snapshot.status,
-        )
-        if (snapshot.lastCheckedAtMillis > 0L)
-            lines += "Last check · ${RailTime.formatClock(snapshot.lastCheckedAtMillis)} IST"
-        if (snapshot.evidenceAtMillis > 0L)
-            lines += "Event time · ${RailTime.formatClock(snapshot.evidenceAtMillis)} IST · " +
-                SourceFreshness.label(snapshot.evidenceAtMillis, System.currentTimeMillis())
-        if (snapshot.state == AlertState.ARMED)
-            lines += "An ongoing notification shows the monitor is active. Android or network restrictions may still delay or stop checks."
-        val builder = AlertDialog.Builder(this).setTitle(title)
-            .setMessage(lines.joinToString("\n\n"))
-        when (snapshot.state) {
-            AlertState.ARMED -> {
-                builder.setPositiveButton("Cancel alert") { _, _ ->
-                    JourneyAlarmService.cancel(this)
-                    refreshArrivalAlertButton()
-                }.setNeutralButton("Replace") { _, _ ->
-                    JourneyAlarmService.cancel(this)
-                    requestNotificationAccess { loadJourneyForAlarm() }
-                }.setNegativeButton("Keep", null)
-            }
-            AlertState.RINGING -> builder
-                .setPositiveButton("Stop alarm") {
-                        _, _ -> JourneyAlarmService.cancel(this); refreshArrivalAlertButton()
-                }.setNegativeButton("Keep ringing", null)
-            else -> builder.setPositiveButton("Set another") { _, _ ->
-                JourneyAlarmService.cancel(this)
+        AlertDialog.Builder(this)
+            .setTitle("${active.size} active alert${if (active.size == 1) "" else "s"} for this journey")
+            .setMessage(current + "\n\nAdd another alert, or open the central list to stop one without affecting the others.")
+            .setPositiveButton("Add another") { _, _ ->
                 requestNotificationAccess { loadJourneyForAlarm() }
-            }.setNegativeButton("Close", null)
-        }
-        builder.show().also(::paintBatteryDialog)
+            }
+            .setNeutralButton("Manage alerts") {
+                    _, _ -> startActivity(Intent(this, AlertsActivity::class.java))
+            }
+            .setNegativeButton("Close", null)
+            .show().also(::paintBatteryDialog)
     }
 
     private fun requestNotificationAccess(action: () -> Unit) {
@@ -709,26 +682,39 @@ class TrainActivity : AppCompatActivity() {
 
     private fun showAlertTriggerChoices(route: TrainRoute, from: StopRow, to: StopRow) {
         val intermediate = route.stops.filter { it.seq > from.seq && it.seq < to.seq }
-        val labels = mutableListOf<String>()
-        val actions = mutableListOf<() -> Unit>()
-        labels += "At destination · ${RowText.of(to.name)} (live report)"
-        actions += { showAlertPreferences(alarmConfig(route, from, to,
-            AlertTrigger.DESTINATION_REPORT, to, 0)) }
-        if (intermediate.isNotEmpty()) {
-            labels += "At a preceding station… (live report)"
-            actions += { showPrecedingStationChoices(route, from, to, intermediate) }
+        val prefs = `in`.opentrack.india.data.Prefs(this)
+        val choices = mutableListOf<Triple<AlertTrigger, String, () -> Unit>>()
+        choices += Triple(AlertTrigger.DESTINATION_REPORT,
+            "At destination · ${RowText.of(to.name)} (live report)") {
+            showAlertPreferences(alarmConfig(route, from, to,
+                AlertTrigger.DESTINATION_REPORT, to, 0))
         }
-        for (distance in listOf(2, 5, 10)) {
-            labels += "Within $distance km of destination · phone location"
-            actions += { showAlertPreferences(alarmConfig(route, from, to,
-                AlertTrigger.PHONE_DISTANCE, to, distance)) }
+        if (intermediate.isNotEmpty()) choices += Triple(AlertTrigger.PREVIOUS_STOP_REPORT,
+            "At a preceding station… (live report)") {
+            showPrecedingStationChoices(route, from, to, intermediate)
+        }
+        val defaultDistance = prefs.defaultAlertDistanceKm
+        val distances = listOf(defaultDistance) + listOf(2, 5, 10)
+            .filterNot { it == defaultDistance }
+        distances.forEach { distance ->
+            choices += Triple(AlertTrigger.PHONE_DISTANCE,
+                "Within $distance km of destination · phone location" +
+                    if (distance == prefs.defaultAlertDistanceKm) " · default radius" else "") {
+                showAlertPreferences(alarmConfig(route, from, to,
+                    AlertTrigger.PHONE_DISTANCE, to, distance))
+            }
+        }
+        fun isDefaultChoice(choice: Triple<AlertTrigger, String, () -> Unit>): Boolean =
+            choice.first == prefs.defaultAlertTrigger &&
+                (choice.first != AlertTrigger.PHONE_DISTANCE || choice.second.endsWith(" · default radius"))
+        val ordered = choices.sortedBy { if (isDefaultChoice(it)) 0 else 1 }
+        val labels = ordered.map { choice ->
+            if (isDefaultChoice(choice)) "Default · ${choice.second}" else choice.second
         }
         AlertDialog.Builder(this)
             .setTitle("Arrival alert · train ${route.trainNo}")
-            // Do not combine setMessage and setItems: AlertController installs one
-            // content view, which hid every trigger choice on the screenshot.
-            // Labels say which evidence type is needed; preferences explain its limits.
-            .setItems(labels.toTypedArray()) { _, which -> actions.getOrNull(which)?.invoke() }
+            // The first choice follows Settings; every journey can select another trigger.
+            .setItems(labels.toTypedArray()) { _, which -> ordered.getOrNull(which)?.third?.invoke() }
             .setNegativeButton("Cancel", null)
             .show().also(::paintBatteryDialog)
     }
@@ -754,8 +740,9 @@ class TrainActivity : AppCompatActivity() {
         fromCode = from.code, toCode = to.code, toName = RowText.of(to.name), toSeq = to.seq,
         trigger = trigger, triggerCode = triggerStop.code,
         triggerName = RowText.of(triggerStop.name), triggerSeq = triggerStop.seq,
-        distanceKm = distanceKm, feedback = AlertFeedback.NOTIFICATION,
-        intervalMinutes = if (batteryAtCreate) 5 else 2,
+        distanceKm = distanceKm,
+        feedback = `in`.opentrack.india.data.Prefs(this).defaultAlertFeedback,
+        intervalMinutes = `in`.opentrack.india.data.Prefs(this).defaultAlertIntervalMinutes,
         originEpochDay = intent.getLongExtra(EXTRA_ORIGIN_EPOCH_DAY, RailTime.todayEpochDay()),
         baselineSeq = 0, baselineEventMinute = null, createdAtMillis = System.currentTimeMillis(),
     )
@@ -795,7 +782,8 @@ class TrainActivity : AppCompatActivity() {
             AlertFeedback.VIBRATION to radio(feedbackGroup, "Vibration · one pattern"),
             AlertFeedback.RING_UNTIL_STOPPED to radio(feedbackGroup, "Ring until I stop it"),
         )
-        feedbackGroup.check(feedbackIds.first().second)
+        feedbackGroup.check(feedbackIds.firstOrNull { it.first == config.feedback }?.second
+            ?: feedbackIds.first().second)
         body.addView(feedbackGroup)
 
         section("Check interval")
@@ -1339,7 +1327,7 @@ class TrainActivity : AppCompatActivity() {
                 publicCheck != null && ui.orgWebsiteReport == null ||
             ui.activeSource == TrackingSources.WIMT ||
             ui.activeSource == `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE || mirrorWithoutTimes ||
-            latestWebsiteCardSummary != null
+            ui.orgWebsiteCards.isNotEmpty() || latestWebsiteCardSummary != null
         )
         binding.sourceSummary.visibility = if (heroExpanded && sourceSummaryWanted) View.VISIBLE else View.GONE
         val selectedStatus = ui.activeSource?.let { ui.sourceStates[it] }
@@ -1522,14 +1510,14 @@ class TrainActivity : AppCompatActivity() {
                 it.code.equals(report.anchorCode, true) } }
             val place = org?.intermediate?.name ?: station?.name ?: org?.anchorCode
             binding.headline.text = when {
-                org != null -> "Last site card · ${RowText.of(place ?: org.anchorCode)} " +
+                org != null -> "Last qualifying website event · ${RowText.of(place ?: org.anchorCode)} " +
                     "${RailTime.formatRailMinuteBare(org.eventMinute)}"
                 claim != null -> "RailYatri comparison: ${claim.code} · passage time unverified"
                 else -> "No qualifying past-stop report"
             }
             binding.headline.contentDescription = binding.headline.text.toString() +
-                ". Selected ${sourceName(publicCheck)}. Website origin run inferred; " +
-                "this is not independently verified GPS."
+                ". Selected ${sourceName(publicCheck)}. Website origin run inferred; this is a " +
+                "qualifying page-published event claim, not an independently verified actual, GPS, or current position."
             binding.provenance.text = if (org != null) "Past site card · run inferred"
                 else "Comparison only"
             binding.provenance.setBackgroundResource(R.drawable.bg_badge_schedule)
@@ -1625,15 +1613,25 @@ class TrainActivity : AppCompatActivity() {
             WebsiteReportDisplay.displayedClocks(ui.orgWebsiteReport, vm.originDate,
                 ui.model.rows.map { it.code }, siteNow)
             else emptyMap()
-        // NTES may have a later last halt yet no accepted actual at an earlier
-        // stop. Show the site's parsed *past* card beside that stop, not as an
-        // official Act or a second train icon. Discard old/foreign-run pages.
-        stopAdapter.websiteComparisonTimes = if (ui.activeSource == "NTES (official)")
-            WebsiteReportDisplay.displayedClocks(ui.orgWebsiteComparisonReport, vm.originDate,
-                ui.model.rows.map { it.code }, siteNow)
-            else emptyMap()
-        stopAdapter.websiteComparisonSaved = ui.orgWebsiteComparisonReport?.let {
-            siteNow - it.pageUpdatedAt > 300_000L
+        // Keep all .org.in card fields in a website-labelled caption. When NTES is
+        // selected this is a supplemental comparison only; when the site is selected
+        // it explains the separate WEBSITE clock column. Neither path writes Act cells.
+        val websiteCaptionReport = when (ui.activeSource) {
+            "NTES (official)" -> ui.orgWebsiteComparisonReport
+            `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG -> ui.orgWebsiteReport
+            else -> null
+        }
+        stopAdapter.websiteComparisonTimes = when {
+            websiteCaptionReport != null -> WebsiteReportDisplay.displayedClocks(websiteCaptionReport,
+                vm.originDate, ui.model.rows.map { row -> row.code }, siteNow)
+            ui.activeSource == `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG ->
+                WebsiteReportDisplay.displayedClocks(ui.orgWebsiteSiteClocks, vm.originDate,
+                    ui.model.rows.map { row -> row.code }, ui.orgWebsitePageUpdatedAt, siteNow)
+            else -> emptyMap()
+        }
+        val websitePageAt = websiteCaptionReport?.pageUpdatedAt ?: ui.orgWebsitePageUpdatedAt
+        stopAdapter.websiteComparisonSaved = websitePageAt?.let {
+            siteNow - it > 300_000L
         } == true
         stopAdapter.savedOfficialClocks = if (ui.activeSource == "NTES (official)")
             ui.answer.savedOfficialClocks else emptySet()
@@ -1857,6 +1855,15 @@ class TrainActivity : AppCompatActivity() {
                 append("\nWIMT web cache is not the WIMT phone app. ")
                 append("Site claims are not verified actuals. Station distances can differ between maps.")
             }
+            if (ui.activeSource == `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG) {
+                WebsiteReportDisplay.allSiteCardsSummary(
+                    ui.orgWebsiteCards.ifEmpty { ui.orgWebsiteReport?.siteCards.orEmpty() },
+                    ui.orgWebsitePageUpdatedAt,
+                    ui.orgWebsitePageClockHasSeconds,
+                    ui.selectedLoadReceiptMillis)?.let {
+                    append("\n\n").append(it)
+                }
+            }
             ui.lastUpdated?.let { append("\n").append(it) }
         }
     }
@@ -1923,6 +1930,34 @@ class TrainActivity : AppCompatActivity() {
             TableMarker.elapsedLabel(now - it) + " ago"
         }
         when {
+            WebsiteReportDisplay.selected(ui.activeSource) &&
+                ui.orgWebsiteReport == null -> {
+                val pageAt = ui.orgWebsitePageUpdatedAt
+                val checkedAt = ui.selectedLoadReceiptMillis
+                val pageAge = if (pageAt != null && checkedAt != null)
+                    WebsiteReportDisplay.pageAgeAtCheck(pageAt,
+                        ui.orgWebsitePageClockHasSeconds, checkedAt) else null
+                binding.age.text = when {
+                    pageAge != null -> "No qualifying site event · page age $pageAge at check"
+                    pageAt != null -> "No qualifying site event · page updated " +
+                        WebsiteReportDisplay.pageUpdateClock(pageAt, ui.orgWebsitePageClockHasSeconds) + " IST"
+                    else -> "No qualifying website event time"
+                }
+                binding.age.contentDescription = buildString {
+                    append("No qualifying past-card event or current position was established.")
+                    pageAt?.let {
+                        append(" Website page updated ")
+                            .append(WebsiteReportDisplay.pageUpdateClock(it,
+                                ui.orgWebsitePageClockHasSeconds)).append(" IST")
+                    }
+                    checkedAt?.let {
+                        append("; app response received ").append(RailTime.formatClockSeconds(it))
+                            .append(" IST")
+                    }
+                    pageAge?.let { append("; page age ").append(it).append(" at check") }
+                    append(". Site cards are comparison only; neither timestamp is train movement.")
+                }
+            }
             WebsiteReportDisplay.selected(ui.activeSource) &&
                 ui.orgWebsiteReport != null && elapsed != null -> {
                 val report = ui.orgWebsiteReport!!

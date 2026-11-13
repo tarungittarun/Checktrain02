@@ -3,6 +3,8 @@ package `in`.opentrack.india.data
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.appcompat.app.AppCompatDelegate
+import `in`.opentrack.india.alarm.AlertFeedback
+import `in`.opentrack.india.alarm.AlertTrigger
 
 /**
  * All persisted user state, in one file.
@@ -143,6 +145,33 @@ class Prefs(context: Context) {
         get() = sp.getString(KEY_TRACK_SOURCE, "NTES (official)").orEmpty()
         set(v) = sp.edit().putString(KEY_TRACK_SOURCE, v).apply()
 
+    /** Persistent starting choices; every journey can override these before it is armed. */
+    var defaultAlertTrigger: AlertTrigger
+        get() = runCatching { AlertTrigger.valueOf(sp.getString(KEY_ALERT_TRIGGER, "DESTINATION_REPORT").orEmpty()) }
+            .getOrDefault(AlertTrigger.DESTINATION_REPORT)
+        set(value) = sp.edit().putString(KEY_ALERT_TRIGGER, value.name).apply()
+
+    var defaultAlertFeedback: AlertFeedback
+        get() = runCatching { AlertFeedback.valueOf(sp.getString(KEY_ALERT_FEEDBACK, "NOTIFICATION").orEmpty()) }
+            .getOrDefault(AlertFeedback.NOTIFICATION)
+        set(value) = sp.edit().putString(KEY_ALERT_FEEDBACK, value.name).apply()
+
+    var defaultAlertIntervalMinutes: Int
+        get() {
+            val fallback = if (batteryMode) 5 else 2
+            return sp.getInt(KEY_ALERT_INTERVAL, fallback).takeIf { it in setOf(1, 2, 5) } ?: fallback
+        }
+        set(value) {
+            val fallback = if (batteryMode) 5 else 2
+            sp.edit().putInt(KEY_ALERT_INTERVAL,
+                value.takeIf { it in setOf(1, 2, 5) } ?: fallback).apply()
+        }
+
+    var defaultAlertDistanceKm: Int
+        get() = sp.getInt(KEY_ALERT_DISTANCE, 5).takeIf { it in setOf(2, 5, 10) } ?: 5
+        set(value) = sp.edit().putInt(KEY_ALERT_DISTANCE,
+            value.takeIf { it in setOf(2, 5, 10) } ?: 5).apply()
+
     var useLocation: Boolean
         get() = sp.getBoolean(KEY_USE_LOCATION, false)
         set(v) = sp.edit().putBoolean(KEY_USE_LOCATION, v).apply()
@@ -184,6 +213,10 @@ class Prefs(context: Context) {
         private const val KEY_ONBOARDED = "onboarded"
         private const val KEY_USE_LOCATION = "useLocation"
         private const val KEY_TRACK_SOURCE = "defaultTrackingSource"
+        private const val KEY_ALERT_TRIGGER = "defaultAlertTrigger"
+        private const val KEY_ALERT_FEEDBACK = "defaultAlertFeedback"
+        private const val KEY_ALERT_INTERVAL = "defaultAlertInterval"
+        private const val KEY_ALERT_DISTANCE = "defaultAlertDistance"
         private const val KEY_RECENT = "recent"
         private const val KEY_CROWD = "crowdReports"
         private const val KEY_MIRROR_CACHE = "mirrorCache"

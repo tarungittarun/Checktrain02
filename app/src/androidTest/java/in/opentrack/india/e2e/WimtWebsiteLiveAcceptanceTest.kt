@@ -66,7 +66,7 @@ class WimtWebsiteLiveAcceptanceTest {
                 badge = E2E.text("provenance", 250)
                 warning = E2E.text("connectionAlert", 250)
                 eventFreshness = E2E.text("age", 250)
-                val reported = headline.startsWith("Last site card ·") &&
+                val reported = headline.startsWith("Last qualifying website event ·") &&
                     badge.contains("run inferred", true) &&
                     eventFreshness.startsWith("Site ") && eventFreshness.contains("ago")
                 if (reported) { accepted = true; break }

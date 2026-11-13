@@ -179,6 +179,13 @@ class LiveViewModel(
         val railYatriClaim: PublicPageChecks.StationClaim? = null,
         /** The .org.in site's own past-card claims, not Google's app or verified GPS. */
         val orgWebsiteReport: `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.Report? = null,
+        /** Visible .org.in cards, including forecasts/duplicates when none qualifies as an event. */
+        val orgWebsiteCards: List<`in`.opentrack.india.v2.mirror.OrgWebsiteStatus.SiteCardClaim> = emptyList(),
+        /** Route-matched website display clocks, separate from event ledger and marker. */
+        val orgWebsiteSiteClocks: Map<String, `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.SiteClocks> = emptyMap(),
+        /** Site publication clock/precision; neither is an app receipt or train event. */
+        val orgWebsitePageUpdatedAt: Long? = null,
+        val orgWebsitePageClockHasSeconds: Boolean = false,
         /** Last eligible site past card beside *missing* NTES clocks. Never selects that site. */
         val orgWebsiteComparisonReport: `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.Report? = null,
         /** R139 diagnostic from that *same* reply; never drives the marker or Actual cells. */
@@ -418,11 +425,19 @@ class LiveViewModel(
                 // A failed HTTP ask must not erase a previously valid observation. Its
                 // page clock is NOT refreshed: keep the older event and surface the
                 // failed request separately, so fallback selection cannot call it new.
-                val previousReport = publicChecks[name]?.orgReport
-                publicChecks[name] = if (name == PublicPageChecks.ORG &&
-                    resolved.orgReport == null && !resolved.pageAnswered && previousReport != null)
-                    resolved.copy(orgReport = previousReport,
-                        detail = resolved.detail + " · previous website report retained, not refreshed")
+                val previousWebsite = publicChecks[name]
+                val previousReport = previousWebsite?.orgReport
+                val retainPreviousWebsite = name == PublicPageChecks.ORG && !resolved.pageAnswered &&
+                    (previousReport != null || previousWebsite?.orgSiteCards?.isNotEmpty() == true)
+                publicChecks[name] = if (retainPreviousWebsite) resolved.copy(
+                    orgReport = previousReport,
+                    orgSiteCards = previousWebsite?.orgSiteCards.orEmpty(),
+                    orgSiteClocks = previousWebsite?.orgSiteClocks.orEmpty(),
+                    orgSitePageUpdatedAt = previousWebsite?.orgSitePageUpdatedAt,
+                    orgSitePageClockHasSeconds = previousWebsite?.orgSitePageClockHasSeconds == true,
+                    orgQualificationNote = previousWebsite?.orgQualificationNote
+                        ?: resolved.orgQualificationNote,
+                    detail = resolved.detail + " · previous website card data retained, not refreshed")
                 else resolved
                 Diary.get()?.log("EVIDENCE") {
                     SourceEvidenceReceipt.publicPage(name, trainNo, originEpochDay,
@@ -2329,6 +2344,14 @@ class LiveViewModel(
             wimtIntermediate = wimtIntermediateForUi,
             railYatriClaim = railClaim,
             orgWebsiteReport = orgReport,
+            orgWebsiteCards = publicChecks[PublicPageChecks.ORG]?.orgSiteCards
+                .takeIf { mirrorActiveSource == PublicPageChecks.ORG }.orEmpty(),
+            orgWebsiteSiteClocks = publicChecks[PublicPageChecks.ORG]?.orgSiteClocks
+                .takeIf { mirrorActiveSource == PublicPageChecks.ORG }.orEmpty(),
+            orgWebsitePageUpdatedAt = publicChecks[PublicPageChecks.ORG]?.orgSitePageUpdatedAt
+                .takeIf { mirrorActiveSource == PublicPageChecks.ORG },
+            orgWebsitePageClockHasSeconds = publicChecks[PublicPageChecks.ORG]
+                ?.orgSitePageClockHasSeconds == true && mirrorActiveSource == PublicPageChecks.ORG,
             orgWebsiteComparisonReport = oldWebsiteComparison,
             orgWebsiteDistanceProbe = publicChecks[PublicPageChecks.ORG]?.orgDistanceProbe
                 ?.takeIf { selected == PublicPageChecks.ORG },

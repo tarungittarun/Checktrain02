@@ -578,7 +578,7 @@ Render.save("02-track-live", shot.bitmap)
                 root.findViewById<TextView>(R.id.age).text =
                     "Site arrival · event 2 min ago · page age 20s at check"
                 root.findViewById<TextView>(R.id.headline).text =
-                    "Last mapped website card · Bhadravati 10:07"
+                    "Last qualifying website event · Tarikere 20:35"
                 root.findViewById<TextView>(R.id.delay).text = "+159m late · 10:07"
                 root.findViewById<TextView>(R.id.next).text =
                     "Tarikere Jn\nTimetable 07:47 · past clock"
@@ -589,7 +589,7 @@ Render.save("02-track-live", shot.bitmap)
                 if (!expanded) {
                     root.findViewById<View>(R.id.heroDetailsScroll).visibility = View.GONE
                     root.findViewById<TextView>(R.id.compactReport).apply {
-                        text = "Website last card · Bhadravati 10:07"
+                        text = "Latest website card · Bhadravati 20:49 / 20:50"
                         visibility = View.VISIBLE
                     }
                 }

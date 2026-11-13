@@ -12,11 +12,12 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import `in`.opentrack.india.R
+import `in`.opentrack.india.ui.AlertsActivity
 import `in`.opentrack.india.ui.TrainActivity
 
 internal object JourneyAlarmNotifications {
+    /** One foreground-service summary for the monitor; terminal notices are alert-ID scoped. */
     const val MONITOR_ID = 7201
-    const val ALERT_ID = 7202
     const val MONITOR_CHANNEL = "journey_monitor"
     const val NOTIFICATION_CHANNEL = "journey_alert_notification"
     const val VIBRATION_CHANNEL = "journey_alert_vibration"
@@ -53,43 +54,53 @@ internal object JourneyAlarmNotifications {
         ).apply { setSound(null, null); enableVibration(false); setShowBadge(false) })
     }
 
-    fun monitoring(context: Context, snapshot: JourneyAlarmSnapshot): Notification {
-        val c = snapshot.config
-        val text = snapshot.status.ifBlank {
-            "Waiting for a qualifying report at ${c.triggerName} · checks about every ${c.intervalMinutes} min"
+    fun monitoring(context: Context, snapshots: List<JourneyAlarmSnapshot>): Notification {
+        val armed = snapshots.count { it.state == AlertState.ARMED }
+        val ringing = snapshots.count { it.state == AlertState.RINGING }
+        val detail = buildString {
+            append("${snapshots.size} alert${if (snapshots.size == 1) "" else "s"} active")
+            if (armed > 0) append(" · $armed monitoring")
+            if (ringing > 0) append(" · $ringing ringing")
+            snapshots.firstOrNull { it.state == AlertState.ARMED }?.status?.takeIf { it.isNotBlank() }
+                ?.let { append("\n").append(it) }
         }
         return NotificationCompat.Builder(context, MONITOR_CHANNEL)
             .setSmallIcon(R.drawable.ic_notification_train)
-            .setContentTitle("Arrival alert · train ${c.trainNo}")
-            .setContentText(text)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
-            .setContentIntent(openTrain(context, c))
+            .setContentTitle("Arrival alerts · TrackTrain")
+            .setContentText(detail.replace('\n', ' '))
+            .setStyle(NotificationCompat.BigTextStyle().bigText(detail))
+            .setContentIntent(openAlerts(context))
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
-            .addAction(R.drawable.ic_notification_train, "Cancel alert",
-                serviceAction(context, JourneyAlarmService.ACTION_CANCEL, 7203))
+            .addAction(R.drawable.ic_notification_train, "View alerts", openAlerts(context))
             .build()
     }
 
-    fun ringing(context: Context, config: JourneyAlarmConfig, title: String, detail: String): Notification =
-        NotificationCompat.Builder(context, RING_CHANNEL)
+    fun monitoring(context: Context, snapshot: JourneyAlarmSnapshot): Notification =
+        monitoring(context, listOf(snapshot))
+
+    fun ringing(context: Context, snapshot: JourneyAlarmSnapshot, title: String, detail: String): Notification {
+        val c = snapshot.config
+        return NotificationCompat.Builder(context, RING_CHANNEL)
             .setSmallIcon(R.drawable.ic_notification_train)
-            .setContentTitle("TrackTrain alarm · ${config.trainNo}")
+            .setContentTitle("TrackTrain alarm · ${c.trainNo}")
             .setContentText("$title · $detail")
             .setStyle(NotificationCompat.BigTextStyle().bigText("$title\n$detail\nRing stops when you tap Stop alarm."))
-            .setContentIntent(openTrain(context, config))
+            .setContentIntent(openTrain(context, snapshot))
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
             .addAction(R.drawable.ic_notification_train, "Stop alarm", serviceAction(context,
-                JourneyAlarmService.ACTION_STOP_RINGING, 7204))
+                JourneyAlarmService.ACTION_STOP_RINGING, snapshot.id, snapshot.id))
             .build()
+    }
 
-    fun triggered(context: Context, config: JourneyAlarmConfig, title: String,
+    fun triggered(context: Context, snapshot: JourneyAlarmSnapshot, title: String,
                   detail: String, missed: Boolean = false) {
+        val config = snapshot.config
         val channel = if (missed) MISSED_CHANNEL else when (config.feedback) {
             AlertFeedback.NOTIFICATION -> NOTIFICATION_CHANNEL
             AlertFeedback.VIBRATION -> VIBRATION_CHANNEL
@@ -97,10 +108,10 @@ internal object JourneyAlarmNotifications {
         }
         val builder = NotificationCompat.Builder(context, channel)
             .setSmallIcon(R.drawable.ic_notification_train)
-            .setContentTitle(if (missed) "Arrival alert · not reached in time" else "Train ${config.trainNo} · $title")
+            .setContentTitle(if (missed) "Arrival alert · not reported in time" else "Train ${config.trainNo} · $title")
             .setContentText(detail)
             .setStyle(NotificationCompat.BigTextStyle().bigText(detail))
-            .setContentIntent(openTrain(context, config))
+            .setContentIntent(openTrain(context, snapshot))
             .setCategory(if (missed) NotificationCompat.CATEGORY_STATUS else NotificationCompat.CATEGORY_ALARM)
             .setAutoCancel(true)
             .setOnlyAlertOnce(true)
@@ -113,15 +124,33 @@ internal object JourneyAlarmNotifications {
                 AlertFeedback.RING_UNTIL_STOPPED -> Unit
             }
         }
-        NotificationManagerCompat.from(context).notify(ALERT_ID, builder.build())
+        NotificationManagerCompat.from(context).notify(snapshot.id, builder.build())
     }
 
-    fun cancel(context: Context) {
+    fun cancelAlert(context: Context, id: Int) {
+        NotificationManagerCompat.from(context).cancel(id)
+    }
+
+    fun cancelMonitor(context: Context) {
         NotificationManagerCompat.from(context).cancel(MONITOR_ID)
-        NotificationManagerCompat.from(context).cancel(ALERT_ID)
     }
 
-    private fun openTrain(context: Context, c: JourneyAlarmConfig): PendingIntent {
+    /** Legacy/global cancel helper. */
+    fun cancel(context: Context) {
+        JourneyAlarmStore.readAll(context).forEach { cancelAlert(context, it.id) }
+        cancelMonitor(context)
+    }
+
+    private fun openAlerts(context: Context): PendingIntent {
+        val intent = Intent(context, AlertsActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        return PendingIntent.getActivity(context, 7200, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    }
+
+    private fun openTrain(context: Context, snapshot: JourneyAlarmSnapshot): PendingIntent {
+        val c = snapshot.config
         val intent = Intent(context, TrainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra(TrainActivity.EXTRA_TRAIN_NO, c.trainNo)
@@ -129,12 +158,13 @@ internal object JourneyAlarmNotifications {
             putExtra(TrainActivity.EXTRA_TO, c.toCode)
             putExtra(TrainActivity.EXTRA_ORIGIN_EPOCH_DAY, c.originEpochDay)
         }
-        return PendingIntent.getActivity(context, 7205, intent,
+        return PendingIntent.getActivity(context, snapshot.id, intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     }
 
-    private fun serviceAction(context: Context, action: String, requestCode: Int): PendingIntent {
+    private fun serviceAction(context: Context, action: String, alertId: Int, requestCode: Int): PendingIntent {
         val intent = Intent(context, JourneyAlarmService::class.java).setAction(action)
+            .putExtra(JourneyAlarmService.EXTRA_ALERT_ID, alertId)
         val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
             PendingIntent.getForegroundService(context, requestCode, intent, flags)

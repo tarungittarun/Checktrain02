@@ -76,6 +76,12 @@
         </activity>
 
         <activity
+            android:name=".ui.AlertsActivity"
+            android:exported="false"
+            android:label="@string/alerts"
+            android:parentActivityName=".ui.MainActivity" />
+
+        <activity
             android:name=".ui.SettingsActivity"
             android:exported="false"
             android:label="@string/settings"

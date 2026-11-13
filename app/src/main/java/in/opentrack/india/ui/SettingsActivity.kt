@@ -10,6 +10,8 @@ import `in`.opentrack.india.core.Diary
 import androidx.lifecycle.lifecycleScope
 import `in`.opentrack.india.App
 import `in`.opentrack.india.data.Prefs
+import `in`.opentrack.india.alarm.AlertFeedback
+import `in`.opentrack.india.alarm.AlertTrigger
 import `in`.opentrack.india.databinding.ActivitySettingsBinding
 import kotlinx.coroutines.launch
 import `in`.opentrack.india.BuildConfig
@@ -70,6 +72,51 @@ class SettingsActivity : AppCompatActivity() {
         }
     }
 
+    private fun setupAlertDefaults() {
+        fun spinner(spinner: android.widget.Spinner, labels: List<String>, selected: Int,
+                    onSelection: (Int) -> Unit) {
+            spinner.adapter = object : ArrayAdapter<String>(this,
+                android.R.layout.simple_spinner_item, labels) {
+                override fun getView(position: Int, convertView: View?,
+                                     parent: android.view.ViewGroup): View =
+                    super.getView(position, convertView, parent).also { BatteryMode.paint(it) }
+                override fun getDropDownView(position: Int, convertView: View?,
+                                             parent: android.view.ViewGroup): View =
+                    super.getDropDownView(position, convertView, parent).also { BatteryMode.paint(it) }
+            }.also { it.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
+            spinner.setSelection(selected.coerceIn(labels.indices), false)
+            spinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                    if (position in labels.indices) onSelection(position)
+                }
+                override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+            }
+        }
+        val triggers = listOf(AlertTrigger.DESTINATION_REPORT, AlertTrigger.PREVIOUS_STOP_REPORT,
+            AlertTrigger.PHONE_DISTANCE)
+        spinner(binding.defaultAlertTrigger,
+            listOf("Destination · live source report", "Preceding station · live source report",
+                "Phone distance · location"), triggers.indexOf(prefs.defaultAlertTrigger)) {
+            prefs.defaultAlertTrigger = triggers[it]
+        }
+        val feedback = listOf(AlertFeedback.NOTIFICATION, AlertFeedback.VIBRATION,
+            AlertFeedback.RING_UNTIL_STOPPED)
+        spinner(binding.defaultAlertFeedback,
+            listOf("Notification · one alert", "Vibration · one pattern", "Ring until stopped"),
+            feedback.indexOf(prefs.defaultAlertFeedback)) { prefs.defaultAlertFeedback = feedback[it] }
+        val intervals = listOf(1, 2, 5)
+        spinner(binding.defaultAlertInterval,
+            intervals.map { "$it ${if (it == 1) "minute" else "minutes"}" },
+            intervals.indexOf(prefs.defaultAlertIntervalMinutes)) {
+            prefs.defaultAlertIntervalMinutes = intervals[it]
+        }
+        val distances = listOf(2, 5, 10)
+        spinner(binding.defaultAlertDistance, distances.map { "$it km · straight-line" },
+            distances.indexOf(prefs.defaultAlertDistanceKm)) {
+            prefs.defaultAlertDistanceKm = distances[it]
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivitySettingsBinding.inflate(layoutInflater)
@@ -97,6 +144,7 @@ class SettingsActivity : AppCompatActivity() {
             }
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
+        setupAlertDefaults()
         binding.batteryMode.isChecked = prefs.batteryMode
         binding.batteryMode.setOnCheckedChangeListener { _, enabled ->
             if (prefs.batteryMode != enabled) {

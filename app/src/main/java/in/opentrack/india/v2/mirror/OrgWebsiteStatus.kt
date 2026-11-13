@@ -18,23 +18,46 @@ object OrgWebsiteStatus {
     /** A station in the independent STATIC map, not a measured GPS point or live route km. */
     data class Intermediate(val code: String, val name: String, val precedingHalt: String,
                             val followingHalt: String, val mapKm: Int, val scheduledMinute: Int)
-    /** First clocks printed in a route-matched website card. White forecasts
-     * remain available for diagnostics but are suppressed from the route table.
-     * These are never TrackModel events or evidence for a train marker. */
-    data class SiteClocks(val arrivalMin: Int?, val departureMin: Int?, val forecast: Boolean)
-    enum class SiteCardMark { PAST, HIGHLIGHTED }
-    /** A clock exactly as displayed in a source-coloured card, including its
-     * grey page schedule when present. This is intentionally separate from the
-     * stricter event cells in [Report.rows]. */
-    data class SiteCardTime(val minute: Int, val pageScheduleMinute: Int?)
-    /** The newest green/blue website card, even when its clock cannot qualify
-     * as a distinct report. It is a page claim, never an independently verified event. */
+    /** The website card's colour is source UI state, not proof that a train moved. */
+    enum class SiteCardMark { PAST, HIGHLIGHTED, UPCOMING }
+
+    /** First and second (grey timetable) clocks printed in a route-matched card.
+     * Extra labels remain comparison-only; none are TrackModel events or marker evidence. */
+    data class SiteClocks(
+        val arrivalMin: Int?,
+        val departureMin: Int?,
+        val forecast: Boolean,
+        val arrivalScheduleMin: Int? = null,
+        val departureScheduleMin: Int? = null,
+        val stationName: String? = null,
+        val platform: String? = null,
+        val statusText: String? = null,
+        val mark: SiteCardMark? = null,
+        /** A same-code later card omitted its departure; the earlier card's displayed value is retained. */
+        val latestCardArrivalOnly: Boolean = false,
+        val cardCount: Int = 1,
+    )
+
+    /** Printed clock plus the page's own grey timetable clock and original text. */
+    data class SiteCardTime(
+        val minute: Int,
+        val pageScheduleMinute: Int?,
+        val printedText: String? = null,
+        val pageScheduleText: String? = null,
+    )
+
+    /** One website card exactly as rendered. Includes duplicate and upcoming cards so
+     * the comparison can preserve the page without promoting echoes to train events. */
     data class SiteCardClaim(
         val code: String,
         val mark: SiteCardMark,
         val arrival: SiteCardTime?,
         val departure: SiteCardTime?,
         val qualificationNote: String? = null,
+        val stationName: String? = null,
+        val platform: String? = null,
+        val statusText: String? = null,
+        val cardIndex: Int = 0,
     )
     data class Report(
         val rows: Map<String, LiveStopFields>,
@@ -50,10 +73,18 @@ object OrgWebsiteStatus {
         val pageClockHasSeconds: Boolean = false,
         val siteClocks: Map<String, SiteClocks> = emptyMap(),
         val latestSiteCard: SiteCardClaim? = null,
+        /** All parseable visible cards, including white forecasts and repeated station cards. */
+        val siteCards: List<SiteCardClaim> = emptyList(),
     )
     data class Outcome(val report: Report?, val reason: String,
                        /** A source-marked card not admitted as an actual clock or map position. */
-                       val qualificationNote: String? = null)
+                       val qualificationNote: String? = null,
+                       /** Parsed site cards survive even when no card qualifies as a report. */
+                       val siteCards: List<SiteCardClaim> = emptyList(),
+                       /** Route-matched comparison clocks are retained separately from event rows. */
+                       val siteClocks: Map<String, SiteClocks> = emptyMap(),
+                       /** Parsed publication clock remains distinct from app receipt and event times. */
+                       val pageUpdatedAt: Long? = null)
 
     /** Ordered route progress, NOT an absolute km. Map intermediate km and dated halt km
      * can be on different static axes; BEI 905 in a separately mapped leg must still
@@ -104,6 +135,11 @@ object OrgWebsiteStatus {
     // "06:19 AM" inside 06:06:19 and invents a thirteen-minute-future clock.
     private val clock = Regex("(?i)\\b(\\d{1,2}):(\\d{2})(?::\\d{2})?\\s*(AM|PM)\\b")
     private val heading = Regex("(?is)<h3\\b[^>]*>\\s*[^<]*?\\(([A-Z0-9]{1,6})\\)\\s*</h3>")
+    private val headingText = Regex("(?is)<h3\\b[^>]*>(.*?)</h3>")
+    private val cardClass = Regex("(?i)^\\s*<div\\s+class=\"([^\"]+)\"")
+    private val spanTag = Regex("(?is)<span\\b[^>]*>(.*?)</span>")
+    private val platformBadge = Regex("(?i)\\bPF\\s*[A-Z0-9]{1,3}\\b")
+    private val platformValue = Regex("(?i)\\bPF\\s*([A-Z0-9]{1,3})\\b")
     private val updated = Regex("(?i)\\bLast\\s+Updated\\s*:\\s*(\\d{1,2}:\\d{2}(?::\\d{2})?\\s*(?:AM|PM))")
     private val card = Regex("(?i)<!--\\s*Station Details Card\\s*-->")
     private const val DAY = 86_400_000L
@@ -125,6 +161,34 @@ object OrgWebsiteStatus {
         var stamp = RailTime.istEpochDay(now) * DAY - IST_OFFSET + min * 60_000L + seconds * 1000L
         if (stamp > now + 60_000L) stamp -= DAY
         return stamp.takeIf { now - it in 0L..300_000L }
+    }
+
+    private fun plainText(markup: String): String = markup
+        .replace(Regex("(?is)<[^>]*>"), " ")
+        .replace("&amp;", "&", ignoreCase = true)
+        .replace("&nbsp;", " ", ignoreCase = true)
+        .replace("&#160;", " ", ignoreCase = true)
+        .replace("&ndash;", "–", ignoreCase = true)
+        .replace("&mdash;", "—", ignoreCase = true)
+        .replace("&quot;", "\"", ignoreCase = true)
+        .replace("&#39;", "'", ignoreCase = true)
+        .replace("&#x27;", "'", ignoreCase = true)
+        .replace("&lt;", "<", ignoreCase = true)
+        .replace("&gt;", ">", ignoreCase = true)
+        .replace(Regex("\\s+"), " ")
+        .trim()
+
+    private fun pageCardTime(section: String, scheduled: Int?): SiteCardTime? {
+        val clocks = clock.findAll(section.take(900)).take(2).map { it.value.trim() }.toList()
+        val firstText = clocks.firstOrNull() ?: return null
+        val firstRaw = minute(firstText) ?: return null
+        val first = scheduled?.let { RailTime.alignClock(firstRaw, it) } ?: firstRaw
+        val scheduleText = clocks.getOrNull(1)
+        val scheduleRaw = scheduleText?.let(::minute)
+        val schedule = scheduleRaw?.let { raw ->
+            scheduled?.let { RailTime.alignClock(raw, it) } ?: raw
+        }
+        return SiteCardTime(first, schedule, firstText, scheduleText)
     }
 
     /** [route] is the selected origin run's STATIC timetable; it does not attest to any live row. */
@@ -174,6 +238,7 @@ object OrgWebsiteStatus {
             ?: route.stops).associateBy { it.code.uppercase(Locale.ROOT) }
         val rows = linkedMapOf<String, LiveStopFields>()
         val siteClocks = linkedMapOf<String, SiteClocks>()
+        val siteCards = mutableListOf<SiteCardClaim>()
         var anchorCode: String? = null
         var anchorDep = false
         var eventMinute = -1
@@ -186,26 +251,65 @@ object OrgWebsiteStatus {
         var latestSiteCard: SiteCardClaim? = null
         for ((cardIndex, part) in card.split(html).drop(1).withIndex()) {
             val code = heading.find(part)?.groupValues?.get(1)?.uppercase(Locale.ROOT) ?: continue
-            // Green is a past card. The owner's 16205 screenshots and a read-only
-            // 17:20 HTML trial also show a BLUE SMET card with a past 16:48 arrival,
-            // even after later BDVT/MSS cards are green. Blue is not proof by itself:
-            // require a distinct schedule-paired arrival that is already in the past.
-            // White is upcoming and must NEVER create a reported minute.
-            val className = Regex("(?i)^\\s*<div\\s+class=\"([^\"]+)\"").find(part)
-                ?.groupValues?.get(1).orEmpty()
+            // Green is source-marked past, blue is highlighted, and white is upcoming.
+            // None of those styles independently proves that the train moved.
+            val className = cardClass.find(part)?.groupValues?.get(1).orEmpty()
             val pastCard = className.contains("bg-green-50") && className.contains("opacity-90")
             val highlightedCard = className.contains("bg-blue-50")
-            // Retain printed clocks, including white forecasts, for diagnostics.
-            // WebsiteReportDisplay gates the selected-source column to elapsed,
-            // reached-card times; these never become guarded event rows.
+            val mark = when {
+                pastCard -> SiteCardMark.PAST
+                highlightedCard -> SiteCardMark.HIGHLIGHTED
+                else -> SiteCardMark.UPCOMING
+            }
             val halt = route.stops.firstOrNull { it.code.equals(code, true) }
+            val arrSection = part.substringAfter("<!-- Arrival -->", "")
+                .substringBefore("<!-- Departure -->")
+            val depSection = part.substringAfter("<!-- Departure -->", "").take(900)
+            // Keep the literal display for every card (including duplicate and white cards).
+            // These values are separate from the narrowly qualified `rows` event ledger.
+            val rawArrival = pageCardTime(arrSection, halt?.arrivalMin)
+            val rawDeparture = pageCardTime(depSection, halt?.departureMin)
+            val cardHeader = part.substringBefore("<!-- Arrival -->")
+            val headingMarkup = headingText.find(cardHeader)?.groupValues?.get(1).orEmpty()
+            val stationName = plainText(headingMarkup).let { title ->
+                val suffix = " ($code)"
+                if (title.endsWith(suffix, ignoreCase = true)) title.dropLast(suffix.length).trim()
+                else title
+            }.takeIf { it.isNotBlank() }
+            val badgeTexts = spanTag.findAll(cardHeader)
+                .map { plainText(it.groupValues[1]) }.filter { it.isNotBlank() }.toList()
+            val platform = badgeTexts.firstOrNull { platformBadge.containsMatchIn(it) }?.let {
+                platformValue.find(it)?.groupValues?.get(1)
+            }
+            val statusText = badgeTexts.firstOrNull { !it.contains("PF", ignoreCase = true) }
+            val scheduleEcho = listOfNotNull(rawArrival, rawDeparture).any { time ->
+                time.pageScheduleMinute != null && time.minute == time.pageScheduleMinute
+            }
+            val cardClaim = SiteCardClaim(
+                code = code, mark = mark, arrival = rawArrival, departure = rawDeparture,
+                qualificationNote = if (scheduleEcho)
+                    "A displayed clock matches the page timetable; it is not a distinct actual report."
+                else null,
+                stationName = stationName, platform = platform, statusText = statusText,
+                cardIndex = cardIndex,
+            )
+            siteCards += cardClaim
+            if (mark != SiteCardMark.UPCOMING && cardIndex > latestSiteCardIndex) {
+                latestSiteCard = cardClaim
+                latestSiteCardIndex = cardIndex
+            }
+
+            // The route-table comparison uses the same page values only when they can be
+            // aligned to the selected timetable without a gross mismatch. This is still a
+            // WEBSITE claim; it never seeds the event/position rows by itself.
             var shownArrival: SiteCardTime? = null
             var shownDeparture: SiteCardTime? = null
             if (halt != null) {
                 fun firstClock(section: String, scheduled: Int?): SiteCardTime? {
                     if (scheduled == null) return null
-                    val clocks = clock.findAll(section.take(650)).take(2).map { it.value }.toList()
-                    val first = clocks.firstOrNull()?.let(::minute) ?: return null
+                    val clocks = clock.findAll(section.take(650)).map { it.value.trim() }.take(2).toList()
+                    val firstText = clocks.firstOrNull() ?: return null
+                    val first = minute(firstText) ?: return null
                     val aligned = RailTime.alignClock(first, scheduled) ?: return null
                     val hasSchedulePair = clocks.size == 2
                     val pageSchedule = if (hasSchedulePair) {
@@ -216,51 +320,47 @@ object OrgWebsiteStatus {
                         if (abs(aligned - scheduled) > 3) return null
                         null
                     }
-                    // Keep the exact first and (when printed) second page clock in
-                    // the WEBSITE comparison. The second clock is the site's own
-                    // grey schedule, not a substitute from our static timetable.
-                    // Neither clock enters the event ledger unless it passes the
-                    // stricter event gate below.
+                    // The second clock remains the site's own printed timetable value.
                     return if ((aligned != scheduled || hasSchedulePair) &&
                         aligned in originDep..(originDep + 1440) && abs(aligned - scheduled) <= 360)
-                        SiteCardTime(aligned, pageSchedule) else null
+                        SiteCardTime(aligned, pageSchedule, firstText, clocks.getOrNull(1)) else null
                 }
-                // The first clock is the site's displayed value; the second grey
-                // clock is its schedule. Preserve an exact match in SiteClocks so
-                // an on-time arrival is not lost from the WEBSITE comparison.
-                // It does not enter `rows` below unless it passes the stricter
-                // event gate. Also reject a backwards pair even if both differ.
-                val shownArr = firstClock(part.substringAfter("<!-- Arrival -->", "")
-                    .substringBefore("<!-- Departure -->"), halt.arrivalMin)
-                val shownDep = firstClock(part.substringAfter("<!-- Departure -->", "")
-                    .take(900), halt.departureMin)
+                val shownArr = firstClock(arrSection, halt.arrivalMin)
+                val shownDep = firstClock(depSection, halt.departureMin)
                     ?.takeUnless { shownArr != null && it.minute < shownArr.minute }
                 shownArrival = shownArr
                 shownDeparture = shownDep
-                val candidate = SiteClocks(shownArr?.minute, shownDep?.minute,
-                    !pastCard && !highlightedCard)
-                val previous = siteClocks[code]
-                if ((shownArr != null || shownDep != null) &&
-                    (previous == null || listOfNotNull(shownArr, shownDep).size >
-                        listOfNotNull(previous.arrivalMin, previous.departureMin).size))
-                    siteClocks[code] = candidate
-            }
-            if ((pastCard || highlightedCard) && cardIndex > latestSiteCardIndex) {
-                val arrival = shownArrival
-                val departure = shownDeparture
-                val scheduleEcho = listOfNotNull(arrival, departure).any { time ->
-                    time.pageScheduleMinute != null && time.minute == time.pageScheduleMinute
+                if (shownArr != null || shownDep != null) {
+                    val candidate = SiteClocks(
+                        arrivalMin = shownArr?.minute,
+                        departureMin = shownDep?.minute,
+                        forecast = mark == SiteCardMark.UPCOMING,
+                        arrivalScheduleMin = shownArr?.pageScheduleMinute,
+                        departureScheduleMin = shownDep?.pageScheduleMinute,
+                        stationName = stationName,
+                        platform = platform,
+                        statusText = statusText,
+                        mark = mark,
+                        latestCardArrivalOnly = shownArr != null && shownDep == null,
+                    )
+                    val previous = siteClocks[code]
+                    siteClocks[code] = when {
+                        previous == null -> candidate
+                        previous.mark != SiteCardMark.UPCOMING && candidate.forecast ->
+                            previous.copy(cardCount = previous.cardCount + 1)
+                        else -> candidate.copy(
+                            arrivalMin = shownArr?.minute ?: previous.arrivalMin,
+                            departureMin = shownDep?.minute ?: previous.departureMin,
+                            arrivalScheduleMin = shownArr?.pageScheduleMinute ?: previous.arrivalScheduleMin,
+                            departureScheduleMin = shownDep?.pageScheduleMinute ?: previous.departureScheduleMin,
+                            stationName = stationName ?: previous.stationName,
+                            platform = platform ?: previous.platform,
+                            statusText = statusText ?: previous.statusText,
+                            latestCardArrivalOnly = shownArr != null && shownDep == null,
+                            cardCount = previous.cardCount + 1,
+                        )
+                    }
                 }
-                latestSiteCard = SiteCardClaim(
-                    code = code,
-                    mark = if (pastCard) SiteCardMark.PAST else SiteCardMark.HIGHLIGHTED,
-                    arrival = arrival,
-                    departure = departure,
-                    qualificationNote = if (scheduleEcho)
-                        "A displayed clock matches the page timetable; it is not a distinct actual report."
-                    else null,
-                )
-                latestSiteCardIndex = cardIndex
             }
             if (!pastCard && !highlightedCard) continue
             val stop = byCode[code]
@@ -276,8 +376,6 @@ object OrgWebsiteStatus {
                 continue
             }
             if (stop.seq <= previousSeq) continue
-            val arrSection = part.substringAfter("<!-- Arrival -->", "").substringBefore("<!-- Departure -->")
-            val depSection = part.substringAfter("<!-- Departure -->", "").take(900)
             fun published(section: String, scheduled: Int?, originDeparture: Boolean = false): Pair<Int, Int>? {
                 // A non-halt has no separately published timetable minute in our map.
                 // Require the page's second clock to lie between its two official halt
@@ -354,7 +452,7 @@ object OrgWebsiteStatus {
             "; ${excluded.size} source-coloured past card(s) omitted from Actual (timetable echo or unmapped station)"
         if (anchorCode == null) return Outcome(null, "no past-marked, schedule-paired website station minute for this run" +
             if (laterThanPage > 0) "; $laterThanPage claimed event(s) later than the page update clock rejected" else "",
-            qualification)
+            qualification, siteCards.toList(), siteClocks.toMap(), stamp)
         // The owner's 20689 diary shows the last green card's BDVT departure
         // changing 13:47→13:48→13:51→13:52 as the page clock advanced. It is
         // NOT a settled historic departure until another station has been reached.
@@ -369,11 +467,11 @@ object OrgWebsiteStatus {
             true, intermediate, provisional,
             updated.find(body)?.groupValues?.get(1)?.let {
                 Regex("\\d{1,2}:\\d{2}:\\d{2}").containsMatchIn(it)
-            } == true, siteClocks, latestCardClaim)
+            } == true, siteClocks, latestCardClaim, siteCards)
         return Outcome(report,
             "${rows.size} website-published past station rows; " +
                 (if (laterThanPage > 0) "$laterThanPage claimed event(s) later than the page update clock rejected; " else "") +
                 "origin day inferred from timetable, not stated by site; clocks are site claims, not independently verified observations" + omitted,
-            qualification)
+            qualification, siteCards.toList(), siteClocks.toMap(), stamp)
     }
 }

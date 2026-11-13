@@ -12,15 +12,24 @@ object SourceEvidenceReceipt {
             result.pageAnswered -> "NETWORK_ANSWER"
             else -> "FAILED_OR_UNUSABLE"
         }
-        val parsed = if (result.orgReport != null) "SITE_COMPARISON" else "NO_DATED_EVENT"
-        val identity = if (result.orgReport?.originInferred == true) "INFERRED" else "UNVERIFIED"
+        val parsed = when {
+            result.orgReport != null -> "SITE_COMPARISON"
+            result.orgSiteCards.isNotEmpty() -> "SITE_CARDS_ONLY"
+            else -> "NO_DATED_EVENT"
+        }
+        val identity = when {
+            result.orgReport?.originInferred == true -> "INFERRED"
+            result.orgSiteCards.isNotEmpty() -> "INFERRED_FOR_PAGE_DISPLAY_ONLY"
+            else -> "UNVERIFIED"
+        }
         val siteClaim = result.orgReport?.let { it.anchorCode + ":" + it.eventMinute } ?: "none"
         return "source=$source train=$train originDay=$originDay " +
             "transport=$transport bytes=${result.responseBytes} sha256_16=${result.responseDigest ?: "none"} " +
             "parsed=$parsed runIdentity=$identity primaryActuals=0 primaryMarker=none " +
-            "siteRows=${result.orgReport?.rows?.size ?: 0} siteClaim=$siteClaim " +
-            "pagePublishedAt=${result.orgReport?.pageUpdatedAt ?: "unknown"} " +
-            "checkedAt=${result.checkedAt}"
+            "siteRows=${result.orgReport?.rows?.size ?: 0} siteCards=${result.orgSiteCards.size} " +
+            "siteDisplayStops=${result.orgSiteClocks.size} siteClaim=$siteClaim " +
+            "pagePublishedAt=${result.orgReport?.pageUpdatedAt ?: result.orgSitePageUpdatedAt ?: "unknown"} " +
+            "pageClockHasSeconds=${result.orgSitePageClockHasSeconds} checkedAt=${result.checkedAt}"
     }
 
     fun official(train: String, originDay: Long, receipt: OfficialRequestReceipt,

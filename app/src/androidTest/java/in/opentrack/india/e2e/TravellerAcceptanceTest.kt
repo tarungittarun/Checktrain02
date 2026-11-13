@@ -230,6 +230,8 @@ class TravellerAcceptanceTest {
         var labelSizeSp = 0f
         var labelBold = false
         var fill = 0
+        var expectedFill = 0
+        var expectedInk = 0
         var targetWidthDp = 0f
         var targetHeightDp = 0f
         var refreshDescription = ""
@@ -247,16 +249,20 @@ class TravellerAcceptanceTest {
             labelBold = text?.typeface?.isBold == true
             fill = (button.background as? android.graphics.drawable.GradientDrawable)
                 ?.color?.defaultColor ?: 0
+            expectedFill = activity.getColor(`in`.opentrack.india.R.color.refresh_surface)
+            expectedInk = activity.getColor(`in`.opentrack.india.R.color.refresh_ink)
             targetWidthDp = button.width / activity.resources.displayMetrics.density
             targetHeightDp = button.height / activity.resources.displayMetrics.density
             refreshDescription = button.contentDescription?.toString().orEmpty()
         }
         assertTrue("Battery Refresh label is absent or too small: '$label' $labelSizeSp sp",
             label == "Refresh" && labelSizeSp >= 12f && labelBold)
-        assertEquals("Battery Refresh must invert to white on the black OLED surface",
-            android.graphics.Color.WHITE, fill)
-        assertEquals("Battery Refresh's white button requires black label ink",
-            android.graphics.Color.BLACK, labelColor)
+        assertEquals("Battery Refresh uses its app accent, not a full white tile",
+            expectedFill, fill)
+        assertTrue("Battery Refresh accent must remain distinct from OLED black/white",
+            fill != android.graphics.Color.BLACK && fill != android.graphics.Color.WHITE)
+        assertEquals("Battery Refresh uses readable ink for its accent surface",
+            expectedInk, labelColor)
         assertTrue("Battery Refresh target is below 48dp: $targetWidthDp × $targetHeightDp",
             targetWidthDp >= 48f && targetHeightDp >= 48f)
         assertTrue("Battery Refresh has no spoken action label",
@@ -357,16 +363,25 @@ class TravellerAcceptanceTest {
         assertTrue("Saved alert is not visible on its control",
             E2E.text("arrivalAlert") == "Alert on")
         E2E.shot("traveller-alert-saved")
-        assertTrue("Saved alert details cannot be reopened", E2E.tap("arrivalAlert"))
-        assertTrue("Saved distance trigger is not identified",
+        assertTrue("Saved alert actions cannot be reopened", E2E.tap("arrivalAlert"))
+        assertTrue("A second alert cannot be added for the same journey",
+            E2E.ui.wait(Until.hasObject(By.text("Add another")), E2E.LOCAL_MS))
+        assertTrue("Central alert management is not reachable from the journey",
+            tapTextContains("Manage alerts"))
+        assertTrue("The central alert list did not open",
+            E2E.ui.wait(Until.hasObject(By.textContains("ACTIVE ALERTS")), E2E.LOCAL_MS))
+        assertTrue("Active alert history does not identify its trigger",
             E2E.ui.wait(Until.hasObject(By.textContains("Within 2 km")), E2E.LOCAL_MS))
-        assertTrue("Saved vibration preference is not identified",
+        assertTrue("Active alert history lost the selected feedback",
             E2E.ui.wait(Until.hasObject(By.textContains("Vibration · one pattern")), E2E.LOCAL_MS))
-        assertTrue("Saved five-minute low-work interval is not identified",
-            E2E.ui.wait(Until.hasObject(By.textContains("Check interval · 5 minutes")), E2E.LOCAL_MS))
-        assertTrue("An armed alert has no clear cancel action", tapTextContains("Cancel alert"))
-        assertTrue("Cancel alert did not clear the saved monitor",
-            E2E.ui.wait(Until.hasObject(By.text("Alert")), E2E.NETWORK_MS))
+        assertTrue("Active alert history lost the selected interval",
+            E2E.ui.wait(Until.hasObject(By.textContains("check every 5 minutes")), E2E.LOCAL_MS))
+        assertTrue("An armed alert has no ID-scoped cancel action", tapTextContains("Cancel alert"))
+        assertTrue("Cancellation is not retained in past alert history",
+            E2E.ui.wait(Until.hasObject(By.textContains("Stopped or cancelled")), E2E.LOCAL_MS))
+        E2E.ui.pressBack()
+        assertTrue("Cancel alert did not return to the journey screen",
+            E2E.ui.wait(Until.hasObject(E2E.res("arrivalAlert")), E2E.NETWORK_MS))
         assertEquals("Alert", E2E.text("arrivalAlert"))
     }
 

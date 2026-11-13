@@ -678,7 +678,7 @@ class TrackingFlowTest {
             // viewport while the run-inference badge is above it. Capture the
             // selected choice, then physically scroll to see the badge; do not
             // waive the inference disclosure for a reported website position.
-            if (badge.isBlank() && (headline.startsWith("Last mapped website card") ||
+            if (badge.isBlank() && (headline.startsWith("Last qualifying website event") ||
                     headline.startsWith("Recently reported near "))) {
                 E2E.reveal("heroToggle", "scroller", swipes = 5, up = false)
                 E2E.reveal("provenance", "heroDetailsScroll", swipes = 4, up = false)
@@ -690,7 +690,7 @@ class TrackingFlowTest {
                 chooser.contains("Selected Where Is My Train · website", true) ||
                 warning.contains("whereismytrain.org.in (website)", true)
             identified = siteVisible &&
-                ((headline.startsWith("Last mapped website card") ||
+                ((headline.startsWith("Last qualifying website event") ||
                     headline.startsWith("Recently reported near ")) && badge.contains("run inferred") ||
                     headline.contains("no qualifying past-stop report") ||
                     // A future origin with no site past card is timetable-only.
@@ -713,7 +713,7 @@ class TrackingFlowTest {
             "WEBSITE", E2E.text("routeHeadActual"))
         val live = rowTexts("liveArr") + rowTexts("liveDep")
         assertTrue("selected-source clocks absent from website table", live.isNotEmpty())
-        val reported = E2E.text("headline").startsWith("Last mapped website card")
+        val reported = E2E.text("headline").startsWith("Last qualifying website event")
         val spoken = E2E.all(By.res(E2E.PKG, "liveArr"))
             .map { it.contentDescription.orEmpty() }
         assertTrue("selected site borrowed NTES arrival provenance: $spoken",
@@ -729,8 +729,9 @@ class TrackingFlowTest {
                     rowTexts("stopTimeType").none { it == "WEB" || it == "WEB?" })
             assertTrue("website cells lost source attribution: $spoken",
                 spoken.any { it.startsWith("Website displayed arrival") } || inlineClaim)
-            assertTrue("unreached website estimates must not be painted as station arrivals: $spoken",
-                spoken.none { it.startsWith("Website forecast arrival") })
+            assertTrue("any unreached website estimate must remain visibly forecast-labelled: $spoken",
+                spoken.filter { it.contains("forecast arrival", ignoreCase = true) }
+                    .all { it.startsWith("Website forecast arrival") })
             val departures = E2E.all(By.res(E2E.PKG, "liveDep"))
                 .map { it.contentDescription.orEmpty() }
             assertTrue("website first clocks may not borrow NTES departure provenance: $departures",
@@ -768,7 +769,7 @@ class TrackingFlowTest {
             E2E.reveal("age", "scroller", up = false))
         assertTrue("a refresh left the age chip blank", E2E.text("age").isNotBlank())
         val headline = E2E.text("headline")
-        if (headline.startsWith("Last mapped website card") ||
+        if (headline.startsWith("Last qualifying website event") ||
             headline.startsWith("Last NTES report:")) {
             InstrumentationRegistry.getInstrumentation().waitForIdleSync()
             assertTrue("manual Refresh did not focus the last reported locomotive: $headline",

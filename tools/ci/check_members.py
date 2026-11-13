@@ -129,6 +129,10 @@ scrollToPositionWithOffset findViewByPosition smoothScrollTo
 itemCount createViewHolder getItemViewType bindViewHolder itemView
 # Robolectric's ActivityController recreates the real search activity to verify state restoration.
 recreate
+# Multi-alert UI + source-card parser Android/Kotlin framework members. These are deliberately
+# enumerated: JSON arrays/objects, SharedPreferences, Intent extras, lateinit property reflection,
+# Kotlin Map snapshots/regex helpers, and ViewGroup indexing are not project receiver APIs.
+getJSONObject apply getIntExtra isInitialized toMap containsMatchIn indexOfChild
 # stale-while-revalidate mirror cache (2026-10-12): org.json reads + sorted-view walk + time format
 optLong optInt SimpleDateFormat format Date Locale US put sortedByDescending second
 isNullOrBlank containsKey isNullOrEmpty takeWhile toLongOrNull substringAfter asSequence toList filter

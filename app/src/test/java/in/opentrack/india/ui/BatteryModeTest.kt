@@ -75,7 +75,7 @@ class BatteryModeTest {
         assertEquals("Delay · next · NTES", text.text.toString())
     }
 
-    @Test fun batteryRefreshIsAStaticWhiteActionOnTheBlackSurface() {
+    @Test fun batteryRefreshIsAStaticAppAccentActionOnTheBlackSurface() {
         Prefs(ctx).batteryMode = true
         val density = ctx.resources.displayMetrics.density
         val button = FrameLayout(ctx)
@@ -91,17 +91,20 @@ class BatteryModeTest {
         val bitmap = Bitmap.createBitmap(side, side, Bitmap.Config.ARGB_8888)
         button.draw(Canvas(bitmap))
         val surfaceSample = (8f * density).toInt()
-        assertEquals("the Battery refresh is an inverse high-contrast action",
-            Color.WHITE, bitmap.getPixel(surfaceSample, surfaceSample))
-        assertEquals(Color.BLACK, label.currentTextColor)
+        val centerSample = side / 2
+        val refreshSurface = ctx.getColor(R.color.refresh_surface)
+        assertEquals("the Battery refresh uses the non-white app accent on OLED black",
+            refreshSurface, bitmap.getPixel(centerSample, surfaceSample))
+        assertFalse(refreshSurface == Color.WHITE || refreshSurface == Color.BLACK)
+        assertEquals(ctx.getColor(R.color.refresh_ink), label.currentTextColor)
         assertTrue(label.typeface.isBold)
         assertTrue(label.textSize >= 12f * ctx.resources.displayMetrics.scaledDensity)
         assertEquals("Refresh selected source now; drag to move in lower half", button.contentDescription)
-        assertEquals("Battery repainting keeps the label black and the control white",
-            Color.WHITE, pixel(button, surfaceSample, surfaceSample))
+        assertEquals("Battery repainting keeps the accent surface and readable white label",
+            refreshSurface, pixel(button, centerSample, surfaceSample))
         BatteryMode.paint(button)
         BatteryMode.emphasizeRefresh(button, label)
-        assertEquals(Color.BLACK, label.currentTextColor)
+        assertEquals(ctx.getColor(R.color.refresh_ink), label.currentTextColor)
         bitmap.recycle()
     }
 

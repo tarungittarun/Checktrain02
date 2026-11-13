@@ -174,6 +174,10 @@ def main() -> int:
             block = text[m.end():]
             for use in re.finditer(r"\bbinding\.(\w+)", text):
                 field = use.group(1)
+                # Kotlin's `::binding.isInitialized` queries whether a lateinit property
+                # has been assigned; it is not a generated ViewBinding member.
+                if field == "isInitialized" and re.search(r"::\s*$", text[:use.start()]):
+                    continue
                 if field in ("root",) or field in id_fields:
                     continue
                 if field not in names["id"] and field not in {camel(i) for i in names["id"]}:

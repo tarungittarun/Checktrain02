@@ -167,6 +167,9 @@ class MainActivity : AppCompatActivity() {
             renderDate()
             persistSearchDraft()
         }
+        binding.alerts.setOnClickListener {
+            startActivity(Intent(this, AlertsActivity::class.java))
+        }
         binding.settings.setOnClickListener {
             startActivity(Intent(this, SettingsActivity::class.java))
         }

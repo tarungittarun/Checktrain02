@@ -41,6 +41,14 @@
         </LinearLayout>
 
         <ImageButton
+            android:id="@+id/alerts"
+            style="@style/IconAction"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:src="@drawable/ic_alerts"
+            android:contentDescription="@string/alerts" />
+
+        <ImageButton
             android:id="@+id/settings"
             style="@style/IconAction"
             android:layout_width="48dp"

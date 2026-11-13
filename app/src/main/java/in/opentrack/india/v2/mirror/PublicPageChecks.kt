@@ -38,6 +38,13 @@ object PublicPageChecks {
         /** POC only: inspection of the SAME .org.in page for a visible next-point km label.
          * Diagnostic, never an admitted position or a second provider request. */
         val orgDistanceProbe: String? = null,
+        /** Visible .org.in cards retained even when no station claim qualifies as a report. */
+        val orgSiteCards: List<OrgWebsiteStatus.SiteCardClaim> = emptyList(),
+        /** The site's page update time, distinct from this app's response receipt and any event. */
+        val orgSitePageUpdatedAt: Long? = null,
+        val orgSitePageClockHasSeconds: Boolean = false,
+        /** Route-matched website comparison clocks, never used as event or position evidence. */
+        val orgSiteClocks: Map<String, OrgWebsiteStatus.SiteClocks> = emptyMap(),
     )
 
     /** Explain a missing destination in a returned website timeline without treating its
@@ -115,7 +122,9 @@ object PublicPageChecks {
                     detail = "Cached HTTP body (${reply.ageMillis / 60_000} min old); " +
                         answer.detail + " No fresh observation.", pageAnswered = false,
                     stationClaim = null, orgReport = null, orgQualificationNote = null,
-                    orgDistanceProbe = "cached HTTP page; no same-page distance accepted")
+                    orgDistanceProbe = "cached HTTP page; no same-page distance accepted",
+                    orgSiteCards = emptyList(), orgSitePageUpdatedAt = null,
+                    orgSitePageClockHasSeconds = false, orgSiteClocks = emptyMap())
                 else answer
             }
         }
@@ -235,6 +244,12 @@ object PublicPageChecks {
             now, true, orgReport = org?.report,
             orgQualificationNote = org?.qualificationNote, lines = lines,
             pageUpdateLabel = if (name == ORG) updated else null,
-            orgDistanceProbe = distanceNote)
+            orgDistanceProbe = distanceNote,
+            orgSiteCards = org?.siteCards.orEmpty(),
+            orgSitePageUpdatedAt = org?.report?.pageUpdatedAt ?: org?.pageUpdatedAt,
+            orgSitePageClockHasSeconds = name == ORG && updated?.let {
+                Regex("\\d{1,2}:\\d{2}:\\d{2}").containsMatchIn(it)
+            } == true,
+            orgSiteClocks = org?.siteClocks.orEmpty())
     }
 }

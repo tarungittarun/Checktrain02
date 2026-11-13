@@ -43,12 +43,18 @@ class WebsiteReportDisplayTest {
         val stops = listOf("MYS", "SBC", "MWM", "YPR", "TLGP")
         val visible = WebsiteReportDisplay.displayedClocks(screenshot, day, stops,
             stamp + 25_000L)
-        assertEquals(mapOf("SBC" to OrgWebsiteStatus.SiteClocks(1378, null, false)), visible)
-        assertNull("a later fetch must not turn the old page's forecast into an event",
+        assertEquals(3, visible.size)
+        assertEquals(1378, visible["SBC"]?.arrivalMin)
+        assertNull(visible["SBC"]?.departureMin)
+        assertTrue(visible["MWM"]?.forecast == true)
+        assertTrue(visible["YPR"]?.forecast == true)
+        val forecast = WebsiteReportDisplay.displayedClocks(screenshot, day, stops,
+            stamp + 600_000L)["MWM"]
+        assertTrue("a website white-card forecast remains visible as a forecast", forecast?.forecast == true)
+        assertEquals(1396, forecast?.arrivalMin)
+        assertNull("a later fetch cannot turn a past-card schedule echo into a departure event",
             WebsiteReportDisplay.displayedClocks(screenshot, day, stops,
-                stamp + 600_000L)["MWM"])
-        assertNull(WebsiteReportDisplay.displayedClocks(screenshot, day, stops,
-            stamp + 600_000L)["SBC"]?.departureMin)
+                stamp + 600_000L)["SBC"]?.departureMin)
         assertEquals(emptyMap<String, OrgWebsiteStatus.SiteClocks>(),
             WebsiteReportDisplay.displayedClocks(screenshot, day, listOf("MYS", "MWM"), stamp))
         // An actual new page published after 23:15 can show the last site's
@@ -72,15 +78,18 @@ class WebsiteReportDisplayTest {
         assertNull("07:10 before 09:37 is not a website departure", visible["SMET"]?.departureMin)
     }
 
-    @Test fun olderPastCardClockSurvivesButWhiteNextHaltNeverPaints() {
+    @Test fun olderPastCardClockAndWhiteForecastStayDistinctInWebsiteColumn() {
         val displayed = report.copy(siteClocks = mapOf(
             "YPR" to OrgWebsiteStatus.SiteClocks(686, 690, false),
             "SBC" to OrgWebsiteStatus.SiteClocks(740, 743, true)))
         val visible = WebsiteReportDisplay.displayedClocks(displayed, 20745L,
             route.stops.map { it.code }, displayed.pageUpdatedAt + 120_000L)
-        assertEquals(1, visible.size)
-        assertEquals(OrgWebsiteStatus.SiteClocks(686, null, false), visible["YPR"])
-        assertNull(visible["SBC"])
+        assertEquals(2, visible.size)
+        assertEquals(686, visible["YPR"]?.arrivalMin)
+        assertNull(visible["YPR"]?.departureMin)
+        assertTrue(visible["SBC"]?.forecast == true)
+        assertEquals(740, visible["SBC"]?.arrivalMin)
+        assertNull("a white-card forecast never enters event rows", displayed.rows["SBC"])
     }
 
     @Test fun lastWebsiteEventLabelUsesTheReportedArrivalDepartureOrPassage() {

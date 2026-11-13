@@ -399,7 +399,9 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         holder.websitePastComparison.text = siteComparison.orEmpty()
         holder.websitePastComparison.visibility = if (siteComparison == null) View.GONE else View.VISIBLE
         holder.websitePastComparison.contentDescription = siteComparison?.let {
-            "$it. Website past card; run date inferred from timetable. Not an NTES actual or current position."
+            val cardKind = if (websiteComparisonTimes[s.code]?.forecast == true)
+                "Website upcoming forecast" else "Website card claim"
+            "$it. $cardKind; run date inferred from timetable. Not an NTES actual or current position."
         } ?: ""
         holder.report.text = reports[s.code].orEmpty()
         holder.report.visibility = View.GONE // Source explanations belong in Source details.

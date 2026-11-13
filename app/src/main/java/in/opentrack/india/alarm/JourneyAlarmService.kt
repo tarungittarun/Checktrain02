@@ -25,11 +25,11 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** User-started foreground monitor. It polls only while an alert is armed and is always cancellable. */
+/** One user-started foreground service can monitor many independently cancellable journey alerts. */
 class JourneyAlarmService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private var monitorJob: Job? = null
-    private var activeConfig: JourneyAlarmConfig? = null
+    /** Accessed on the service/main thread; each alert has its own polling state and job. */
+    private val monitorJobs = mutableMapOf<Int, Job>()
     private var ringPlayer: MediaPlayer? = null
     private var vibrator: Vibrator? = null
 
@@ -41,99 +41,126 @@ class JourneyAlarmService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_CANCEL -> {
-                JourneyAlarmStore.clear(this)
-                stopAlarmAndService()
-                return START_NOT_STICKY
+                val id = intent.getIntExtra(EXTRA_ALERT_ID, NO_ALERT_ID)
+                if (id > 0) {
+                    JourneyAlarmStore.dismiss(this, id)
+                    JourneyAlarmNotifications.cancelAlert(this, id)
+                } else {
+                    JourneyAlarmStore.dismissActive(this)
+                    JourneyAlarmNotifications.cancel(this)
+                }
             }
             ACTION_STOP_RINGING -> {
-                JourneyAlarmStore.update(this, AlertState.DISMISSED, "Alarm stopped by you")
-                stopAlarmAndService()
-                return START_NOT_STICKY
+                val id = intent.getIntExtra(EXTRA_ALERT_ID, NO_ALERT_ID)
+                val snapshot = if (id > 0) JourneyAlarmStore.find(this, id)
+                    else JourneyAlarmStore.readAll(this).firstOrNull { it.state == AlertState.RINGING }
+                snapshot?.takeIf { it.state == AlertState.RINGING }?.let {
+                    JourneyAlarmStore.update(this, it.id, AlertState.DISMISSED,
+                        "Alarm stopped by you")
+                    JourneyAlarmNotifications.cancelAlert(this, it.id)
+                }
             }
         }
-        val snapshot = JourneyAlarmStore.read(this)
-        if (snapshot == null) {
-            stopSelf(startId)
-            return START_NOT_STICKY
-        }
-        when (snapshot.state) {
-            AlertState.ARMED -> {
-                startForegroundWithType(JourneyAlarmNotifications.MONITOR_ID,
-                    JourneyAlarmNotifications.monitoring(this, snapshot), snapshot.config)
-                if (activeConfig != snapshot.config || monitorJob?.isActive != true)
-                    startMonitoring(snapshot.config)
-                return START_STICKY
-            }
-            AlertState.RINGING -> {
-                val (title, detail) = snapshot.status.split('\n', limit = 2)
-                    .let { it.firstOrNull().orEmpty() to it.getOrNull(1).orEmpty() }
-                startForegroundWithType(JourneyAlarmNotifications.MONITOR_ID,
-                    JourneyAlarmNotifications.ringing(this, snapshot.config, title, detail), snapshot.config)
-                startRinging()
-                return START_STICKY
-            }
-            else -> {
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelf(startId)
-                return START_NOT_STICKY
-            }
-        }
+        return reconcile(startId)
     }
 
-    private fun startMonitoring(config: JourneyAlarmConfig) {
-        monitorJob?.cancel()
-        activeConfig = config
-        monitorJob = scope.launch {
-            var previous: PositionEngine.TrainPositionInput? = null
-            while (isActive) {
-                val snapshot = JourneyAlarmStore.read(this@JourneyAlarmService)
-                if (snapshot?.state != AlertState.ARMED || snapshot.config != config) break
-                val decision = try {
-                    val repo = (application as App).repository()
-                    if (repo == null) {
-                        JourneyAlarmPolicy.Decision.Waiting("Timetable unavailable; alert is still armed")
-                    } else if (config.trigger == AlertTrigger.PHONE_DISTANCE) {
-                        checkPhoneDistance(repo, config)
-                    } else {
-                        val result = checkStationEvent(repo, config, previous)
-                        result.second?.let { live ->
-                            if (live.answer.position.provenance.live)
-                                previous = PositionEngine.TrainPositionInput(live.answer.position)
-                        }
-                        result.first
-                    }
-                } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                    throw cancelled
-                } catch (failure: Exception) {
-                    JourneyAlarmPolicy.Decision.Waiting(
-                        "Status check failed (${failure.javaClass.simpleName}); will retry")
-                }
-                val stillArmed = JourneyAlarmStore.read(this@JourneyAlarmService)
-                if (stillArmed?.state != AlertState.ARMED || stillArmed.config != config) break
-                when (decision) {
-                    is JourneyAlarmPolicy.Decision.Fire -> {
-                        fire(config, decision)
-                        break
-                    }
-                    is JourneyAlarmPolicy.Decision.Missed -> {
-                        markMissed(config, decision)
-                        break
-                    }
-                    is JourneyAlarmPolicy.Decision.Waiting -> {
-                        JourneyAlarmStore.update(this@JourneyAlarmService, AlertState.ARMED,
-                            decision.detail, checkedAtMillis = System.currentTimeMillis())
-                        val latest = JourneyAlarmStore.read(this@JourneyAlarmService)
-                        if (latest != null) withContext(Dispatchers.Main) {
-                            JourneyAlarmNotifications.ensureChannels(this@JourneyAlarmService)
-                            androidx.core.app.NotificationManagerCompat.from(this@JourneyAlarmService)
-                                .notify(JourneyAlarmNotifications.MONITOR_ID,
-                                    JourneyAlarmNotifications.monitoring(this@JourneyAlarmService, latest))
-                        }
-                    }
-                }
-                delay(config.intervalMinutes * 60_000L)
+    /** Reconcile one foreground notice and an ID-keyed set of monitor loops. */
+    private fun reconcile(startId: Int = 0): Int {
+        val all = JourneyAlarmStore.readAll(this)
+        val active = all.filter { it.state == AlertState.ARMED || it.state == AlertState.RINGING }
+        val armedIds = active.filter { it.state == AlertState.ARMED }.map { it.id }.toSet()
+        monitorJobs.toMap().forEach { (id, job) ->
+            if (id !in armedIds) {
+                job.cancel()
+                monitorJobs.remove(id)
             }
         }
+        if (active.isEmpty()) {
+            stopRinging()
+            JourneyAlarmNotifications.cancelMonitor(this)
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            if (startId > 0) stopSelf(startId) else stopSelf()
+            return START_NOT_STICKY
+        }
+
+        startForegroundWithType(JourneyAlarmNotifications.MONITOR_ID,
+            JourneyAlarmNotifications.monitoring(this, active), active)
+        active.filter { it.state == AlertState.RINGING }.forEach { snapshot ->
+            val (title, detail) = snapshot.status.split('\n', limit = 2)
+                .let { it.firstOrNull().orEmpty() to it.getOrNull(1).orEmpty() }
+            androidx.core.app.NotificationManagerCompat.from(this).notify(snapshot.id,
+                JourneyAlarmNotifications.ringing(this, snapshot, title, detail))
+        }
+        if (active.any { it.state == AlertState.RINGING }) startRinging() else stopRinging()
+        active.filter { it.state == AlertState.ARMED }.forEach { snapshot ->
+            if (monitorJobs[snapshot.id]?.isActive != true) startMonitoring(snapshot)
+        }
+        return START_STICKY
+    }
+
+    private fun startMonitoring(initial: JourneyAlarmSnapshot) {
+        val id = initial.id
+        val config = initial.config
+        val job = scope.launch {
+            var previous: PositionEngine.TrainPositionInput? = null
+            try {
+                while (isActive) {
+                    val snapshot = JourneyAlarmStore.find(this@JourneyAlarmService, id)
+                    if (snapshot?.state != AlertState.ARMED || snapshot.config != config) break
+                    val decision = try {
+                        val repo = (application as App).repository()
+                        if (repo == null) {
+                            JourneyAlarmPolicy.Decision.Waiting("Timetable unavailable; alert is still armed")
+                        } else if (config.trigger == AlertTrigger.PHONE_DISTANCE) {
+                            checkPhoneDistance(repo, config)
+                        } else {
+                            val result = checkStationEvent(repo, config, previous)
+                            result.second?.let { live ->
+                                if (live.answer.position.provenance.live)
+                                    previous = PositionEngine.TrainPositionInput(live.answer.position)
+                            }
+                            result.first
+                        }
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                        throw cancelled
+                    } catch (failure: Exception) {
+                        JourneyAlarmPolicy.Decision.Waiting(
+                            "Status check failed (${failure.javaClass.simpleName}); will retry")
+                    }
+                    val stillArmed = JourneyAlarmStore.find(this@JourneyAlarmService, id)
+                    if (stillArmed?.state != AlertState.ARMED || stillArmed.config != config) break
+                    when (decision) {
+                        is JourneyAlarmPolicy.Decision.Fire -> fire(initial, decision)
+                        is JourneyAlarmPolicy.Decision.Missed -> markMissed(initial, decision)
+                        is JourneyAlarmPolicy.Decision.Waiting -> {
+                            JourneyAlarmStore.update(this@JourneyAlarmService, id, AlertState.ARMED,
+                                decision.detail, checkedAtMillis = System.currentTimeMillis())
+                            withContext(Dispatchers.Main) { refreshForegroundNotification() }
+                            delay(config.intervalMinutes * 60_000L)
+                        }
+                    }
+                    if (decision !is JourneyAlarmPolicy.Decision.Waiting) break
+                }
+            } finally {
+                withContext(Dispatchers.Main) {
+                    monitorJobs.remove(id)
+                    reconcile()
+                }
+            }
+        }
+        monitorJobs[id] = job
+    }
+
+    private fun refreshForegroundNotification() {
+        val active = JourneyAlarmStore.readAll(this).filter {
+            it.state == AlertState.ARMED || it.state == AlertState.RINGING
+        }
+        if (active.isEmpty()) {
+            reconcile()
+            return
+        }
+        startForegroundWithType(JourneyAlarmNotifications.MONITOR_ID,
+            JourneyAlarmNotifications.monitoring(this, active), active)
     }
 
     private suspend fun checkStationEvent(
@@ -177,49 +204,55 @@ class JourneyAlarmService : Service() {
             config, route, evidence, System.currentTimeMillis())
     }
 
-    private suspend fun fire(config: JourneyAlarmConfig, event: JourneyAlarmPolicy.Decision.Fire) {
-        val saved = JourneyAlarmStore.read(this)
+    private suspend fun fire(initial: JourneyAlarmSnapshot, event: JourneyAlarmPolicy.Decision.Fire) {
+        val id = initial.id
+        val config = initial.config
+        val saved = JourneyAlarmStore.find(this, id)
         if (saved?.state != AlertState.ARMED || saved.config != config) return
         if (config.feedback == AlertFeedback.RING_UNTIL_STOPPED) {
-            JourneyAlarmStore.update(this, AlertState.RINGING,
+            JourneyAlarmStore.update(this, id, AlertState.RINGING,
                 "${event.title}\n${event.detail}", evidenceAtMillis = event.evidenceAtMillis)
             withContext(Dispatchers.Main) {
-                startForegroundWithType(JourneyAlarmNotifications.MONITOR_ID,
-                    JourneyAlarmNotifications.ringing(this@JourneyAlarmService,
-                        config, event.title, event.detail), config)
+                JourneyAlarmStore.find(this@JourneyAlarmService, id)?.let { snapshot ->
+                    androidx.core.app.NotificationManagerCompat.from(this@JourneyAlarmService)
+                        .notify(id, JourneyAlarmNotifications.ringing(this@JourneyAlarmService,
+                            snapshot, event.title, event.detail))
+                }
                 startRinging()
             }
         } else {
-            JourneyAlarmStore.update(this, AlertState.FIRED,
+            JourneyAlarmStore.update(this, id, AlertState.FIRED,
                 "${event.title} · ${event.detail}", evidenceAtMillis = event.evidenceAtMillis)
             withContext(Dispatchers.Main) {
-                JourneyAlarmNotifications.triggered(this@JourneyAlarmService,
-                    config, event.title, event.detail)
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelf()
+                JourneyAlarmStore.find(this@JourneyAlarmService, id)?.let { snapshot ->
+                    JourneyAlarmNotifications.triggered(this@JourneyAlarmService,
+                        snapshot, event.title, event.detail)
+                }
             }
         }
         Diary.get()?.log("ARRIVAL_ALERT", "${config.trainNo} fired: ${event.detail}")
     }
 
-    private suspend fun markMissed(config: JourneyAlarmConfig, event: JourneyAlarmPolicy.Decision.Missed) {
-        val saved = JourneyAlarmStore.read(this)
-        if (saved?.state != AlertState.ARMED || saved.config != config) return
-        JourneyAlarmStore.update(this, AlertState.MISSED, event.detail,
+    private suspend fun markMissed(initial: JourneyAlarmSnapshot,
+                                   event: JourneyAlarmPolicy.Decision.Missed) {
+        val id = initial.id
+        val saved = JourneyAlarmStore.find(this, id)
+        if (saved?.state != AlertState.ARMED || saved.config != initial.config) return
+        JourneyAlarmStore.update(this, id, AlertState.MISSED, event.detail,
             evidenceAtMillis = event.evidenceAtMillis)
         withContext(Dispatchers.Main) {
-            JourneyAlarmNotifications.triggered(this@JourneyAlarmService,
-                config, "Earlier stop was not reported", event.detail, missed = true)
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
+            JourneyAlarmStore.find(this@JourneyAlarmService, id)?.let { snapshot ->
+                JourneyAlarmNotifications.triggered(this@JourneyAlarmService,
+                    snapshot, "Earlier stop was not reported", event.detail, missed = true)
+            }
         }
     }
 
     private fun startForegroundWithType(id: Int, notification: android.app.Notification,
-                                        config: JourneyAlarmConfig) {
+                                        active: List<JourneyAlarmSnapshot>) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             var type = ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
-            if (config.trigger == AlertTrigger.PHONE_DISTANCE)
+            if (active.any { it.config.trigger == AlertTrigger.PHONE_DISTANCE })
                 type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
             startForeground(id, notification, type)
         } else startForeground(id, notification)
@@ -263,25 +296,20 @@ class JourneyAlarmService : Service() {
         }
     }
 
-    private fun stopAlarmAndService() {
-        monitorJob?.cancel()
-        stopRinging()
-        JourneyAlarmNotifications.cancel(this)
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
-    }
-
     private fun stopRinging() {
-        ringPlayer?.let { player -> runCatching { if (player.isPlaying) player.stop() }; runCatching { player.release() } }
+        ringPlayer?.let { player ->
+            runCatching { if (player.isPlaying) player.stop() }
+            runCatching { player.release() }
+        }
         ringPlayer = null
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
-            vibrator?.cancel()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) vibrator?.cancel()
         else @Suppress("DEPRECATION") vibrator?.cancel()
         vibrator = null
     }
 
     override fun onDestroy() {
-        monitorJob?.cancel()
+        monitorJobs.values.toList().forEach { it.cancel() }
+        monitorJobs.clear()
         stopRinging()
         scope.cancel()
         super.onDestroy()
@@ -293,21 +321,36 @@ class JourneyAlarmService : Service() {
         const val ACTION_CANCEL = "in.opentrack.india.alarm.CANCEL"
         const val ACTION_STOP_RINGING = "in.opentrack.india.alarm.STOP_RINGING"
         const val ACTION_RECONFIGURE = "in.opentrack.india.alarm.RECONFIGURE"
+        const val EXTRA_ALERT_ID = "alertId"
+        private const val NO_ALERT_ID = -1
 
-        fun start(context: android.content.Context, config: JourneyAlarmConfig) {
-            JourneyAlarmStore.arm(context, config)
+        fun start(context: android.content.Context, config: JourneyAlarmConfig): Int {
+            val id = JourneyAlarmStore.arm(context, config)
             val intent = Intent(context, JourneyAlarmService::class.java).setAction(ACTION_RECONFIGURE)
             try {
                 ContextCompat.startForegroundService(context, intent)
             } catch (failure: RuntimeException) {
-                JourneyAlarmStore.clear(context)
-                runCatching { JourneyAlarmNotifications.cancel(context) }
+                JourneyAlarmStore.remove(context, id)
+                runCatching { JourneyAlarmNotifications.cancelAlert(context, id) }
                 throw failure
             }
+            return id
         }
 
+        fun cancel(context: android.content.Context, id: Int) {
+            JourneyAlarmStore.dismiss(context, id)
+            JourneyAlarmNotifications.cancelAlert(context, id)
+            val intent = Intent(context, JourneyAlarmService::class.java).setAction(ACTION_RECONFIGURE)
+            // Cancellation can leave no active alerts. Starting this as a foreground service
+            // in that case would violate Android's requirement to post a foreground notice.
+            // This call originates from the visible Alerts screen; if other alerts remain,
+            // reconcile() promotes the service before returning.
+            runCatching { context.startService(intent) }
+        }
+
+        /** Explicit all-alert cancellation for the legacy global action only. */
         fun cancel(context: android.content.Context) {
-            JourneyAlarmStore.clear(context)
+            JourneyAlarmStore.dismissActive(context)
             context.stopService(Intent(context, JourneyAlarmService::class.java))
             JourneyAlarmNotifications.cancel(context)
         }
