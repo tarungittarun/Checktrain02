@@ -201,7 +201,7 @@ def summarize(android: dict, e2e: dict, android_jobs: list[dict], e2e_jobs: list
              details(j) if j else "job absent", details(j) if j else f"missing Android job {job}")
     acceptance = {f"{profile}/{group}": aj.get(f"traveller / published APK / {profile} / {group}")
                   for profile in ("online", "offline")
-                  for group in ("journey", "trust", "refresh")}
+                  for group in ("journey", "trust", "refresh", "alerts")}
     gate("End-user acceptance on exact published APK",
          all(j and j.get("conclusion") == "success" for j in acceptance.values()),
          "; ".join(f"{p}: {details(j) if j else 'job absent'}" for p, j in acceptance.items()),

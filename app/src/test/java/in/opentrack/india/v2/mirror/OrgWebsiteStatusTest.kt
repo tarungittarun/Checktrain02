@@ -300,6 +300,75 @@ class OrgWebsiteStatusTest {
         assertTrue(unmapped.qualificationNote.orEmpty().contains("route position unverified"))
     }
 
+    @Test fun `newest ambiguous later site card remains visible without becoming a train event`() {
+        val run = SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).apply {
+            timeZone = TimeZone.getTimeZone("UTC")
+        }.parse("2026-11-12")!!.time / 86_400_000L
+        val checked = SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z", Locale.ROOT)
+            .parse("2026-11-12 19:25:55 +0530")!!.time
+        val route = TrainRoute("16227", "MYS TLGP", "MYS", "Mysuru", "TLGP", "Talguppa",
+            304, 180, 127, null, listOf(
+                stop(1, "MYS", null, 1080, 0),
+                stop(14, "TTR", 1143, 1145, 279),
+                // This selected-run timetable is one minute earlier than the
+                // page's own grey clocks below; retain the exact page pair.
+                stop(15, "ASK", 1162, 1164, 304),
+                stop(16, "RRB", 1185, 1187, 344),
+                stop(17, "TLGP", 1260, null, 510)), emptyList())
+        val html = """<html><h1>16227 Running Status</h1><p>Source: MYS</p>
+            <p>Destination: TLGP</p><p>Last Updated: 07:25:49 PM</p>
+            ${card("TTR", "bg-green-50 opacity-90", "07:04 PM", "07:03 PM",
+                "07:06 PM", "07:05 PM")}
+            ${card("ASK", "bg-green-50 opacity-90", "07:23 PM", "07:23 PM",
+                "07:25 PM", "07:25 PM")}
+            </html>""".trimIndent()
+
+        val outcome = OrgWebsiteStatus.parse(html, "16227", run, checked, route)
+        val report = outcome.report ?: error(outcome.reason)
+        assertEquals("the last qualifying event is still Tiptur", "TTR", report.anchorCode)
+        assertNull("the schedule-matching ASK card is not promoted into the event ledger",
+            report.rows["ASK"])
+        val claim = report.latestSiteCard ?: error("newest colored website card was discarded")
+        assertEquals("ASK", claim.code)
+        assertEquals(OrgWebsiteStatus.SiteCardTime(1163, 1163), claim.arrival)
+        assertEquals(OrgWebsiteStatus.SiteCardTime(1165, 1165), claim.departure)
+        assertTrue(claim.qualificationNote.orEmpty().contains("do not distinguish"))
+
+        val displayed = `in`.opentrack.india.ui.WebsiteReportDisplay.displayedClocks(
+            report, run, route.stops.map { it.code }, checked)
+        assertEquals("ambiguous later page claim remains visible in its own WEBSITE column",
+            OrgWebsiteStatus.SiteClocks(1163, 1165, false), displayed["ASK"])
+        assertEquals("site card never changes the accepted TTR anchor", "TTR", report.anchorCode)
+        val summary = `in`.opentrack.india.ui.WebsiteReportDisplay.latestSiteCardSummary(
+            report, route, checked)!!
+        assertEquals("the site's grey arrival clock, not our one-minute-different schedule, is retained",
+            1163, claim.arrival?.pageScheduleMinute)
+        assertEquals("the site's grey departure clock is retained exactly",
+            1165, claim.departure?.pageScheduleMinute)
+        assertTrue(summary.contains("Latest .org.in past-marked card"))
+        assertTrue(summary.contains("page arr schedule 19:23"))
+        assertTrue(summary.contains("page dep schedule 19:25"))
+        assertTrue(summary.contains("Page updated 19:25:49 IST"))
+        assertTrue(summary.contains("app response received 19:25:55 IST"))
+        assertTrue(summary.contains("page age 6s at check"))
+        assertTrue(summary.contains("clocks do not distinguish report from timetable"))
+        assertTrue(summary.contains("does not establish a train event or current position"))
+        val batteryBrief = `in`.opentrack.india.ui.WebsiteReportDisplay.latestSiteCardBatteryBrief(
+            report, route, checked)!!
+        assertTrue(batteryBrief.contains("Page updated 19:25:49 IST"))
+        assertTrue(batteryBrief.contains("app response received 19:25:55 IST"))
+        assertTrue(batteryBrief.contains("page age 6s at check"))
+        assertTrue(batteryBrief.contains("not a verified actual"))
+        val minuteOnlyReport = report.copy(pageClockHasSeconds = false,
+            pageUpdatedAt = report.pageUpdatedAt / 60_000L * 60_000L)
+        val minuteOnly = `in`.opentrack.india.ui.WebsiteReportDisplay.latestSiteCardSummary(
+            minuteOnlyReport, route, checked)!!
+        assertTrue(minuteOnly.contains("Page updated 19:25 IST"))
+        assertFalse("minute-only upstream label must not be shown as :00 seconds",
+            minuteOnly.contains("Page updated 19:25:00 IST"))
+        assertTrue(minuteOnly.contains("page age 0–55s (minute-only page clock) at check"))
+    }
+
     @Test fun `on-time past-card arrival stays in website comparison but not the event ledger`() {
         val run = SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).apply {
             timeZone = TimeZone.getTimeZone("UTC")

@@ -10,8 +10,8 @@ import acceptance_plan as plan
 
 class PlanTest(unittest.TestCase):
     def test_every_device_method_has_exactly_one_partition(self):
-        self.assertEqual(5, plan.check())
-        self.assertEqual({"journey", "trust", "refresh"}, set(plan.GROUPS))
+        self.assertEqual(7, plan.check())
+        self.assertEqual({"journey", "trust", "refresh", "alerts"}, set(plan.GROUPS))
 
     def test_new_unassigned_method_rejects_plan(self):
         with tempfile.TemporaryDirectory() as tmp:

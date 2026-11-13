@@ -26,6 +26,29 @@ object BatteryMode {
 
     fun enabled(view: View): Boolean = Prefs(view.context).batteryMode
 
+    /** The floating action must read as a control on an otherwise black surface.
+     * A static white button with black type is high-contrast without adding motion. */
+    fun emphasizeRefresh(button: View, label: TextView) {
+        if (!enabled(button)) return
+        val density = button.resources.displayMetrics.density
+        button.background = BlackSurface().apply {
+            setColor(INK)
+            cornerRadius = 6f * density
+            setStroke((2f * density).toInt().coerceAtLeast(1), INK)
+        }
+        button.minimumWidth = (48f * density).toInt()
+        button.minimumHeight = (48f * density).toInt()
+        button.contentDescription = "Refresh selected source now; drag to move in lower half"
+        label.apply {
+            setTextColor(BLACK)
+            textSize = 12f
+            typeface = android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.BOLD)
+            gravity = android.view.Gravity.CENTER
+            maxLines = 1
+            includeFontPadding = false
+        }
+    }
+
     fun paint(root: View, window: Window? = null) {
         if (!enabled(root)) return
         window?.let {

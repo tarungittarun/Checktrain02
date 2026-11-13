@@ -70,6 +70,7 @@ class TrainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityTrainBinding
     private var batteryAtCreate = false
+    private var batteryRefreshLabel: TextView? = null
     private lateinit var vm: LiveViewModel
     private lateinit var stopAdapter: StopAdapter
     private lateinit var connectionCue: ConnectionIssueCue
@@ -267,13 +268,12 @@ class TrainActivity : AppCompatActivity() {
         if (batteryAtCreate) {
             BatteryMode.paint(binding.root, window)
             binding.refreshGlyph.visibility = View.GONE
-            (binding.refresh as android.widget.FrameLayout).addView(TextView(this).apply {
+            batteryRefreshLabel = TextView(this).apply {
                 text = "Refresh"
-                setTextColor(android.graphics.Color.WHITE)
-                textSize = 11f
                 gravity = android.view.Gravity.CENTER
                 layoutParams = android.widget.FrameLayout.LayoutParams(-1, -1)
-            })
+            }.also { (binding.refresh as android.widget.FrameLayout).addView(it) }
+            batteryRefreshLabel?.let { BatteryMode.emphasizeRefresh(binding.refresh, it) }
         }
         connectionCue = ConnectionIssueCue(binding.trackingSummaryCard, binding.connectionAlert,
             batteryAtCreate)
@@ -523,11 +523,31 @@ class TrainActivity : AppCompatActivity() {
         }
     }
 
+    private fun alertTriggerSummary(config: JourneyAlarmConfig): String = when (config.trigger) {
+        AlertTrigger.DESTINATION_REPORT ->
+            "At destination · ${RowText.of(config.toName)} (live report)"
+        AlertTrigger.PREVIOUS_STOP_REPORT ->
+            "At preceding station · ${RowText.of(config.triggerName)} (live report)"
+        AlertTrigger.PHONE_DISTANCE ->
+            "Within ${config.distanceKm} km of ${RowText.of(config.toName)} · phone location"
+    }
+
+    private fun alertFeedbackSummary(config: JourneyAlarmConfig): String = when (config.feedback) {
+        AlertFeedback.NOTIFICATION -> "Notification · one alert"
+        AlertFeedback.VIBRATION -> "Vibration · one pattern"
+        AlertFeedback.RING_UNTIL_STOPPED -> "Ring until I stop it"
+    }
+
+    private fun alertIntervalSummary(config: JourneyAlarmConfig): String =
+        "${config.intervalMinutes} ${if (config.intervalMinutes == 1) "minute" else "minutes"}"
+
     private fun refreshArrivalAlertButton() {
         val snapshot = JourneyAlarmStore.read(this)
         val (text, description) = when (snapshot?.state) {
             AlertState.ARMED -> "Alert on" to
-                "Arrival alert is armed for train ${snapshot.config.trainNo}; tap to view or cancel"
+                "Arrival alert is armed for train ${snapshot.config.trainNo}; " +
+                    "${alertTriggerSummary(snapshot.config)}; ${alertFeedbackSummary(snapshot.config)}; " +
+                    "checks every ${alertIntervalSummary(snapshot.config)}; tap to view or cancel"
             AlertState.RINGING -> "Stop alarm" to
                 "Arrival alarm is ringing; tap to stop it"
             AlertState.FIRED -> "Alert sent" to
@@ -560,7 +580,12 @@ class TrainActivity : AppCompatActivity() {
             AlertState.MISSED -> "Arrival alert · trigger not reported"
             AlertState.DISMISSED -> "Arrival alert stopped"
         }
-        val lines = mutableListOf(snapshot.status)
+        val lines = mutableListOf(
+            "Trigger · ${alertTriggerSummary(c)}",
+            "Style · ${alertFeedbackSummary(c)}",
+            "Check interval · ${alertIntervalSummary(c)}",
+            snapshot.status,
+        )
         if (snapshot.lastCheckedAtMillis > 0L)
             lines += "Last check · ${RailTime.formatClock(snapshot.lastCheckedAtMillis)} IST"
         if (snapshot.evidenceAtMillis > 0L)
@@ -686,11 +711,11 @@ class TrainActivity : AppCompatActivity() {
         val intermediate = route.stops.filter { it.seq > from.seq && it.seq < to.seq }
         val labels = mutableListOf<String>()
         val actions = mutableListOf<() -> Unit>()
-        labels += "At destination · ${RowText.of(to.name)}"
+        labels += "At destination · ${RowText.of(to.name)} (live report)"
         actions += { showAlertPreferences(alarmConfig(route, from, to,
             AlertTrigger.DESTINATION_REPORT, to, 0)) }
         if (intermediate.isNotEmpty()) {
-            labels += "At a preceding station…"
+            labels += "At a preceding station… (live report)"
             actions += { showPrecedingStationChoices(route, from, to, intermediate) }
         }
         for (distance in listOf(2, 5, 10)) {
@@ -700,7 +725,9 @@ class TrainActivity : AppCompatActivity() {
         }
         AlertDialog.Builder(this)
             .setTitle("Arrival alert · train ${route.trainNo}")
-            .setMessage("Choose what can trigger the alert. Station events must be reported by a live running-status source.")
+            // Do not combine setMessage and setItems: AlertController installs one
+            // content view, which hid every trigger choice on the screenshot.
+            // Labels say which evidence type is needed; preferences explain its limits.
             .setItems(labels.toTypedArray()) { _, which -> actions.getOrNull(which)?.invoke() }
             .setNegativeButton("Cancel", null)
             .show().also(::paintBatteryDialog)
@@ -753,7 +780,7 @@ class TrainActivity : AppCompatActivity() {
                 this.text = text
                 textSize = 14f
                 setTextColor(getColor(R.color.text1))
-                minHeight = alertDp(42)
+                minHeight = alertDp(48)
             }
             group.addView(button, android.widget.RadioGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
@@ -1298,12 +1325,21 @@ class TrainActivity : AppCompatActivity() {
             else -> "WIMT .in returned no qualifying dated stop clocks; timetable shown."
         }
         // Keep web-cache claims separate from the ACTUAL table. Its own data summary
-        // appears only when that experimental source is deliberately selected.
+        // appears only when that experimental source is deliberately selected. A
+        // newer colored website card is also shown even if its clocks fail the event gate.
+        val latestWebsiteCardSummary = if (WebsiteReportDisplay.selected(ui.activeSource))
+            ui.orgWebsiteReport?.let { report -> WebsiteReportDisplay.latestSiteCardSummary(
+                report, ui.route, ui.selectedLoadReceiptMillis ?: System.currentTimeMillis()) }
+            else null
+        val latestWebsiteCardBrief = if (WebsiteReportDisplay.selected(ui.activeSource))
+            ui.orgWebsiteReport?.let { WebsiteReportDisplay.latestSiteCardBrief(it, ui.route) }
+            else null
         sourceSummaryWanted = (
             ui.websiteGap != null || ui.alternateSourceHint != null ||
                 publicCheck != null && ui.orgWebsiteReport == null ||
             ui.activeSource == TrackingSources.WIMT ||
-            ui.activeSource == `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE || mirrorWithoutTimes
+            ui.activeSource == `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE || mirrorWithoutTimes ||
+            latestWebsiteCardSummary != null
         )
         binding.sourceSummary.visibility = if (heroExpanded && sourceSummaryWanted) View.VISIBLE else View.GONE
         val selectedStatus = ui.activeSource?.let { ui.sourceStates[it] }
@@ -1323,7 +1359,7 @@ class TrainActivity : AppCompatActivity() {
         binding.sourceSummary.isClickable = canSwitchAlternate
         binding.sourceSummary.setOnClickListener(if (canSwitchAlternate)
             View.OnClickListener { alternateSourceTarget?.let(vm::setActiveSource) } else null)
-        binding.sourceSummary.text = when {
+        val sourceSummaryBase = when {
             ui.activeSource == TrackingSources.WIMT -> wimtLiveSummary
             showingWimtRows ->
                 "WIMT web cache: ${wimtRows.size} source-reported web-cache time row(s), unverified, not railway ACTUAL. Open Source details."
@@ -1333,6 +1369,8 @@ class TrainActivity : AppCompatActivity() {
             selectedPending -> "Checking ${sourceName(ui.activeSource.orEmpty())}…"
             else -> "$selectedReason$response. Timetable below."
         }
+        binding.sourceSummary.text = listOfNotNull(sourceSummaryBase, latestWebsiteCardSummary)
+            .joinToString("\n")
         binding.sourceSummary.contentDescription = if (canSwitchAlternate)
             "${binding.sourceSummary.text}. Tap to switch to ${TrackingSources.label(alternateSourceTarget!!)}."
             else binding.sourceSummary.text
@@ -1569,9 +1607,11 @@ class TrainActivity : AppCompatActivity() {
             val eventKind = WebsiteReportDisplay.eventKind(report)
             val eventAt = RailTime.railMinuteToEpochMillis(vm.originDate, report.eventMinute)
             val eventAge = TableMarker.elapsedLabel((System.currentTimeMillis() - eventAt).coerceAtLeast(0))
+            val appCheckedAt = ui.selectedLoadReceiptMillis ?: System.currentTimeMillis()
             binding.provenance.contentDescription = binding.provenance.contentDescription?.toString().orEmpty() +
                 ". Website ${eventKind.noun} claim ${RailTime.formatRailMinute(report.eventMinute)}, " +
-                "$eventAge old. Page checked ${RailTime.formatClockSeconds(report.pageUpdatedAt)}; " +
+                "$eventAge old. Page updated ${WebsiteReportDisplay.pageUpdateClock(report)} IST; " +
+                "app response received ${RailTime.formatClockSeconds(appCheckedAt)} IST; " +
                 "page clock is not a train movement."
         }
         // A selected website paints its own parsed past cards, never NTES's cells.
@@ -1644,9 +1684,12 @@ class TrainActivity : AppCompatActivity() {
             // leg, never simultaneously pinned to the station and the leg.
             stopAdapter.haltMarker = null
         }
-        binding.compactReport.text = binding.headline.text
-        binding.compactReport.contentDescription = binding.headline.contentDescription
-            ?: binding.headline.text
+        binding.compactReport.text = listOfNotNull(binding.headline.text?.toString(),
+            latestWebsiteCardBrief).joinToString("\n")
+        binding.compactReport.contentDescription = listOfNotNull(
+            binding.headline.contentDescription?.toString() ?: binding.headline.text?.toString(),
+            latestWebsiteCardSummary,
+        ).joinToString(". ")
         applyHeroExpansion()
         stopAdapter.highlightCode = stopAdapter.haltMarker?.code ?: ui.anchorCode
         if (ui.reports.isNotEmpty()) {
@@ -1701,7 +1744,10 @@ class TrainActivity : AppCompatActivity() {
                 binding.next.text.toString(), m.progressLabel, m.note, m.rows,
             )
         }
-        if (batteryAtCreate) BatteryMode.paint(binding.root)
+        if (batteryAtCreate) {
+            BatteryMode.paint(binding.root)
+            batteryRefreshLabel?.let { BatteryMode.emphasizeRefresh(binding.refresh, it) }
+        }
         UiShot.snap(this, "track")
     }
 
@@ -1882,17 +1928,16 @@ class TrainActivity : AppCompatActivity() {
                 val report = ui.orgWebsiteReport!!
                 val eventKind = WebsiteReportDisplay.eventKind(report)
                 val checkedAt = ui.selectedLoadReceiptMillis ?: now
-                val pageAgeAtCheck = if (checkedAt >= report.pageUpdatedAt) {
-                    val ageMillis = checkedAt - report.pageUpdatedAt
-                    if (ageMillis < 60_000L) "${ageMillis / 1_000L}s"
-                    else TableMarker.elapsedLabel(ageMillis)
-                } else "clock ahead"
+                val latestSiteSummary = WebsiteReportDisplay.latestSiteCardSummary(
+                    report, ui.route, checkedAt)
+                val pageAgeAtCheck = WebsiteReportDisplay.pageAgeAtCheck(report, checkedAt)
                 binding.age.text = "${eventKind.summaryLabel} · event $elapsed · page age $pageAgeAtCheck at check"
                 binding.age.contentDescription = "Website last mapped ${eventKind.noun} " +
                     "${RailTime.formatRailMinute(report.eventMinute)}; event age $elapsed; " +
-                    "page updated ${RailTime.formatClockSeconds(report.pageUpdatedAt)} IST, " +
-                    "checked ${RailTime.formatClockSeconds(checkedAt)} IST, " +
-                    "page age $pageAgeAtCheck at check. The page clock is not train movement."
+                    "page updated ${WebsiteReportDisplay.pageUpdateClock(report)} IST, " +
+                    "app response received ${RailTime.formatClockSeconds(checkedAt)} IST, " +
+                    "page age $pageAgeAtCheck at check. The page clock is not train movement." +
+                    (latestSiteSummary?.let { " $it" } ?: "")
             }
             ui.activeSource == "NTES (official)" && timedHalt != null && elapsed != null -> {
                 val minute = (timedHalt.showDep ?: timedHalt.showArr)!!
@@ -1964,7 +2009,12 @@ class TrainActivity : AppCompatActivity() {
             binding.provenance.setTextColor(getColor(R.color.late))
         }
         if (batteryAtCreate) {
-            binding.batteryEvidence.text = "${binding.provenance.text} · ${binding.age.text}"
+            val latestSiteCard = if (WebsiteReportDisplay.selected(ui.activeSource))
+                WebsiteReportDisplay.latestSiteCardBatteryBrief(ui.orgWebsiteReport, ui.route,
+                    ui.selectedLoadReceiptMillis ?: now) else null
+            binding.batteryEvidence.text = listOfNotNull(
+                "${binding.provenance.text} · ${binding.age.text}", latestSiteCard,
+            ).joinToString(" · ")
             BatteryMode.paint(binding.provenance)
             BatteryMode.paint(binding.age)
             BatteryMode.paint(binding.delay)

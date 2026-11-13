@@ -14,7 +14,9 @@ GROUPS = {
                 "settingsRoundTripReturnsToUsableSearch"),
     "trust": ("invalidOrImpossibleTripCannotMasqueradeAsAResult",
               "primaryControlsHaveLegibleTouchTargets"),
-    "refresh": ("manualRefreshKeepsTicketAndShowsAnAnswer",),
+    "refresh": ("manualRefreshKeepsTicketAndShowsAnAnswer",
+                "batteryRefreshIsUnmistakableAndTicketSurvivesModeSwitch"),
+    "alerts": ("arrivalAlertSetupShowsTriggersPreferencesAndSaveCancel",),
 }
 CLASS = "in.opentrack.india.e2e.TravellerAcceptanceTest"
 SOURCE = Path(__file__).resolve().parents[2] / "app/src/androidTest/java/in/opentrack/india/e2e/TravellerAcceptanceTest.kt"
@@ -36,7 +38,7 @@ def main():
         print(f"PASS: {check()} end-user methods assigned exactly once across {len(GROUPS)} jobs/profile")
         return
     if len(sys.argv) != 3 or sys.argv[1] not in GROUPS or sys.argv[2] not in ("selector", "count"):
-        raise SystemExit("usage: acceptance_plan.py {journey|trust|refresh} {selector|count} | --check")
+        raise SystemExit("usage: acceptance_plan.py {journey|trust|refresh|alerts} {selector|count} | --check")
     check()
     names = GROUPS[sys.argv[1]]
     print(",".join(f"{CLASS}#{method}" for method in names)

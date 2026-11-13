@@ -17,7 +17,7 @@ trap finish EXIT
 : "${GITHUB_SHA:?expected source commit required}"
 : "${GITHUB_RUN_ID:?same workflow run required}"
 : "${PROFILE:?online or offline profile required}"
-: "${GROUP:?journey, trust or refresh partition required}"
+: "${GROUP:?journey, trust, refresh or alerts partition required}"
 selector=$(python3 tools/ci/acceptance_plan.py "$GROUP" selector)
 expected=$(python3 tools/ci/acceptance_plan.py "$GROUP" count)
 

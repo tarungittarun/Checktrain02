@@ -538,9 +538,9 @@ jobs:
       fail-fast: false
       matrix:
         profile: [online, offline]
-        # Three independent partitions per profile: no method is lost; the
+        # Four independent partitions per profile: no method is lost; the
         # acceptance_plan self-check fails when a new @Test lacks an assignment.
-        group: [journey, trust, refresh]
+        group: [journey, trust, refresh, alerts]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

@@ -27,7 +27,8 @@ def job(name: str, result: str = "success", duration: int = 40) -> dict:
 def inputs():
     android = [job(n) for n in ("debug APK", "field-tests", "checks", "publish", "screens")]
     android.extend(job(f"traveller / published APK / {p} / {group}")
-                   for p in ("online", "offline") for group in ("journey", "trust", "refresh"))
+                   for p in ("online", "offline")
+                   for group in ("journey", "trust", "refresh", "alerts"))
     e2e = [job(n) for n in ("plan", "build", "instrument", "release_build", "report", "release_smoke")]
     for row in sorted(qa.EXPECTED_ROWS - {"release"}):
         group = "e2e" if row.startswith("api34") else "e2e_full"

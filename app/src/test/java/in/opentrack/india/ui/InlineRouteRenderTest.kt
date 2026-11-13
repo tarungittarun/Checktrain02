@@ -58,6 +58,50 @@ class InlineRouteRenderTest {
         assertEquals(View.GONE, next.trainMarker.visibility)
     }
 
+    @Test fun laterAmbiguousWebsiteCardPaintsAsAClaimWithoutMovingTheTrainMarker() {
+        val ctx = RuntimeEnvironment.getApplication()
+        val ttr = TrackModel.Stop(14, "TTR", "Tiptur", 1143, 1145, 1144, null, null,
+            TrackModel.MinuteSource.SITE_REPORTED, null, TrackModel.State.PASSED,
+            true, 279, 0, 200, false, false, false, null)
+        val ask = ttr.copy(seq = 15, code = "ASK", name = "Arsikere Jn",
+            schedArr = 1163, schedDep = 1165, showArr = null, showDep = null,
+            source = TrackModel.MinuteSource.SCHEDULE, state = TrackModel.State.NEXT,
+            isAnchor = false, kmFromOrigin = 304)
+        val next = ask.copy(seq = 16, code = "RRB", name = "Birur Jn",
+            schedArr = 1185, schedDep = 1187, kmFromOrigin = 344)
+        val day = 20769L
+        val pageAt = `in`.opentrack.india.core.RailTime.railMinuteToEpochMillis(day, 1165) + 49_000L
+        val report = `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.Report(
+            mapOf("TTR" to `in`.opentrack.india.model.LiveStopFields(actualArrivalMin = 1144)),
+            "TTR", false, 1144, pageAt, siteClocks = mapOf(
+                "TTR" to `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.SiteClocks(1144, null, false),
+                "ASK" to `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.SiteClocks(1163, 1165, false)),
+            latestSiteCard = `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.SiteCardClaim(
+                "ASK", `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.SiteCardMark.PAST,
+                `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.SiteCardTime(1163, 1163),
+                `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.SiteCardTime(1165, 1165),
+                "The displayed clocks match the page timetable; no distinct actual report."))
+        val adapter = StopAdapter()
+        adapter.websiteCardTimes = WebsiteReportDisplay.displayedClocks(report, day,
+            listOf("TTR", "ASK", "RRB"), pageAt + 6_000L)
+        adapter.haltMarker = TableMarker.Halt("TTR", "Last qualifying website event", true)
+        adapter.submitList(listOf(ttr, ask, next))
+
+        val laterCard = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
+        adapter.onBindViewHolder(laterCard, 1)
+        assertEquals("19:23", laterCard.liveArr.text.toString())
+        assertEquals("19:25", laterCard.liveDep.text.toString())
+        assertTrue(laterCard.liveArr.contentDescription.contains("Website displayed arrival"))
+        assertTrue(laterCard.liveDep.contentDescription.contains("Website displayed departure"))
+        assertEquals("the later page claim does not become a timetable actual",
+            TrackModel.MinuteSource.SCHEDULE, ask.source)
+        assertEquals("an ambiguous later card does not move the last event marker",
+            View.GONE, laterCard.trainMarker.visibility)
+        val lastEvent = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
+        adapter.onBindViewHolder(lastEvent, 0)
+        assertEquals(View.VISIBLE, lastEvent.trainMarker.visibility)
+    }
+
     @Test fun onTimePastWebsiteArrivalRemainsVisibleBesideItsDeparture() {
         val ctx = RuntimeEnvironment.getApplication()
         val adapter = StopAdapter()

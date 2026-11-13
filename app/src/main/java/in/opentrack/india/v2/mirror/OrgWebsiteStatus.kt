@@ -22,6 +22,20 @@ object OrgWebsiteStatus {
      * remain available for diagnostics but are suppressed from the route table.
      * These are never TrackModel events or evidence for a train marker. */
     data class SiteClocks(val arrivalMin: Int?, val departureMin: Int?, val forecast: Boolean)
+    enum class SiteCardMark { PAST, HIGHLIGHTED }
+    /** A clock exactly as displayed in a source-coloured card, including its
+     * grey page schedule when present. This is intentionally separate from the
+     * stricter event cells in [Report.rows]. */
+    data class SiteCardTime(val minute: Int, val pageScheduleMinute: Int?)
+    /** The newest green/blue website card, even when its clock cannot qualify
+     * as a distinct report. It is a page claim, never an independently verified event. */
+    data class SiteCardClaim(
+        val code: String,
+        val mark: SiteCardMark,
+        val arrival: SiteCardTime?,
+        val departure: SiteCardTime?,
+        val qualificationNote: String? = null,
+    )
     data class Report(
         val rows: Map<String, LiveStopFields>,
         val anchorCode: String,
@@ -35,6 +49,7 @@ object OrgWebsiteStatus {
         /** True only when the source's own update label actually contained seconds. */
         val pageClockHasSeconds: Boolean = false,
         val siteClocks: Map<String, SiteClocks> = emptyMap(),
+        val latestSiteCard: SiteCardClaim? = null,
     )
     data class Outcome(val report: Report?, val reason: String,
                        /** A source-marked card not admitted as an actual clock or map position. */
@@ -167,6 +182,8 @@ object OrgWebsiteStatus {
         var laterThanPage = 0
         val excluded = mutableListOf<Pair<Int, String>>()
         var lastAcceptedCard = -1
+        var latestSiteCardIndex = -1
+        var latestSiteCard: SiteCardClaim? = null
         for ((cardIndex, part) in card.split(html).drop(1).withIndex()) {
             val code = heading.find(part)?.groupValues?.get(1)?.uppercase(Locale.ROOT) ?: continue
             // Green is a past card. The owner's 16205 screenshots and a read-only
@@ -182,25 +199,31 @@ object OrgWebsiteStatus {
             // WebsiteReportDisplay gates the selected-source column to elapsed,
             // reached-card times; these never become guarded event rows.
             val halt = route.stops.firstOrNull { it.code.equals(code, true) }
+            var shownArrival: SiteCardTime? = null
+            var shownDeparture: SiteCardTime? = null
             if (halt != null) {
-                fun firstClock(section: String, scheduled: Int?): Int? {
+                fun firstClock(section: String, scheduled: Int?): SiteCardTime? {
                     if (scheduled == null) return null
                     val clocks = clock.findAll(section.take(650)).take(2).map { it.value }.toList()
                     val first = clocks.firstOrNull()?.let(::minute) ?: return null
                     val aligned = RailTime.alignClock(first, scheduled) ?: return null
                     val hasSchedulePair = clocks.size == 2
-                    if (hasSchedulePair) {
+                    val pageSchedule = if (hasSchedulePair) {
                         val grey = RailTime.alignClock(minute(clocks[1]), scheduled) ?: return null
                         if (abs(grey - scheduled) > 3) return null
-                    } else if (abs(aligned - scheduled) > 3) return null
-                    // Keep an explicitly paired on-time website clock in the
-                    // comparison column. It is still a site claim, not an NTES
-                    // actual; the independent event gate below continues to
-                    // reject schedule-equal clocks as train events.
-                    return aligned.takeIf {
-                        (it != scheduled || hasSchedulePair) &&
-                            it in originDep..(originDep + 1440) && abs(it - scheduled) <= 360
+                        grey
+                    } else {
+                        if (abs(aligned - scheduled) > 3) return null
+                        null
                     }
+                    // Keep the exact first and (when printed) second page clock in
+                    // the WEBSITE comparison. The second clock is the site's own
+                    // grey schedule, not a substitute from our static timetable.
+                    // Neither clock enters the event ledger unless it passes the
+                    // stricter event gate below.
+                    return if ((aligned != scheduled || hasSchedulePair) &&
+                        aligned in originDep..(originDep + 1440) && abs(aligned - scheduled) <= 360)
+                        SiteCardTime(aligned, pageSchedule) else null
                 }
                 // The first clock is the site's displayed value; the second grey
                 // clock is its schedule. Preserve an exact match in SiteClocks so
@@ -211,13 +234,33 @@ object OrgWebsiteStatus {
                     .substringBefore("<!-- Departure -->"), halt.arrivalMin)
                 val shownDep = firstClock(part.substringAfter("<!-- Departure -->", "")
                     .take(900), halt.departureMin)
-                    ?.takeUnless { shownArr != null && it < shownArr }
-                val candidate = SiteClocks(shownArr, shownDep, !pastCard && !highlightedCard)
+                    ?.takeUnless { shownArr != null && it.minute < shownArr.minute }
+                shownArrival = shownArr
+                shownDeparture = shownDep
+                val candidate = SiteClocks(shownArr?.minute, shownDep?.minute,
+                    !pastCard && !highlightedCard)
                 val previous = siteClocks[code]
                 if ((shownArr != null || shownDep != null) &&
                     (previous == null || listOfNotNull(shownArr, shownDep).size >
                         listOfNotNull(previous.arrivalMin, previous.departureMin).size))
                     siteClocks[code] = candidate
+            }
+            if ((pastCard || highlightedCard) && cardIndex > latestSiteCardIndex) {
+                val arrival = shownArrival
+                val departure = shownDeparture
+                val scheduleEcho = listOfNotNull(arrival, departure).any { time ->
+                    time.pageScheduleMinute != null && time.minute == time.pageScheduleMinute
+                }
+                latestSiteCard = SiteCardClaim(
+                    code = code,
+                    mark = if (pastCard) SiteCardMark.PAST else SiteCardMark.HIGHLIGHTED,
+                    arrival = arrival,
+                    departure = departure,
+                    qualificationNote = if (scheduleEcho)
+                        "A displayed clock matches the page timetable; it is not a distinct actual report."
+                    else null,
+                )
+                latestSiteCardIndex = cardIndex
             }
             if (!pastCard && !highlightedCard) continue
             val stop = byCode[code]
@@ -301,6 +344,11 @@ object OrgWebsiteStatus {
                     (arrival ?: departure)?.second ?: return@let null)
             }
         }
+        val latestCardReason = excluded.lastOrNull { it.first == latestSiteCardIndex }?.second
+            ?.substringAfter("; ")
+        val latestCardClaim = latestSiteCard?.let { claim ->
+            claim.copy(qualificationNote = latestCardReason ?: claim.qualificationNote)
+        }
         val qualification = excluded.lastOrNull { it.first > lastAcceptedCard }?.second
         val omitted = if (excluded.isEmpty()) "" else
             "; ${excluded.size} source-coloured past card(s) omitted from Actual (timetable echo or unmapped station)"
@@ -321,7 +369,7 @@ object OrgWebsiteStatus {
             true, intermediate, provisional,
             updated.find(body)?.groupValues?.get(1)?.let {
                 Regex("\\d{1,2}:\\d{2}:\\d{2}").containsMatchIn(it)
-            } == true, siteClocks)
+            } == true, siteClocks, latestCardClaim)
         return Outcome(report,
             "${rows.size} website-published past station rows; " +
                 (if (laterThanPage > 0) "$laterThanPage claimed event(s) later than the page update clock rejected; " else "") +

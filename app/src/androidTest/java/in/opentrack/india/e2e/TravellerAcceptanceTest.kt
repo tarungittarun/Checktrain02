@@ -1,6 +1,7 @@
 package `in`.opentrack.india.e2e
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.uiautomator.By
 import androidx.test.uiautomator.Until
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -39,6 +40,37 @@ class TravellerAcceptanceTest {
             E2E.all(E2E.res("hitNo")).any { it.text.orEmpty().contains("12627") })
         assertTrue("Track on the result did not open a route", E2E.openTrackFromFirstResult())
         assertEquals("Track opened a DIFFERENT train from the ticket", "12627", E2E.text("trainNo"))
+    }
+
+    private fun textContains(text: String, timeoutMs: Long = E2E.LOCAL_MS): String =
+        E2E.ui.wait(Until.findObject(By.textContains(text)), timeoutMs)?.text.orEmpty()
+
+    private fun tapTextContains(text: String, timeoutMs: Long = E2E.LOCAL_MS): Boolean {
+        val node = E2E.ui.wait(Until.findObject(By.textContains(text)), timeoutMs) ?: return false
+        node.click()
+        E2E.ui.waitForIdle()
+        return true
+    }
+
+    /** CI installs with runtime grants, but accept the real Android prompt if a
+     * profile/API still presents one. This only clicks a visible system choice. */
+    private fun allowPermissionIfPrompted() {
+        for (label in listOf("Allow", "While using the app", "Allow while using the app",
+            "Only this time")) {
+            val button = E2E.ui.wait(Until.findObject(By.text(label)), 350) ?: continue
+            button.click()
+            E2E.ui.waitForIdle()
+            return
+        }
+    }
+
+    private fun openAlertChoices() {
+        assertTrue("Arrival alert control is not reachable",
+            E2E.reveal("arrivalAlert", "scroller", swipes = 4) && E2E.tap("arrivalAlert"))
+        allowPermissionIfPrompted()
+        assertTrue("Alert trigger chooser did not open: ${textContains("No route for this alert", 300)}",
+            E2E.ui.wait(Until.hasObject(By.textContains("Arrival alert · train 12627")),
+                E2E.NETWORK_MS))
     }
 
     /** On a missing badge, distinguish an absent source label from a clipped
@@ -141,6 +173,181 @@ class TravellerAcceptanceTest {
             afterRoute == route || route == baseRoute && afterRoute == confirmedRoute)
         assertTrue("Refresh erased the station list", E2E.count(E2E.res("stopName")) > 0)
         E2E.shot("traveller-refresh")
+    }
+
+    @Test fun batteryRefreshIsUnmistakableAndTicketSurvivesModeSwitch() {
+        openTicketTrain()
+        val trainBefore = E2E.text("trainNo")
+        val routeBefore = E2E.text("routeLabel")
+        val runDateBefore = E2E.text("runDate")
+        assertEquals("the selected ticket is wrong before changing presentation", "12627", trainBefore)
+        assertTrue("the opened journey has no route or run date", routeBefore.isNotBlank() && runDateBefore.isNotBlank())
+        assertTrue("the opened journey has no stop rows", E2E.count(E2E.res("stopName")) > 0)
+        E2E.ui.pressBack()
+        assertTrue("Back from the journey lost its search result",
+            E2E.ui.wait(Until.hasObject(E2E.res("hitGo")), E2E.NETWORK_MS))
+        assertTrue("Settings could not be opened after returning from the journey", E2E.tap("settings"))
+        assertTrue("Settings did not show the Battery toggle", E2E.visible("batteryMode"))
+        val battery = E2E.find("batteryMode") ?: throw AssertionError("Battery toggle disappeared")
+        if (!battery.isChecked) assertTrue("Battery mode could not be enabled", E2E.tap("batteryMode"))
+        assertTrue("Battery mode did not persist through Settings recreation",
+            E2E.ui.wait(Until.hasObject(E2E.res("batteryMode")), E2E.NETWORK_MS) &&
+                E2E.find("batteryMode")?.isChecked == true)
+        E2E.shot("traveller-battery-enabled")
+        E2E.ui.pressBack()
+        assertTrue("Battery mode switch erased the selected search results",
+            E2E.ui.wait(Until.hasObject(E2E.res("hitGo")), E2E.NETWORK_MS))
+        assertTrue("The existing result could not reopen its journey after the mode switch",
+            E2E.openTrackFromFirstResult())
+        assertEquals("Mode switch changed the selected train", trainBefore, E2E.text("trainNo"))
+        assertEquals("Mode switch changed the selected route", routeBefore, E2E.text("routeLabel"))
+        assertEquals("Mode switch changed the selected run date", runDateBefore, E2E.text("runDate"))
+        assertTrue("Mode switch erased the journey's timetable rows", E2E.count(E2E.res("stopName")) > 0)
+
+        var label = ""
+        var labelColor = 0
+        var labelSizeSp = 0f
+        var labelBold = false
+        var fill = 0
+        var targetWidthDp = 0f
+        var targetHeightDp = 0f
+        var refreshDescription = ""
+        androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            val activity = androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry
+                .getInstance().getActivitiesInStage(
+                    androidx.test.runner.lifecycle.Stage.RESUMED).first()
+            val button = activity.findViewById<android.view.View>(`in`.opentrack.india.R.id.refresh)
+            val frame = button as android.view.ViewGroup
+            val text = (0 until frame.childCount).mapNotNull { frame.getChildAt(it) as? android.widget.TextView }
+                .firstOrNull { it.text.toString() == "Refresh" }
+            label = text?.text?.toString().orEmpty()
+            labelColor = text?.currentTextColor ?: 0
+            labelSizeSp = (text?.textSize ?: 0f) / activity.resources.displayMetrics.scaledDensity
+            labelBold = text?.typeface?.isBold == true
+            fill = (button.background as? android.graphics.drawable.GradientDrawable)
+                ?.color?.defaultColor ?: 0
+            targetWidthDp = button.width / activity.resources.displayMetrics.density
+            targetHeightDp = button.height / activity.resources.displayMetrics.density
+            refreshDescription = button.contentDescription?.toString().orEmpty()
+        }
+        assertTrue("Battery Refresh label is absent or too small: '$label' $labelSizeSp sp",
+            label == "Refresh" && labelSizeSp >= 12f && labelBold)
+        assertEquals("Battery Refresh must invert to white on the black OLED surface",
+            android.graphics.Color.WHITE, fill)
+        assertEquals("Battery Refresh's white button requires black label ink",
+            android.graphics.Color.BLACK, labelColor)
+        assertTrue("Battery Refresh target is below 48dp: $targetWidthDp × $targetHeightDp",
+            targetWidthDp >= 48f && targetHeightDp >= 48f)
+        assertTrue("Battery Refresh has no spoken action label",
+            refreshDescription.contains("Refresh selected source"))
+        assertTrue("Refresh button is not visible to a traveller", E2E.visible("refresh"))
+        E2E.shot("traveller-battery-refresh")
+
+        E2E.ui.pressBack()
+        assertTrue("Search screen disappeared before restoring normal mode",
+            E2E.ui.wait(Until.hasObject(E2E.res("settings")), E2E.NETWORK_MS))
+        assertTrue("Settings could not be reopened to turn Battery mode off", E2E.tap("settings"))
+        assertTrue("Battery toggle disappeared while restoring normal mode", E2E.visible("batteryMode"))
+        if (E2E.find("batteryMode")?.isChecked == true)
+            assertTrue("Battery mode could not be turned off", E2E.tap("batteryMode"))
+        assertTrue("Normal appearance did not persist through Settings recreation",
+            E2E.ui.wait(Until.hasObject(E2E.res("batteryMode")), E2E.NETWORK_MS) &&
+                E2E.find("batteryMode")?.isChecked == false)
+        E2E.ui.pressBack()
+        assertTrue("Returning to normal mode erased the existing search result",
+            E2E.ui.wait(Until.hasObject(E2E.res("hitGo")), E2E.NETWORK_MS))
+    }
+
+    @Test fun arrivalAlertSetupShowsTriggersPreferencesAndSaveCancel() {
+        openTicketTrain()
+        openAlertChoices()
+        assertTrue("Destination report choice is hidden",
+            E2E.ui.wait(Until.hasObject(By.textContains("At destination")), E2E.LOCAL_MS))
+        assertTrue("Preceding-station choice is hidden",
+            E2E.ui.wait(Until.hasObject(By.textContains("preceding station")), E2E.LOCAL_MS))
+        for (distance in listOf(2, 5, 10)) assertTrue("$distance km distance choice is hidden",
+            E2E.ui.wait(Until.hasObject(By.textContains("Within $distance km")), E2E.LOCAL_MS))
+        E2E.shot("traveller-alert-triggers")
+
+        assertTrue("Preceding-station choice did not open its station list",
+            tapTextContains("preceding station"))
+        assertTrue("The preceding-station chooser is absent",
+            E2E.ui.wait(Until.hasObject(By.textContains("Choose a preceding station")), E2E.LOCAL_MS))
+        assertTrue("No preceding route station can be selected",
+            E2E.all(By.clazz("android.widget.TextView")).any {
+                it.text.orEmpty().matches(Regex(".*\\([A-Z0-9]{2,6}\\).*"))
+            })
+        assertTrue("Preceding-station chooser has no clear cancel action", tapTextContains("Cancel"))
+        assertEquals("cancelling trigger selection must not arm an alert", "Alert", E2E.text("arrivalAlert"))
+
+        openAlertChoices()
+        assertTrue("Preceding-station choice did not reopen its station list",
+            tapTextContains("preceding station"))
+        val stationChoice = E2E.all(By.clazz("android.widget.TextView")).firstOrNull {
+            it.text.orEmpty().matches(Regex(".*\\([A-Z0-9]{2,6}\\).*"))
+        }
+        assertTrue("No preceding station could be selected", stationChoice != null)
+        stationChoice!!.click()
+        E2E.ui.waitForIdle()
+        assertTrue("Selecting a preceding station did not open alert preferences",
+            E2E.ui.wait(Until.hasObject(By.text("Alert style")), E2E.LOCAL_MS))
+        assertTrue("Cancel after station selection did not close setup", tapTextContains("Cancel"))
+        assertEquals("cancelling a preceding-station alert must not arm it", "Alert", E2E.text("arrivalAlert"))
+
+        openAlertChoices()
+        assertTrue("Destination trigger did not open alert preferences", tapTextContains("At destination"))
+        assertTrue("Alert style choices are missing", E2E.ui.wait(Until.hasObject(By.text("Alert style")), E2E.LOCAL_MS))
+        for (style in listOf("Notification · one alert", "Vibration · one pattern", "Ring until I stop it"))
+            assertTrue("Alert style is not selectable: $style",
+                E2E.ui.wait(Until.hasObject(By.text(style)), E2E.LOCAL_MS))
+        for (interval in listOf("1 minute", "2 minutes", "5 minutes"))
+            assertTrue("Alert interval is not selectable: $interval",
+                E2E.ui.wait(Until.hasObject(By.textContains(interval)), E2E.LOCAL_MS))
+        assertTrue("Set alert action is absent", E2E.ui.wait(Until.hasObject(By.text("Set alert")), E2E.LOCAL_MS))
+        assertTrue("Setup dialog has no Cancel action", E2E.ui.wait(Until.hasObject(By.text("Cancel")), E2E.LOCAL_MS))
+        var evidenceNote = textContains("Station alerts use fresh, route-matched", 500)
+        repeat(3) {
+            if (evidenceNote.isNotBlank()) return@repeat
+            val scroll = E2E.all(By.clazz("android.widget.ScrollView"))
+                .maxByOrNull { it.visibleBounds.height() } ?: return@repeat
+            val bounds = scroll.visibleBounds
+            if (bounds.height() > 100) E2E.ui.swipe(bounds.centerX(), bounds.bottom - 35,
+                bounds.centerX(), bounds.top + 35, 20)
+            evidenceNote = textContains("Station alerts use fresh, route-matched", 500)
+        }
+        assertTrue("Station alert live-evidence limits were not visible in setup: '$evidenceNote'",
+            evidenceNote.contains("whereismytrain.org.in") &&
+                evidenceNote.contains("not independently verified"))
+        assertTrue("Distance alert evidence requirements were not explained",
+            evidenceNote.contains("Distance uses phone location") &&
+                evidenceNote.contains("250 m accuracy"))
+        E2E.shot("traveller-alert-preferences")
+        assertTrue("Cancel did not close alert setup", tapTextContains("Cancel"))
+        assertEquals("cancelling preferences must not create an alert", "Alert", E2E.text("arrivalAlert"))
+
+        openAlertChoices()
+        assertTrue("Distance trigger did not open alert preferences", tapTextContains("Within 2 km"))
+        assertTrue("Vibration preference cannot be selected", tapTextContains("Vibration · one pattern"))
+        assertTrue("Five-minute low-work interval cannot be selected",
+            tapTextContains("5 minutes · lower background work"))
+        assertTrue("Set alert action is missing before save", tapTextContains("Set alert"))
+        allowPermissionIfPrompted()
+        assertTrue("Set alert did not save or start: '${textContains("Permission needed for arrival alerts", 300)}'",
+            E2E.ui.wait(Until.hasObject(By.text("Alert on")), E2E.NETWORK_MS))
+        assertTrue("Saved alert is not visible on its control",
+            E2E.text("arrivalAlert") == "Alert on")
+        E2E.shot("traveller-alert-saved")
+        assertTrue("Saved alert details cannot be reopened", E2E.tap("arrivalAlert"))
+        assertTrue("Saved distance trigger is not identified",
+            E2E.ui.wait(Until.hasObject(By.textContains("Within 2 km")), E2E.LOCAL_MS))
+        assertTrue("Saved vibration preference is not identified",
+            E2E.ui.wait(Until.hasObject(By.textContains("Vibration · one pattern")), E2E.LOCAL_MS))
+        assertTrue("Saved five-minute low-work interval is not identified",
+            E2E.ui.wait(Until.hasObject(By.textContains("Check interval · 5 minutes")), E2E.LOCAL_MS))
+        assertTrue("An armed alert has no clear cancel action", tapTextContains("Cancel alert"))
+        assertTrue("Cancel alert did not clear the saved monitor",
+            E2E.ui.wait(Until.hasObject(By.text("Alert")), E2E.NETWORK_MS))
+        assertEquals("Alert", E2E.text("arrivalAlert"))
     }
 
     @Test fun invalidOrImpossibleTripCannotMasqueradeAsAResult() {
