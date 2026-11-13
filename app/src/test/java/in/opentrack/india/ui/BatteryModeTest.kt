@@ -243,7 +243,7 @@ class BatteryModeTest {
             it.text.toString()
         }
         assertTrue(secondDetails.contains("Timetable passage · approximate 10:31"))
-        assertTrue(secondDetails.contains("Distance unavailable"))
+        assertTrue(secondDetails.contains("60 km map"))
         assertTrue(secondDetails.contains("present position unknown"))
         assertTrue(secondRow.row.contentDescription.contains("tap to hide 1 intermediate stations"))
         secondRow.inlineLegGroup.performClick()
