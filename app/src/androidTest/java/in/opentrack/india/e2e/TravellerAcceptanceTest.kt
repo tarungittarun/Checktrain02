@@ -68,6 +68,11 @@ class TravellerAcceptanceTest {
         .mapNotNull { runCatching { it.text?.toString()?.trim() }.getOrNull()?.takeIf { it.isNotBlank() } }
         .distinct().joinToString(" | ")
 
+    private fun precedingStationChoices(): List<androidx.test.uiautomator.UiObject2> =
+        E2E.all(By.textContains("(")).filter {
+            it.text.orEmpty().matches(Regex(""".*\([A-Z0-9]{2,6}\).*"""))
+        }
+
     /** CI installs with runtime grants, but accept the real Android prompt if a
      * profile/API still presents one. This only clicks a visible system choice. */
     private fun allowPermissionIfPrompted() {
@@ -289,10 +294,8 @@ class TravellerAcceptanceTest {
             tapTextContains("preceding station"))
         assertTrue("The preceding-station chooser is absent",
             E2E.ui.wait(Until.hasObject(By.textContains("Choose a preceding station")), E2E.LOCAL_MS))
-        assertTrue("No preceding route station can be selected",
-            E2E.all(By.clazz("android.widget.TextView")).any {
-                it.text.orEmpty().matches(Regex(".*\\([A-Z0-9]{2,6}\\).*"))
-            })
+        assertTrue("No preceding route station can be selected; visible text: ${visibleTextNodes()}",
+            precedingStationChoices().isNotEmpty())
         assertTrue("Preceding-station chooser has no clear cancel action; visible text: ${visibleTextNodes()}",
             tapTextContains("Cancel"))
         assertEquals("cancelling trigger selection must not arm an alert", "Alert", E2E.text("arrivalAlert"))
@@ -300,10 +303,9 @@ class TravellerAcceptanceTest {
         openAlertChoices()
         assertTrue("Preceding-station choice did not reopen its station list",
             tapTextContains("preceding station"))
-        val stationChoice = E2E.all(By.clazz("android.widget.TextView")).firstOrNull {
-            it.text.orEmpty().matches(Regex(".*\\([A-Z0-9]{2,6}\\).*"))
-        }
-        assertTrue("No preceding station could be selected", stationChoice != null)
+        val stationChoice = precedingStationChoices().firstOrNull()
+        assertTrue("No preceding station could be selected; visible text: ${visibleTextNodes()}",
+            stationChoice != null)
         stationChoice!!.click()
         E2E.ui.waitForIdle()
         assertTrue("Selecting a preceding station did not open alert preferences",
@@ -335,15 +337,16 @@ class TravellerAcceptanceTest {
         assertTrue("Station alert live-evidence limits were not visible in setup: '$evidenceNote'",
             evidenceNote.contains("whereismytrain.org.in") &&
                 evidenceNote.contains("not independently verified"))
-        assertTrue("Distance alert evidence requirements were not explained",
-            evidenceNote.contains("Distance uses phone location") &&
-                evidenceNote.contains("250 m accuracy"))
         E2E.shot("traveller-alert-preferences")
         assertTrue("Cancel did not close alert setup", tapTextContains("Cancel"))
         assertEquals("cancelling preferences must not create an alert", "Alert", E2E.text("arrivalAlert"))
 
         openAlertChoices()
         assertTrue("Distance trigger did not open alert preferences", tapTextContains("Within 2 km"))
+        val distanceEvidenceNote = textContains("Distance uses phone location", 1_000)
+        assertTrue("Distance alert limits were not explained for the selected trigger: '$distanceEvidenceNote'",
+            distanceEvidenceNote.contains("250 m accuracy") &&
+                distanceEvidenceNote.contains("straight-line distance—not train GPS"))
         assertTrue("Vibration preference cannot be selected", tapTextContains("Vibration · one pattern"))
         assertTrue("Five-minute low-work interval cannot be selected",
             tapTextContains("5 minutes · lower background work"))
