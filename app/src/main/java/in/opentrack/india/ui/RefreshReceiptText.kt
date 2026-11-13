@@ -52,13 +52,15 @@ object RefreshReceiptText {
                     RefreshEvidence.Change.NEW_STOP -> "new site-reported stop"
                     RefreshEvidence.Change.REVISED_AT_SAME_STOP -> "revised site stop time"
                     RefreshEvidence.Change.UNCHANGED -> if (websiteClocksChanged)
-                        "site clocks changed; no newer mapped event" else
-                        "same last qualifying site stop, no newer event"
+                        "site clocks changed; no newer mapped site event" else
+                        "same last qualifying website event, no newer site event"
                 }
                 val omission = if (change == RefreshEvidence.Change.UNCHANGED &&
                     detail.contains("Unqualified later card:"))
                     " · ${detail.substringAfter("Unqualified later card:").substringBefore(" · ").trim()}" else ""
-                return "Website answered at $checked · $finding$omission · $age"
+                val displayed = if (switched)
+                    "showing $activeLabel · $age" else age
+                return "Website answered at $checked · $finding$omission · $displayed"
             }
         }
         if (switched) return "Checked $checked · $sourceLabel has no usable report; $context"

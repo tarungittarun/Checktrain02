@@ -18,6 +18,21 @@ object RefreshTargetPolicy {
         if (displayed == PublicPageChecks.ORG && !siteReportAvailable && officialActualsAvailable)
             TrackingSources.OFFICIAL else displayed
 
+    /** A fresh page fetch does not freshen an old website station event. During a
+     * deliberate website Refresh, use an already-answered NTES report as fallback
+     * only when the site event is stale and NTES has a meaningfully newer event. */
+    fun websiteEventNeedsOfficialFallback(siteEventAgeMillis: Long?,
+                                          officialEventAgeMillis: Long?): Boolean =
+        siteEventAgeMillis != null && siteEventAgeMillis >= SourceFreshness.STALE_AFTER_MS &&
+            SourceRecency.officialIsNewer(officialEventAgeMillis, siteEventAgeMillis)
+
+    /** The summary card can switch only between the two sources it actually compares. */
+    fun alternateSourceTarget(displayed: String?): String? = when (displayed) {
+        PublicPageChecks.ORG -> TrackingSources.OFFICIAL
+        TrackingSources.OFFICIAL -> PublicPageChecks.ORG
+        else -> null
+    }
+
     fun target(displayed: String?, preferred: String?, auto: Boolean): String {
         val active = displayed ?: TrackingSources.OFFICIAL
         val saved = TrackingSources.valid(preferred)

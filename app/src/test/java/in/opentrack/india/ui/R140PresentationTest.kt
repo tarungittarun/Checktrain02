@@ -24,9 +24,9 @@ class R140PresentationTest {
     @Test fun oneLineReceiptDoesNotRepeatTheWebsiteStationOrCallItPosition() {
         val short = RefreshReceiptUi.short("website", "01:43:27",
             RefreshEvidence.Change.UNCHANGED,
-            "Website answered at 01:43:27 · same last site stop, no newer event · position unknown",
+            "Website answered at 01:43:27 · same last qualifying website event, no newer site event · position unknown",
             false)
-        assertEquals("Checked 01:43:27 · website · no newer qualified stop", short)
+        assertEquals("Checked 01:43:27 · website · no newer website event", short)
         assertFalse(short.contains("position"))
         assertEquals("Checked 01:43:27 · website · cached reply · no new event",
             RefreshReceiptUi.short("website", "01:43:27", RefreshEvidence.Change.NEW_STOP,
@@ -36,9 +36,9 @@ class R140PresentationTest {
     @Test fun transientOverlayNamesRequestDurationCheckResultAndEventAgeSeparately() {
         val lines = RefreshReceiptUi.overlay("website", "17:29:05", 1_260L,
             "last website stop 2m ago · current position unknown",
-            RefreshEvidence.Change.UNCHANGED, "same last site stop, no newer event", false)
+            RefreshEvidence.Change.UNCHANGED, "same last qualifying website event, no newer site event", false)
         assertEquals("Took 1.3 s", lines.took)
-        assertEquals("Checked 17:29:05 · website · no newer qualified stop", lines.checked)
+        assertEquals("Checked 17:29:05 · website · no newer website event", lines.checked)
         assertEquals("Freshness · last website stop 2m ago · current position unknown", lines.freshness)
         assertEquals("Checked 17:29:05 · website · check failed · last report retained",
             RefreshReceiptUi.overlay("website", "17:29:05", 70L, "no newly reported stop time",

@@ -541,7 +541,7 @@ Render.save("02-track-live", shot.bitmap)
             if (showReceipt) {
                 root.findViewById<TextView>(R.id.receiptTook).text = "Took 1.2 s"
                 root.findViewById<TextView>(R.id.receiptChecked).text =
-                    "Checked 17:29:05 · website · no newer qualified stop"
+                    "Checked 17:29:05 · website · no newer website event"
                 root.findViewById<TextView>(R.id.receiptFreshness).text =
                     "Freshness · last website stop 2m ago · current position unknown"
                 root.findViewById<View>(R.id.refreshReceiptOverlay).visibility = View.VISIBLE
@@ -575,7 +575,8 @@ Render.save("02-track-live", shot.bitmap)
                 heightDp = 760f, textScale = 1.15f) { root ->
                 root.findViewById<TextView>(R.id.provenance).text =
                     "WEBSITE · past-card report · run inferred"
-                root.findViewById<TextView>(R.id.age).text = "Site arrival · 2 min ago"
+                root.findViewById<TextView>(R.id.age).text =
+                    "Site arrival · event 2 min ago · page age 20s at check"
                 root.findViewById<TextView>(R.id.headline).text =
                     "Last mapped website card · Bhadravati 10:07"
                 root.findViewById<TextView>(R.id.delay).text = "+159m late · 10:07"

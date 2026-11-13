@@ -23,7 +23,7 @@ object RefreshReceiptUi {
             detail.contains("site clocks changed", true) -> "site times revised"
             change == RefreshEvidence.Change.NEW_STOP -> "new stop reported"
             change == RefreshEvidence.Change.REVISED_AT_SAME_STOP -> "stop time revised"
-            source == "website" -> "no newer qualified stop"
+            source == "website" -> "no newer website event"
             else -> "no newer stop"
         }
         return "Checked $checked · $source · $result"

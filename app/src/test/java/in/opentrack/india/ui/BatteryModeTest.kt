@@ -4,7 +4,9 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.view.View
+import android.view.ViewGroup
 import android.widget.FrameLayout
+import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 import `in`.opentrack.india.data.Prefs
@@ -29,6 +31,12 @@ import org.robolectric.annotation.GraphicsMode
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class BatteryModeTest {
     private val ctx get() = RuntimeEnvironment.getApplication()
+
+    private fun textViews(view: View): List<TextView> = when (view) {
+        is TextView -> listOf(view)
+        is ViewGroup -> (0 until view.childCount).flatMap { textViews(view.getChildAt(it)) }
+        else -> emptyList()
+    }
 
     @After fun restore() { Prefs(ctx).batteryMode = false }
 
@@ -204,14 +212,22 @@ class BatteryModeTest {
         firstRow.inlineLegGroup.performClick()
         assertEquals(View.VISIBLE, firstRow.batteryStations.visibility)
         assertEquals("Hide intermediate stations ▴", firstRow.inlineLegCaption.text.toString())
-        assertTrue(firstRow.batteryStations.text.toString().contains("Intermediate route points · RailGeo"))
-        assertTrue(firstRow.batteryStations.text.toString().contains("Static map details only"))
-        assertTrue(firstRow.batteryStations.text.toString().contains("route-listed 10:10"))
-        assertTrue(firstRow.batteryStations.text.toString().contains(
-            "whereismytrain.org.in past-card claim · run date inferred · arr 10:11"))
-        assertTrue(firstRow.batteryStations.text.toString().contains("not independently verified"))
-        assertFalse(firstRow.batteryStations.text.toString().contains("percent"))
-        assertEquals(Color.WHITE, firstRow.batteryStations.currentTextColor)
+        val firstDetails = textViews(firstRow.batteryStations).joinToString("\n") {
+            it.text.toString()
+        }
+        val firstStationCards = (0 until firstRow.batteryStations.childCount)
+            .map { firstRow.batteryStations.getChildAt(it) }.filterIsInstance<LinearLayout>()
+        assertEquals("one distinct card for each intermediate station", 1, firstStationCards.size)
+        assertTrue(firstDetails.contains("Intermediate route points · RailGeo"))
+        assertTrue(firstDetails.contains("Static map details only"))
+        assertTrue(firstDetails.contains("Timetable passage · route-listed 10:10"))
+        assertTrue(firstDetails.contains("whereismytrain.org.in · website past-card claim · run date inferred"))
+        assertTrue(firstDetails.contains("Arrival 10:11 · departure not reported"))
+        assertTrue(firstDetails.contains("Not independently verified."))
+        assertFalse(firstDetails.contains("percent"))
+        assertTrue(firstDetails.contains("present position unknown"))
+        assertEquals(Color.WHITE, textViews(firstRow.batteryStations).first().currentTextColor)
+        assertEquals(Color.WHITE, textViews(firstRow.batteryStations).last().currentTextColor)
         adapter.onBindViewHolder(firstRow, 0)
         assertEquals(clocksBefore, listOf(firstRow.schedArr.text, firstRow.schedDep.text,
             firstRow.liveArr.text, firstRow.liveDep.text).map { it.toString() })
@@ -223,11 +239,16 @@ class BatteryModeTest {
         adapter.onBindViewHolder(secondRow, 1)
         assertEquals(View.GONE, firstRow.batteryStations.visibility)
         assertEquals(View.VISIBLE, secondRow.batteryStations.visibility)
-        assertTrue(secondRow.batteryStations.text.toString().contains("approx. timetable 10:31"))
-        assertTrue(secondRow.batteryStations.text.toString().contains("not report the train's present position"))
+        val secondDetails = textViews(secondRow.batteryStations).joinToString("\n") {
+            it.text.toString()
+        }
+        assertTrue(secondDetails.contains("Timetable passage · approximate 10:31"))
+        assertTrue(secondDetails.contains("Distance unavailable"))
+        assertTrue(secondDetails.contains("present position unknown"))
         assertTrue(secondRow.row.contentDescription.contains("tap to hide 1 intermediate stations"))
         secondRow.inlineLegGroup.performClick()
         assertEquals(View.GONE, secondRow.batteryStations.visibility)
+        assertEquals(0, secondRow.batteryStations.childCount)
         assertEquals("Show 1 intermediate stations ▾", secondRow.inlineLegCaption.text.toString())
     }
 

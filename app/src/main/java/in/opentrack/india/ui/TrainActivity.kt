@@ -67,12 +67,14 @@ class TrainActivity : AppCompatActivity() {
     private var previousRefreshEvent: String? = null
     private var previousWebsiteClockKey: String? = null
 
-    private fun websiteClockKey(ui: LiveViewModel.Ui?): String? =
-        WebsiteReportDisplay.displayedClocks(ui?.orgWebsiteReport, vm.originDate,
+    private fun websiteClockKey(ui: LiveViewModel.Ui?): String? {
+        val report = ui?.orgWebsiteReport ?: ui?.orgWebsiteComparisonReport
+        return WebsiteReportDisplay.displayedClocks(report, vm.originDate,
             ui?.model?.rows?.map { it.code }.orEmpty(), System.currentTimeMillis())
             .toSortedMap().entries.joinToString("|") { (code, value) ->
-            "$code:${value.arrivalMin}:${value.departureMin}:${value.forecast}"
-        }
+                "$code:${value.arrivalMin}:${value.departureMin}:${value.forecast}"
+            }
+    }
 
     private fun selectedEventAt(ui: LiveViewModel.Ui?): Long? {
         if (ui == null) return null
@@ -90,7 +92,9 @@ class TrainActivity : AppCompatActivity() {
     private fun eventKey(ui: LiveViewModel.Ui?, source: String): String? {
         if (ui == null) return null
         if (source == `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG)
-            return ui.orgWebsiteReport?.let { "${it.anchorCode}:${it.eventMinute}" }
+            return (ui.orgWebsiteReport ?: ui.orgWebsiteComparisonReport)?.let {
+                "${it.anchorCode}:${it.eventMinute}"
+            }
         if (source == `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE)
             return ui.wimtWebPoint?.let { "${it.precedingHalt}:${it.routeKm}:${it.eventAtMillis}" }
         val last = ui.model.rows.lastOrNull { it.source == TrackModel.MinuteSource.REPORTED &&
@@ -870,7 +874,7 @@ class TrainActivity : AppCompatActivity() {
         // Keep web-cache claims separate from the ACTUAL table. Its own data summary
         // appears only when that experimental source is deliberately selected.
         sourceSummaryWanted = (
-            ui.websiteGap != null || ui.alternateSiteHint != null ||
+            ui.websiteGap != null || ui.alternateSourceHint != null ||
                 publicCheck != null && ui.orgWebsiteReport == null ||
             ui.activeSource == TrackingSources.WIMT ||
             ui.activeSource == `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE || mirrorWithoutTimes
@@ -887,20 +891,25 @@ class TrainActivity : AppCompatActivity() {
         } == true
         val showingWimtRows = ui.activeSource ==
             `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE && wimtRows.isNotEmpty()
-        binding.sourceSummary.isClickable = !showingWimtRows && ui.alternateSiteHint != null
-        binding.sourceSummary.setOnClickListener(if (!showingWimtRows && ui.alternateSiteHint != null)
-            View.OnClickListener { vm.setActiveSource(`in`.opentrack.india.v2.mirror.PublicPageChecks.ORG) }
-            else null)
+        val alternateSourceTarget = RefreshTargetPolicy.alternateSourceTarget(ui.activeSource)
+        val canSwitchAlternate = !showingWimtRows && ui.alternateSourceHint != null &&
+            alternateSourceTarget != null
+        binding.sourceSummary.isClickable = canSwitchAlternate
+        binding.sourceSummary.setOnClickListener(if (canSwitchAlternate)
+            View.OnClickListener { alternateSourceTarget?.let(vm::setActiveSource) } else null)
         binding.sourceSummary.text = when {
             ui.activeSource == TrackingSources.WIMT -> wimtLiveSummary
             showingWimtRows ->
                 "WIMT web cache: ${wimtRows.size} source-reported web-cache time row(s), unverified, not railway ACTUAL. Open Source details."
-            ui.alternateSiteHint != null -> ui.alternateSiteHint
+            ui.alternateSourceHint != null -> ui.alternateSourceHint
             ui.websiteGap != null -> WebsiteGapSummaryUi.concise(ui.websiteGap)
             ui.wimtWebPoint != null -> "WIMT web-cache distance claim; not phone GPS."
             selectedPending -> "Checking ${sourceName(ui.activeSource.orEmpty())}…"
             else -> "$selectedReason$response. Timetable below."
         }
+        binding.sourceSummary.contentDescription = if (canSwitchAlternate)
+            "${binding.sourceSummary.text}. Tap to switch to ${TrackingSources.label(alternateSourceTarget!!)}."
+            else binding.sourceSummary.text
         binding.headline.text = m.headline
         binding.routeHeadActual.text = if (WebsiteReportDisplay.selected(ui.activeSource))
             "WEBSITE" else "ACTUAL"
@@ -1452,7 +1461,7 @@ class TrainActivity : AppCompatActivity() {
                     if (ageMillis < 60_000L) "${ageMillis / 1_000L}s"
                     else TableMarker.elapsedLabel(ageMillis)
                 } else "clock ahead"
-                binding.age.text = "${eventKind.summaryLabel} · $elapsed · page $pageAgeAtCheck old at check"
+                binding.age.text = "${eventKind.summaryLabel} · event $elapsed · page age $pageAgeAtCheck at check"
                 binding.age.contentDescription = "Website last mapped ${eventKind.noun} " +
                     "${RailTime.formatRailMinute(report.eventMinute)}; event age $elapsed; " +
                     "page updated ${RailTime.formatClockSeconds(report.pageUpdatedAt)} IST, " +
@@ -1570,7 +1579,7 @@ class TrainActivity : AppCompatActivity() {
                 }
                 when {
                     stopEventAt != null && stopEventAt <= now ->
-                        "last reported stop ${TableMarker.elapsedLabel(now - stopEventAt)} ago"
+                        "last reported stop ${TableMarker.elapsedLabel(now - stopEventAt)} ago · current position unknown"
                     feedAge != null -> "feed stamped $feedAge ago; stop time unknown"
                     else -> "no newly reported stop time"
                 }

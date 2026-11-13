@@ -71,15 +71,27 @@ class RefreshReceiptTextTest {
         val same = RefreshReceiptText.format(PublicPageChecks.ORG, "website", "website",
             "11:28:54", "last website stop 2 min ago", "comparison" to "15 past cards",
             null, true, false, RefreshEvidence.Change.UNCHANGED, false)
-        assertTrue(same.contains("same last qualifying site stop, no newer event"))
+        assertTrue(same.contains("same last qualifying website event, no newer site event"))
         assertFalse(same.contains("new site-reported stop"))
+    }
+
+    @Test fun websiteRefreshCanShowAnOlderSiteEventWhileNamingItsNtesFallbackSeparately() {
+        val text = RefreshReceiptText.format(PublicPageChecks.ORG, "website",
+            "NTES · official", "16:54:53", "last reported stop 3 min ago",
+            "comparison" to "same website past card", null, true, false,
+            unchanged, switched = true)
+        assertTrue(text.contains("Website answered at 16:54:53"))
+        assertTrue(text.contains("same last qualifying website event, no newer site event"))
+        assertTrue(text.contains("showing NTES · official"))
+        assertTrue(text.contains("last reported stop 3 min ago"))
+        assertFalse(text.contains("website event is fresh"))
     }
 
     @Test fun changedWebsiteCardClocksDoNotBecomeAnInventedNewStop() {
         val detail = RefreshReceiptText.format(PublicPageChecks.ORG, "website", "website",
             "07:01:54", "last website departure 48 min ago", "comparison" to "site answered",
             null, true, false, unchanged, false, websiteClocksChanged = true)
-        assertTrue(detail.contains("site clocks changed; no newer mapped event"))
+        assertTrue(detail.contains("site clocks changed; no newer mapped site event"))
         assertFalse(detail.contains("new site-reported stop"))
         assertTrue(RefreshReceiptUi.short("website", "07:01:54", unchanged, detail, false)
             .endsWith("site times revised"))
@@ -91,7 +103,7 @@ class RefreshReceiptTextTest {
             "comparison" to "23 website rows · Unqualified later card: Website marks SMET past; " +
                 "clocks do not distinguish report from timetable. · from site",
             null, true, false, unchanged, false)
-        assertTrue(text.contains("same last qualifying site stop"))
+        assertTrue(text.contains("same last qualifying website event"))
         assertTrue(text.contains("Website marks SMET past"))
         assertTrue(text.contains("clocks do not distinguish report from timetable"))
         assertFalse(text.contains("new site-reported stop"))

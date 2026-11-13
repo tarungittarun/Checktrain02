@@ -183,8 +183,8 @@ class LiveViewModel(
         val orgWebsiteComparisonReport: `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.Report? = null,
         /** R139 diagnostic from that *same* reply; never drives the marker or Actual cells. */
         val orgWebsiteDistanceProbe: String? = null,
-        /** A newer unverified comparison, not a silent switch away from NTES. */
-        val alternateSiteHint: String? = null,
+        /** A one-tap, separately labelled alternative-source comparison; never a merged report. */
+        val alternateSourceHint: String? = null,
         /** Website did answer, but its comparison timeline omits the destination arrival. */
         val websiteGap: String? = null,
         /** This request's HTTP outcome, distinct from the last valid train observation. */
@@ -915,16 +915,28 @@ class LiveViewModel(
                     probeSource(selected, select = true)?.join()
                     val current = _ui.value ?: return@launch
                     val state = current.sourceStates[selected]?.first
-                    val usable = state == "live" ||
+                    val now = System.currentTimeMillis()
+                    val siteEvent = current.orgWebsiteReport?.let {
+                        websiteSourceEvent(it, current.route, now)
+                    }
+                    val officialEvent = officialSourceEvent(current.answer, current.route, now)
+                    val newerNtesFallback = selected == PublicPageChecks.ORG &&
+                        current.sourceStates[TrackingSources.OFFICIAL]?.first == "live" &&
+                        RefreshTargetPolicy.websiteEventNeedsOfficialFallback(
+                            siteEvent?.ageMillis, officialEvent?.ageMillis)
+                    val usable = !newerNtesFallback && (state == "live" ||
                         selected == PublicPageChecks.ORG && WebsiteReportDisplay.usable(
                             state, current.publicSourceAnswered[selected] == true,
                             current.orgWebsiteReport) ||
                         state == "comparison" && selected == WimtCandidate.SOURCE &&
                             (current.wimtWebPoint != null ||
-                                current.sourceLines[selected].orEmpty().isNotEmpty())
+                                current.sourceLines[selected].orEmpty().isNotEmpty()))
                     if (!usable) {
-                        val fallback = bestAvailableSource(current, selected)
-                        Diary.get()?.log("SOURCE", "refresh $selected failed ($state); fallback=${fallback ?: "official request"}")
+                        val fallback = if (newerNtesFallback) TrackingSources.OFFICIAL
+                            else bestAvailableSource(current, selected)
+                        val cause = if (newerNtesFallback)
+                            "site event stale; current NTES event is later" else "request not usable ($state)"
+                        Diary.get()?.log("SOURCE", "refresh $selected: $cause; fallback=${fallback ?: "official request"}")
                         mirrorActiveSource = fallback ?: "NTES (official)"
                         if (fallback == null || fallback == "NTES (official)") refreshBody(previous)
                         else _ui.value?.let { latest ->
@@ -1002,6 +1014,45 @@ class LiveViewModel(
         (System.currentTimeMillis() - RailTime.railMinuteToEpochMillis(originEpochDay,
             minute)).takeIf { it >= 0L }
     }
+
+    private data class TimedSourceEvent(
+        val place: String,
+        val kind: String,
+        val minute: Int,
+        val eventAtMillis: Long,
+        val ageMillis: Long,
+    )
+
+    /** Only a currently run-bound NTES stop event can be the official fallback. */
+    private fun officialSourceEvent(answer: PositionEngine.Answer, route: TrainRoute,
+                                    now: Long): TimedSourceEvent? {
+        if (answer.position.provenance != SourceKind.PROVIDER_NTES) return null
+        val code = answer.anchorStopCode ?: return null
+        val stop = route.stops.firstOrNull { it.code.equals(code, true) } ?: return null
+        val fields = answer.perStop[code] ?: answer.perStop.entries
+            .firstOrNull { it.key.equals(code, true) }?.value ?: return null
+        val minute = fields.actualDepartureMin ?: fields.actualArrivalMin ?: return null
+        val eventAt = RailTime.railMinuteToEpochMillis(originEpochDay, minute)
+        val age = SourceFreshness.ageMillis(eventAt, now) ?: return null
+        return TimedSourceEvent(stop.name,
+            WebsiteReportDisplay.eventKind(fields.actualArrivalMin,
+                fields.actualDepartureMin, minute).noun, minute, eventAt, age)
+    }
+
+    /** Website page stamps are deliberately excluded; only its dated-by-inference event clock is aged. */
+    private fun websiteSourceEvent(report: `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.Report,
+                                   route: TrainRoute, now: Long): TimedSourceEvent? {
+        val anchor = report.intermediate?.precedingHalt ?: report.anchorCode
+        val stop = route.stops.firstOrNull { it.code.equals(anchor, true) } ?: return null
+        val eventAt = RailTime.railMinuteToEpochMillis(originEpochDay, report.eventMinute)
+        val age = SourceFreshness.ageMillis(eventAt, now) ?: return null
+        return TimedSourceEvent(report.intermediate?.name ?: stop.name,
+            WebsiteReportDisplay.eventKind(report).noun, report.eventMinute, eventAt, age)
+    }
+
+    private fun newerOfficialWebsiteEvent(official: TimedSourceEvent?,
+        website: TimedSourceEvent?): Boolean = official != null && website != null &&
+        SourceRecency.officialIsNewer(official.ageMillis, website.ageMillis)
 
     /** Prefer run-bound actuals; a selected website can separately provide its own
      * labelled past-card timeline when the official request genuinely fails.
@@ -2141,29 +2192,66 @@ class LiveViewModel(
             if (officialStaticKnown) RouteBetween.withVerifiedHalts(candidate, route) ?: candidate
             else candidate
         }
-        val alternateSiteHint = if (selected == "NTES (official)" &&
-            answer.position.provenance == SourceKind.PROVIDER_NTES) {
-            val page = publicChecks[PublicPageChecks.ORG]?.orgReport
-                ?.takeIf { now - it.pageUpdatedAt in 0L..300_000L }
-            val official = withActuals.rows.lastOrNull {
-                it.source == TrackModel.MinuteSource.REPORTED &&
-                    (it.showArr != null || it.showDep != null)
+        val officialEvent = officialSourceEvent(answer, route, now)
+        val siteReportForHint = when (selected) {
+            PublicPageChecks.ORG -> orgReport
+            TrackingSources.OFFICIAL -> oldWebsiteComparison
+            else -> null
+        }
+        val siteEvent = siteReportForHint?.let { websiteSourceEvent(it, route, now) }
+        val officialNewer = newerOfficialWebsiteEvent(officialEvent, siteEvent)
+        val alternateSourceHint = when {
+            selected == PublicPageChecks.ORG && officialNewer -> {
+                val official = officialEvent!!
+                val website = siteEvent!!
+                "NTES reports ${official.kind} at ${RowText.of(official.place)} " +
+                    "${RailTime.formatRailMinute(official.minute)} · " +
+                    "${SourceFreshness.label(official.eventAtMillis, now)}; " +
+                    "whereismytrain.org.in past-card claim (run date inferred, unverified) reports " +
+                    "${website.kind} at " +
+                    "${RowText.of(website.place)} ${RailTime.formatRailMinute(website.minute)} · " +
+                    "${SourceFreshness.label(website.eventAtMillis, now)}. " +
+                    "Tap to view NTES separately; current position unknown."
             }
-            val siteIndex = page?.let { p -> route.stops.indexOfFirst {
-                it.code.equals(p.intermediate?.precedingHalt ?: p.anchorCode, true)
-            } } ?: -1
-            val officialIndex = official?.let { r -> route.stops.indexOfFirst {
-                it.code.equals(r.code, true)
-            } } ?: -1
-            if (page != null && SourceRecency.showComparison(SourceRecency.progressOrdinal(officialIndex, false),
-                    SourceRecency.progressOrdinal(siteIndex, page.intermediate != null),
-                    officialStopAgeMillis() ?: 0L, now - page.pageUpdatedAt,
-                    now - RailTime.railMinuteToEpochMillis(originDate, page.eventMinute))) {
-                val place = page.intermediate?.name ?: route.stops[siteIndex].name
-                "Website reports ${RowText.of(place)} at " +
-                    "${RailTime.formatRailMinute(page.eventMinute)} · unverified; tap to view its report."
-            } else null
-        } else null
+            selected == TrackingSources.OFFICIAL && officialNewer -> {
+                val official = officialEvent!!
+                val website = siteEvent!!
+                "NTES reports ${official.kind} at ${RowText.of(official.place)} " +
+                    "${RailTime.formatRailMinute(official.minute)} · " +
+                    "${SourceFreshness.label(official.eventAtMillis, now)}; separate " +
+                    "whereismytrain.org.in past-card claim (run date inferred, unverified) reports " +
+                    "${website.kind} at " +
+                    "${RowText.of(website.place)} ${RailTime.formatRailMinute(website.minute)} · " +
+                    "${SourceFreshness.label(website.eventAtMillis, now)}. " +
+                    "Tap to inspect the website report; current position unknown."
+            }
+            selected == TrackingSources.OFFICIAL &&
+                answer.position.provenance == SourceKind.PROVIDER_NTES -> {
+                val page = siteReportForHint?.takeIf { now - it.pageUpdatedAt in 0L..300_000L }
+                val officialRow = withActuals.rows.lastOrNull {
+                    it.source == TrackModel.MinuteSource.REPORTED &&
+                        (it.showArr != null || it.showDep != null)
+                }
+                val siteIndex = page?.let { p -> route.stops.indexOfFirst {
+                    it.code.equals(p.intermediate?.precedingHalt ?: p.anchorCode, true)
+                } } ?: -1
+                val officialIndex = officialRow?.let { row -> route.stops.indexOfFirst {
+                    it.code.equals(row.code, true)
+                } } ?: -1
+                if (page != null && siteEvent != null && officialEvent != null &&
+                    SourceRecency.showComparison(
+                        SourceRecency.progressOrdinal(officialIndex, false),
+                        SourceRecency.progressOrdinal(siteIndex, page.intermediate != null),
+                        officialEvent.ageMillis, now - page.pageUpdatedAt, siteEvent.ageMillis)) {
+                    "whereismytrain.org.in reports ${siteEvent.kind} at " +
+                        "${RowText.of(siteEvent.place)} ${RailTime.formatRailMinute(siteEvent.minute)} · " +
+                        "${SourceFreshness.label(siteEvent.eventAtMillis, now)}; run date inferred, " +
+                        "not independently verified. Tap to inspect that website report; " +
+                        "current position unknown."
+                } else null
+            }
+            else -> null
+        }
         return Ui(
             // Keep the original official answer in state. The selected source's table-only
             // anchor must NEVER become the next refresh's official position or cross-check.
@@ -2244,7 +2332,7 @@ class LiveViewModel(
             orgWebsiteComparisonReport = oldWebsiteComparison,
             orgWebsiteDistanceProbe = publicChecks[PublicPageChecks.ORG]?.orgDistanceProbe
                 ?.takeIf { selected == PublicPageChecks.ORG },
-            alternateSiteHint = alternateSiteHint,
+            alternateSourceHint = alternateSourceHint,
             websiteGap = when (selected) {
                 PublicPageChecks.ORG -> publicChecks[PublicPageChecks.ORG]?.orgQualificationNote
                     ?: PublicPageChecks.websiteGap(publicChecks[PublicPageChecks.ORG], route.dstCode)
