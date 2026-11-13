@@ -142,6 +142,13 @@ class PublicPageChecksTest {
             Http.Result.Ok(populatedOrgPage, fromCache = false, ageMillis = 0)
         }
         assertTrue(cardsOnly.pageAnswered)
+        assertTrue("fresh website page clock was not parsed: ${cardsOnly.detail}",
+            cardsOnly.orgSitePageUpdatedAt != null)
+        assertTrue("visible station card was not retained: ${cardsOnly.detail}",
+            cardsOnly.orgSiteCards.isNotEmpty())
+        assertTrue("route-matched website clocks were not parsed: " +
+            "page=${cardsOnly.orgSitePageUpdatedAt}, cards=${cardsOnly.orgSiteCards}, detail=${cardsOnly.detail}",
+            cardsOnly.orgSiteClocks.isNotEmpty())
         assertTrue("a parsed site clock is complete comparison data even without an event row",
             cardsOnly.orgContentParsed)
         assertNull("upcoming white card is not a station event", cardsOnly.orgReport)

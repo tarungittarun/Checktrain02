@@ -254,16 +254,13 @@ object E2E {
         runCatching { ui.dumpWindowHierarchy(File(dir, "$tag.xml")) }
     }
 
-    /** Mandatory app-window evidence for a release traveller path. The CI acceptance job
-     * pulls this test-APK external-files directory after instrumentation; fail the test rather
-     * than silently report a pass without the requested screenshot and matching hierarchy. */
+    /** Mandatory app-window evidence for a release traveller path. Store it in the target app's
+     * private files: external test storage is not mounted on every CI emulator. The acceptance
+     * harness pulls these exact PNG/XML pairs with `run-as`; missing evidence fails the test. */
     fun shotRequired(tag: String) {
         require(tag.matches(Regex("[A-Za-z0-9._-]+"))) { "Unsafe screenshot tag" }
-        val ctx = InstrumentationRegistry.getInstrumentation().context
-        val external = checkNotNull(ctx.getExternalFilesDir(null)) {
-            "External test evidence storage is unavailable"
-        }
-        val dir = File(external, "evidence")
+        val ctx = InstrumentationRegistry.getInstrumentation().targetContext
+        val dir = File(ctx.filesDir, "evidence")
         check(dir.mkdirs() || dir.isDirectory) { "Cannot create test screenshot directory" }
         val image = File(dir, "$tag.png")
         check(ui.takeScreenshot(image) && image.isFile && image.length() > 1_000L) {

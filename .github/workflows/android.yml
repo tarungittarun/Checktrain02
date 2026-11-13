@@ -66,6 +66,7 @@ jobs:
           python3 tools/ci/test_verify_acceptance_apk.py
           python3 tools/ci/test_acceptance_plan.py
           python3 tools/ci/acceptance_plan.py --check
+          python3 tools/ci/export_alert_screenshots.py --self-test
           bash -n tools/ci/run_apk_acceptance.sh
       - name: Website request contract and refusal simulations (offline; no website traffic)
         run: |
@@ -559,6 +560,18 @@ jobs:
           mkdir -p acceptance-evidence
           set -o pipefail
           bash tools/ci/run_apk_acceptance.sh 2>&1 | tee acceptance-evidence/session.log
+      - name: Export original Alerts emulator screenshots and hierarchies for review
+        if: always() && matrix.group == 'alerts'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROFILE: ${{ matrix.profile }}
+        shell: bash
+        run: |
+          if find acceptance-evidence/screens -maxdepth 1 -type f -name 'alert-*.png' -size +0c -print -quit 2>/dev/null | grep -q .; then
+            python3 tools/ci/export_alert_screenshots.py acceptance-evidence/screens "$PROFILE" --allow-partial
+          else
+            echo "::warning::No Alerts emulator screenshots are available to transport; inspect the job artifact for diagnostics."
+          fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -4,12 +4,52 @@ set -euo pipefail
 mkdir -p acceptance-evidence /tmp/acceptance-apk /tmp/acceptance-build /tmp/acceptance-test
 finish() {
   rc=$?
-  echo "acceptance profile=${PROFILE:-unknown} group=${GROUP:-unknown} exit=$rc" | tee -a acceptance-evidence/result.txt
+  trap - EXIT
+  set +e
   adb logcat -d -t 1200 > acceptance-evidence/logcat.txt 2>&1 || true
   adb exec-out screencap -p > acceptance-evidence/final.png 2>/dev/null || true
   adb shell uiautomator dump /sdcard/acceptance-window.xml >/dev/null 2>&1 || true
   adb pull /sdcard/acceptance-window.xml acceptance-evidence/window.xml >/dev/null 2>&1 || true
-  adb pull /sdcard/Android/data/in.opentrack.india.test/files/evidence acceptance-evidence/screens >/dev/null 2>&1 || true
+
+  # Required screenshots live in the target APK's private files, not external storage (which
+  # is absent on some hosted emulators). Pull each original PNG/XML with the same run-as path
+  # used by the strict WIMT device acceptance; never substitute the post-test launcher image.
+  mkdir -p acceptance-evidence/screens
+  mapfile -t evidence_files < <(
+    adb shell run-as in.opentrack.india ls files/evidence 2>/dev/null | tr -d '\r' || true
+  )
+  for name in "${evidence_files[@]}"; do
+    [[ "$name" =~ ^[A-Za-z0-9._-]+$ ]] || continue
+    if ! adb exec-out run-as in.opentrack.india cat "files/evidence/$name" \
+      > "acceptance-evidence/screens/$name" 2>/dev/null; then
+      rm -f "acceptance-evidence/screens/$name"
+    fi
+  done
+
+  if [[ "${GROUP:-}" == alerts ]]; then
+    mapfile -t required_tags < <(
+      grep -oE 'E2E\.shotRequired\("alert-[A-Za-z0-9._-]+"\)' \
+        app/src/androidTest/java/in/opentrack/india/e2e/TravellerAcceptanceTest.kt |
+        sed -E 's/.*\("([^"]+)"\).*/\1/'
+    )
+    missing=()
+    if [[ "${#required_tags[@]}" -eq 0 ]]; then
+      missing+=("no required Alerts capture tags found in the test source")
+    fi
+    for tag in "${required_tags[@]}"; do
+      for ext in png xml; do
+        [[ -s "acceptance-evidence/screens/$tag.$ext" ]] || missing+=("$tag.$ext")
+      done
+    done
+    if [[ "${#missing[@]}" -gt 0 ]]; then
+      echo "::error::missing required Alerts emulator evidence: ${missing[*]}"
+      rc=1
+    else
+      echo "Verified ${#required_tags[@]} Alerts screenshot + hierarchy pairs from the installed APK."
+    fi
+  fi
+  echo "acceptance profile=${PROFILE:-unknown} group=${GROUP:-unknown} exit=$rc" | tee -a acceptance-evidence/result.txt
+  exit "$rc"
 }
 trap finish EXIT
 

@@ -19,6 +19,7 @@ class WebsiteBrowserRequestTest {
         assertEquals("", decodeJavascriptStringResult("42"))
         assertEquals("", decodeJavascriptStringResult("{\"html\":\"<h1>16227</h1>\"}"))
         assertEquals("", decodeJavascriptStringResult("not-json"))
+        assertEquals("", decodeJavascriptStringResult("\"markup\" trailing"))
     }
 
     @Test fun renderedStationCardIsTheReadinessSignalEvenWithoutHtmlComments() {

@@ -91,7 +91,11 @@ class WebsiteReportDisplayTest {
             route.stops.map { it.code }, displayed.pageUpdatedAt + 120_000L)
         assertEquals(2, visible.size)
         assertEquals(686, visible["YPR"]?.arrivalMin)
-        assertNull(visible["YPR"]?.departureMin)
+        assertEquals("a page clock later than its update label stays visible as a qualified website claim",
+            690, visible["YPR"]?.departureMin)
+        assertTrue(visible["YPR"]?.departureAfterPageUpdate == true)
+        assertNull("a displayed website departure is not added to its event ledger",
+            displayed.rows["YPR"]?.actualDepartureMin)
         assertTrue(visible["SBC"]?.forecast == true)
         assertEquals(740, visible["SBC"]?.arrivalMin)
         assertNull("a white-card forecast never enters event rows", displayed.rows["SBC"])

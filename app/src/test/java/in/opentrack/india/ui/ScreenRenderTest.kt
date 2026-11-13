@@ -116,6 +116,12 @@ class ScreenRenderTest {
     fun customArrivalAlertUsesTheAppSurfaceAndARealScrollableChoiceList() {
         val shot = Render.render(R.layout.dialog_alert_shell, widthDp = 360f, heightDp = 660f) { host ->
             val root = host.findViewById<ViewGroup>(R.id.alertDialogRoot)
+            // A real Dialog receives an exact window height before its weighted ScrollView is measured.
+            // Keep that bound during Render's unbounded-content pass, or the scroll area expands to fit
+            // every row and the test stops exercising the user's clipped dialog viewport.
+            root.layoutParams = root.layoutParams.apply {
+                height = Render.dp(host.context, 660f).toInt()
+            }
             root.findViewById<TextView>(R.id.alertEyebrow).text = "TRIGGER"
             root.findViewById<TextView>(R.id.alertTitle).text = "Arrival alert · train 12627"
             root.findViewById<TextView>(R.id.alertSubtitle).text =
@@ -160,7 +166,8 @@ class ScreenRenderTest {
         val body = shot.root.findViewById<LinearLayout>(R.id.alertDialogBody)
         assertTrue("custom dialog shell did not paint its own app surface",
             shot.countWith(ctx.getColor(R.color.surface), shot.bounds(R.id.alertDialogRoot)) > 1_000)
-        assertTrue("dialog must contain a vertically scrollable list, not clipped platform choices",
+        assertTrue("dialog must contain a vertically scrollable list, not clipped platform choices " +
+            "(body=${body.measuredHeight}px, viewport=${scroll.height}px)",
             body.measuredHeight > scroll.height && scroll.canScrollVertically(1))
         assertEquals("Default", shot.root.findViewById<TextView>(R.id.alertTriggerDefault).text.toString())
         assertTrue("default trigger should be visibly highlighted",

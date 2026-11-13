@@ -17,9 +17,24 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /** WebView returns a JavaScript string as a JSON string literal, not as a JSON object. */
-internal fun decodeJavascriptStringResult(encoded: String?): String = runCatching {
-    JSONTokener(encoded ?: "null").nextValue() as? String ?: ""
-}.getOrDefault("")
+internal fun decodeJavascriptStringResult(encoded: String?): String {
+    val token = encoded?.trim() ?: return ""
+    if (token.length < 2 || token.first() != '\"' || token.last() != '\"') return ""
+    // JSONTokener also accepts bare JavaScript-like literals (for example, `not-json`) as strings.
+    // Require one complete quoted token before asking it to decode WebView's escaping.
+    var escaped = false
+    for (index in 1 until token.lastIndex) {
+        when {
+            escaped -> escaped = false
+            token[index] == '\\' -> escaped = true
+            token[index] == '\"' -> return ""
+        }
+    }
+    if (escaped) return ""
+    return runCatching {
+        JSONTokener(token).nextValue() as? String ?: ""
+    }.getOrDefault("")
+}
 
 private const val MAX_WEBSITE_HTML = 1_000_000
 private val stationCardRoot = Regex(
