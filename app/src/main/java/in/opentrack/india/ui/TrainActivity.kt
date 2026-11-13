@@ -128,6 +128,7 @@ class TrainActivity : AppCompatActivity() {
     private var pendingAutoRefresh = false
     private var chainBusy = false
     private var mirrorBusy = false
+    private var mirrorStatus: String? = null
     private var heroExpanded = true
     private var sourceSummaryWanted = false
     private var expansionAnimating = false
@@ -457,12 +458,13 @@ class TrainActivity : AppCompatActivity() {
         // the top card then carries the same sentence (badge + source row + refreshed stamp), and one
         // copy on screen is the owner's round-47 point: everything read at once, nothing said twice.
         vm.mirrorState.observe(this) { st ->
+            mirrorStatus = st
             mirrorBusy = st?.startsWith("Checking") == true || st?.startsWith("Already checking") == true
             renderChecking()
             val useful = st != null && (st.startsWith("Checking") ||
                 st.startsWith("Already checking"))
-            // checkingBar reserves its own 3dp slot above the card. A second
-            // status line would resize the table every time the poll starts.
+            // The shared fetch banner is the sole visible busy sentence. Keep the
+            // source-details footer quiet so a slow poll cannot add a second line.
             binding.mirrorState.visibility = View.GONE
             if (useful) binding.mirrorState.text = simpleSourceStatus(st!!)
             st?.let { Diary.get()?.log("UISTATE") { "sources box: $it" } }
@@ -616,11 +618,37 @@ class TrainActivity : AppCompatActivity() {
         }
     }
 
+    private fun checkingSourceLabel(): String {
+        val mirrorSource = if (mirrorBusy) mirrorStatus?.let { status ->
+            when {
+                status.startsWith("Checking ") -> status.removePrefix("Checking ")
+                    .substringBefore("…").trim()
+                status.startsWith("Already checking ") -> status.removePrefix("Already checking ")
+                    .substringBefore(';').trim()
+                else -> null
+            }
+        } else null
+        if (mirrorSource != null) return "Fetching ${sourceName(mirrorSource)}…"
+        val activeSource = lastUi?.activeSource?.takeIf { it.isNotBlank() }
+        return if (refreshStartedAt > 0L || activeSource == null) "Fetching train status…"
+            else "Fetching ${sourceName(activeSource)}…"
+    }
+
     /** Keep progress visible only while a requested source is actually fetching. */
     private fun renderChecking() {
         val busy = chainBusy || mirrorBusy
-        binding.checkingBar.visibility = if (batteryAtCreate) View.GONE
-            else if (busy) View.VISIBLE else View.INVISIBLE
+        val showInlineStatus = !batteryAtCreate && busy && lastUi != null
+        binding.fetchingStatus.visibility = if (showInlineStatus) View.VISIBLE else View.GONE
+        if (showInlineStatus) {
+            val message = checkingSourceLabel()
+            binding.fetchingLabel.text = message
+            binding.fetchingLabel.contentDescription =
+                "$message A source fetch is in progress; completion time is unknown."
+        } else {
+            binding.fetchingLabel.contentDescription = null
+        }
+        // The first-open panel already has a large spinner and a sentence. Once
+        // a timetable is on screen, use the same fetch status above it instead.
         binding.firstLoad.visibility = if (busy && lastUi == null) View.VISIBLE else View.GONE
         if (!batteryAtCreate && chainBusy && refreshStartedAt > 0L) {
             if (refreshSpin == null) {

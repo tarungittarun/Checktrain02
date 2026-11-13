@@ -90,19 +90,47 @@
         </LinearLayout>
     </LinearLayout>
 
-    <!-- The wait is the app working, so the wait is visible: a thin moving bar while any live look
-         is in flight, and a captioned spinner while the very first look (the one the traveller is
-         staring at) has not landed yet. Indeterminate on purpose - a refused source's duration is
-         not knowable, and a fake percent would be a lie this app does not tell. -->
-    <ProgressBar
-        android:id="@+id/checkingBar"
-        style="?android:attr/progressBarStyleHorizontal"
+    <!-- Once a timetable is already visible, a fetch gets a plain-language status, not just a
+         hairline. The spinner is indeterminate: source latency is unknown, and this is not train
+         movement or a percentage of journey completion. The row is shown only while a request runs. -->
+    <LinearLayout
+        android:id="@+id/fetchingStatus"
         android:layout_width="match_parent"
-        android:layout_height="3dp"
+        android:layout_height="wrap_content"
         android:layout_marginLeft="@dimen/gap"
         android:layout_marginRight="@dimen/gap"
-        android:indeterminate="true"
-        android:visibility="invisible" />
+        android:layout_marginBottom="4dp"
+        android:background="@drawable/bg_pill_accent"
+        android:gravity="center_vertical"
+        android:minHeight="40dp"
+        android:orientation="horizontal"
+        android:paddingStart="12dp"
+        android:paddingTop="6dp"
+        android:paddingEnd="12dp"
+        android:paddingBottom="6dp"
+        android:visibility="gone">
+
+        <ProgressBar
+            android:id="@+id/fetchingSpinner"
+            style="?android:attr/progressBarStyleSmall"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:layout_marginEnd="10dp"
+            android:contentDescription="@null"
+            android:importantForAccessibility="no"
+            android:indeterminate="true" />
+
+        <TextView
+            android:id="@+id/fetchingLabel"
+            style="@style/TextBody"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:accessibilityLiveRegion="polite"
+            android:importantForAccessibility="yes"
+            android:textColor="@color/accent"
+            android:textStyle="bold" />
+    </LinearLayout>
 
     <LinearLayout
         android:id="@+id/firstLoad"

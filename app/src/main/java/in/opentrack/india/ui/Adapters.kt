@@ -272,6 +272,7 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         val inlineLeg: InlineLegView = view.findViewById(R.id.inlineLeg)
         val inlineLegCaption: TextView = view.findViewById(R.id.inlineLegCaption)
         val inlineLegAge: TextView = view.findViewById(R.id.inlineLegAge)
+        val batteryStations: TextView = view.findViewById(R.id.batteryStations)
         val routeToggle: TextView = view.findViewById(R.id.routeToggle)
         val details: LinearLayout = view.findViewById(R.id.stopDetails)
         val primaryTime: TextView = view.findViewById(R.id.stopPrimaryTime)
@@ -589,6 +590,9 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
                 web?.actualArrivalMin,
                 web?.actualDepartureMin.takeIf { stopped })
         }
+        val batteryExpanded = batteryMode && disclosed && available.isNotEmpty()
+        holder.batteryStations.text = if (batteryExpanded) batteryRouteDetails(available) else ""
+        holder.batteryStations.visibility = if (batteryExpanded) View.VISIBLE else View.GONE
         if (captionMinute != null) {
             val mapFrom = mappedAnchorKm[s.code.uppercase()]
             val mapTo = nextStop?.let { mappedAnchorKm[it.code.uppercase()] }
@@ -613,6 +617,7 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
                 s.code, nextStop.code, available) else null
         val mapUnavailable = nextStop != null && available.isEmpty() &&
             s.code.uppercase() !in mappedLegStarts
+        holder.inlineLegGroup.contentDescription = null
         holder.inlineLegGroup.visibility = if (displayedLeg != null) View.VISIBLE else View.GONE
         if (displayedLeg == null) {
             // Recycled children must not retain the previous leg's disclosure.
@@ -762,8 +767,19 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
                 legWebsiteEventMinute != null && legAgeSeconds != null &&
                 holder.inlineLeg.showTrain
             holder.inlineLeg.batteryOutline = siteLegOutline
+            if (hasPoints) {
+                holder.inlineLegCaption.text = if (disclosed)
+                    "Hide intermediate stations ▴"
+                else "Show ${available.size} intermediate stations ▾"
+                holder.inlineLegCaption.visibility = View.VISIBLE
+                val action = if (disclosed) "hide" else "show"
+                holder.inlineLegCaption.contentDescription =
+                    "Tap to $action ${available.size} intermediate route points from " +
+                        "${mapSource ?: "the static route"}; static map details, not a train-position report"
+                holder.inlineLegGroup.contentDescription = holder.inlineLegCaption.contentDescription
+            }
             holder.inlineLegGroup.visibility = if (siteLegOutline ||
-                holder.inlineLegCaption.text.isNotEmpty()) View.VISIBLE else View.GONE
+                holder.inlineLegCaption.text.isNotEmpty() || batteryExpanded) View.VISIBLE else View.GONE
             holder.routeToggle.visibility = View.GONE
             holder.inlineLeg.visibility = if (siteLegOutline) View.VISIBLE else View.GONE
             if (siteLegOutline) holder.inlineLeg.contentDescription =
@@ -806,6 +822,27 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         // The station names themselves replace the folded between-points sentence.
         if (DepartureCue.isCue(holder.inlineLeg.projection?.markerKind))
             holder.inlineLegCaption.visibility = if (opened) View.GONE else View.VISIBLE
+        if (batteryMode) {
+            val points = holder.inlineLeg.projection?.points.orEmpty()
+            if (points.isNotEmpty()) {
+                val count = points.size
+                val action = if (opened) "hide" else "show"
+                holder.inlineLegCaption.text = if (opened)
+                    "Hide intermediate stations ▴" else "Show $count intermediate stations ▾"
+                holder.inlineLegCaption.visibility = View.VISIBLE
+                holder.inlineLegCaption.contentDescription =
+                    "Tap to $action $count intermediate route points from " +
+                        "${mapSource ?: "the static route"}; static map details, not a train-position report"
+                holder.inlineLegGroup.contentDescription = holder.inlineLegCaption.contentDescription
+                holder.inlineLegGroup.visibility = View.VISIBLE
+                holder.batteryStations.text = if (opened) batteryRouteDetails(points) else ""
+                holder.batteryStations.visibility = if (opened) View.VISIBLE else View.GONE
+                val baseDescription = holder.row.contentDescription?.toString()
+                    .orEmpty().substringBeforeLast("; tap to ")
+                holder.row.contentDescription =
+                    "$baseDescription; tap to $action $count intermediate stations"
+            }
+        }
         holder.routeToggle.text = if (opened) "Hide ▴" else "Stations ▾"
         holder.routeToggle.contentDescription = if (opened)
             "Hide intermediate stations" else "Show intermediate stations"
@@ -819,6 +856,34 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             .takeIf { it >= 0 }?.let(::notifyItemChanged)
         notifyItemChanged(holder.bindingAdapterPosition.takeIf { it != RecyclerView.NO_POSITION }
             ?: fallbackPosition)
+    }
+
+    /** Static, on-demand details for Battery mode; none of these rows locates the train. */
+    private fun batteryRouteDetails(points: List<RouteBetween.LegPoint>): String = buildString {
+        append("Intermediate route points · ")
+            .append(mapSource?.takeIf { it.isNotBlank() } ?: "static route map")
+        append("\nStatic map details only; they do not report the train's present position.")
+        for (point in points) {
+            append("\n• ").append(RowText.of(point.name)).append(" (").append(point.code).append(")")
+            if (point.mapKm >= 0) append(" · ").append(point.mapKm).append(" km on map")
+            point.passageMinute?.let { minute ->
+                append(" · ")
+                if (point.approximate)
+                    append("approx. timetable ")
+                else append("route-listed ")
+                append(RailTime.formatRailMinute(minute))
+            }
+            if (point.siteArrivalMin != null || point.siteDepartureMin != null) {
+                append(" · whereismytrain.org.in past-card claim · run date inferred")
+                point.siteArrivalMin?.let {
+                    append(" · arr ").append(RailTime.formatRailMinute(it))
+                }
+                point.siteDepartureMin?.let {
+                    append(" · dep ").append(RailTime.formatRailMinute(it))
+                }
+                append(" · not independently verified")
+            }
+        }
     }
 
     /**

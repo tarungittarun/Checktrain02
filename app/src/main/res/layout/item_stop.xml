@@ -170,6 +170,20 @@
             android:id="@+id/inlineLeg"
             android:layout_width="match_parent"
             android:layout_height="wrap_content" />
+
+        <!-- Battery mode discloses route points as quiet text on demand. It never restores the
+             normal animated/map canvas; clocks and site claims keep their own labels and provenance. -->
+        <TextView
+            android:id="@+id/batteryStations"
+            style="@style/TextBody"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:paddingStart="148dp"
+            android:paddingEnd="20dp"
+            android:paddingBottom="8dp"
+            android:textColor="@color/text2"
+            android:visibility="gone" />
     </LinearLayout>
 
     <!-- Names and proportional dots are painted INSIDE inlineLeg, never in a second card. -->

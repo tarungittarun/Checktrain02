@@ -3,6 +3,7 @@ package `in`.opentrack.india.ui
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -485,6 +486,32 @@ Render.save("02-track-live", shot.bitmap)
         assertEquals("12 min ago", text(reported, R.id.inlineLegAge))
         assertEquals(12 * 60L, icon.ageSeconds)
         Render.save("07-track-source-reported-halt", shot.bitmap)
+    }
+
+    @Test
+    fun anInFlightFetchHasAnAccessibleIndeterminateStatusInsteadOfAThinStripe() {
+        val shot = Render.render(R.layout.activity_train, widthDp = 360f,
+            heightDp = 760f) { root ->
+            root.findViewById<View>(R.id.fetchingStatus).visibility = View.VISIBLE
+            root.findViewById<TextView>(R.id.fetchingLabel).apply {
+                text = "Fetching NTES · official…"
+                contentDescription = "Fetching NTES · official… A source fetch is in progress."
+            }
+        }
+        val status = shot.root.findViewById<View>(R.id.fetchingStatus)
+        val spinner = shot.root.findViewById<ProgressBar>(R.id.fetchingSpinner)
+        val label = shot.root.findViewById<TextView>(R.id.fetchingLabel)
+        assertEquals(View.VISIBLE, status.visibility)
+        assertTrue("fetch status should occupy more than a hairline",
+            shot.bounds(R.id.fetchingStatus).height() >= Render.dp(shot.context, 36f))
+        assertTrue("fetch animation must be indeterminate", spinner.isIndeterminate)
+        assertEquals("Fetching NTES · official…", label.text.toString())
+        assertEquals(View.ACCESSIBILITY_LIVE_REGION_POLITE, label.accessibilityLiveRegion)
+        assertTrue("screen reader needs the active fetch", label.contentDescription
+            .toString().contains("fetch is in progress"))
+        assertFalse("loading feedback must not invent a percentage", label.text.contains("%"))
+        assertEquals("first load has its own captioned panel", View.GONE,
+            shot.root.findViewById<View>(R.id.firstLoad).visibility)
     }
 
     @Test

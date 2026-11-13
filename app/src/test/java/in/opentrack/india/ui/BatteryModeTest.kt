@@ -6,10 +6,13 @@ import android.graphics.Color
 import android.view.View
 import android.widget.FrameLayout
 import android.widget.TextView
+import androidx.recyclerview.widget.RecyclerView
 import `in`.opentrack.india.data.Prefs
 import `in`.opentrack.india.R
 import `in`.opentrack.india.domain.TrackModel
 import `in`.opentrack.india.domain.RouteBetween
+import `in`.opentrack.india.model.LiveStopFields
+import `in`.opentrack.india.model.StopRow
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -150,6 +153,82 @@ class BatteryModeTest {
         adapter.onBindViewHolder(holder, 0)
         assertEquals(View.GONE, holder.inlineLeg.visibility)
         assertFalse(holder.inlineLeg.batteryOutline)
+    }
+
+    @Test fun batteryIntermediateDisclosureIsExplicitStaticAndKeepsTheStationRowsStable() {
+        Prefs(ctx).batteryMode = true
+        val adapter = StopAdapter().apply {
+            batteryMode = true
+            mapSource = "RailGeo"
+            mappedAnchorKm = mapOf("AAA" to 0, "MID1" to 20, "BBB" to 40,
+                "MID2" to 60, "CCC" to 80)
+            setRoutePoints(mapOf(
+                "AAA" to listOf(StopRow(2, "MID1", "Mapped One", null, null, null,
+                    610, null, 1, 20, false)),
+                "BBB" to listOf(StopRow(4, "MID2", "Mapped Two", null, null, null,
+                    null, null, 1, 60, false)),
+            ))
+            websiteIntermediateReports = mapOf("MID1" to LiveStopFields(actualArrivalMin = 611))
+        }
+        val first = TrackModel.Stop(1, "AAA", "Alpha", 600, 602, 598, 600, null,
+            TrackModel.MinuteSource.REPORTED, "2", TrackModel.State.PASSED,
+            true, 0, 0, 80, false, false, false, null)
+        val second = TrackModel.Stop(2, "BBB", "Beta", 620, 622, null, null, null,
+            TrackModel.MinuteSource.SCHEDULE, null, TrackModel.State.NEXT,
+            false, 40, 40, 40, false, false, false, null)
+        val third = TrackModel.Stop(3, "CCC", "Gamma", 640, null, null, null, null,
+            TrackModel.MinuteSource.SCHEDULE, null, TrackModel.State.NEXT,
+            false, 80, 80, 0, false, false, false, null)
+        adapter.submitList(listOf(first, second, third))
+        val attachedList = RecyclerView(ctx)
+        attachedList.adapter = adapter
+        BatteryMode.paint(attachedList)
+        assertEquals("Battery disclosures must not trigger item animations", null,
+            attachedList.itemAnimator)
+        Render.settle(attachedList, 3)
+        val firstRow = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
+        val secondRow = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
+        adapter.onBindViewHolder(firstRow, 0)
+        adapter.onBindViewHolder(secondRow, 1)
+        val clocksBefore = listOf(firstRow.schedArr.text, firstRow.schedDep.text,
+            firstRow.liveArr.text, firstRow.liveDep.text).map { it.toString() }
+
+        assertEquals(View.VISIBLE, firstRow.inlineLegGroup.visibility)
+        assertEquals("Show 1 intermediate stations ▾", firstRow.inlineLegCaption.text.toString())
+        assertEquals(View.GONE, firstRow.batteryStations.visibility)
+        assertEquals(View.GONE, firstRow.inlineLeg.visibility) // no animated route canvas
+        assertTrue(firstRow.row.contentDescription.contains("tap to show 1 intermediate stations"))
+
+        // The visible caption/leg is a full tap target. Text updates immediately, before
+        // the next bind, and carries route/time/source distinctions.
+        firstRow.inlineLegGroup.performClick()
+        assertEquals(View.VISIBLE, firstRow.batteryStations.visibility)
+        assertEquals("Hide intermediate stations ▴", firstRow.inlineLegCaption.text.toString())
+        assertTrue(firstRow.batteryStations.text.toString().contains("Intermediate route points · RailGeo"))
+        assertTrue(firstRow.batteryStations.text.toString().contains("Static map details only"))
+        assertTrue(firstRow.batteryStations.text.toString().contains("route-listed 10:10"))
+        assertTrue(firstRow.batteryStations.text.toString().contains(
+            "whereismytrain.org.in past-card claim · run date inferred · arr 10:11"))
+        assertTrue(firstRow.batteryStations.text.toString().contains("not independently verified"))
+        assertFalse(firstRow.batteryStations.text.toString().contains("percent"))
+        assertEquals(Color.WHITE, firstRow.batteryStations.currentTextColor)
+        adapter.onBindViewHolder(firstRow, 0)
+        assertEquals(clocksBefore, listOf(firstRow.schedArr.text, firstRow.schedDep.text,
+            firstRow.liveArr.text, firstRow.liveDep.text).map { it.toString() })
+        assertEquals(View.GONE, firstRow.inlineLeg.visibility)
+
+        // Opening another leg folds the previous one; only its requested static details remain open.
+        secondRow.inlineLegGroup.performClick()
+        adapter.onBindViewHolder(firstRow, 0)
+        adapter.onBindViewHolder(secondRow, 1)
+        assertEquals(View.GONE, firstRow.batteryStations.visibility)
+        assertEquals(View.VISIBLE, secondRow.batteryStations.visibility)
+        assertTrue(secondRow.batteryStations.text.toString().contains("approx. timetable 10:31"))
+        assertTrue(secondRow.batteryStations.text.toString().contains("not report the train's present position"))
+        assertTrue(secondRow.row.contentDescription.contains("tap to hide 1 intermediate stations"))
+        secondRow.inlineLegGroup.performClick()
+        assertEquals(View.GONE, secondRow.batteryStations.visibility)
+        assertEquals("Show 1 intermediate stations ▾", secondRow.inlineLegCaption.text.toString())
     }
 
     @Test fun officialDepartureCueStaysAtLastTimedStopOnlyInBatteryMode() {
