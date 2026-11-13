@@ -428,10 +428,10 @@ object OrgWebsiteStatus {
                     "Website marks $code past; clocks do not distinguish report from timetable."
                 continue
             }
-            val platform = Regex("(?i)\\bPF\\s*([A-Z0-9]{1,3})\\b")
+            val eventPlatform = Regex("(?i)\\bPF\\s*([A-Z0-9]{1,3})\\b")
                 .find(part.substringBefore("<!-- Arrival -->"))?.groupValues?.get(1)
             rows[code] = LiveStopFields(actualArrivalMin = arr, actualDepartureMin = dep,
-                platform = platform)
+                platform = eventPlatform)
             previousSeq = stop.seq
             lastAcceptedCard = cardIndex
             anchorCode = code
