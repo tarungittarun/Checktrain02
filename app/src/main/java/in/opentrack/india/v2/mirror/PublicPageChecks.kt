@@ -98,7 +98,8 @@ object PublicPageChecks {
               source: String? = null, destination: String? = null,
               knownCodes: Set<String> = emptySet(), route: TrainRoute? = null,
               mapRoute: TrainRoute? = null): Result =
-        fetch(name, number, originDay, now, source, destination, knownCodes, route, mapRoute) { url ->
+        fetch(name, number, originDay, now, source, destination, knownCodes, route, mapRoute,
+            responseClock = { System.currentTimeMillis() }) { url ->
             http.get(url, timeoutMillis = 4_000, retries = retriesFor(name), budgetMillis = 4_000,
                 headers = headersFor(name), allowCachedOnFailure = name != ORG,
                 followRedirects = name != ORG)
@@ -109,14 +110,18 @@ object PublicPageChecks {
     internal fun fetch(name: String, number: String, originDay: Long, now: Long,
         source: String? = null, destination: String? = null,
         knownCodes: Set<String> = emptySet(), route: TrainRoute? = null,
-        mapRoute: TrainRoute? = null, get: (String) -> Http.Result): Result {
+        mapRoute: TrainRoute? = null,
+        responseClock: () -> Long = { now }, get: (String) -> Http.Result): Result {
         val url = url(name, number, originDay, now)
             ?: return Result("Run outside the available 0–2 day query window; no request made.", now, false)
         return when (val reply = get(url)) {
             is Http.Result.Failed -> Result("Request failed: ${reply.kind} · ${reply.message.take(90)}; no position.",
-                System.currentTimeMillis(), false)
+                responseClock(), false)
             is Http.Result.Ok -> {
-                val checked = System.currentTimeMillis()
+                // The production adapter records response time; deterministic transport tests
+                // default to the injected request clock so historical fixtures do not depend on
+                // the date the CI runner happens to execute them.
+                val checked = responseClock()
                 val bytes = reply.body.toByteArray(Charsets.UTF_8)
                 val digest = MessageDigest.getInstance("SHA-256").digest(bytes).take(8)
                     .joinToString("") { "%02x".format(it) }

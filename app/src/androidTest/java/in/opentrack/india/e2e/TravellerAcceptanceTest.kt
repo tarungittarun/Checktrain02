@@ -335,8 +335,10 @@ class TravellerAcceptanceTest {
         E2E.shotRequired("alert-journey-entry")
         openAlertChoices()
         E2E.shotRequired("alert-trigger-chooser-top")
+        // A partially clipped row can still be an accessibility node; make the captured state prove the list scrolls.
         assertTrue("last alert trigger is not reachable in the scrollable chooser",
-            revealTextContains("Within 10 km", "alertDialogScroll"))
+            E2E.swipeIn("alertDialogScroll", up = true) &&
+                revealTextContains("Within 10 km", "alertDialogScroll"))
         E2E.shotRequired("alert-trigger-chooser-bottom")
         assertTrue("destination trigger cannot be brought back into view",
             revealTextContains("At destination", "alertDialogScroll", up = false))
@@ -405,6 +407,8 @@ class TravellerAcceptanceTest {
         assertTrue("Preceding-station source caveat is incomplete: '$precedingEvidenceNote'",
             precedingEvidenceNote.contains("whereismytrain.org.in") &&
                 precedingEvidenceNote.contains("not independently verified"))
+        assertTrue("Could not scroll to the end of the preceding-station caveat",
+            E2E.swipeIn("alertDialogScroll", up = true))
         E2E.shotRequired("alert-preceding-station-source-note")
         assertTrue("Cancel after station selection did not close setup", tapTextContains("Cancel"))
         assertEquals("cancelling a preceding-station alert must not arm it", "Alert", E2E.text("arrivalAlert"))
@@ -432,6 +436,8 @@ class TravellerAcceptanceTest {
         assertTrue("Station alert live-evidence limits were not visible in setup: '$evidenceNote'",
             evidenceNote.contains("whereismytrain.org.in") &&
                 evidenceNote.contains("not independently verified"))
+        assertTrue("Could not scroll to the end of the destination source caveat",
+            E2E.swipeIn("alertDialogScroll", up = true))
         E2E.shotRequired("alert-destination-source-note")
         assertTrue("Cancel did not close alert setup", tapTextContains("Cancel"))
         assertEquals("cancelling preferences must not create an alert", "Alert", E2E.text("arrivalAlert"))
@@ -452,6 +458,8 @@ class TravellerAcceptanceTest {
         assertTrue("Distance alert limits were not explained for the selected trigger: '$distanceEvidenceNote'",
             distanceEvidenceNote.contains("250 m accuracy") &&
                 distanceEvidenceNote.contains("straight-line distance—not train GPS"))
+        assertTrue("Could not scroll to the end of the distance limitation note",
+            E2E.swipeIn("alertDialogScroll", up = true))
         E2E.shotRequired("alert-distance-source-note")
         assertTrue("Alert style choices cannot be brought back into view",
             revealTextContains("Vibration · one pattern", "alertDialogScroll", up = false))

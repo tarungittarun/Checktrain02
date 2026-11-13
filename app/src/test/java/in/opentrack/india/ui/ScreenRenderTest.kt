@@ -114,13 +114,15 @@ class ScreenRenderTest {
 
     @Test
     fun customArrivalAlertUsesTheAppSurfaceAndARealScrollableChoiceList() {
-        val shot = Render.render(R.layout.dialog_alert_shell, widthDp = 360f, heightDp = 660f) { host ->
+        // Match TrainActivity's 218dp chrome + five 82dp chooser rows. The real Dialog gives
+        // its weighted ScrollView this exact, capped window height; the render harness otherwise
+        // performs an unbounded pass that would expand the viewport and stop exercising scrolling.
+        val dialogHeightDp = 218f + 5 * 82f
+        val shot = Render.render(R.layout.dialog_alert_shell, widthDp = 360f,
+            heightDp = dialogHeightDp) { host ->
             val root = host.findViewById<ViewGroup>(R.id.alertDialogRoot)
-            // A real Dialog receives an exact window height before its weighted ScrollView is measured.
-            // Keep that bound during Render's unbounded-content pass, or the scroll area expands to fit
-            // every row and the test stops exercising the user's clipped dialog viewport.
             root.layoutParams = root.layoutParams.apply {
-                height = Render.dp(host.context, 660f).toInt()
+                height = Render.dp(host.context, dialogHeightDp).toInt()
             }
             root.findViewById<TextView>(R.id.alertEyebrow).text = "TRIGGER"
             root.findViewById<TextView>(R.id.alertTitle).text = "Arrival alert · train 12627"

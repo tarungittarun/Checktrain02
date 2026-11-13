@@ -28,7 +28,7 @@ finish() {
 
   if [[ "${GROUP:-}" == alerts ]]; then
     mapfile -t required_tags < <(
-      grep -oE 'E2E\.shotRequired\("alert-[A-Za-z0-9._-]+"\)' \
+      grep -oE '(E2E\.shotRequired|openAlertChoices)\("alert-[A-Za-z0-9._-]+"\)' \
         app/src/androidTest/java/in/opentrack/india/e2e/TravellerAcceptanceTest.kt |
         sed -E 's/.*\("([^"]+)"\).*/\1/'
     )

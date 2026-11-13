@@ -560,15 +560,27 @@ jobs:
           mkdir -p acceptance-evidence
           set -o pipefail
           bash tools/ci/run_apk_acceptance.sh 2>&1 | tee acceptance-evidence/session.log
-      - name: Export original Alerts emulator screenshots and hierarchies for review
-        if: always() && matrix.group == 'alerts'
+      - name: Export original Alerts emulator captures for sandbox review
+        # The official artifact is always uploaded below. This GitHub-comment transport is opt-in
+        # because it expands to many bounded API comments; use it only when artifact blobs cannot be fetched.
+        if: always() && matrix.group == 'alerts' && contains(github.event.head_commit.message, '[export-alert-evidence]')
         env:
           GH_TOKEN: ${{ github.token }}
           PROFILE: ${{ matrix.profile }}
         shell: bash
         run: |
           if find acceptance-evidence/screens -maxdepth 1 -type f -name 'alert-*.png' -size +0c -print -quit 2>/dev/null | grep -q .; then
-            python3 tools/ci/export_alert_screenshots.py acceptance-evidence/screens "$PROFILE" --allow-partial
+            if [ "$PROFILE" = online ]; then
+              # The previous online run already exported every direct tag. Recover the four
+              # helper-driven reopenings that its older manifest parser did not include.
+              python3 tools/ci/export_alert_screenshots.py acceptance-evidence/screens "$PROFILE" --allow-partial \
+                --only-tag alert-chooser-reopened-after-cancel \
+                --only-tag alert-chooser-reopened-for-station-select \
+                --only-tag alert-chooser-reopened-for-destination \
+                --only-tag alert-chooser-reopened-for-distance
+            else
+              python3 tools/ci/export_alert_screenshots.py acceptance-evidence/screens "$PROFILE" --allow-partial
+            fi
           else
             echo "::warning::No Alerts emulator screenshots are available to transport; inspect the job artifact for diagnostics."
           fi

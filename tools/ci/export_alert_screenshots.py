@@ -20,7 +20,11 @@ from io import BytesIO
 from zipfile import ZIP_DEFLATED, ZipFile
 
 TEST_SOURCE = Path("app/src/androidTest/java/in/opentrack/india/e2e/TravellerAcceptanceTest.kt")
-TAG_RE = re.compile(r'E2E\.shotRequired\("(alert-[A-Za-z0-9._-]+)"\)')
+# openAlertChoices() takes a literal screenshot tag and calls shotRequired() internally;
+# include those helper-driven traversals as well as the direct mandatory captures.
+TAG_RE = re.compile(
+    r'(?:E2E\.shotRequired|openAlertChoices)\("(alert-[A-Za-z0-9._-]+)"\)'
+)
 CHUNK_CHARS = 60_000  # GitHub's comment limit is 65,536 bytes, including the marker line.
 
 
@@ -38,8 +42,13 @@ def required_tags() -> list[str]:
 
 
 def build_bundle(evidence_dir: Path, profile: str, run_id: str, sha: str,
-                 allow_partial: bool) -> tuple[bytes, dict[str, object]]:
-    tags = required_tags()
+                 allow_partial: bool, only_tags: list[str] | None = None
+                 ) -> tuple[bytes, dict[str, object]]:
+    all_tags = required_tags()
+    tags = all_tags if only_tags is None else list(dict.fromkeys(only_tags))
+    if not tags or any(tag not in all_tags for tag in tags):
+        raise RuntimeError("evidence scope contains no required tag or an unknown tag")
+
     present: list[str] = []
     missing: list[str] = []
     for tag in tags:
@@ -61,7 +70,8 @@ def build_bundle(evidence_dir: Path, profile: str, run_id: str, sha: str,
         "runId": run_id,
         "sourceSha": sha,
         "complete": not missing,
-        "requiredTags": tags,
+        "requiredTags": all_tags,
+        "scopeTags": tags,
         "includedFiles": present,
         "missingFiles": missing,
     }
@@ -109,15 +119,22 @@ def self_test() -> None:
     assert split_payload("", 400) == [""]
 
     tags = required_tags()
+    helper_tags = re.findall(
+        r'openAlertChoices\("(alert-[A-Za-z0-9._-]+)"\)',
+        TEST_SOURCE.read_text(encoding="utf-8"),
+    )
+    assert len(tags) == 28 and len(helper_tags) == 4, (len(tags), helper_tags)
     with tempfile.TemporaryDirectory(prefix="alert-evidence-self-test-") as temp:
         evidence = Path(temp)
         first = tags[0]
         (evidence / f"{first}.png").write_bytes(b"\x89PNG\r\n" + b"x" * 2000)
         (evidence / f"{first}.xml").write_text("<hierarchy/>" + " " * 101, encoding="utf-8")
-        bundle, manifest = build_bundle(evidence, "online", "self-test", "deadbeef", True)
-        assert manifest["complete"] is False
+        bundle, manifest = build_bundle(evidence, "online", "self-test", "deadbeef", True,
+                                        only_tags=[first])
+        assert manifest["complete"] is True
+        assert manifest["requiredTags"] == tags
+        assert manifest["scopeTags"] == [first]
         assert manifest["includedFiles"] == [f"{first}.png", f"{first}.xml"]
-        assert len(manifest["missingFiles"]) == 2 * len(tags) - 2
         with ZipFile(BytesIO(bundle)) as archive:
             assert set(archive.namelist()) == {
                 "manifest.json", f"screens/{first}.png", f"screens/{first}.xml"
@@ -140,6 +157,8 @@ def main() -> int:
     parser.add_argument("profile", nargs="?", choices=("online", "offline"))
     parser.add_argument("--allow-partial", action="store_true",
                         help="export captures from a failed traversal, with missing tags recorded")
+    parser.add_argument("--only-tag", action="append", dest="only_tags",
+                        help="limit the transport to a subset of required tags (repeatable)")
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
     if args.self_test:
@@ -150,13 +169,14 @@ def main() -> int:
     run_id = os.environ.get("GITHUB_RUN_ID", "unknown")
     sha = os.environ.get("GITHUB_SHA", "")
     payload, manifest = build_bundle(args.evidence_dir, args.profile, run_id, sha,
-                                     args.allow_partial)
+                                     args.allow_partial, args.only_tags)
     digest = post_chunks(payload, args.profile, run_id, sha)
     print("E2E_ALERT_EVIDENCE_TRANSPORT " + json.dumps({
         "profile": args.profile,
         "runId": run_id,
         "sourceSha": sha,
         "complete": manifest["complete"],
+        "scopeTags": len(manifest["scopeTags"]),
         "files": len(manifest["includedFiles"]),
         "missing": manifest["missingFiles"],
         "bundleBytes": len(payload),
