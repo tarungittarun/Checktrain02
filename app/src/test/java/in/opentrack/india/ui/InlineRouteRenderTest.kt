@@ -52,9 +52,11 @@ class InlineRouteRenderTest {
         assertEquals(View.VISIBLE, at.trainMarker.visibility)
         val next = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
         adapter.onBindViewHolder(next, 1)
-        assertEquals("—", next.liveArr.text.toString())
-        assertEquals("—", next.liveDep.text.toString())
-        assertTrue(next.liveArr.contentDescription.contains("Not reported arrival unknown"))
+        assertEquals("~07:09", next.liveArr.text.toString())
+        assertEquals("~07:11", next.liveDep.text.toString())
+        assertTrue(next.liveArr.contentDescription.contains("Website forecast arrival 07:09"))
+        assertTrue(next.liveDep.contentDescription.contains("Website forecast departure 07:11"))
+        assertTrue(next.liveDep.contentDescription.contains("not a current position"))
         assertEquals(View.GONE, next.trainMarker.visibility)
     }
 
@@ -182,7 +184,13 @@ class InlineRouteRenderTest {
         adapter.savedOfficialClocks = emptySet()
         val future = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
         adapter.onBindViewHolder(future, 2)
-        assertEquals(View.GONE, future.websitePastComparison.visibility)
+        assertEquals(View.VISIBLE, future.websitePastComparison.visibility)
+        assertTrue(future.websitePastComparison.text.toString()
+            .startsWith("Website forecast · arr 02:52 · dep 02:55"))
+        assertTrue(future.websitePastComparison.contentDescription
+            .contains("Website upcoming forecast"))
+        assertTrue(future.websitePastComparison.contentDescription
+            .contains("Not an NTES actual or current position"))
         assertEquals(null, WebsiteGapUi.caption(rrb,
             `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.SiteClocks(1612, 1615, false)))
         adapter.websiteComparisonTimes = emptyMap() // switching away clears the comparison
@@ -222,10 +230,12 @@ class InlineRouteRenderTest {
         for (index in 1..2) {
             val next = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
             adapter.onBindViewHolder(next, index)
-            assertEquals("—", next.liveArr.text.toString())
-            assertEquals("—", next.liveDep.text.toString())
+            val expected = if (index == 1) "~23:16" to "~23:21" else "~23:21" to "~23:28"
+            assertEquals(expected.first, next.liveArr.text.toString())
+            assertEquals(expected.second, next.liveDep.text.toString())
+            assertTrue(next.liveArr.contentDescription.contains("Website forecast arrival"))
+            assertTrue(next.liveDep.contentDescription.contains("Website forecast departure"))
             assertEquals(View.GONE, next.trainMarker.visibility)
-            assertTrue(next.liveArr.contentDescription.contains("Not reported arrival unknown"))
         }
     }
 

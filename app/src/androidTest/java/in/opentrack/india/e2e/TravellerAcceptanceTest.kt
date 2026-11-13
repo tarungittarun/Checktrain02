@@ -365,7 +365,7 @@ class TravellerAcceptanceTest {
         E2E.shot("traveller-alert-saved")
         assertTrue("Saved alert actions cannot be reopened", E2E.tap("arrivalAlert"))
         assertTrue("A second alert cannot be added for the same journey",
-            E2E.ui.wait(Until.hasObject(By.text("Add another")), E2E.LOCAL_MS))
+            findTextContains("Add another", E2E.LOCAL_MS) != null)
         assertTrue("Central alert management is not reachable from the journey",
             tapTextContains("Manage alerts"))
         assertTrue("The central alert list did not open",

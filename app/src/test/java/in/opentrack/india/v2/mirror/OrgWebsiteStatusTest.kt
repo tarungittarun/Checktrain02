@@ -550,8 +550,13 @@ class OrgWebsiteStatusTest {
             state = TrackModel.State.PASSED, isAnchor = false, kmFromOrigin = 141,
             kmFromBoard = 0, kmRemaining = 369, showKm = false, isBoarding = false,
             isAlighting = false, minutesFromNow = null)
-        assertEquals("Website claim · arr 23:20 · dep 23:24",
-            `in`.opentrack.india.ui.WebsiteGapUi.caption(missingNtesArrival, visible["MWM"]))
+        val claim = `in`.opentrack.india.ui.WebsiteGapUi.caption(missingNtesArrival, visible["MWM"])
+            .orEmpty()
+        assertTrue(claim.startsWith("Website claim · arr 23:20 · dep 23:24"))
+        assertTrue(claim.contains("page arr schedule 23:20"))
+        assertTrue(claim.contains("page dep schedule 23:21"))
+        assertTrue(claim.contains("website PF 1"))
+        assertTrue(claim.contains("website card green/past-marked"))
     }
 
     @Test fun `website update precision is preserved without inventing seconds`() {
