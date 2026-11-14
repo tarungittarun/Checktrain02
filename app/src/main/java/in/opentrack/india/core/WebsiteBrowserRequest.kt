@@ -111,6 +111,12 @@ internal object WebsiteCardMarkup {
         }
         return null
     }
+
+    internal fun isPopulatedStationCard(card: String): Boolean {
+        val heading = stationHeading.find(card)?.groupValues?.get(1)
+            ?.replace(Regex("(?s)<[^>]*>"), " ")?.replace(Regex("\\s+"), " ")?.trim()
+        return !heading.isNullOrBlank() && cardClock.containsMatchIn(card)
+    }
 }
 
 /** Pure DOM-readiness check: do not confuse a page shell or a timetable echo with populated cards. */
@@ -140,12 +146,8 @@ internal fun hasPopulatedTrainDocument(html: String, trainNo: String): Boolean {
     val starts = WebsiteCardMarkup.stationCardSectionStarts(document)
     val populatedCard = starts.indices.any { index ->
         val limit = starts.getOrNull(index + 1) ?: visibleHtml.length
-        val section = WebsiteCardMarkup.divSectionAt(visibleHtml, starts[index], limit)
-        section?.let { card ->
-            val heading = stationHeading.find(card)?.groupValues?.get(1)
-                ?.replace(Regex("(?s)<[^>]*>"), " ")?.replace(Regex("\\s+"), " ")?.trim()
-            !heading.isNullOrBlank() && cardClock.containsMatchIn(card)
-        } ?: false
+        WebsiteCardMarkup.divSectionAt(visibleHtml, starts[index], limit)
+            ?.let { WebsiteCardMarkup.isPopulatedStationCard(it) } == true
     }
     return identity && update && source && destination && populatedCard
 }
