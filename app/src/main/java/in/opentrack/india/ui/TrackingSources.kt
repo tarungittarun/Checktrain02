@@ -12,6 +12,18 @@ object TrackingSources {
     const val WIMT = WimtLiveProvider.SOURCE_NAME
     val options = listOf(OFFICIAL, PublicPageChecks.ORG)
 
+    enum class PickerAction { IGNORE, REFRESH, SELECT }
+
+    /** A dropdown choice is a user action even when it arrives through Accessibility or UiAutomator
+     * rather than MotionEvent. Public-page selections always make a fresh request; cached comparison
+     * state must never suppress the traveller's explicit choice. */
+    fun pickerAction(name: String, active: String?, state: String?): PickerAction = when {
+        name == active -> PickerAction.IGNORE
+        name in PublicPageChecks.names -> PickerAction.REFRESH
+        state == null || state !in setOf("live", "last-known", "candidate") -> PickerAction.REFRESH
+        else -> PickerAction.SELECT
+    }
+
     fun label(name: String): String = when (name) {
         OFFICIAL -> "NTES · official"
         WIMT -> "WIMT .in live-status feed"

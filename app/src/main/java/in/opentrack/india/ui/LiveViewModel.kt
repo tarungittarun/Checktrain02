@@ -372,8 +372,10 @@ class LiveViewModel(
         if (!select && !allowMapRecheck && name == PublicPageChecks.ORG &&
             manualProbeSource == name && manualProbeJob?.isActive == true) {
             // The selected website request will notice any newly arrived map and
-            // recheck once it publishes. Do not supersede its visible tap result.
-            return manualProbeJob
+            // recheck once it publishes. Do not supersede it or join it here: a manual
+            // request can be awaiting the live-refresh job that made this background
+            // call, so returning that manual Job would create a mutual-join deadlock.
+            return null
         }
         if (select) manualProbeSource = name
         val order = ++sourceProbeOrder

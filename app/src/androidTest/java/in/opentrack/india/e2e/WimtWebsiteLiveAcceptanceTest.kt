@@ -80,6 +80,7 @@ class WimtWebsiteLiveAcceptanceTest {
             var eventFreshness = ""
             var claimSummary = ""
             var detachedDescription = ""
+            var selectedWebsite = false
             var detachedClaim = false
             while (System.currentTimeMillis() < until) {
                 headline = E2E.text("headline", 250)
@@ -88,7 +89,9 @@ class WimtWebsiteLiveAcceptanceTest {
                 eventFreshness = E2E.text("age", 250)
                 claimSummary = E2E.text("sourceSummary", 250)
                 detachedDescription = E2E.find("headline", 250)?.contentDescription?.toString().orEmpty()
-                val reported = headline.startsWith("Last website-published claim ·") &&
+                selectedWebsite = E2E.find("sourceSpinner", 250)?.contentDescription?.toString()
+                    ?.contains("Selected Where Is My Train · website") == true
+                val reported = selectedWebsite && headline.startsWith("Last website-published claim ·") &&
                     badge.contains("date matched", true) &&
                     eventFreshness.contains("page date matched", true) &&
                     claimSummary.contains("visible page date matches selected run", true) &&
@@ -111,12 +114,14 @@ class WimtWebsiteLiveAcceptanceTest {
                 Thread.sleep(250)
             }
             E2E.shotWimt("wimt-after-selected-source")
+            assertTrue("explicit website picker choice did not become the selected source; " +
+                "spinner='${E2E.find("sourceSpinner", 250)?.contentDescription}' " +
+                "warning='$warning'", selectedWebsite)
             assertTrue("No source-qualified .org.in website claim in the installed app; " +
                 "headline='$headline' badge='$badge' eventFreshness='$eventFreshness' " +
                 "summary='$claimSummary' description='$detachedDescription' warning='$warning'. " +
                 "A route-conflicting detached claim is diagnostic only and cannot satisfy selected-run acceptance. " +
-                "HTTP 200 alone, NTES " +
-                "fallback and the .in web cache do not pass.", accepted)
+                "HTTP 200 alone, NTES fallback and the .in web cache do not pass.", accepted)
             assertTrue("time-sheet not reachable", E2E.reveal("routeHeadActual", "scroller"))
             assertEquals("website data was mislabeled ACTUAL", "WEBSITE", E2E.text("routeHeadActual"))
             val siteCells = E2E.all(By.res(E2E.PKG, "liveArr")) +

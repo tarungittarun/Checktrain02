@@ -19,12 +19,10 @@ finish() {
         rm -f "wimt-device-evidence/screens/$name.$ext"
     done
   done
-  screen_mode=()
-  if grep -q 'OK (1 test)' wimt-device-evidence/instrumentation.txt 2>/dev/null && \
-     ! grep -q 'FAILURES!!!' wimt-device-evidence/instrumentation.txt 2>/dev/null; then
-    screen_mode=(--accepted)
-  fi
-  if ! python3 tools/ci/verify_wimt_screens.py wimt-device-evidence "${screen_mode[@]}" \
+  # Every outcome needs authentic same-train/route/date screenshots showing the selected
+  # website. A non-403 parse failure is still useful diagnostic evidence; refusal is checked
+  # separately when a report labels the result as a displayed HTTP 403/429.
+  if ! python3 tools/ci/verify_wimt_screens.py wimt-device-evidence --accepted \
     > wimt-device-evidence/screen-verification.json \
     2> wimt-device-evidence/screen-verification-error.txt; then
     rm -f wimt-device-evidence/screen-verification.json
@@ -48,8 +46,26 @@ bash tools/ci/emulator_boot.sh > wimt-device-evidence/boot.txt 2>&1 || {
   exit 3
 }
 export PATH="${ANDROID_HOME:-/usr/local/lib/android/sdk}/platform-tools:$PATH"
-adb install -r -g app/build/outputs/apk/debug/app-debug.apk
-adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+app_apk=app/build/outputs/apk/debug/app-debug.apk
+test_apk=app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+: "${GITHUB_SHA:?same-run source SHA required for APK identity check}"
+python3 tools/ci/verify_acceptance_apk.py "$app_apk" "$app_apk" "$GITHUB_SHA" \
+  | tee wimt-device-evidence/apk-preflight.txt
+sha256sum "$app_apk" "$test_apk" > wimt-device-evidence/built-apk-sha256.txt
+adb install -r -g "$app_apk"
+adb install -r "$test_apk"
+adb shell pm list instrumentation \
+  | grep -F 'in.opentrack.india.test/androidx.test.runner.AndroidJUnitRunner'
+installed_path=$(adb shell pm path in.opentrack.india | tr -d '\r' \
+  | sed -n 's/^package://p' | head -1)
+[ -n "$installed_path" ] || { echo '::error::Android PackageManager has no installed app APK'; exit 1; }
+adb pull "$installed_path" /tmp/wimt-installed.apk >/dev/null
+printf 'built %s\ninstalled %s\n' "$(sha256sum "$app_apk")" \
+  "$(sha256sum /tmp/wimt-installed.apk)" > wimt-device-evidence/installed-apk-sha256.txt
+cmp "$app_apk" /tmp/wimt-installed.apk || {
+  echo '::error::installed base.apk differs from the exact APK built for this website acceptance run'
+  exit 1
+}
 adb shell pm clear in.opentrack.india
 # Android's instrumentation command can return zero even when tests fail; the
 # report gate independently requires exactly one successful instrumented method.

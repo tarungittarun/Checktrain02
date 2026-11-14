@@ -1379,19 +1379,17 @@ class TrainActivity : AppCompatActivity() {
             binding.sourceSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
                 override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
                     val name = names.getOrNull(pos) ?: return
-                    // Reordering after a background answer must never select the first
-                    // item by accident. Only a traveller-initiated dropdown choice fetches.
-                    if (!sourceSelectionTouched) return
-                    // Opening the popup can report its already-selected row again.
-                    // Do not spend the pending touch before the traveller taps a
-                    // different entry; a background probe may have repainted it.
-                    if (name == lastUi?.activeSource) return
+                    // onItemSelected is the selection signal for touch, keyboard, TalkBack
+                    // and UiAutomator. ACTION_DOWN only freezes option ordering while the
+                    // popup is open; using it as an authorization gate silently swallowed
+                    // accessibility selections and left the displayed source on NTES.
+                    val action = TrackingSources.pickerAction(name, lastUi?.activeSource,
+                        spinnerStates[name]?.first)
+                    if (action == TrackingSources.PickerAction.IGNORE) return
                     sourceSelectionTouched = false
                     `in`.opentrack.india.data.Prefs(application as App).defaultTrackingSource =
                         TrackingSources.valid(name)
-                    if (spinnerStates[name]?.first !in listOf("live", "last-known", "candidate") &&
-                        !(name == `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG &&
-                            spinnerStates[name]?.first == "comparison")) {
+                    if (action == TrackingSources.PickerAction.REFRESH) {
                         // API 24's Toast layout must use the framework inflater: the
                         // Activity's AppCompat factory crashes on its system TextView
                         // (StringBlock pooled-string index outside the Toast XML pool).

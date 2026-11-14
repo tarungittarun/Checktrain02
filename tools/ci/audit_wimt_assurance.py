@@ -32,7 +32,10 @@ def audit(folder: Path) -> dict:
         raise ValueError("artifact is not a source-strict independent website network pass")
     if "OK (1 test)" not in inst or "FAILURES!!!" in inst or "INSTRUMENTATION_FAILED" in inst:
         raise ValueError("exact installed-app instrumented test did not pass")
-    if snap.get("displayedRefusalRequired") is not False or len(snap.get("verifiedAppScreens", {})) != 2:
+    if (snap.get("displayedRefusalRequired") is not False or
+            snap.get("selectedWebsiteRequired") is not True or
+            snap.get("sameSelectedOriginDate") is not True or
+            len(snap.get("verifiedAppScreens", {})) != 2):
         raise ValueError("source-qualified in-app before/after screenshots were not verified")
     verify(folder, require_http_403=False)
     return {"sourceVerdict": "DATED_ROUTE_MATCHED_SITE_EVENT_AND_APP_UI_ACCEPTED",

@@ -21,6 +21,21 @@ class SourceIndicatorTest {
         assertEquals(TrackingSources.OFFICIAL, TrackingSources.valid("WIMT phone app"))
     }
 
+    @Test fun explicitPickerSelectionIsNotGatedOnTouchOrPriorComparisonState() {
+        assertEquals(TrackingSources.PickerAction.IGNORE,
+            TrackingSources.pickerAction(PublicPageChecks.ORG, PublicPageChecks.ORG, "comparison"))
+        assertEquals("a prior background comparison must not suppress a new selected-source GET",
+            TrackingSources.PickerAction.REFRESH,
+            TrackingSources.pickerAction(PublicPageChecks.ORG, TrackingSources.OFFICIAL, "comparison"))
+        assertEquals("Accessibility/UiAutomator selection with no touch state still refreshes",
+            TrackingSources.PickerAction.REFRESH,
+            TrackingSources.pickerAction(PublicPageChecks.ORG, TrackingSources.OFFICIAL, null))
+        assertEquals(TrackingSources.PickerAction.SELECT,
+            TrackingSources.pickerAction("cached local source", TrackingSources.OFFICIAL, "live"))
+        assertEquals(TrackingSources.PickerAction.REFRESH,
+            TrackingSources.pickerAction("cached local source", TrackingSources.OFFICIAL, "unverified"))
+    }
+
     @Test fun aQuickHttpPageDoesNotBecomeGreen() {
         assertEquals(SourceIndicator.Tone.UNAVAILABLE,
             SourceIndicator.of(PublicPageChecks.IXIGO, "unverified",

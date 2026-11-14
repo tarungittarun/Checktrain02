@@ -7,6 +7,7 @@ on:
     paths:
       - '.github/workflows/wimt-device-acceptance.yml'
       - 'tools/ci/run_wimt_device.sh'
+      - 'tools/ci/verify_acceptance_apk.py'
       - 'tools/ci/wimt_device_report.py'
       - 'tools/ci/verify_wimt_screens.py'
       - 'tools/ci/build_wimt_pdf.py'
@@ -291,6 +292,51 @@ jobs:
           gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
             -F body=@wimt-device-evidence/pdf-report-link.md > /dev/null || \
               echo '::warning::PDF comment unavailable; it remains in the run artifact'
+      - name: Publish APK only after strict website and same-run screenshot acceptance
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          result = json.loads(Path('wimt-device-evidence/result.json').read_text(encoding='utf-8'))
+          screens = json.loads(Path('wimt-device-evidence/screen-verification.json').read_text(encoding='utf-8'))
+          if not (result.get('accepted') is True and
+                  result.get('instrumentationPassed') is True and
+                  result.get('websiteAnswered') is True and
+                  result.get('websiteRefused') is False and
+                  result.get('wireReceiptAvailable') is True and
+                  isinstance(result.get('websiteGetCount'), int) and result['websiteGetCount'] > 0 and
+                  result.get('source') == 'whereismytrain.org.in' and
+                  result.get('sourceTransport') == 'NETWORK_ANSWER' and
+                  result.get('acceptedMode') == 'DATED_ROUTE_MATCHED_SITE_EVENT' and
+                  result.get('runIdentity') == 'DATE_ROUTE_MATCHED' and
+                  result.get('googlePhoneAppFeed') is False and
+                  result.get('browserEngineRequest') is True and
+                  result.get('detachedSiteClaims') == 0 and
+                  result.get('siteClaimTimeBasis') == 'selected_origin_date_verified' and
+                  result.get('siteClaimKind') in ('ARRIVAL', 'DEPARTURE') and
+                  result.get('trainNumber') == '16227' and
+                  result.get('selectedRoute') == 'MYS>TLGP' and
+                  result.get('siteRoute') == 'MYS>TLGP' and
+                  result.get('sitePageEndpoints') == 'MYS>TLGP' and
+                  result.get('siteDateMatched') is True and
+                  result.get('sitePageRunDate') == result.get('originRunDateIst') and
+                  result.get('siteRows', 0) > 0 and
+                  result.get('siteCardContainers', 0) > 0 and
+                  result.get('provenanceComplete') is True):
+              raise SystemExit('selected train/route/date website event did not pass; APK not delivered')
+          if not (screens.get('selectedWebsiteRequired') is True and
+                  screens.get('sameSelectedOriginDate') is True and
+                  len(screens.get('verifiedAppScreens', {})) == 2):
+              raise SystemExit('same-run source-selection screenshots/XML did not verify; APK not delivered')
+          PY
+          test -s app/build/outputs/apk/debug/app-debug.apk
+          gh release upload latest-apk app/build/outputs/apk/debug/app-debug.apk --clobber
+          echo "Validated website-tested APK: https://github.com/${GITHUB_REPOSITORY}/releases/download/latest-apk/app-debug.apk" \
+            >> "$GITHUB_STEP_SUMMARY"
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
