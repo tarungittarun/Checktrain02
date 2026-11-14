@@ -223,6 +223,8 @@ jobs:
         if: always()
         env:
           GH_TOKEN: ${{ github.token }}
+          WIMT_SOURCE_RUN: ${{ github.run_id }}
+          WIMT_SOURCE_ARTIFACT: wimt-device-evidence
         run: |
           mkdir -p wimt-device-evidence
           if [ ! -s wimt-device-evidence/result.json ]; then

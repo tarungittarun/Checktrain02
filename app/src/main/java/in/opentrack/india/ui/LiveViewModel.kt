@@ -124,6 +124,9 @@ class LiveViewModel(
 
     /** The live identity for [trainNo], once one reaches the device; null until then (and stays null on failure). */
     private var liveIdentity: ErailLiveIdentity? = null
+    /** Manual website checks wait for the in-flight route/identity reads before they bind page claims. */
+    private var liveIdentityJob: Job? = null
+    private var confirmScheduleJob: Job? = null
 
     /**
      * @param model the whole screen, already stringified. The Activity binds and styles; it computes
@@ -346,10 +349,12 @@ class LiveViewModel(
         _mirrorState.postValue("$name: no verified per-stop feed available to ask")
     }
 
-    fun probeSource(name: String) = probeSource(name, select = true)
+    fun probeSource(name: String) = probeSource(name, select = true,
+        awaitRunContext = name == PublicPageChecks.ORG)
 
     private fun probeSource(name: String, select: Boolean,
-                            allowMapRecheck: Boolean = false): Job? {
+                            allowMapRecheck: Boolean = false,
+                            awaitRunContext: Boolean = false): Job? {
         if (select && manualProbeJob?.isActive == true) {
             if (manualProbeSource == name) {
                 _mirrorState.postValue("Already checking $name; wait for its result")
@@ -380,6 +385,15 @@ class LiveViewModel(
             val started = System.currentTimeMillis()
             val job = viewModelScope.launch {
                 if (select) _mirrorState.value = "Checking $name…"
+                if (name == PublicPageChecks.ORG) {
+                    // A site GET can take several seconds. Do not bind its response to the
+                    // half-painted offline route while NTES/ConfirmTkt or the independent
+                    // live identity is still resolving; otherwise an actual matching page
+                    // becomes an unqualified "wrong route" report from a stale snapshot.
+                    if (awaitRunContext) liveRefreshJob?.takeIf { it.isActive }?.join()
+                    liveIdentityJob?.takeIf { it.isActive }?.join()
+                    confirmScheduleJob?.takeIf { it.isActive }?.join()
+                }
                 val route = _ui.value?.route ?: return@launch
                 // Snapshot the map alongside this request. If a full static route
                 // arrives while the HTTP call is in flight, the first reply cannot
@@ -863,7 +877,7 @@ class LiveViewModel(
         if (started) return
         started = true
         refresh()
-        fetchLiveIdentity()
+        liveIdentityJob = fetchLiveIdentity()
     }
 
     /**
@@ -872,21 +886,19 @@ class LiveViewModel(
      * this device" and the timetable label stays exactly as it was - a failed lookup is never rendered
      * as a correction.
      */
-    private fun fetchLiveIdentity() {
-        viewModelScope.launch {
-            val id = runCatching { identityFetch.identityOf(trainNo) }.getOrNull()
-            if (id == null) {
-                Diary.get()?.log("UI", "no erail identity reached the device for $trainNo; the timetable label stays")
-                return@launch
-            }
-            liveIdentity = id
-            Diary.get()?.log(
-                "UI",
-                "erail live identity for $trainNo: ${id.identity.fromCode}->${id.identity.toCode} (${id.identity.name})",
-            )
-            // Re-read our own last emission (the Activity holds its own copy; this class does not see it).
-            _ui.value?.let { u -> _ui.value = buildUi(u.route, u.answer, u.tried).copy(reports = u.reports, relayOk = u.relayOk) }
+    private fun fetchLiveIdentity(): Job = viewModelScope.launch {
+        val id = runCatching { identityFetch.identityOf(trainNo) }.getOrNull()
+        if (id == null) {
+            Diary.get()?.log("UI", "no erail identity reached the device for $trainNo; the timetable label stays")
+            return@launch
         }
+        liveIdentity = id
+        Diary.get()?.log(
+            "UI",
+            "erail live identity for $trainNo: ${id.identity.fromCode}->${id.identity.toCode} (${id.identity.name})",
+        )
+        // Re-read our own last emission (the Activity holds its own copy; this class does not see it).
+        _ui.value?.let { u -> _ui.value = buildUi(u.route, u.answer, u.tried).copy(reports = u.reports, relayOk = u.relayOk) }
     }
 
     /** A failed website check can leave NTES displayed. Only a deliberate button press retries
@@ -1396,7 +1408,7 @@ class LiveViewModel(
         val now = System.currentTimeMillis()
         if (now - confirmScheduleAttemptAt < 90_000L) return null
         confirmScheduleAttemptAt = now
-        return viewModelScope.launch {
+        val job = viewModelScope.launch {
             val day = NtesWire.dateForWire(originEpochDay)
             val result = withContext(Dispatchers.IO) {
                 val body = ConfirmTktMirror.plainGet(ConfirmTktMirror.BASE + trainNo).first
@@ -1453,6 +1465,8 @@ class LiveViewModel(
                 }
             }
         }
+        confirmScheduleJob = job
+        return job
     }
 
     private fun maybeRailGeo(official: TrainRoute): Job? {

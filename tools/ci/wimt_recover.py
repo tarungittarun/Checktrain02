@@ -405,6 +405,7 @@ def _self_test() -> None:
             "wireReceiptAvailable": False, "websiteGetCount": None,
         }, "43260030312", "wimt-device-evidence")
         assert summary["sourceRun"] == "43260030312"
+        assert summary["sourceArtifact"] == "wimt-device-evidence"
         assert summary["result"]["verdict"] == "WEBSITE_REFUSED_UI_DIARY_UNAVAILABLE"
         assert summary["capturedInTestHierarchyNames"] == ["wimt-after-selected-source"]
         assert summary["whitelistedUiHierarchySummaries"]["wimt-after-selected-source"][
