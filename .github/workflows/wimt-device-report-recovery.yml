@@ -1,0 +1,100 @@
+# Pull an ALREADY executed run's artifact on a GitHub runner (sandbox artifact CDN
+# can return EOF); read the failure without another app install or website request.
+name: wimt-device-report-recovery
+on:
+  push:
+    branches: ['arena/6f68e526-checktrain02']
+    paths:
+      - '.github/workflows/wimt-device-report-recovery.yml'
+      - 'tools/ci/wimt_recover.py'
+  workflow_dispatch:
+    inputs:
+      source_run:
+        description: 'Existing wimt-device-acceptance run ID; no new provider request'
+        required: true
+        type: string
+      artifact_name:
+        description: 'Exact evidence-artifact name from that existing run'
+        required: false
+        type: string
+        default: wimt-device-evidence
+permissions:
+  actions: read
+  contents: write
+jobs:
+  recover:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[wimt-recover:')
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate the bounded artifact parser (offline)
+        run: python3 tools/ci/wimt_recover.py --self-test
+      - name: Resolve the exact existing run and artifact
+        id: source
+        env:
+          SOURCE_RUN_INPUT: ${{ inputs.source_run }}
+          SOURCE_ARTIFACT_INPUT: ${{ inputs.artifact_name }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            source_run="$SOURCE_RUN_INPUT"
+            artifact_name="${SOURCE_ARTIFACT_INPUT:-wimt-device-evidence}"
+          else
+            source_run=$(python3 - "$GITHUB_EVENT_PATH" <<'PY'
+          import json, re, sys
+          event = json.load(open(sys.argv[1], encoding="utf-8"))
+          message = event.get("head_commit", {}).get("message", "")
+          match = re.search(r"\[wimt-recover:([0-9]+):([A-Za-z0-9._-]{1,100})\]", message)
+          if not match:
+              raise SystemExit("push recovery requires [wimt-recover:RUN_ID:ARTIFACT_NAME]")
+          print(match.group(1))
+          PY
+          )
+            artifact_name=$(python3 - "$GITHUB_EVENT_PATH" <<'PY'
+          import json, re, sys
+          event = json.load(open(sys.argv[1], encoding="utf-8"))
+          message = event.get("head_commit", {}).get("message", "")
+          match = re.search(r"\[wimt-recover:([0-9]+):([A-Za-z0-9._-]{1,100})\]", message)
+          if not match:
+              raise SystemExit("push recovery requires [wimt-recover:RUN_ID:ARTIFACT_NAME]")
+          print(match.group(2))
+          PY
+          )
+          fi
+          [[ "$source_run" =~ ^[0-9]+$ ]]
+          [[ "$artifact_name" =~ ^[A-Za-z0-9._-]{1,100}$ ]]
+          printf 'source_run=%s\n' "$source_run" >> "$GITHUB_OUTPUT"
+          printf 'artifact_name=%s\n' "$artifact_name" >> "$GITHUB_OUTPUT"
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ steps.source.outputs.artifact_name }}
+          run-id: ${{ steps.source.outputs.source_run }}
+          github-token: ${{ github.token }}
+          path: recovered-wimt
+      - name: Retrieve original failed-step log (GitHub-only; no provider request)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WIMT_SOURCE_RUN: ${{ steps.source.outputs.source_run }}
+        run: |
+          set +e
+          gh run view "$WIMT_SOURCE_RUN" --repo "$GITHUB_REPOSITORY" --log-failed \
+            > recovered-wimt/failed-step-log.txt \
+            2> recovered-wimt/failed-step-log-fetch-error.txt
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ] && [ -s recovered-wimt/failed-step-log.txt ]; then
+            printf 'available\n' > recovered-wimt/failed-step-log-status.txt
+          else
+            printf 'unavailable\n' > recovered-wimt/failed-step-log-status.txt
+            echo '::warning::Could not retrieve the original failed-step log; artifact diagnosis continues.'
+          fi
+      - name: Report actual device failure, no further website request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WIMT_SOURCE_RUN: ${{ steps.source.outputs.source_run }}
+          WIMT_SOURCE_ARTIFACT: ${{ steps.source.outputs.artifact_name }}
+        run: |
+          python3 tools/ci/wimt_recover.py recovered-wimt
+          cat recovered-wimt/recovered-report.md >> "$GITHUB_STEP_SUMMARY"
+          gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
+            -F body=@recovered-wimt/recovered-report.md > /dev/null

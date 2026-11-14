@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/alertTriggerOption"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@drawable/ripple_alert_trigger"
+    android:clickable="true"
+    android:focusable="true"
+    android:gravity="center_vertical"
+    android:minHeight="76dp"
+    android:orientation="horizontal"
+    android:paddingStart="12dp"
+    android:paddingTop="10dp"
+    android:paddingEnd="12dp"
+    android:paddingBottom="10dp">
+
+    <TextView
+        android:id="@+id/alertTriggerIcon"
+        android:layout_width="42dp"
+        android:layout_height="42dp"
+        android:background="@drawable/bg_pill_accent"
+        android:gravity="center"
+        android:includeFontPadding="false"
+        android:textColor="@color/accent"
+        android:textSize="19sp"
+        android:fontFamily="sans-serif-medium" />
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="12dp"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/alertTriggerName"
+            style="@style/TextTitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="@color/text1" />
+
+        <TextView
+            android:id="@+id/alertTriggerDescription"
+            style="@style/TextMeta"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="3dp"
+            android:lineSpacingExtra="1sp"
+            android:textColor="@color/text2" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/alertTriggerDefault"
+        style="@style/Pill"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        android:background="@drawable/bg_pill_accent"
+        android:text="Default"
+        android:textColor="@color/accent"
+        android:visibility="gone" />
+</LinearLayout>

@@ -1,0 +1,108 @@
+name: wimt-live-api-240-minute-soak
+on:
+  push:
+    branches: ['arena/6f68e526-checktrain02']
+    paths:
+      - '.github/workflows/wimt-live-api-soak.yml'
+      - 'app/src/androidTest/java/in/opentrack/india/e2e/WimtLiveApiSoakTest.kt'
+      - 'tools/ci/build_wimt_live_soak_pdf.py'
+      - 'tools/ci/run_wimt_live_api_soak.sh'
+      - 'tools/ci/wimt_live_api_soak_report.py'
+  workflow_dispatch:
+permissions:
+  contents: write # redacted pass/fail only; no request body, URL, headers or station identifiers
+concurrency:
+  group: wimt-live-api-240-minute-soak-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  installed-app-soak:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[wimt-live-api-soak]'))
+    runs-on: ubuntu-latest
+    # 240 minutes in the foreground, plus build, emulator boot, final capture and report.
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: true
+      - name: Offline soak-report and runner checks
+        run: |
+          python3 tools/ci/wimt_live_api_soak_report.py --self-test
+          python3 tools/ci/check_workflows.py
+          python3 -m py_compile \
+            tools/ci/wimt_live_api_soak_report.py \
+            tools/ci/build_wimt_live_soak_pdf.py
+          bash -n tools/ci/run_wimt_live_api_soak.sh
+      - name: Generate the offline timetable asset for the exact APK
+        run: bash tools/ci/prepare_asset.sh
+      - name: Build app, unit tests and installed instrumentation APKs
+        run: |
+          ./gradlew --no-daemon :app:testDebugUnitTest :app:assembleDebug \
+            :app:assembleDebugAndroidTest --stacktrace
+      - name: Preserve the exact APK pair used by the soak
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wimt-live-api-soak-apks
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Installed APK · strict WIMT .in gate then 240-minute Auto regression
+        id: run_soak
+        run: bash tools/ci/run_wimt_live_api_soak.sh
+      - name: Redacted result and provenance summary
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p wimt-live-api-soak-evidence/screens
+          python3 tools/ci/wimt_live_api_soak_report.py wimt-live-api-soak-evidence
+          cat wimt-live-api-soak-evidence/report.md >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo '### WIMT .in 240-minute installed-app regression';
+            echo "Run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}";
+            echo;
+            cat wimt-live-api-soak-evidence/report.md;
+          } > /tmp/wimt-live-api-soak-comment.md
+          gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
+            -F body=@/tmp/wimt-live-api-soak-comment.md > /dev/null || \
+            echo '::warning::Could not post the redacted soak summary comment'
+          if [ "${{ steps.run_soak.outcome }}" = 'success' ]; then
+            python3 - <<'PY'
+          import json
+          with open('wimt-live-api-soak-evidence/result.json', encoding='utf-8') as f:
+              result = json.load(f)
+          if result.get('passed') is not True:
+              raise SystemExit('instrumentation passed but the redacted soak report did not satisfy all gates')
+          PY
+          fi
+      - name: PDF from genuine app-window screenshots only
+        if: always()
+        run: |
+          python3 -m pip install --disable-pip-version-check --quiet reportlab==4.2.5
+          if python3 tools/ci/build_wimt_live_soak_pdf.py \
+               wimt-live-api-soak-evidence \
+               wimt-live-api-soak-evidence/wimt-live-api-soak-${GITHUB_RUN_ID}.pdf; then
+            echo 'Actual installed-app screenshot PDF is included in the evidence artifact.' \
+              >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'No screenshot PDF was created: no verified in-app PNG captures were recovered.' \
+              >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload four-hour trace and app evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wimt-live-api-240-minute-soak-evidence
+          path: wimt-live-api-soak-evidence/
+          if-no-files-found: warn
+          retention-days: 30

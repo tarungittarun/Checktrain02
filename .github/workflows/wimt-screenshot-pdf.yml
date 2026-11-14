@@ -1,0 +1,99 @@
+# Report-only recovery from an ALREADY RUN device trial: zero new .org.in GETs.
+# Source-strict accepted claims or UI-confirmed refusals need real before/after captures.
+name: wimt-device-screenshot-pdf
+on:
+  workflow_dispatch:
+    inputs:
+      source_run:
+        description: 'Existing installed-app run with a strict website-claim pass or UI-confirmed refusal and before/after captures'
+        required: true
+        type: string
+      source_sha:
+        description: 'Exact 40-character commit SHA of the captured installed-app run'
+        required: true
+        type: string
+permissions:
+  actions: read
+  contents: write # attach the finished PDF to the existing rolling APK release
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      # Download only the specifically identified still-existing device capture.
+      # The original run 42026847014 is deleted by the six-hour policy.
+      - uses: actions/download-artifact@v4
+        with:
+          name: wimt-device-evidence
+          run-id: ${{ inputs.source_run }}
+          github-token: ${{ github.token }}
+          path: captured-wimt-device
+      - name: Create a PDF containing only actual in-app before/after screenshots
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p build
+          python3 -m pip install --disable-pip-version-check --quiet reportlab==4.2.5
+          set +e
+          python3 tools/ci/build_wimt_pdf.py captured-wimt-device \
+            "build/wimt-website-device-${{ inputs.source_run }}.pdf" \
+            "${{ inputs.source_run }}" "${{ inputs.source_sha }}" 2> build/pdf-error.txt
+          status=$?
+          set -e
+          if [ "$status" -ne 0 ]; then
+            { echo '### PDF construction failed (no new website request)';
+              echo 'Actual files in the earlier device artifact:';
+              find captured-wimt-device -type f -printf '%P (%s bytes)\n' | head -40;
+              echo 'Bounded error:'; tail -20 build/pdf-error.txt; } > build/pdf-diagnostic.md
+            cat build/pdf-diagnostic.md >> "$GITHUB_STEP_SUMMARY"
+            gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
+              -F body=@build/pdf-diagnostic.md > /dev/null || true
+            exit "$status"
+          fi
+          test -s "build/wimt-website-device-${{ inputs.source_run }}.pdf"
+          sha256sum "build/wimt-website-device-${{ inputs.source_run }}.pdf"
+      - name: Publish direct PDF link on existing rolling APK release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pdf="build/wimt-website-device-${{ inputs.source_run }}.pdf"
+          gh release upload latest-apk "$pdf" --clobber
+          link=https://github.com/${GITHUB_REPOSITORY}/releases/download/latest-apk/$(basename "$pdf")
+          PDF_LINK="$link" SOURCE_RUN="${{ inputs.source_run }}" python3 - <<'PY' > build/pdf-report-link.md
+          import json, os
+          with open('captured-wimt-device/result.json', encoding='utf-8') as handle:
+              result = json.load(handle)
+          verdict = str(result.get('verdict', 'unknown'))
+          if result.get('accepted') is True:
+              status = 'strict route-matched website claim accepted (' + str(result.get('acceptedMode', 'unknown')) + ')'
+              caveat = 'A website claim is not independent movement verification, GPS, or the Google WIMT app feed.'
+          elif result.get('acceptedMode') == 'DETACHED_SITE_CLAIM_DIAGNOSTIC_ONLY':
+              status = 'route-conflicting detached site claim is diagnostic only; selected run NOT accepted (' + verdict + ')'
+              caveat = 'The claim is not attached to the selected timetable run and does not establish movement or position.'
+          elif result.get('websiteRefused') is True:
+              status = 'website request refused; no source claim accepted (' + verdict + ')'
+              caveat = 'A visible refusal is not a source-data success or train position.'
+          else:
+              status = 'website source claim not accepted (' + verdict + ')'
+              caveat = 'No source-data success, independent movement verification, or train position was established.'
+          print('### WIMT website in-app device trial — ' + status)
+          print()
+          print('PDF with actual in-app before/after captures: ' + os.environ['PDF_LINK'])
+          print()
+          print('Source: Actions run ' + os.environ['SOURCE_RUN'] + '. No new website request; not phone-app data.')
+          print(caveat)
+          PY
+          cat build/pdf-report-link.md | tee -a "$GITHUB_STEP_SUMMARY"
+          gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
+            -F body=@build/pdf-report-link.md > /dev/null
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wimt-failed-website-pdf
+          path: build/wimt-website-device-*.pdf
+          if-no-files-found: warn
+          retention-days: 14
