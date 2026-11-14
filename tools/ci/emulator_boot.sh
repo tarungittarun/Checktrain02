@@ -149,10 +149,11 @@ install_pkg() {
   rc=${PIPESTATUS[1]}
   if [ "$rc" != 0 ] && [[ "$pkg" = emulator || "$pkg" = system-images* ]] &&
      ! path_ok "$pkg" &&
-     { [ "$rc" = 124 ] || grep -q 'ZipFile unknown archive' /tmp/sdkmanager.log; }; then
+     { [ "$rc" = 124 ] || grep -Eq 'ZipFile unknown archive|Error reading Zip content' /tmp/sdkmanager.log; }; then
     # Hosted runners intermittently stall at 10% while fetching the *valid*
-    # Google APIs image or receive a truncated emulator ZIP. Make exactly one
-    # bounded fresh attempt; keep both logs and fail visibly if it still fails.
+    # Google APIs image or receive a truncated emulator ZIP. Cover both sdkmanager
+    # archive diagnostics with exactly one bounded fresh attempt; keep both logs and
+    # fail visibly if it still fails.
     # This never retries the old unavailable default/x86_64 API 24 image.
     local retry_limit=120
     [ "$pkg" = emulator ] && [ "$rc" = 124 ] && retry_limit=60

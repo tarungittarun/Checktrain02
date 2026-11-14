@@ -270,7 +270,8 @@ def summarize_website_artifact(folder: Path, original: dict, source_run: str,
         "websiteRefused", "wireReceiptAvailable", "source", "sourceTransport",
         "acceptedMode", "siteRows", "detachedSiteClaims",
         "trainNumber", "originDay", "originRunDateIst", "runDateBasis", "runIdentity",
-        "siteRoute", "sitePageEndpoints", "sitePageLabels", "selectedRoute", "siteCardContainers",
+        "siteRoute", "sitePageEndpoints", "sitePageLabels", "sitePageRunDate", "siteDateMatched",
+        "siteShape", "selectedRoute", "siteCardContainers",
         "liveIdentityRouteMatch", "siteClaimStation",
         "siteClaimKind", "siteClaimMinuteFromOrigin", "siteClaimTimeBasis", "siteClaimTimeIst",
         "siteClaimAgeSecondsAtCheck", "pagePublishedAtIst", "pageAgeSecondsAtCheck",
@@ -278,10 +279,15 @@ def summarize_website_artifact(folder: Path, original: dict, source_run: str,
         "websiteGetCountScope", "note",
     )
     safe_result = {key: result[key] for key in safe_fields if key in result}
-    screens = _read_json(folder / "screen-verification.json") or {}
-    verified = screens.get("verifiedAppScreens", {})
+    strict_screens = _read_json(folder / "screen-verification.json") or {}
+    diagnostic_screens = _read_json(folder / "screen-verification-diagnostic.json") or {}
+    verified = strict_screens.get("verifiedAppScreens", {})
     if not isinstance(verified, dict):
         verified = {}
+    diagnostic_captures = diagnostic_screens.get("verifiedAppScreens", {})
+    if not isinstance(diagnostic_captures, dict):
+        diagnostic_captures = {}
+    screens = strict_screens or diagnostic_screens
     failed_log = _read_text(folder / "failed-step-log.txt")
     hierarchy_names = (
         "wimt-settings-diagnostics", "wimt-search-route-criteria", "wimt-search-route-results",
@@ -295,11 +301,14 @@ def summarize_website_artifact(folder: Path, original: dict, source_run: str,
         "sourceRun": source_run,
         "sourceArtifact": source_artifact,
         "result": safe_result,
-        "screenVerificationFilePresent": bool(screens),
+        "screenVerificationFilePresent": bool(strict_screens),
         "verifiedInAppScreenshotNames": sorted(verified),
+        "diagnosticScreenVerificationFilePresent": bool(diagnostic_screens),
+        "diagnosticInAppScreenshotNames": sorted(diagnostic_captures),
         "capturedInTestHierarchyNames": sorted(captured_hierarchies),
         "whitelistedUiHierarchySummaries": captured_hierarchies,
         "displayedRefusalRequired": screens.get("displayedRefusalRequired"),
+        "screenVerificationMode": screens.get("verificationMode", "UNAVAILABLE"),
         "failedStepLogRetrieval": _read_text(
             folder / "failed-step-log-status.txt").strip() or "not-recorded",
         "boundedFailedStepLines": brief(failed_log),
@@ -417,6 +426,30 @@ def _self_test() -> None:
             "routeLabel"][0]["text"] == "MYS → TLGP"
         assert summary["verifiedInAppScreenshotNames"] == [
             "wimt-after-selected-source", "wimt-before-selected-source"]
+        shape_summary = summarize_website_artifact(folder, {
+            "source": "whereismytrain.org.in", "accepted": False,
+            "wireReceiptAvailable": True, "websiteGetCount": 1,
+            "sitePageRunDate": "unknown", "siteDateMatched": False,
+            "siteShape": "chars:108395~tags:main:1,article:0~roots:0~cards:0~heads:h1_train_status",
+        }, "43260030312", "wimt-device-evidence")
+        assert shape_summary["result"]["sitePageRunDate"] == "unknown"
+        assert shape_summary["result"]["siteDateMatched"] is False
+        assert shape_summary["result"]["siteShape"].endswith("roots:0~cards:0~heads:h1_train_status")
+        (folder / "screen-verification.json").unlink()
+        (folder / "screen-verification-diagnostic.json").write_text(json.dumps({
+            "verifiedAppScreens": {"wimt-after-selected-source": {"pngBytes": 2100}},
+            "verificationMode": "DIAGNOSTIC", "selectedWebsiteObserved": True,
+        }), encoding="utf-8")
+        diagnostic_summary = summarize_website_artifact(folder, {
+            "source": "whereismytrain.org.in", "accepted": False,
+            "wireReceiptAvailable": True, "websiteGetCount": 1,
+        }, "43260030312", "wimt-device-evidence")
+        assert diagnostic_summary["screenVerificationFilePresent"] is False
+        assert diagnostic_summary["diagnosticScreenVerificationFilePresent"] is True
+        assert diagnostic_summary["verifiedInAppScreenshotNames"] == []
+        assert diagnostic_summary["diagnosticInAppScreenshotNames"] == [
+            "wimt-after-selected-source"]
+        assert diagnostic_summary["screenVerificationMode"] == "DIAGNOSTIC"
         assert "PRIVATE" not in json.dumps(summary)
         assert "<url>" in json.dumps(summary)
     print("WIMT artifact recovery self-test passed (no network or provider request)")

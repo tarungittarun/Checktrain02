@@ -367,7 +367,13 @@ class TravellerAcceptanceTest {
         assertTrue("The existing result could not reopen its journey after the mode switch",
             E2E.openTrackFromFirstResult())
         assertEquals("Mode switch changed the selected train", trainBefore, E2E.text("trainNo"))
-        assertEquals("Mode switch changed the selected route", routeBefore, E2E.text("routeLabel"))
+        val routeAfterModeSwitch = E2E.text("routeLabel")
+        val identitySuffix = " · identity confirmed live (via erail)"
+        val routeIdentityPreserved = routeBefore == routeAfterModeSwitch ||
+            (routeBefore == routeBefore.removeSuffix(identitySuffix) &&
+                routeAfterModeSwitch == routeBefore + identitySuffix)
+        assertTrue("Mode switch changed the selected route or erased its identity: " +
+            "'$routeBefore' -> '$routeAfterModeSwitch'", routeIdentityPreserved)
         assertEquals("Mode switch changed the selected run date", runDateBefore, E2E.text("runDate"))
         assertTrue("Mode switch erased the journey's timetable rows", E2E.count(E2E.res("stopName")) > 0)
 

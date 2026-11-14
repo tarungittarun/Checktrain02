@@ -246,6 +246,9 @@ jobs:
           if [ -s wimt-device-evidence/screen-verification.json ]; then
             echo 'Verified in-app PNGs and UI hierarchy:' >> "$GITHUB_STEP_SUMMARY"
             cat wimt-device-evidence/screen-verification.json >> "$GITHUB_STEP_SUMMARY"
+          elif [ -s wimt-device-evidence/screen-verification-diagnostic.json ]; then
+            echo 'Diagnostic-only in-app capture inventory (not acceptance):' >> "$GITHUB_STEP_SUMMARY"
+            cat wimt-device-evidence/screen-verification-diagnostic.json >> "$GITHUB_STEP_SUMMARY"
           elif [ -s wimt-device-evidence/screen-verification-error.txt ]; then
             tail -2 wimt-device-evidence/screen-verification-error.txt >> "$GITHUB_STEP_SUMMARY"
           fi

@@ -31,10 +31,21 @@ finish() {
   if python3 tools/ci/verify_wimt_screens.py wimt-device-evidence --accepted \
     > wimt-device-evidence/screen-verification.json \
     2> wimt-device-evidence/screen-verification-error.txt; then
+    rm -f wimt-device-evidence/screen-verification-diagnostic.json
     : # The strict verifier checked every stage, selected website and result date.
   else
     rm -f wimt-device-evidence/screen-verification.json
     cat wimt-device-evidence/screen-verification-error.txt
+    # Preserve a separately labelled diagnostic inventory of genuine captures when
+    # strict verification fails. It never feeds acceptance or APK publication.
+    if python3 tools/ci/verify_wimt_screens.py wimt-device-evidence --diagnostic \
+      > wimt-device-evidence/screen-verification-diagnostic.json \
+      2> wimt-device-evidence/screen-verification-diagnostic-error.txt; then
+      echo 'Diagnostic-only screenshot inventory retained; this does not satisfy acceptance.'
+    else
+      rm -f wimt-device-evidence/screen-verification-diagnostic.json
+      cat wimt-device-evidence/screen-verification-diagnostic-error.txt
+    fi
     if [ "$rc" -eq 0 ]; then
       rc=4 # Instrumentation alone is not an acceptance pass without strict UI evidence.
       python3 tools/ci/wimt_device_report.py wimt-device-evidence/instrumentation.txt \
