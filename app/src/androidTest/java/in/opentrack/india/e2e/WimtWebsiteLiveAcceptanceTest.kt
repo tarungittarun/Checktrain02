@@ -81,7 +81,12 @@ class WimtWebsiteLiveAcceptanceTest {
             assertTrue("website option stayed open after the tap; no selection was consumed",
                 E2E.ui.wait(Until.gone(By.textContains("Where Is My Train · website")), E2E.LOCAL_MS))
             // One deliberate selected-source request; no background retry in the test.
-            val until = System.currentTimeMillis() + E2E.NETWORK_MS
+            // The selected website call can wait for the current route/identity snapshot,
+            // then spend up to 40 seconds loading and hydrating its one WebView document.
+            // Keep this one-request gate above that combined budget; a 45-second timeout
+            // previously ended the test while the website GET had answered but before its
+            // selected-source evidence was published to the UI.
+            val until = System.currentTimeMillis() + 120_000L
             var accepted = false
             var warning = ""
             var headline = ""
