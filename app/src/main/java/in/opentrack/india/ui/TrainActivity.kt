@@ -46,6 +46,7 @@ import `in`.opentrack.india.alarm.AlertTrigger
 import `in`.opentrack.india.alarm.JourneyAlarmConfig
 import `in`.opentrack.india.alarm.JourneyAlarmNotifications
 import `in`.opentrack.india.alarm.JourneyAlarmPolicy
+import `in`.opentrack.india.alarm.JourneyAlarmRouteSelection
 import `in`.opentrack.india.alarm.JourneyAlarmService
 import `in`.opentrack.india.alarm.JourneyAlarmStore
 import `in`.opentrack.india.model.StopRow
@@ -609,7 +610,9 @@ class TrainActivity : AppCompatActivity() {
     private fun onArrivalAlertClick() {
         val active = currentJourneyAlerts()
         if (active.isEmpty()) {
-            requestNotificationAccess { loadJourneyForAlarm() }
+            // Let travellers inspect the route-qualified triggers before Android asks for
+            // notification access. Permission is needed only when they choose Set alert.
+            loadJourneyForAlarm()
             return
         }
         val current = active.joinToString("\n") { snapshot ->
@@ -695,6 +698,20 @@ class TrainActivity : AppCompatActivity() {
         ))
     }
 
+    private suspend fun routeForAlertSetup(repo: `in`.opentrack.india.data.RailRepository?,
+        trainNo: String, fromCode: String, toCode: String, day: Long): TrainRoute? {
+        // The alert choices must describe the exact route the traveller is currently viewing.
+        // A generic train-number lookup can return a different corridor for a reused/changed
+        // service number, so it is only a fallback when the displayed route cannot qualify.
+        JourneyAlarmRouteSelection.firstMatching(trainNo, fromCode, toCode, lastUi?.route)
+            ?.let { return it }
+        val saved = runCatching { repo?.savedSchedule(trainNo, fromCode, toCode, day) }.getOrNull()
+        JourneyAlarmRouteSelection.firstMatching(trainNo, fromCode, toCode, saved)
+            ?.let { return it }
+        val bundled = runCatching { repo?.route(trainNo) }.getOrNull()
+        return JourneyAlarmRouteSelection.firstMatching(trainNo, fromCode, toCode, bundled)
+    }
+
     private fun loadJourneyForAlarm() {
         val trainNo = intent.getStringExtra(EXTRA_TRAIN_NO).orEmpty()
         val fromCode = intent.getStringExtra(EXTRA_FROM).orEmpty()
@@ -702,15 +719,13 @@ class TrainActivity : AppCompatActivity() {
         val day = intent.getLongExtra(EXTRA_ORIGIN_EPOCH_DAY, RailTime.todayEpochDay())
         lifecycleScope.launch {
             val repo = runCatching { (application as App).repository() }.getOrNull()
-            val route = runCatching { repo?.savedSchedule(trainNo, fromCode, toCode, day) }.getOrNull()
-                ?: runCatching { repo?.route(trainNo) }.getOrNull()
-                ?: lastUi?.route?.takeIf { it.trainNo == trainNo }
+            val route = routeForAlertSetup(repo, trainNo, fromCode, toCode, day)
             val from = route?.stops?.firstOrNull { it.code.equals(fromCode, true) }
             val to = route?.stops?.firstOrNull { it.code.equals(toCode, true) }
             if (route == null || from == null || to == null || to.seq <= from.seq) {
                 AlertDialog.Builder(this@TrainActivity)
                     .setTitle("No route for this alert")
-                    .setMessage("The selected boarding and destination stops are not on a usable ordered route for train $trainNo. No timetable-only or mismatched-route alert was created.")
+                    .setMessage("The selected journey $fromCode → $toCode is not on a usable ordered route for train $trainNo. No timetable-only or mismatched-route alert was created.")
                     .setPositiveButton("Close", null).show().also(::paintBatteryDialog)
                 return@launch
             }
@@ -975,16 +990,19 @@ class TrainActivity : AppCompatActivity() {
             val interval = intervalIds.firstOrNull {
                 it.second == intervalGroup.checkedRadioButtonId
             }?.first ?: 5
-            if (!alertChannelAvailable(selectedFeedback)) {
-                explainPermissionNeeded("Enable the selected arrival-alert notification channel in Android settings.")
-                return@setOnClickListener
-            }
             val selected = config.copy(feedback = selectedFeedback,
                 intervalMinutes = interval, createdAtMillis = System.currentTimeMillis())
             chrome.dialog.dismiss()
-            if (selected.trigger == AlertTrigger.PHONE_DISTANCE)
-                requestLocationAccess { beginJourneyAlarm(selected) }
-            else beginJourneyAlarm(selected)
+            requestNotificationAccess {
+                if (!alertChannelAvailable(selectedFeedback)) {
+                    explainPermissionNeeded(
+                        "Enable the selected arrival-alert notification channel in Android settings.")
+                } else if (selected.trigger == AlertTrigger.PHONE_DISTANCE) {
+                    requestLocationAccess { beginJourneyAlarm(selected) }
+                } else {
+                    beginJourneyAlarm(selected)
+                }
+            }
         }
         showAlertDialog(chrome, showPrimary = true)
     }

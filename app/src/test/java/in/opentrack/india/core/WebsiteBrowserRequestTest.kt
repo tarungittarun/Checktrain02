@@ -36,6 +36,16 @@ class WebsiteBrowserRequestTest {
         assertTrue(hasPopulatedTrainDocument(renderedDom, "16227"))
     }
 
+    @Test fun oneWebsiteNavigationGetsARealBoundedLoadAndDomHydrationWindow() {
+        assertTrue(WebsiteBrowserRequestTiming.DOCUMENT_TIMEOUT_MS >= 35_000L)
+        assertTrue("browser wait must fit inside the source acceptance's 45-second window",
+            WebsiteBrowserRequestTiming.DOCUMENT_TIMEOUT_MS < 45_000L)
+        assertTrue(WebsiteBrowserRequestTiming.DOM_READINESS_WAIT_MS >= 6_000L)
+        assertTrue(WebsiteBrowserRequestTiming.DOM_READINESS_WAIT_MS <
+            WebsiteBrowserRequestTiming.DOCUMENT_TIMEOUT_MS)
+        assertTrue(WebsiteBrowserRequestTiming.DOM_READINESS_POLL_MS in 100L..500L)
+    }
+
     @Test fun identityOrClockTextWithoutARouteCardIsNotAReadinessSignal() {
         val partial = """<html><body>
             <h1>Train 16227 Running Status</h1>

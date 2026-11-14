@@ -20,6 +20,7 @@ from io import BytesIO
 from zipfile import ZIP_DEFLATED, ZipFile
 
 TEST_SOURCE = Path("app/src/androidTest/java/in/opentrack/india/e2e/TravellerAcceptanceTest.kt")
+DIAGNOSTIC_TAGS = ("alert-diagnostic-open-failure",)
 # openAlertChoices() takes a literal screenshot tag and calls shotRequired() internally;
 # include those helper-driven traversals as well as the direct mandatory captures.
 TAG_RE = re.compile(
@@ -61,7 +62,19 @@ def build_bundle(evidence_dir: Path, profile: str, run_id: str, sha: str,
                 missing.append(name)
     if missing and not allow_partial:
         raise RuntimeError("missing required emulator evidence: " + ", ".join(missing))
-    if not present:
+
+    diagnostic_present: list[str] = []
+    diagnostic_missing: list[str] = []
+    for tag in DIAGNOSTIC_TAGS:
+        for ext in ("png", "xml"):
+            name = f"{tag}.{ext}"
+            path = evidence_dir / name
+            if path.is_file() and path.stat().st_size > (1000 if ext == "png" else 100):
+                diagnostic_present.append(name)
+            elif path.exists():
+                diagnostic_missing.append(name)
+    included = present + diagnostic_present
+    if not included:
         raise RuntimeError("no Alerts screenshot or hierarchy files were captured")
 
     manifest: dict[str, object] = {
@@ -72,13 +85,16 @@ def build_bundle(evidence_dir: Path, profile: str, run_id: str, sha: str,
         "complete": not missing,
         "requiredTags": all_tags,
         "scopeTags": tags,
-        "includedFiles": present,
+        "includedFiles": included,
         "missingFiles": missing,
+        "diagnosticTags": list(DIAGNOSTIC_TAGS),
+        "diagnosticFiles": diagnostic_present,
+        "diagnosticMissingFiles": diagnostic_missing,
     }
     buffer = BytesIO()
     with ZipFile(buffer, "w", compression=ZIP_DEFLATED, compresslevel=9) as archive:
         archive.writestr("manifest.json", json.dumps(manifest, indent=2, sort_keys=True))
-        for name in present:
+        for name in included:
             archive.write(evidence_dir / name, f"screens/{name}")
     return buffer.getvalue(), manifest
 
@@ -127,17 +143,24 @@ def self_test() -> None:
     with tempfile.TemporaryDirectory(prefix="alert-evidence-self-test-") as temp:
         evidence = Path(temp)
         first = tags[0]
-        (evidence / f"{first}.png").write_bytes(b"\x89PNG\r\n" + b"x" * 2000)
+        (evidence / f"{first}.png").write_bytes(b"\x89PNG\r\n" + "x".encode() * 2000)
         (evidence / f"{first}.xml").write_text("<hierarchy/>" + " " * 101, encoding="utf-8")
+        diagnostic = DIAGNOSTIC_TAGS[0]
+        (evidence / f"{diagnostic}.png").write_bytes(b"\x89PNG\r\n" + "y".encode() * 2000)
+        (evidence / f"{diagnostic}.xml").write_text("<hierarchy/>" + " " * 101, encoding="utf-8")
         bundle, manifest = build_bundle(evidence, "online", "self-test", "deadbeef", True,
                                         only_tags=[first])
         assert manifest["complete"] is True
         assert manifest["requiredTags"] == tags
         assert manifest["scopeTags"] == [first]
-        assert manifest["includedFiles"] == [f"{first}.png", f"{first}.xml"]
+        assert manifest["includedFiles"] == [
+            f"{first}.png", f"{first}.xml", f"{diagnostic}.png", f"{diagnostic}.xml"
+        ]
+        assert manifest["diagnosticFiles"] == [f"{diagnostic}.png", f"{diagnostic}.xml"]
         with ZipFile(BytesIO(bundle)) as archive:
             assert set(archive.namelist()) == {
-                "manifest.json", f"screens/{first}.png", f"screens/{first}.xml"
+                "manifest.json", f"screens/{first}.png", f"screens/{first}.xml",
+                f"screens/{diagnostic}.png", f"screens/{diagnostic}.xml",
             }
             stored_manifest = json.loads(archive.read("manifest.json"))
             assert stored_manifest["runId"] == "self-test"
@@ -148,6 +171,20 @@ def self_test() -> None:
             assert "missing required emulator evidence" in str(error)
         else:
             raise AssertionError("strict export accepted incomplete screenshot evidence")
+
+    with tempfile.TemporaryDirectory(prefix="alert-diagnostic-self-test-") as temp:
+        evidence = Path(temp)
+        diagnostic = DIAGNOSTIC_TAGS[0]
+        (evidence / f"{diagnostic}.png").write_bytes(b"\x89PNG\r\n" + "z".encode() * 2000)
+        (evidence / f"{diagnostic}.xml").write_text("<hierarchy/>" + " " * 101, encoding="utf-8")
+        bundle, manifest = build_bundle(evidence, "offline", "diagnostic-only", "deadbeef", True)
+        assert manifest["complete"] is False
+        assert len(manifest["missingFiles"]) == len(tags) * 2
+        assert manifest["includedFiles"] == [f"{diagnostic}.png", f"{diagnostic}.xml"]
+        with ZipFile(BytesIO(bundle)) as archive:
+            assert set(archive.namelist()) == {
+                "manifest.json", f"screens/{diagnostic}.png", f"screens/{diagnostic}.xml"
+            }
     print(f"Alerts screenshot transport self-tests passed ({len(tags)} required paths)")
 
 
@@ -179,6 +216,8 @@ def main() -> int:
         "scopeTags": len(manifest["scopeTags"]),
         "files": len(manifest["includedFiles"]),
         "missing": manifest["missingFiles"],
+        "diagnosticFiles": manifest["diagnosticFiles"],
+        "diagnosticMissing": manifest["diagnosticMissingFiles"],
         "bundleBytes": len(payload),
         "sha256": digest,
     }, sort_keys=True))

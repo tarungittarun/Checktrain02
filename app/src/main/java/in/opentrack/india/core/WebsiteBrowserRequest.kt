@@ -37,6 +37,14 @@ internal fun decodeJavascriptStringResult(encoded: String?): String {
 }
 
 private const val MAX_WEBSITE_HTML = 1_000_000
+
+/** A single honest WebView navigation gets a bounded chance to load and hydrate its own DOM. */
+internal object WebsiteBrowserRequestTiming {
+    const val DOCUMENT_TIMEOUT_MS = 40_000L
+    const val DOM_READINESS_WAIT_MS = 8_000L
+    const val DOM_READINESS_POLL_MS = 250L
+}
+
 private val stationCardRoot = Regex(
     """(?is)<div\b(?=[^>]*\bclass\s*=\s*["'][^"']*\bflex-grow\b)(?=[^>]*\bclass\s*=\s*["'][^"']*\brounded-lg\b)[^>]*>""")
 
@@ -71,9 +79,6 @@ object WebsiteBrowserRequest {
     private val main = Handler(Looper.getMainLooper())
     private val gate = Any()
     private val allowed = Regex("https://whereismytrain\\.org\\.in/\\?trainNo=[0-9]{5}")
-    private const val TIMEOUT_MS = 12_000L
-    private const val DOM_READINESS_WAIT_MS = 2_000L
-    private const val DOM_READINESS_POLL_MS = 200L
     fun document(context: Context, url: String): Http.Result {
         if (!allowed.matches(url)) return Http.Result.Failed(Http.Result.Kind.HTTP, "invalid website URL")
         if (Looper.myLooper() == Looper.getMainLooper())
@@ -82,7 +87,8 @@ object WebsiteBrowserRequest {
             val pending = Pending(context.applicationContext, url)
             if (!main.post { pending.start() })
                 return Http.Result.Failed(Http.Result.Kind.HTTP, "browser looper unavailable")
-            val completed = pending.done.await(TIMEOUT_MS, TimeUnit.MILLISECONDS)
+            val completed = pending.done.await(
+                WebsiteBrowserRequestTiming.DOCUMENT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
             if (!completed) pending.abort()
             val answer = if (completed) pending.result
                 else Http.Result.Failed(Http.Result.Kind.TIMEOUT, "browser document timed out")
@@ -141,15 +147,15 @@ object WebsiteBrowserRequest {
                 val populated = hasPopulatedTrainDocument(html, expectedTrain)
                 when {
                     populated -> finish(Http.Result.Ok(html, fromCache = false, ageMillis = 0))
-                    elapsed >= WebsiteBrowserRequest.DOM_READINESS_WAIT_MS && html.isNotBlank() ->
+                    elapsed >= WebsiteBrowserRequestTiming.DOM_READINESS_WAIT_MS && html.isNotBlank() ->
                         // Preserve a real 200 document for explicit parser diagnostics; the
                         // source layer will reject it unless station cards/clocks really parse.
                         finish(Http.Result.Ok(html, fromCache = false, ageMillis = 0))
-                    elapsed >= WebsiteBrowserRequest.DOM_READINESS_WAIT_MS ->
+                    elapsed >= WebsiteBrowserRequestTiming.DOM_READINESS_WAIT_MS ->
                         finish(Http.Result.Failed(Http.Result.Kind.EMPTY,
                             "browser document empty or oversized"))
                     else -> main.postDelayed({ captureRenderedDocument() },
-                        WebsiteBrowserRequest.DOM_READINESS_POLL_MS)
+                        WebsiteBrowserRequestTiming.DOM_READINESS_POLL_MS)
                 }
             }
         }

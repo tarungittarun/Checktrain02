@@ -126,13 +126,29 @@ class TravellerAcceptanceTest {
         }
     }
 
+    private fun waitForAlertChooser(): Boolean {
+        val deadline = System.currentTimeMillis() + E2E.NETWORK_MS
+        val chooser = By.textContains("Arrival alert · train 12627")
+        val routeRefusal = By.textContains("No route for this alert")
+        val permissionRefusal = By.textContains("Permission needed for arrival alerts")
+        while (System.currentTimeMillis() < deadline) {
+            if (E2E.ui.findObject(chooser) != null) return true
+            if (E2E.ui.findObject(routeRefusal) != null ||
+                E2E.ui.findObject(permissionRefusal) != null) return false
+            Thread.sleep(150)
+        }
+        return E2E.ui.findObject(chooser) != null
+    }
+
     private fun openAlertChoices(screenshotTag: String? = null) {
         assertTrue("Arrival alert control is not visible on screen",
             visibleResource("arrivalAlert") && E2E.tap("arrivalAlert"))
         allowPermissionIfPrompted()
-        assertTrue("Alert trigger chooser did not open: ${textContains("No route for this alert", 300)}",
-            E2E.ui.wait(Until.hasObject(By.textContains("Arrival alert · train 12627")),
-                E2E.NETWORK_MS))
+        val chooserOpened = waitForAlertChooser()
+        if (!chooserOpened) E2E.shotDiagnostic("alert-diagnostic-open-failure")
+        assertTrue("Alert trigger chooser did not open; visible app text='${visibleTextNodes()}'; " +
+            "arrival control='${E2E.text("arrivalAlert", 300)}' description='" +
+            "${E2E.find("arrivalAlert", 300)?.contentDescription.orEmpty()}'.", chooserOpened)
         assertTrue("arrival choices are not on the app's custom alert surface",
             E2E.ui.wait(Until.hasObject(E2E.res("alertDialogRoot")), E2E.LOCAL_MS))
         assertTrue("trigger options are not in the custom scrollable list",

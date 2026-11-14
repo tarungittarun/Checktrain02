@@ -278,6 +278,26 @@ object E2E {
         println("E2E_SCREENSHOT $tag pngBytes=${image.length()} hierarchyBytes=${hierarchy.length()}")
     }
 
+    /** Best-effort app-private capture for a failed traversal, without masking its assertion. */
+    fun shotDiagnostic(tag: String) {
+        require(tag.matches(Regex("[A-Za-z0-9._-]+"))) { "Unsafe screenshot tag" }
+        val ctx = InstrumentationRegistry.getInstrumentation().targetContext
+        val dir = File(ctx.filesDir, "evidence")
+        runCatching {
+            check(dir.mkdirs() || dir.isDirectory) { "Cannot create test screenshot directory" }
+            val image = File(dir, "$tag.png")
+            check(ui.takeScreenshot(image) && image.isFile && image.length() > 1_000L) {
+                "Screenshot $tag failed"
+            }
+            val hierarchy = File(dir, "$tag.xml")
+            ui.dumpWindowHierarchy(hierarchy)
+            check(hierarchy.isFile && hierarchy.length() > 100L) {
+                "Window hierarchy $tag failed"
+            }
+            println("E2E_DIAGNOSTIC_SCREENSHOT $tag pngBytes=${image.length()} hierarchyBytes=${hierarchy.length()}")
+        }.onFailure { println("E2E_DIAGNOSTIC_SCREENSHOT_FAILED $tag: ${it.javaClass.simpleName}") }
+    }
+
     private fun evidenceDir(): File? {
         val ctx = InstrumentationRegistry.getInstrumentation().context
         val dir = File(ctx.getExternalFilesDir(null) ?: ctx.filesDir, "evidence")
