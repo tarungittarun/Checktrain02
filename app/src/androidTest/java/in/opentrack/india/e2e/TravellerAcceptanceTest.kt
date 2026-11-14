@@ -93,6 +93,18 @@ class TravellerAcceptanceTest {
         return false
     }
 
+    /** Scope station rows to the custom alert option view so an underlying route row cannot
+     * satisfy the assertion while the reopened chooser itself is still clipped. */
+    private fun revealAlertOption(text: String, swipes: Int = 6): Boolean {
+        val selector = By.res(E2E.PKG, "alertTriggerName").text(text)
+        repeat(swipes + 1) { attempt ->
+            val node = E2E.ui.wait(Until.findObject(selector), 500)
+            if (visibleInScroll(node, "alertDialogScroll")) return true
+            if (attempt == swipes || !E2E.swipeIn("alertDialogScroll", up = true)) return false
+        }
+        return false
+    }
+
     private fun visibleTextNodes(): String = E2E.all(By.clazz("android.widget.TextView"))
         .mapNotNull { runCatching { it.text?.toString()?.trim() }.getOrNull()?.takeIf { it.isNotBlank() } }
         .distinct().joinToString(" | ")
@@ -365,8 +377,8 @@ class TravellerAcceptanceTest {
         assertTrue("No preceding route station can be selected; visible text: ${visibleTextNodes()}",
             firstStationOption != null)
         val firstStationLabel = firstStationOption!!.text.orEmpty()
-        assertTrue("First preceding station is not visible in its chooser scroll",
-            revealTextContains(firstStationLabel, "alertDialogScroll"))
+        assertTrue("First preceding station is not visible in its chooser scroll: '$firstStationLabel'",
+            revealAlertOption(firstStationLabel))
         E2E.shotRequired("alert-preceding-station-chooser")
         assertTrue("Preceding-station chooser has no clear cancel action; visible text: ${visibleTextNodes()}",
             tapTextContains("Cancel"))
@@ -378,12 +390,19 @@ class TravellerAcceptanceTest {
         openAlertChoices("alert-chooser-reopened-for-station-select")
         assertTrue("Preceding-station choice did not reopen its station list",
             tapTextContains("preceding station"))
-        assertTrue("Reopened station choice is not visible in its scroll",
-            revealTextContains(firstStationLabel, "alertDialogScroll"))
+        assertTrue("Reopened preceding-station list did not settle",
+            E2E.ui.wait(Until.hasObject(By.textContains("Choose a preceding station")), E2E.LOCAL_MS))
+        val reopenedStationVisible = revealAlertOption(firstStationLabel)
+        // Capture even a failed reveal: the screenshot and hierarchy tell us whether the list
+        // opened, where it started, and what a traveller could actually see before this assertion.
         E2E.shotRequired("alert-preceding-station-reopened")
-        val stationChoice = findTextContains(firstStationLabel, E2E.LOCAL_MS)
-        assertTrue("No preceding station could be selected; visible text: ${visibleTextNodes()}",
-            visibleInScroll(stationChoice, "alertDialogScroll"))
+        val stationChoice = E2E.ui.wait(
+            Until.findObject(By.res(E2E.PKG, "alertTriggerName").text(firstStationLabel)), E2E.LOCAL_MS)
+        assertTrue("Reopened station '$firstStationLabel' is not visible in its scroll; " +
+            "visible=${stationChoice?.visibleBounds} " +
+            "scroll=${E2E.find("alertDialogScroll", 500)?.visibleBounds}; " +
+            "nodes=${visibleTextNodes()}",
+            reopenedStationVisible && visibleInScroll(stationChoice, "alertDialogScroll"))
         stationChoice!!.click()
         E2E.ui.waitForIdle()
         assertTrue("Selecting a preceding station did not open alert preferences",

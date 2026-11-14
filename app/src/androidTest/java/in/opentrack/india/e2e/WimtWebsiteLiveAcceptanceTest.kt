@@ -8,8 +8,6 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
-import java.util.Calendar
-import java.util.TimeZone
 
 /** A STRICT online gate on the installed APK, not the more permissive fixture/source UI suite.
  * HTTP 403, a challenge page, NTES fallback, a web-cache candidate, timetable-only cells,
@@ -18,15 +16,13 @@ import java.util.TimeZone
 @RunWith(AndroidJUnit4::class)
 class WimtWebsiteLiveAcceptanceTest {
     @Test fun websiteRefreshMustPaintARealSourceQualifiedPastCardFor16227() {
-        // The site omits the origin run date. Keep this acceptance pinned to the
-        // requested train; never substitute another train merely to get a green
-        // result. 16227's overnight origin run is unambiguous only in these IST
-        // windows. Outside them, fail before making any website request.
-        val hour = Calendar.getInstance(TimeZone.getTimeZone("Asia/Kolkata"))
-            .get(Calendar.HOUR_OF_DAY)
-        assertTrue("train 16227 has no active overnight test window at IST hour $hour",
-            hour in 0..4 || hour in 20..23)
-        val number = "16227" // MYS -> TLGP; early-hours search resolves yesterday's origin day.
+        // Keep the live check pinned to the requested train; never substitute another
+        // train merely to get a green result. The site has no day selector, so the app's
+        // parser is the authority on whether this selected origin run is still unambiguous.
+        // Do not gate on the CI wall-clock: that hid the actual fetch and its refusal. The
+        // strict checks below still reject a stale/other-day page, timetable echo, or HTTP
+        // success without a source-qualified past card.
+        val number = "16227" // MYS -> TLGP; the search target selects the nearest origin run.
         try {
             println("WIMT_DEVICE_SELECTED_TRAIN=$number (timetable candidate, not live position)")
             E2E.launch()

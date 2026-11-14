@@ -528,10 +528,10 @@ jobs:
     if: github.ref_type == 'branch'
     name: traveller / published APK / ${{ matrix.profile }} / ${{ matrix.group }}
     runs-on: ubuntu-latest
-    # SDK/emulator download can retry for 120s before a 240s bounded device
-    # method starts. Do not kill a still-running assertion at the runner limit.
-    # The per-method adb timeout and every acceptance assertion remain unchanged.
-    timeout-minutes: 15
+    # SDK/emulator setup plus large-font Alerts traversal and screenshot pull can
+    # exceed the shorter 15-minute budget on a cold runner. Keep the per-method
+    # adb timeout, but allow the required device evidence to finish or fail visibly.
+    timeout-minutes: 25
     permissions:
       actions: read
       contents: write # post the exact failing user journey to this commit
@@ -570,17 +570,9 @@ jobs:
         shell: bash
         run: |
           if find acceptance-evidence/screens -maxdepth 1 -type f -name 'alert-*.png' -size +0c -print -quit 2>/dev/null | grep -q .; then
-            if [ "$PROFILE" = online ]; then
-              # The previous online run already exported every direct tag. Recover the four
-              # helper-driven reopenings that its older manifest parser did not include.
-              python3 tools/ci/export_alert_screenshots.py acceptance-evidence/screens "$PROFILE" --allow-partial \
-                --only-tag alert-chooser-reopened-after-cancel \
-                --only-tag alert-chooser-reopened-for-station-select \
-                --only-tag alert-chooser-reopened-for-destination \
-                --only-tag alert-chooser-reopened-for-distance
-            else
-              python3 tools/ci/export_alert_screenshots.py acceptance-evidence/screens "$PROFILE" --allow-partial
-            fi
+            # Export every required traversal on this run, including partial captures after a failure.
+            # A previous SHA's screenshots cannot prove this APK or these coordinates.
+            python3 tools/ci/export_alert_screenshots.py acceptance-evidence/screens "$PROFILE" --allow-partial
           else
             echo "::warning::No Alerts emulator screenshots are available to transport; inspect the job artifact for diagnostics."
           fi
@@ -592,7 +584,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
       - name: Post the traveller failure and observed evidence
-        if: failure()
+        if: failure() || cancelled()
         env:
           GH_TOKEN: ${{ github.token }}
           PROFILE: ${{ matrix.profile }}
