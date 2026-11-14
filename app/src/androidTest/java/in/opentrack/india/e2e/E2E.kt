@@ -247,6 +247,32 @@ object E2E {
         return visible("headline", NETWORK_MS) || visible("routeLabel", NETWORK_MS)
     }
 
+    /** Open the result for a pinned train number, not whichever row sorts first today. */
+    fun openTrackForTrain(trainNo: String): Boolean {
+        val number = Regex("""^${Regex.escape(trainNo)}(?:$|[\s·])""")
+        repeat(8) {
+            val index = all(res("hitNo")).indexOfFirst { node ->
+                runCatching { number.containsMatchIn(node.text.orEmpty().trim()) }
+                    .getOrDefault(false)
+            }
+            if (index >= 0) {
+                val go = all(res("hitGo")).getOrNull(index)
+                val buttonVisible = go?.let { node -> runCatching {
+                    node.visibleBounds.width() > 0 && node.visibleBounds.height() > 0
+                }.getOrDefault(false) } == true
+                if (go != null && buttonVisible && runCatching {
+                    go.click()
+                    ui.waitForIdle()
+                    true
+                }.getOrDefault(false)) {
+                    return visible("headline", NETWORK_MS) || visible("routeLabel", NETWORK_MS)
+                }
+            }
+            if (!swipeIn("results", up = true)) return false
+        }
+        return false
+    }
+
     /** Legacy screenshots used by the broader manual E2E suite. */
     fun shot(tag: String) {
         val dir = evidenceDir() ?: return

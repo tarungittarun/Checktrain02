@@ -6,6 +6,7 @@ import `in`.opentrack.india.core.BrowserFetch
 import `in`.opentrack.india.core.Http
 import `in`.opentrack.india.core.RailTime
 import `in`.opentrack.india.domain.PositionEngine
+import `in`.opentrack.india.domain.RunRouteSelection
 import `in`.opentrack.india.domain.TrainFinder
 import `in`.opentrack.india.model.SourceKind
 import `in`.opentrack.india.model.TrainRoute
@@ -163,12 +164,14 @@ class RailRepository private constructor(
         /** The station-event monitor does not need location; keep its background work minimal. */
         includeLocation: Boolean = true,
     ): Live? = withContext(Dispatchers.IO) {
-        // A run-checked 29-halt official schedule outranks the bundled 11-halt route.
-        // Otherwise a transient NTES timeout silently reverts 16227 MYS→TLGP to SBC→SMET.
-        val route = savedSchedule(trainNo, fromCode, toCode, originEpochDay)
-            ?: queries.route(trainNo)
-            ?: fallbackRoute?.takeIf { it.trainNo == trainNo && it.stops.size >= 2 }
-            ?: return@withContext null
+        // A train number alone is not enough: the bundled row may describe an older corridor.
+        // Keep source priority, but only use a candidate that actually contains this selected leg;
+        // otherwise a validated live-identity scaffold is safer than the wrong timetable route.
+        val saved = savedSchedule(trainNo, fromCode, toCode, originEpochDay)
+        val device = queries.route(trainNo)
+        val fallback = fallbackRoute?.takeIf { it.trainNo == trainNo && it.stops.size >= 2 }
+        val route = RunRouteSelection.firstCovering(listOf(saved, device, fallback),
+            fromCode, toCode) ?: return@withContext null
         val nowMillis = System.currentTimeMillis()
         // rail-minute "now": minutes from the origin date's midnight, in IST
         val nowRail = ((RailTime.istEpochDay(nowMillis) - originEpochDay) * RailTime.MINUTES_PER_DAY
@@ -183,17 +186,38 @@ class RailRepository private constructor(
         val outcome = chain.fetch(trainNo, route, originEpochDay)
         Diary.get()?.log("CHAIN", "in " + (System.currentTimeMillis() - chainT0) + "ms: " +
             (outcome.notes.take(4).joinToString(" | ") { it.take(140) }))
-        val snapshot = if (outcome.snapshot == null || outcome.snapshot.sourceKind == SourceKind.CACHED)
+        val receivedSnapshot = if (outcome.snapshot == null || outcome.snapshot.sourceKind == SourceKind.CACHED)
             store.loadOfficial(trainNo, originEpochDay, fromCode, toCode) ?: outcome.snapshot
         else outcome.snapshot
-        // Persist the STATIC schedule independently of the actuals. A live-only number must not
-        // collapse back to two endpoints next time the user opens it, even when no actual was given.
-        outcome.scheduleRoute?.let { scheduled ->
+        val snapshot = receivedSnapshot?.takeIf { candidate ->
+            candidate.trainNo.equals(trainNo, ignoreCase = true) &&
+                (candidate.reportedRoute?.let { reported ->
+                    reported.trainNo.equals(trainNo, ignoreCase = true) &&
+                        RunRouteSelection.covers(reported, fromCode, toCode)
+                } != false)
+        }
+        if (receivedSnapshot != null && snapshot == null) Diary.get()?.log("ROUTE") {
+            "ignoring live snapshot for $trainNo because its reported route does not cover " +
+                "$fromCode->$toCode"
+        }
+        val scheduleRoute = outcome.scheduleRoute?.takeIf { scheduled ->
+            scheduled.trainNo.equals(trainNo, ignoreCase = true) &&
+                RunRouteSelection.covers(scheduled, fromCode, toCode)
+        }
+        if (outcome.scheduleRoute != null && scheduleRoute == null) Diary.get()?.log("ROUTE") {
+            "ignoring official schedule for $trainNo because it does not cover $fromCode->$toCode"
+        }
+        // Persist only a schedule that still qualifies for this selected passenger leg.
+        scheduleRoute?.let { scheduled ->
             context.getSharedPreferences("official_schedules", Context.MODE_PRIVATE).edit()
                 .putString("$trainNo:$originEpochDay", OfficialScheduleCache.encode(
                     scheduled, originEpochDay, System.currentTimeMillis())).apply()
         }
-        val effectiveRoute = snapshot?.reportedRoute ?: outcome.scheduleRoute ?: route
+        val reportedRoute = snapshot?.reportedRoute?.takeIf {
+            it.trainNo.equals(trainNo, ignoreCase = true)
+        }
+        val effectiveRoute = RunRouteSelection.firstCovering(
+            listOf(reportedRoute, scheduleRoute, route), fromCode, toCode) ?: route
         if (effectiveRoute !== route) Diary.get()?.log("ROUTE") {
             "official NTES schedule replaces device ${route.srcCode}->${route.dstCode} " +
                 "(${route.stops.size} stops) with ${effectiveRoute.srcCode}->${effectiveRoute.dstCode} " +
@@ -213,7 +237,7 @@ class RailRepository private constructor(
             )
         )
         Live(effectiveRoute, answer, outcome.tried, originEpochDay, outcome.notes,
-            officialScheduleVerified = outcome.scheduleRoute != null)
+            officialScheduleVerified = scheduleRoute != null)
     }
 
     fun hasLocationPermission(): Boolean =

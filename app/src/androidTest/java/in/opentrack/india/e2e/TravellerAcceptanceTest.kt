@@ -114,15 +114,19 @@ class TravellerAcceptanceTest {
             it.text.orEmpty().trim().matches(Regex(""".*\([A-Z0-9]{2,6}\)$"""))
         }
 
-    /** CI installs with runtime grants, but accept the real Android prompt if a
-     * profile/API still presents one. This only clicks a visible system choice. */
+    /** CI installs with runtime grants, but accept every real Android prompt in a
+     * permission chain when a profile/API still presents one. For a distance alert,
+     * Android may ask for notifications first and location immediately afterwards.
+     * This only clicks visible, affirmative system choices; it never changes settings. */
     private fun allowPermissionIfPrompted() {
-        for (label in listOf("Allow", "While using the app", "Allow while using the app",
-            "Only this time")) {
-            val button = E2E.ui.wait(Until.findObject(By.text(label)), 350) ?: continue
-            button.click()
+        val labels = listOf("Allow", "While using the app", "Allow while using the app",
+            "Only this time")
+        repeat(3) {
+            val button = labels.asSequence().mapNotNull { label ->
+                E2E.ui.wait(Until.findObject(By.text(label)), 350)
+            }.firstOrNull() ?: return
+            runCatching { button.click() }.getOrElse { return }
             E2E.ui.waitForIdle()
-            return
         }
     }
 

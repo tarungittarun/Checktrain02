@@ -24,9 +24,11 @@ class WimtWebsiteLiveAcceptanceTest {
         // Do not gate on the CI wall-clock: that hid the actual fetch and its refusal. The
         // strict checks below still reject a stale/other-day page, timetable echo, or HTTP
         // success without a source-qualified past card.
-        val number = "16227" // MYS -> TLGP; the search target selects the nearest origin run.
+        val number = "16227"
+        val fromCode = "MYS"
+        val toCode = "TLGP"
         try {
-            println("WIMT_DEVICE_SELECTED_TRAIN=$number (timetable candidate, not live position)")
+            println("WIMT_DEVICE_SELECTED_TRAIN=$number route=$fromCode->$toCode (selected timetable run, not live position)")
             E2E.launch()
             E2E.awaitSearchScreen()
             // The diagnostic switch is opt-in, enabled here through the real Settings UI.
@@ -34,14 +36,31 @@ class WimtWebsiteLiveAcceptanceTest {
             assertTrue("diagnostic switch not reachable", E2E.reveal("diagToggle", "settingsScroll"))
             assertTrue("cannot enable source diary", E2E.tap("diagToggle"))
             E2E.ui.pressBack()
-            assertTrue("train mode missing", E2E.tap("modeTrain"))
-            assertTrue("$number not in search", E2E.typeInBox("trainBox", number) &&
+            // Select the stated passenger segment. Searching by number alone would open the
+            // stale bundled SBC→SMET corridor before the live MYS→TLGP route is known.
+            assertTrue("station-pair mode missing", E2E.tap("modeStations"))
+            assertTrue("MYS origin is not searchable", E2E.typeInBox("fromBox", fromCode.lowercase()) &&
                 E2E.ui.wait(Until.hasObject(E2E.res("sugPrimary")), E2E.LOCAL_MS))
-            assertTrue("could not select $number", E2E.tapSuggestion("trainBox"))
+            assertTrue("could not select MYS", E2E.tapSuggestion("fromBox"))
+            assertTrue("TLGP destination is not searchable", E2E.typeInBox("toBox", toCode.lowercase()) &&
+                E2E.ui.wait(Until.hasObject(E2E.res("sugPrimary")), E2E.LOCAL_MS))
+            assertTrue("could not select TLGP", E2E.tapSuggestion("toBox"))
             assertTrue("Find missing", E2E.reveal("find", "searchCardScroll") && E2E.tap("find"))
-            assertTrue("$number result missing", E2E.ui.wait(Until.hasObject(E2E.res("hitGo")), E2E.NETWORK_MS))
-            assertTrue("Track not opened", E2E.openTrackFromFirstResult())
+            assertTrue("MYS→TLGP search produced no real train results",
+                E2E.ui.wait(Until.hasObject(E2E.res("hitGo")), E2E.NETWORK_MS))
+            val opened = E2E.openTrackForTrain(number)
+            val visibleTrains = E2E.all(E2E.res("hitNo")).map { it.text.orEmpty() }
+            assertTrue("MYS→TLGP did not return the pinned train $number; visible=$visibleTrains", opened)
             assertEquals("wrong train opened", number, E2E.text("trainNo"))
+            var selectedRoute = E2E.text("routeLabel")
+            val routeDeadline = System.currentTimeMillis() + E2E.NETWORK_MS
+            while (!selectedRoute.startsWith("$fromCode → $toCode") &&
+                System.currentTimeMillis() < routeDeadline) {
+                Thread.sleep(200)
+                selectedRoute = E2E.text("routeLabel", 250)
+            }
+            assertTrue("selected timetable still does not cover $fromCode→$toCode: '$selectedRoute'",
+                selectedRoute.startsWith("$fromCode → $toCode"))
             E2E.shotWimt("wimt-before-selected-source")
             assertTrue("source selector not reachable", E2E.reveal("sourceSpinner", "scroller") &&
                 E2E.tap("sourceSpinner"))

@@ -54,7 +54,8 @@ class SourceEvidencePolicyTest {
         assertTrue(receipt.contains("primaryActuals=0 primaryMarker=none"))
         assertTrue(receipt.contains("siteRows=0 detachedSiteClaims=1"))
         assertTrue(receipt.contains("siteClaimStation=ARU siteClaim=ARU:342 siteClaimKind=ARRIVAL"))
-        assertTrue(receipt.contains("siteRoute=MYS>TLGP selectedRoute=SBC>SMET"))
+        assertTrue(receipt.contains("siteRoute=MYS>TLGP"))
+        assertTrue(receipt.contains("selectedRoute=SBC>SMET"))
         assertTrue(receipt.contains("liveIdentityRouteMatch=true"))
         assertTrue(receipt.contains("page_clock_aligned;selected_origin_day_unverified"))
     }
