@@ -156,6 +156,27 @@ class WebsiteReportDisplayTest {
         assertFalse(WebsiteReportDisplay.STALE_BADGE.contains("GPS"))
     }
 
+    @Test fun detachedSiteClaimKeepsIdentityMismatchPublicationAndEventClocksSeparate() {
+        val day = 20753L
+        val pageAt = `in`.opentrack.india.core.RailTime.railMinuteToEpochMillis(day, 1370) + 12_000L
+        val detached = OrgWebsiteStatus.DetachedPageClaim(
+            trainNo = "16227", websiteFromCode = "MYS", websiteToCode = "TLGP",
+            selectedRouteFromCode = "SBC", selectedRouteToCode = "SMET",
+            identitySource = "erail.in", originDay = day, pageUpdatedAt = pageAt,
+            pageClockHasSeconds = true, latestPastCard = null,
+            event = OrgWebsiteStatus.SiteEventClaim("ARU", "Arakkonam",
+                OrgWebsiteStatus.SiteClaimKind.ARRIVAL, 1340, 1320), siteCards = emptyList())
+        val summary = WebsiteReportDisplay.detachedClaimSummary(detached, pageAt + 2_000L)
+        assertTrue(summary.contains("MYS→TLGP matches live identity from erail.in"))
+        assertTrue(summary.contains("selected timetable SBC→SMET"))
+        assertTrue(summary.contains("Website claims arrival at Arakkonam (ARU)"))
+        assertTrue(summary.contains("page schedule 22:00"))
+        assertTrue(summary.contains("selected timetable origin day"))
+        assertTrue(summary.contains("page age 2s at check"))
+        assertTrue(summary.contains("not attached to timetable rows"))
+        assertFalse(summary.contains("verified actuals"))
+    }
+
     @Test fun answeredSitePastCardsRemainSelectedButCacheAndUnparsedPagesFallBack() {
         assertTrue(WebsiteReportDisplay.selected(site))
         assertTrue(WebsiteReportDisplay.usable("comparison", true, report))

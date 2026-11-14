@@ -3,6 +3,7 @@ package `in`.opentrack.india.v2.mirror
 import `in`.opentrack.india.core.Http
 import `in`.opentrack.india.core.RailTime
 import `in`.opentrack.india.model.TrainRoute
+import `in`.opentrack.india.v2.contract.TrainIdentity
 import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -45,6 +46,8 @@ object PublicPageChecks {
         val orgDistanceProbe: String? = null,
         /** Visible .org.in cards retained even when no station claim qualifies as a report. */
         val orgSiteCards: List<OrgWebsiteStatus.SiteCardClaim> = emptyList(),
+        /** Fresh website page matched to the live train identity but detached from a conflicting timetable. */
+        val orgDetachedPageClaim: OrgWebsiteStatus.DetachedPageClaim? = null,
         /** The site's page update time, distinct from this app's response receipt and any event. */
         val orgSitePageUpdatedAt: Long? = null,
         val orgSitePageClockHasSeconds: Boolean = false,
@@ -55,8 +58,22 @@ object PublicPageChecks {
     /** Explain a missing destination in a returned website timeline without treating its
      * publication clock (or any comparison excerpt) as a train arrival/position. */
     fun websiteGap(result: Result?, destination: String): String? {
-        if (result?.pageAnswered != true || !result.orgContentParsed || result.orgReport != null ||
-            result.lines.isEmpty() || result.lines.keys.any { it.equals(destination, true) }) return null
+        if (result?.pageAnswered != true) return null
+        result.orgDetachedPageClaim?.let { detached ->
+            val event = detached.event?.let { claim ->
+                " Site claims ${claim.kind.label} at ${claim.stationName ?: claim.stationCode} " +
+                    "(${claim.stationCode}) ${RailTime.formatRailMinute(claim.minute)}; its page schedule is " +
+                    "${RailTime.formatRailMinute(claim.pageScheduleMinute)}."
+            } ?: " No distinct, fresh past-card clock pair qualified as a site event claim."
+            return "Website route ${detached.websiteFromCode}→${detached.websiteToCode} matches " +
+                "live identity from ${detached.identitySource}, but selected timetable is " +
+                "${detached.selectedRouteFromCode}→${detached.selectedRouteToCode}. Detached site cards " +
+                "are comparison claims only; they are not attached to timetable rows, actuals, or position." +
+                event
+        }
+        if (!result.orgContentParsed) return null
+        if (result.orgReport != null || result.lines.isEmpty() ||
+            result.lines.keys.any { it.equals(destination, true) }) return null
         val lastDisplayed = result.lines.keys.last()
         val update = result.pageUpdateLabel?.let { "Page updated $it; " }.orEmpty()
         return "${update}website has no $destination arrival row. Last displayed: $lastDisplayed " +
@@ -97,8 +114,10 @@ object PublicPageChecks {
     fun fetch(http: Http, name: String, number: String, originDay: Long, now: Long,
               source: String? = null, destination: String? = null,
               knownCodes: Set<String> = emptySet(), route: TrainRoute? = null,
-              mapRoute: TrainRoute? = null): Result =
+              mapRoute: TrainRoute? = null,
+              expectedIdentity: TrainIdentity? = null): Result =
         fetch(name, number, originDay, now, source, destination, knownCodes, route, mapRoute,
+            expectedIdentity = expectedIdentity,
             responseClock = { System.currentTimeMillis() }) { url ->
             http.get(url, timeoutMillis = 4_000, retries = retriesFor(name), budgetMillis = 4_000,
                 headers = headersFor(name), allowCachedOnFailure = name != ORG,
@@ -111,6 +130,7 @@ object PublicPageChecks {
         source: String? = null, destination: String? = null,
         knownCodes: Set<String> = emptySet(), route: TrainRoute? = null,
         mapRoute: TrainRoute? = null,
+        expectedIdentity: TrainIdentity? = null,
         responseClock: () -> Long = { now }, get: (String) -> Http.Result): Result {
         val url = url(name, number, originDay, now)
             ?: return Result("Run outside the available 0–2 day query window; no request made.", now, false)
@@ -126,13 +146,13 @@ object PublicPageChecks {
                 val digest = MessageDigest.getInstance("SHA-256").digest(bytes).take(8)
                     .joinToString("") { "%02x".format(it) }
                 val answer = parse(name, reply.body, number, originDay, checked, source, destination,
-                    knownCodes, route, mapRoute).copy(responseBytes = bytes.size,
+                    knownCodes, route, mapRoute, expectedIdentity).copy(responseBytes = bytes.size,
                         responseDigest = digest, fromHttpCache = reply.fromCache)
                 if (reply.fromCache) answer.copy(
                     detail = "Cached HTTP body (${reply.ageMillis / 60_000} min old); " +
                         answer.detail + " No fresh observation.", pageAnswered = false,
                     stationClaim = null, orgReport = null, orgContentParsed = false,
-                    orgQualificationNote = null,
+                    orgQualificationNote = null, orgDetachedPageClaim = null,
                     orgDistanceProbe = "cached HTTP page; no same-page distance accepted",
                     orgSiteCards = emptyList(), orgSitePageUpdatedAt = null,
                     orgSitePageClockHasSeconds = false, orgSiteClocks = emptyMap())
@@ -144,9 +164,11 @@ object PublicPageChecks {
     fun parse(name: String, body: String, number: String, originDay: Long, now: Long,
               source: String? = null, destination: String? = null,
               knownCodes: Set<String> = emptySet(), route: TrainRoute? = null,
-              mapRoute: TrainRoute? = null): Result = when (name) {
+              mapRoute: TrainRoute? = null,
+              expectedIdentity: TrainIdentity? = null): Result = when (name) {
         RAIL_YATRI -> railYatri(body, number, originDay, now, source, destination, knownCodes)
-        IXIGO, ORG -> page(name, body, number, originDay, now, knownCodes, route, mapRoute)
+        IXIGO, ORG -> page(name, body, number, originDay, now, knownCodes, route, mapRoute,
+            expectedIdentity)
         else -> Result("Unknown check; no position.", now, false)
     }
 
@@ -193,7 +215,8 @@ object PublicPageChecks {
     }
 
     private fun page(name: String, body: String, number: String, originDay: Long, now: Long,
-                     knownCodes: Set<String>, route: TrainRoute?, mapRoute: TrainRoute?): Result {
+                     knownCodes: Set<String>, route: TrainRoute?, mapRoute: TrainRoute?,
+                     expectedIdentity: TrainIdentity?): Result {
         // Only visible text. SEO/Next.js scripts can contain several runs and future ETA rows.
         val visible = RunningStatusMirror.stripTags(body
             .replace(Regex("(?is)<script\\b[^>]*>.*?</script>"), " ")
@@ -231,19 +254,26 @@ object PublicPageChecks {
         val returned = selected?.let { "page-selected $it" } ?: "page does not identify a selected origin date"
         val wrong = selected != null && selected.replace('/', '-') != date
         val org = if (name == ORG && route != null && !wrong)
-            OrgWebsiteStatus.parse(body, number, originDay, now, route, mapRoute) else null
+            OrgWebsiteStatus.parse(body, number, originDay, now, route, mapRoute,
+                expectedIdentity) else null
         // HTTP 200, a matching number somewhere in the markup, or a partial text
-        // timeline is not a populated source answer. Require a fresh page label and
-        // at least one route-matched card clock; an event row is deliberately NOT
-        // required because the visible website clocks remain comparison-only.
+        // timeline is not selected-run data. Only a fresh, route-matched site page
+        // can populate the selected timetable's website columns. A separate detached
+        // claim is kept for discrepancy diagnosis, but is not accepted content.
         val orgContentParsed = name != ORG || org?.let {
             it.pageUpdatedAt != null && it.siteCards.isNotEmpty() && it.siteClocks.isNotEmpty()
         } == true
-        val orgContentNote = if (name == ORG && !orgContentParsed)
-            " · returned body did not produce a fresh, route-matched station-card clock; " +
-                "HTTP success or partial text is not accepted as populated website data"
-        else ""
-        val distanceProbe = if (name == ORG && route != null)
+        val orgContentNote = when {
+            name != ORG -> ""
+            org?.detachedPageClaim != null ->
+                " · site route matches live identity but conflicts with selected timetable; " +
+                    "detached cards are diagnostic only and do not qualify this selected run"
+            !orgContentParsed ->
+                " · returned body did not produce a fresh route-matched station-card clock; " +
+                    "HTTP success or partial text is not accepted as populated selected-run data"
+            else -> ""
+        }
+        val distanceProbe = if (name == ORG && route != null && org?.detachedPageClaim == null)
             OrgWebsiteDistanceProbe.inspect(body, org?.report, route, mapRoute) else null
         val distanceNote = distanceProbe?.let { finding ->
             finding.candidate?.let { p ->
@@ -269,7 +299,9 @@ object PublicPageChecks {
             pageUpdateLabel = if (name == ORG) updated else null,
             orgDistanceProbe = distanceNote,
             orgSiteCards = org?.siteCards.orEmpty(),
-            orgSitePageUpdatedAt = org?.report?.pageUpdatedAt ?: org?.pageUpdatedAt,
+            orgDetachedPageClaim = org?.detachedPageClaim,
+            orgSitePageUpdatedAt = org?.report?.pageUpdatedAt ?: org?.pageUpdatedAt
+                ?: org?.detachedPageClaim?.pageUpdatedAt,
             orgSitePageClockHasSeconds = name == ORG && updated?.let {
                 Regex("\\d{1,2}:\\d{2}:\\d{2}").containsMatchIn(it)
             } == true,

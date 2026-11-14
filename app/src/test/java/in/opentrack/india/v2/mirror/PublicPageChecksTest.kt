@@ -3,6 +3,9 @@ package `in`.opentrack.india.v2.mirror
 import `in`.opentrack.india.core.Http
 import `in`.opentrack.india.model.StopRow
 import `in`.opentrack.india.model.TrainRoute
+import `in`.opentrack.india.v2.contract.Provenance as IdentityProvenance
+import `in`.opentrack.india.v2.contract.SourceKind as IdentitySourceKind
+import `in`.opentrack.india.v2.contract.TrainIdentity
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -88,6 +91,60 @@ class PublicPageChecksTest {
             orgResult.pageAnswered)
         assertFalse("HTTP/text matches without a route-matched card are not populated website data",
             orgResult.orgContentParsed)
+    }
+
+    @Test fun `identity-matched website on a conflicting timetable stays detached comparison data`() {
+        // The selected SBC→SMET timetable is already well past its short run by the
+        // page-update time. Its schedule cannot suppress a fresh, identity-matched page
+        // claim for the conflicting MYS→TLGP website route.
+        val selectedRoute = orgRoute.copy(
+            srcCode = "SBC", srcName = "Bengaluru", dstCode = "SMET", dstName = "Shivamogga",
+            totalMin = 120,
+            stops = listOf(stop(1, "SBC", null, 600, 0),
+                stop(2, "YPR", 650, 652, 100), stop(3, "SMET", 720, null, 500)))
+        val identity = TrainIdentity("16227", "MYS TLGP EXP", "MYS", "TLGP",
+            IdentityProvenance(IdentitySourceKind.LIVE_IDENTITY, "erail.in", now - 1_000L))
+        val page = """<html><h1>16227 Running Status</h1><p>Source: MYS</p>
+            <p>Destination: TLGP</p><p>Last Updated: 04:17:00 AM</p>
+            <div>Journey Timeline</div><!-- Station Details Card -->
+            <div class="flex-grow p-3 mb-3 rounded-lg ml-4 shadow-sm bg-green-50 opacity-90">
+            <h3>Arakkonam (ARU)</h3><div><!-- Arrival --><div>ARRIVAL</div>
+            <div>03:55 AM</div><div>03:45 AM</div></div>
+            <div><!-- Departure --><div>DEPARTURE</div><div>03:58 AM</div>
+            <div>03:47 AM</div></div></div></html>""".trimIndent()
+
+        val result = PublicPageChecks.parse(PublicPageChecks.ORG, page, "16227", day, now,
+            knownCodes = selectedRoute.stops.map { it.code }.toSet(), route = selectedRoute,
+            expectedIdentity = identity)
+        assertTrue("HTTP answer is kept separate from a detached diagnostic claim",
+            result.pageAnswered && !result.orgContentParsed)
+        assertNull("a conflicting route must not become a mapped event report", result.orgReport)
+        val detached = result.orgDetachedPageClaim!!
+        assertEquals("MYS", detached.websiteFromCode)
+        assertEquals("TLGP", detached.websiteToCode)
+        assertEquals("SBC", detached.selectedRouteFromCode)
+        assertEquals("SMET", detached.selectedRouteToCode)
+        assertEquals("erail.in", detached.identitySource)
+        assertEquals("ARU", detached.event?.stationCode)
+        assertEquals(OrgWebsiteStatus.SiteClaimKind.ARRIVAL, detached.event?.kind)
+        assertTrue("detached cards are retained, not inserted into the selected timetable",
+            result.orgSiteCards.map { it.code } == listOf("ARU") &&
+                result.orgSiteClocks.isEmpty() && result.lines.isEmpty())
+        val gap = PublicPageChecks.websiteGap(result, "SMET")!!
+        assertTrue(gap.contains("MYS→TLGP"))
+        assertTrue(gap.contains("SBC→SMET"))
+        assertTrue(gap.contains("not attached to timetable rows, actuals, or position"))
+        assertFalse(gap.contains("SMET arrived"))
+
+        val withoutLiveIdentity = PublicPageChecks.parse(PublicPageChecks.ORG, page,
+            "16227", day, now, route = selectedRoute)
+        assertFalse("train number alone cannot authorize a detached route claim",
+            withoutLiveIdentity.orgContentParsed)
+        val wrongIdentity = identity.copy(fromCode = "SBC", toCode = "SMET")
+        val wrong = PublicPageChecks.parse(PublicPageChecks.ORG, page, "16227", day, now,
+            route = selectedRoute, expectedIdentity = wrongIdentity)
+        assertFalse("page endpoints must match the independent live identity",
+            wrong.orgContentParsed)
     }
 
     @Test fun `20689 stale website timeline cannot become the phone apps SMET arrival`() {

@@ -10,15 +10,17 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /** A STRICT online gate on the installed APK, not the more permissive fixture/source UI suite.
- * HTTP 403, a challenge page, NTES fallback, a web-cache candidate, timetable-only cells,
- * or a page with no qualified current-run past card must all FAIL, with a screenshot.
- * The independent .org.in website is not Google's WIMT phone-app feed. */
+ * HTTP 403, a challenge page, NTES fallback, a web-cache candidate, or a page with no
+ * source-qualified past-card event claim for the selected run must FAIL with screenshots.
+ * A route-conflicting page may be shown as a detached diagnostic, but cannot pass this
+ * selected-run acceptance or paint timetable rows/position. The .org.in site is not Google's WIMT app. */
 @RunWith(AndroidJUnit4::class)
 class WimtWebsiteLiveAcceptanceTest {
     @Test fun websiteRefreshMustPaintARealSourceQualifiedPastCardFor16227() {
         // Keep the live check pinned to the requested train; never substitute another
-        // train merely to get a green result. The site has no day selector, so the app's
-        // parser is the authority on whether this selected origin run is still unambiguous.
+        // train merely to get a green result. The site has no day selector: a route-matched
+        // report must pass the active-run gate, while a route conflict stays detached and
+        // explicitly does not verify this selected timetable's run date.
         // Do not gate on the CI wall-clock: that hid the actual fetch and its refusal. The
         // strict checks below still reject a stale/other-day page, timetable echo, or HTTP
         // success without a source-qualified past card.
@@ -57,28 +59,48 @@ class WimtWebsiteLiveAcceptanceTest {
             var headline = ""
             var badge = ""
             var eventFreshness = ""
+            var claimSummary = ""
+            var detachedDescription = ""
+            var detachedClaim = false
             while (System.currentTimeMillis() < until) {
                 headline = E2E.text("headline", 250)
                 badge = E2E.text("provenance", 250)
                 warning = E2E.text("connectionAlert", 250)
                 eventFreshness = E2E.text("age", 250)
+                claimSummary = E2E.text("sourceSummary", 250)
+                detachedDescription = E2E.find("headline", 250)?.contentDescription?.toString().orEmpty()
                 val reported = headline.startsWith("Last qualifying website event ·") &&
                     badge.contains("run inferred", true) &&
                     eventFreshness.startsWith("Site ") && eventFreshness.contains("ago")
+                detachedClaim = headline.startsWith("Website claims ") &&
+                    badge.contains("Detached site claim", true) &&
+                    claimSummary.contains("matches live identity from") &&
+                    claimSummary.contains("selected timetable") &&
+                    claimSummary.contains("page schedule") &&
+                    claimSummary.contains("Page updated") &&
+                    claimSummary.contains("app response received") &&
+                    claimSummary.contains("not attached to timetable rows") &&
+                    detachedDescription.contains("not a timetable actual") &&
+                    (eventFreshness.contains("Website claim time") ||
+                        eventFreshness.contains("not verified"))
                 if (reported) { accepted = true; break }
+                if (detachedClaim) break // Preserve the visible mismatch; never relax selected-run acceptance.
                 if (warning.contains("HTTP 403") || warning.contains("blocks request", true) ||
                     warning.contains("HTTP 429")) break
                 Thread.sleep(250)
             }
             E2E.shotWimt("wimt-after-selected-source")
-            assertTrue("No qualified website past card in the installed app; " +
-                "headline='$headline' badge='$badge' eventFreshness='$eventFreshness' warning='$warning'. " +
-                "NTES fallback, HTTP 200 alone and the .in web cache do not pass.", accepted)
+            assertTrue("No source-qualified .org.in website claim in the installed app; " +
+                "headline='$headline' badge='$badge' eventFreshness='$eventFreshness' " +
+                "summary='$claimSummary' description='$detachedDescription' warning='$warning'. " +
+                "A route-conflicting detached claim is diagnostic only and cannot satisfy selected-run acceptance. " +
+                "HTTP 200 alone, NTES " +
+                "fallback and the .in web cache do not pass.", accepted)
             assertTrue("time-sheet not reachable", E2E.reveal("routeHeadActual", "scroller"))
             assertEquals("website data was mislabeled ACTUAL", "WEBSITE", E2E.text("routeHeadActual"))
             val siteCells = E2E.all(By.res(E2E.PKG, "liveArr")) +
                 E2E.all(By.res(E2E.PKG, "liveDep"))
-            assertTrue("site report has no painted source-attributed times",
+            assertTrue("route-matched site report has no painted source-attributed times",
                 siteCells.any { it.contentDescription.orEmpty().startsWith("Website displayed") })
         } finally {
             // Preserve the original assertion (especially the observed 403) even if

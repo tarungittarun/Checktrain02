@@ -258,6 +258,46 @@ object WebsiteReportDisplay {
             .joinToString(" · ")
     }
 
+    /** A page on the live identity's route can still conflict with the selected
+     * timetable. Preserve its own event-vs-page-schedule claim without attaching it
+     * to route rows, Actuals, or the position marker. */
+    fun detachedClaimSummary(
+        claim: OrgWebsiteStatus.DetachedPageClaim,
+        appCheckedAt: Long?,
+    ): String = buildString {
+        append("Detached .org.in page · route ").append(claim.websiteFromCode).append("→")
+            .append(claim.websiteToCode).append(" matches live identity from ")
+            .append(claim.identitySource).append("; selected timetable ")
+            .append(claim.selectedRouteFromCode).append("→").append(claim.selectedRouteToCode)
+            .append(". ")
+        val event = claim.event
+        if (event == null) {
+            append("No distinct fresh past-card clock pair qualified as a website event claim. ")
+        } else {
+            val place = event.stationName?.let { RowText.of(it) } ?: event.stationCode
+            val eventAt = RailTime.railMinuteToEpochMillis(claim.originDay, event.minute)
+            append("Website claims ").append(event.kind.label).append(" at ")
+                .append(place).append(" (").append(event.stationCode).append(") · ")
+                .append(RailTime.formatClock(eventAt)).append(" IST on ")
+                .append(RailTime.formatDate(RailTime.istEpochDay(eventAt)))
+                .append("; its own page schedule ")
+                .append(RailTime.formatRailMinuteBare(event.pageScheduleMinute)).append(". ")
+            if (event.provisionalDeparture)
+                append("Departure is provisional on the latest card. ")
+        }
+        append("The site has no run-date selector; selected timetable origin day ")
+            .append(RailTime.formatDate(claim.originDay)).append(" is not confirmed by this page. ")
+        append("Page updated ").append(pageUpdateClock(claim.pageUpdatedAt,
+            claim.pageClockHasSeconds)).append(" IST")
+        if (appCheckedAt != null) {
+            append("; app response received ").append(RailTime.formatClockSeconds(appCheckedAt))
+                .append(" IST; page age ")
+                .append(pageAgeAtCheck(claim.pageUpdatedAt, claim.pageClockHasSeconds, appCheckedAt))
+                .append(" at check")
+        }
+        append(". Website claims only: not attached to timetable rows, not an independently verified actual, and not current train position.")
+    }
+
     /** Full freshness/provenance copy. App check time and upstream page-update
      * time stay distinct; neither is the time of a train event. */
     fun latestSiteCardSummary(report: OrgWebsiteStatus.Report?,

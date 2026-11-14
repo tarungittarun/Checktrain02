@@ -27,9 +27,17 @@ def make_pdf(folder: Path, output: Path, source_run: str, source_sha: str) -> No
     from wimt_device_report import verdict
     diagnosed = verdict(instrumentation, "", 1)
     accepted = (original.get("accepted") is True and original.get("instrumentationPassed") is True
-                and original.get("websiteAnswered") is True and original.get("siteRows", 0) > 0
+                and original.get("websiteAnswered") is True
+                and isinstance(original.get("siteRows"), int) and original["siteRows"] > 0
+                and original.get("acceptedMode") == "ROUTE_MATCHED_SITE_REPORT"
+                and original.get("runIdentity") == "INFERRED"
+                and original.get("detachedSiteClaims") == 0
+                and original.get("provenanceComplete") is True
                 and original.get("sourceTransport") == "NETWORK_ANSWER")
-    refused = not accepted and diagnosed["verdict"] == "WEBSITE_REFUSED_UI_DIARY_UNAVAILABLE"
+    # The wire diary may independently confirm 403/429 and therefore use a
+    # different verdict string than the UI-only fallback. The screenshot gate
+    # below is still mandatory and requires the refusal to be visibly rendered.
+    refused = not accepted and diagnosed.get("websiteRefused") is True
     if not accepted and not refused:
         raise ValueError("PDF requires strict accepted website evidence OR UI-confirmed refusal")
     if not source_run.isdigit() or len(source_sha) != 40 or not all(c in "0123456789abcdef" for c in source_sha):
@@ -62,15 +70,15 @@ def make_pdf(folder: Path, output: Path, source_run: str, source_sha: str) -> No
     if accepted:
         lines += [
             "Strict installed-APK test: PASS_SITE_CARD_AND_DEVICE_UI.",
-            "Website network answer and in-app past card + painted website clock verified.",
+            "Website network answer and route-matched in-app past card + source-attributed website clock verified.",
             "This does not establish measured GPS position, operator permission or owner-phone access.",
         ]
     else:
         lines += [
-            "Result: installed app displayed 'Website refused request (HTTP 403)'.",
+            "Result: the installed app visibly displayed 'Website refused request (HTTP 403)'.",
             "No qualified website past card or source-attributed station clock was shown.",
             "The strict instrumented assertion FAILED; Android build success is not source success.",
-            "Wire-level refusal and GET count were not independently verified in this PDF.",
+            "Wire-level refusal and GET count are reported separately and are not inferred from the screenshot.",
             "The UI refusal does not establish a qualified train position or station clock.",
         ]
     lines += [
@@ -114,7 +122,9 @@ def make_pdf(folder: Path, output: Path, source_run: str, source_sha: str) -> No
         pdf.showPage()
     pdf.save()
     print(json.dumps({"pdf": str(output), "pages": 1 + len(images), "sourceRun": source_run,
-                      "sourceAccepted": accepted,
+                      "sourceAccepted": accepted, "acceptedMode": original.get("acceptedMode", "REFUSAL"),
+                      "siteRows": original.get("siteRows", 0),
+                      "detachedSiteClaims": original.get("detachedSiteClaims", 0),
                       "appScreenshotVerification": verified,
                       "screenshotNames": [p.name for _, p in images],
                       "bytes": output.stat().st_size}, sort_keys=True))

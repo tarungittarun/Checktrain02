@@ -35,6 +35,30 @@ class SourceEvidencePolicyTest {
         }
     }
 
+    @Test fun detachedWebsiteClaimReceiptDoesNotInventMappedRowsOrSameRunIdentity() {
+        val detached = OrgWebsiteStatus.DetachedPageClaim(
+            trainNo = "16227", websiteFromCode = "MYS", websiteToCode = "TLGP",
+            selectedRouteFromCode = "SBC", selectedRouteToCode = "SMET",
+            identitySource = "erail.in", originDay = 20_745L,
+            pageUpdatedAt = 1_792_369_260_000L, pageClockHasSeconds = true,
+            latestPastCard = null,
+            event = OrgWebsiteStatus.SiteEventClaim("ARU", "Arakkonam",
+                OrgWebsiteStatus.SiteClaimKind.ARRIVAL, 342, 332), siteCards = emptyList())
+        val result = PublicPageChecks.Result("detached site claim", 1_792_369_300_000L,
+            pageAnswered = true, orgContentParsed = true,
+            orgDetachedPageClaim = detached, orgSitePageUpdatedAt = detached.pageUpdatedAt,
+            responseBytes = 1000, responseDigest = "0123456789abcdef")
+        val receipt = SourceEvidenceReceipt.publicPage(PublicPageChecks.ORG, "16227", 20_745L, result)
+        assertTrue(receipt.contains("parsed=DETACHED_SITE_EVENT_CLAIM"))
+        assertTrue(receipt.contains("runIdentity=LIVE_ROUTE_MATCH_RUN_DATE_UNVERIFIED"))
+        assertTrue(receipt.contains("primaryActuals=0 primaryMarker=none"))
+        assertTrue(receipt.contains("siteRows=0 detachedSiteClaims=1"))
+        assertTrue(receipt.contains("siteClaimStation=ARU siteClaim=ARU:342 siteClaimKind=ARRIVAL"))
+        assertTrue(receipt.contains("siteRoute=MYS>TLGP selectedRoute=SBC>SMET"))
+        assertTrue(receipt.contains("liveIdentityRouteMatch=true"))
+        assertTrue(receipt.contains("page_clock_aligned;selected_origin_day_unverified"))
+    }
+
     @Test fun receiptSeparatesNetworkAnswerFromSiteClaimAndAdmittedAct() {
         val site = OrgWebsiteStatus.Report(emptyMap(), "SRF", false, 342,
             1_792_369_260_000L)
@@ -47,7 +71,8 @@ class SourceEvidencePolicyTest {
         assertTrue(text.contains("orgContentParsed=true"))
         assertTrue(text.contains("runIdentity=INFERRED"))
         assertTrue(text.contains("primaryActuals=0 primaryMarker=none"))
-        assertTrue(text.contains("siteRows=0 siteCards=0 siteDisplayStops=0 siteClaim=SRF:342"))
+        assertTrue(text.contains("siteRows=0 detachedSiteClaims=0 siteCards=0 siteDisplayStops=0 " +
+            "siteClaimStation=SRF siteClaim=SRF:342"))
         assertTrue(text.contains("siteClaim=SRF:342"))
         assertTrue(text.contains("sha256_16=deadbeefdeadbeef"))
         val cache = SourceEvidenceReceipt.publicPage(PublicPageChecks.ORG, "20652", 20_745L,

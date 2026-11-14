@@ -4,6 +4,8 @@ import `in`.opentrack.india.core.RailTime
 import `in`.opentrack.india.domain.RouteBetween
 import `in`.opentrack.india.model.LiveStopFields
 import `in`.opentrack.india.model.TrainRoute
+import `in`.opentrack.india.v2.contract.SourceKind as IdentitySourceKind
+import `in`.opentrack.india.v2.contract.TrainIdentity
 import java.util.Locale
 import kotlin.math.abs
 
@@ -64,6 +66,38 @@ object OrgWebsiteStatus {
         val statusText: String? = null,
         val cardIndex: Int = 0,
     )
+
+    enum class SiteClaimKind(val label: String) { ARRIVAL("arrival"), DEPARTURE("departure") }
+
+    /** One source-coloured clock pair from a route-identity-matched page. It is still only
+     * the website's own claim; the detached form is never attached to another route's rows. */
+    data class SiteEventClaim(
+        val stationCode: String,
+        val stationName: String?,
+        val kind: SiteClaimKind,
+        val minute: Int,
+        val pageScheduleMinute: Int,
+        /** A last-card departure can continue changing while the page advances. */
+        val provisionalDeparture: Boolean = false,
+    )
+
+    /** A populated site page whose endpoints match the independently fetched train identity,
+     * but not the selected timetable. Kept as a detached comparison, never a position. */
+    data class DetachedPageClaim(
+        val trainNo: String,
+        val websiteFromCode: String,
+        val websiteToCode: String,
+        val selectedRouteFromCode: String,
+        val selectedRouteToCode: String,
+        val identitySource: String,
+        val originDay: Long,
+        val pageUpdatedAt: Long,
+        val pageClockHasSeconds: Boolean,
+        val latestPastCard: SiteCardClaim?,
+        val event: SiteEventClaim?,
+        val siteCards: List<SiteCardClaim>,
+    )
+
     data class Report(
         val rows: Map<String, LiveStopFields>,
         val anchorCode: String,
@@ -89,7 +123,10 @@ object OrgWebsiteStatus {
                        /** Route-matched comparison clocks are retained separately from event rows. */
                        val siteClocks: Map<String, SiteClocks> = emptyMap(),
                        /** Parsed publication clock remains distinct from app receipt and event times. */
-                       val pageUpdatedAt: Long? = null)
+                       val pageUpdatedAt: Long? = null,
+                       /** A site claim identity-matched to an independent live endpoint witness,
+                        * but deliberately detached from the selected timetable when routes differ. */
+                       val detachedPageClaim: DetachedPageClaim? = null)
 
     /** Ordered route progress, NOT an absolute km. Map intermediate km and dated halt km
      * can be on different static axes; BEI 905 in a separately mapped leg must still
@@ -233,32 +270,167 @@ object OrgWebsiteStatus {
         return SiteCardTime(first, schedule, firstText, scheduleText, afterPageUpdate)
     }
 
+    /** Detached page clocks have no independent timetable minute to align to. Anchor their
+     * printed clocks to the page's own publication minute; this is comparison-only and never
+     * supplies route actuals. */
+    private fun detachedPageCardTime(section: String, originDay: Long, pageUpdatedAt: Long): SiteCardTime? {
+        val clocks = clock.findAll(section.take(900)).take(2).map { it.value.trim() }.toList()
+        val firstText = clocks.firstOrNull() ?: return null
+        val firstRaw = minute(firstText) ?: return null
+        val pageMinute = ((RailTime.istEpochDay(pageUpdatedAt) - originDay) * 1440L +
+            RailTime.istMinuteOfDay(pageUpdatedAt)).toInt()
+        val first = RailTime.alignClock(firstRaw, pageMinute) ?: firstRaw
+        val scheduleText = clocks.getOrNull(1)
+        val schedule = scheduleText?.let(::minute)?.let { raw ->
+            RailTime.alignClock(raw, first)
+        }
+        val afterPageUpdate = RailTime.railMinuteToEpochMillis(originDay, first) > pageUpdatedAt
+        return SiteCardTime(first, schedule, firstText, scheduleText, afterPageUpdate)
+    }
+
+    /** Only create a detached comparison when the website's own route matches the independently
+     * fetched live identity. The selected timetable remains untouched when that route differs. */
+    private fun detachedPageClaim(html: String, body: String, number: String,
+        originDay: Long, now: Long, route: TrainRoute, expectedIdentity: TrainIdentity?): DetachedPageClaim? {
+        val identity = expectedIdentity?.takeIf {
+            it.number == number && it.provenance.kind == IdentitySourceKind.LIVE_IDENTITY &&
+                it.provenance.isFresh(now)
+        } ?: return null
+        if (route.trainNo != number || route.stops.size < 3) return null
+
+        val visibleText = html.replace(Regex("(?s)<[^>]*>"), " ")
+            .replace("&nbsp;", " ", ignoreCase = true)
+            .replace("&#160;", " ", ignoreCase = true)
+            .replace(Regex("\\s+"), " ").trim()
+        val header = visibleText.substringBefore("Journey Timeline", visibleText).take(1500)
+        if (!Regex("(?i)\\b${Regex.escape(number)}\\b").containsMatchIn(header) ||
+            Regex("(?i)\\b(?:not running today|yet to start|has not started|cancelled|diverted)\\b")
+                .containsMatchIn(header)) return null
+        val websiteFrom = Regex("(?i)\\bSource:\\s*([A-Z0-9]{1,6})\\b")
+            .find(header)?.groupValues?.get(1)?.uppercase(Locale.ROOT) ?: return null
+        val websiteTo = Regex("(?i)\\bDestination:\\s*([A-Z0-9]{1,6})\\b")
+            .find(header)?.groupValues?.get(1)?.uppercase(Locale.ROOT) ?: return null
+        if (!websiteFrom.equals(identity.fromCode, true) ||
+            !websiteTo.equals(identity.toCode, true) ||
+            websiteFrom.equals(route.srcCode, true) && websiteTo.equals(route.dstCode, true)) return null
+        val publishedAt = pageClock(body, now) ?: return null
+        val hasSeconds = updated.find(body)?.groupValues?.get(1)?.let {
+            Regex("\\d{1,2}:\\d{2}:\\d{2}").containsMatchIn(it)
+        } == true
+        val cards = cardParts(html).mapIndexedNotNull { index, part ->
+            val headingMarkup = headingText.find(part)?.groupValues?.get(1).orEmpty()
+            val headingPlain = plainText(headingMarkup)
+            val code = stationCode.find(headingPlain)?.groupValues?.get(1)
+                ?.uppercase(Locale.ROOT) ?: return@mapIndexedNotNull null
+            val className = cardClass.find(part)?.groupValues?.get(1).orEmpty()
+            val mark = when {
+                className.contains("bg-green-50") && className.contains("opacity-90") -> SiteCardMark.PAST
+                className.contains("bg-blue-50") -> SiteCardMark.HIGHLIGHTED
+                else -> SiteCardMark.UPCOMING
+            }
+            val (arrivalSection, departureSection) = cardSections(part)
+            val cardHeaderEnd = listOfNotNull(
+                arrivalMarker.find(part)?.range?.first,
+                arrivalLabel.find(part)?.range?.first,
+            ).minOrNull() ?: part.length
+            val cardHeader = part.substring(0, cardHeaderEnd)
+            val stationName = headingPlain.let { title ->
+                val suffix = " ($code)"
+                if (title.endsWith(suffix, true)) title.dropLast(suffix.length).trim() else title
+            }.takeIf { it.isNotBlank() }
+            val badges = spanTag.findAll(cardHeader).map { plainText(it.groupValues[1]) }
+                .filter { it.isNotBlank() }.toList()
+            val platform = badges.firstOrNull { platformBadge.containsMatchIn(it) }?.let {
+                platformValue.find(it)?.groupValues?.get(1)
+            }
+            val statusText = badges.firstOrNull { !it.contains("PF", true) }
+            val arrival = detachedPageCardTime(arrivalSection, originDay, publishedAt)
+            val departure = detachedPageCardTime(departureSection, originDay, publishedAt)
+            val echoesSchedule = listOfNotNull(arrival, departure).any {
+                it.pageScheduleMinute != null && it.minute == it.pageScheduleMinute
+            }
+            SiteCardClaim(code, mark, arrival, departure,
+                if (echoesSchedule) "A displayed clock matches the website's own timetable; it is not a distinct event claim."
+                else null, stationName, platform, statusText, index)
+        }
+        val event = cards.reversed().firstNotNullOfOrNull { claim ->
+            if (claim.mark != SiteCardMark.PAST) return@firstNotNullOfOrNull null
+            fun distinct(time: SiteCardTime?): SiteEventClaim? {
+                val schedule = time?.pageScheduleMinute ?: return null
+                if (time.afterPageUpdate || time.minute == schedule ||
+                    RailTime.railMinuteToEpochMillis(originDay, time.minute) > publishedAt) return null
+                return SiteEventClaim(claim.code, claim.stationName,
+                    if (time === claim.arrival) SiteClaimKind.ARRIVAL else SiteClaimKind.DEPARTURE,
+                    time.minute, schedule,
+                    provisionalDeparture = time === claim.departure && claim.arrival != null)
+            }
+            // Prefer a distinct arrival: a last card's displayed departure can continue
+            // advancing with the page clock and is not evidence of a completed departure.
+            distinct(claim.arrival) ?: distinct(claim.departure)
+        }
+        val latestPastCard = event?.let { selected ->
+            cards.lastOrNull { it.code.equals(selected.stationCode, true) && it.mark == SiteCardMark.PAST }
+        }
+        return DetachedPageClaim(number, websiteFrom, websiteTo,
+            route.srcCode.uppercase(Locale.ROOT), route.dstCode.uppercase(Locale.ROOT),
+            identity.provenance.source, originDay, publishedAt, hasSeconds,
+            latestPastCard, event, cards)
+    }
+
     /** [route] is the selected origin run's STATIC timetable; it does not attest to any live row. */
     fun parse(body: String, number: String, originDay: Long, now: Long, route: TrainRoute,
-              mapRoute: TrainRoute? = null): Outcome {
+              mapRoute: TrainRoute? = null, expectedIdentity: TrainIdentity? = null): Outcome {
         if (route.trainNo != number || route.stops.size < 3)
             return Outcome(null, "selected train/route unavailable")
+        // Route-matched report rows below need an unambiguous active selected run.
+        // A route-conflicting page is handled separately as a detached source claim;
+        // using this timetable's run-day/clock to suppress that page would imply a
+        // timetable match we have already disproved.
+        // Reject script content before reading identity or rows. Never find a different
+        // train/run hidden in SEO JSON and mistake it for the visible page.
+        val html = body.replace(Regex("(?is)<script\\b[^>]*>.*?</script>"), " ")
+            .replace(Regex("(?is)<style\\b[^>]*>.*?</style>"), " ")
+        val text = html.replace(Regex("(?s)<[^>]*>"), " ").replace(Regex("\\s+"), " ")
+        if (!Regex("(?i)\\b${Regex.escape(number)}\\b").containsMatchIn(text))
+            return Outcome(null, "website page does not identify train $number")
+        val header = text.substringBefore("Journey Timeline", text).take(1500)
+        val websiteFrom = Regex("(?i)\\bSource:\\s*([A-Z0-9]{1,6})\\b")
+            .find(header)?.groupValues?.get(1)
+        val websiteTo = Regex("(?i)\\bDestination:\\s*([A-Z0-9]{1,6})\\b")
+            .find(header)?.groupValues?.get(1)
+        val routeMatchesPage = websiteFrom?.equals(route.srcCode, true) == true &&
+            websiteTo?.equals(route.dstCode, true) == true
+        if (!routeMatchesPage) {
+            val detached = detachedPageClaim(html, body, number, originDay, now, route,
+                expectedIdentity)
+            if (detached != null) {
+                val routeLabel = "${detached.selectedRouteFromCode}→${detached.selectedRouteToCode}"
+                val siteLabel = "${detached.websiteFromCode}→${detached.websiteToCode}"
+                val claimLabel = detached.event?.let {
+                    " ${it.kind.label} claim at ${it.stationCode} " +
+                        RailTime.formatRailMinute(it.minute) +
+                        " vs site schedule ${RailTime.formatRailMinute(it.pageScheduleMinute)}"
+                } ?: " no fresh past-card clock pair qualified"
+                return Outcome(
+                    null,
+                    "website route $siteLabel matches live ${detached.identitySource} identity but " +
+                        "differs from selected timetable $routeLabel;$claimLabel; comparison only, " +
+                        "not mapped to this route or current position",
+                    null, detached.siteCards, emptyMap(), detached.pageUpdatedAt, detached)
+            }
+            return Outcome(null, "website train or endpoints do not match selected run")
+        }
         if (!RailTime.runsOn(route.runDays, RailTime.istWeekdayOfEpochDay(originDay)))
             return Outcome(null, "selected train does not run on this origin day")
-        // This site's URL has no day selector. Only the *currently active, unambiguous*
-        // run can be associated with it: never use it for a historical or future selection,
-        // or after the next daily service might have departed.
+        // This site has no date selector. Only a route-matched page may be associated
+        // with the active selected timetable run; a detached page is never given that
+        // run identity or mapped to its schedule.
         val originDep = route.stops.first().departureMin
             ?: return Outcome(null, "origin departure timetable missing")
         val railNow = ((RailTime.istEpochDay(now) - originDay) * 1440 + RailTime.istMinuteOfDay(now)).toInt()
         val elapsed = railNow - originDep
         if (elapsed !in 0..minOf(1439, (route.totalMin ?: 1440) + 240))
             return Outcome(null, "site has no day selector; selected origin run is not unambiguously active")
-        // Reject script content before reading identity or rows. Never find a different
-        // train/run hidden in SEO JSON and mistake it for the visible page.
-        val html = body.replace(Regex("(?is)<script\\b[^>]*>.*?</script>"), " ")
-            .replace(Regex("(?is)<style\\b[^>]*>.*?</style>"), " ")
-        val text = html.replace(Regex("(?s)<[^>]*>"), " ").replace(Regex("\\s+"), " ")
-        if (!Regex("(?i)\\b$number\\b").containsMatchIn(text) ||
-            !Regex("(?i)\\bSource:\\s*${Regex.escape(route.srcCode)}\\b").containsMatchIn(text) ||
-            !Regex("(?i)\\bDestination:\\s*${Regex.escape(route.dstCode)}\\b").containsMatchIn(text))
-            return Outcome(null, "website train or endpoints do not match selected run")
-        val header = text.substringBefore("Journey Timeline", text).take(1500)
         if (Regex("(?i)\\b(?:not running today|yet to start|has not started|cancelled|diverted)\\b")
                 .containsMatchIn(header))
             return Outcome(null, "website reports this run is not active")

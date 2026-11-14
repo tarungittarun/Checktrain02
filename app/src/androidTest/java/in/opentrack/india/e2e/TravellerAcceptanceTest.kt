@@ -76,11 +76,11 @@ class TravellerAcceptanceTest {
         if (!visibleOnScreen(node)) return false
         val item = node!!.visibleBounds
         val viewport = E2E.find(container, 500)?.visibleBounds ?: return false
-        val visibleLeft = maxOf(item.left, viewport.left)
-        val visibleTop = maxOf(item.top, viewport.top)
-        val visibleRight = minOf(item.right, viewport.right)
-        val visibleBottom = minOf(item.bottom, viewport.bottom)
-        return visibleRight > visibleLeft && visibleBottom > visibleTop
+        // UiObject2 can expose a clipped child with a non-empty intersection. Treat that
+        // as *not revealed*: Alerts choices must be wholly visible inside their own scroll
+        // viewport, not just leave a few pixels above the fixed Cancel/Set-alert footer.
+        return item.left >= viewport.left && item.top >= viewport.top &&
+            item.right <= viewport.right && item.bottom <= viewport.bottom
     }
 
     private fun revealTextContains(text: String, container: String, swipes: Int = 6,
@@ -360,7 +360,7 @@ class TravellerAcceptanceTest {
         assertTrue("Preceding-station choice is hidden",
             E2E.ui.wait(Until.hasObject(By.textContains("preceding station")), E2E.LOCAL_MS))
         for (distance in listOf(2, 5, 10)) assertTrue("$distance km distance choice is hidden",
-            E2E.ui.wait(Until.hasObject(By.textContains("Within $distance km")), E2E.LOCAL_MS))
+            revealTextContains("Within $distance km", "alertDialogScroll"))
         E2E.shot("traveller-alert-triggers")
         assertTrue("Top-level trigger chooser did not cancel", tapTextContains("Cancel"))
         assertEquals("cancelling the trigger chooser must not arm an alert", "Alert", E2E.text("arrivalAlert"))

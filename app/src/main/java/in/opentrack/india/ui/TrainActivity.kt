@@ -1464,6 +1464,9 @@ class TrainActivity : AppCompatActivity() {
         val latestWebsiteCardBrief = if (WebsiteReportDisplay.selected(ui.activeSource))
             ui.orgWebsiteReport?.let { WebsiteReportDisplay.latestSiteCardBrief(it, ui.route) }
             else null
+        val detachedWebsiteSummary = if (WebsiteReportDisplay.selected(ui.activeSource))
+            ui.orgWebsiteDetachedClaim?.let { WebsiteReportDisplay.detachedClaimSummary(it,
+                ui.selectedLoadReceiptMillis) } else null
         sourceSummaryWanted = (
             ui.websiteGap != null || ui.alternateSourceHint != null ||
                 publicCheck != null && ui.orgWebsiteReport == null ||
@@ -1491,6 +1494,7 @@ class TrainActivity : AppCompatActivity() {
             View.OnClickListener { alternateSourceTarget?.let(vm::setActiveSource) } else null)
         val sourceSummaryBase = when {
             ui.activeSource == TrackingSources.WIMT -> wimtLiveSummary
+            detachedWebsiteSummary != null -> detachedWebsiteSummary
             showingWimtRows ->
                 "WIMT web cache: ${wimtRows.size} source-reported web-cache time row(s), unverified, not railway ACTUAL. Open Source details."
             ui.alternateSourceHint != null -> ui.alternateSourceHint
@@ -1509,6 +1513,7 @@ class TrainActivity : AppCompatActivity() {
             "WEBSITE" else "ACTUAL"
         binding.heroEyebrow.text = when {
             ui.wimtWebPoint != null -> "WEB CACHE · COMPARISON"
+            ui.orgWebsiteDetachedClaim != null -> "SITE CLAIM · ROUTE MISMATCH"
             ui.orgWebsiteReport != null -> "SITE REPORT"
             ui.railYatriClaim != null -> "RAILYATRI CLAIM"
             ui.activeSource == TrackingSources.WIMT &&
@@ -1524,7 +1529,7 @@ class TrainActivity : AppCompatActivity() {
             else -> "TIMETABLE ONLY"
         }
         binding.heroEyebrow.setTextColor(getColor(if (ui.wimtWebPoint != null ||
-            ui.orgWebsiteReport != null || ui.railYatriClaim != null ||
+            ui.orgWebsiteDetachedClaim != null || ui.orgWebsiteReport != null || ui.railYatriClaim != null ||
             ui.activeSource == TrackingSources.WIMT) R.color.warn else R.color.live))
         // Site first clocks belong in the WEBSITE column. Neither their page age
         // nor a revisable last-card departure moves the train out of this halt.
@@ -1647,6 +1652,13 @@ class TrainActivity : AppCompatActivity() {
         if (publicCheck != null) {
             val org = ui.orgWebsiteReport?.takeIf { publicCheck ==
                 `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG }
+            val detached = ui.orgWebsiteDetachedClaim?.takeIf { publicCheck ==
+                `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG }
+            val detachedEvent = detached?.event
+            val detachedEventAt = if (detached != null && detachedEvent != null)
+                RailTime.railMinuteToEpochMillis(detached.originDay, detachedEvent.minute) else null
+            val detachedPlace = detachedEvent?.stationName?.let { RowText.of(it) }
+                ?: detachedEvent?.stationCode
             val claim = ui.railYatriClaim
             val station = org?.let { report -> ui.route.stops.firstOrNull {
                 it.code.equals(report.anchorCode, true) } }
@@ -1654,18 +1666,41 @@ class TrainActivity : AppCompatActivity() {
             binding.headline.text = when {
                 org != null -> "Last qualifying website event · ${RowText.of(place ?: org.anchorCode)} " +
                     "${RailTime.formatRailMinuteBare(org.eventMinute)}"
+                detachedEvent != null -> "Website claims ${detachedEvent.kind.label} · " +
+                    "${detachedPlace ?: detachedEvent.stationCode} · " +
+                    RailTime.formatClock(detachedEventAt!!)
+                detached != null -> "Detached website page · no distinct event claim"
                 claim != null -> "RailYatri comparison: ${claim.code} · passage time unverified"
                 else -> "No qualifying past-stop report"
             }
-            binding.headline.contentDescription = binding.headline.text.toString() +
+            binding.headline.contentDescription = if (detached != null) {
+                val eventText = if (detachedEvent != null) ". The site claims ${detachedEvent.kind.label} " +
+                    "at ${detachedPlace ?: detachedEvent.stationCode} ${RailTime.formatClock(detachedEventAt!!)} IST; " +
+                    "its own page schedule is ${RailTime.formatRailMinuteBare(detachedEvent.pageScheduleMinute)}."
+                    else ". No distinct past-card event claim qualified."
+                "${binding.headline.text}. Website route ${detached.websiteFromCode}→${detached.websiteToCode} " +
+                    "matches live identity from ${detached.identitySource}, but selected timetable is " +
+                    "${detached.selectedRouteFromCode}→${detached.selectedRouteToCode}$eventText " +
+                    "The site has no run-date selector; selected origin day ${RailTime.formatDate(detached.originDay)} " +
+                    "is not confirmed. Page route does not independently verify this selected run. " +
+                    "The site claim is detached, " +
+                    "not a timetable actual, independent verification, GPS, or current position."
+            } else binding.headline.text.toString() +
                 ". Selected ${sourceName(publicCheck)}. Website origin run inferred; this is a " +
                 "qualifying page-published event claim, not an independently verified actual, GPS, or current position."
-            binding.provenance.text = if (org != null) "Past site card · run inferred"
-                else "Comparison only"
+            binding.provenance.text = when {
+                org != null -> "Past site card · run inferred"
+                detached != null -> "Detached site claim · route mismatch"
+                else -> "Comparison only"
+            }
             binding.provenance.setBackgroundResource(R.drawable.bg_badge_schedule)
             binding.provenance.setTextColor(getColor(R.color.warn))
+            val detachedPageClock = detached?.let { WebsiteReportDisplay.pageUpdateClock(it.pageUpdatedAt, it.pageClockHasSeconds) }.orEmpty()
             binding.age.text = when {
                 org != null -> "Site event · run inferred"
+                detachedEvent != null -> "Website claim time ${RailTime.formatClock(detachedEventAt!!)} IST · " +
+                    "page updated $detachedPageClock IST; not verified"
+                detached != null -> "Page updated $detachedPageClock IST · no distinct event claim"
                 claim != null -> "Provider updated ${RailTime.formatClock(claim.updateAt)} IST · not movement"
                 else -> "No reported event time"
             }
@@ -1674,7 +1709,8 @@ class TrainActivity : AppCompatActivity() {
             val siteDelay = if (siteStop?.actualArrivalMin != null && scheduledArrival != null)
                 siteStop.actualArrivalMin - scheduledArrival else null
             binding.delayLabel.text = if (siteDelay == null) "Delay" else "Delay at site stop"
-            binding.delay.text = if (siteDelay == null || org == null) "— · no reported delay"
+            binding.delay.text = if (detached != null) "— · no route-matched delay"
+                else if (siteDelay == null || org == null) "— · no reported delay"
                 else when {
                     siteDelay > 0 -> "+${siteDelay}m late · ${RailTime.formatRailMinuteBare(org.eventMinute)}"
                     siteDelay < 0 -> "${-siteDelay}m early · ${RailTime.formatRailMinuteBare(org.eventMinute)}"
@@ -1688,7 +1724,10 @@ class TrainActivity : AppCompatActivity() {
             val next = org?.intermediate?.let { p -> ui.route.stops.firstOrNull {
                 it.code.equals(p.followingHalt, true) } } ?: station?.let {
                 ui.route.stops.getOrNull(ui.route.stops.indexOf(it) + 1) }
-            binding.next.text = next?.let { stop ->
+            binding.next.text = if (detached != null) {
+                "Position unknown · site route ${detached.websiteFromCode}→${detached.websiteToCode}; " +
+                    "timetable ${detached.selectedRouteFromCode}→${detached.selectedRouteToCode}"
+            } else next?.let { stop ->
                 val scheduled = stop.arrivalMin ?: stop.departureMin
                 // "Next stop" is already the label above this value. Avoid
                 // repeating "Following halt" inside a half-width column: on
@@ -1717,7 +1756,7 @@ class TrainActivity : AppCompatActivity() {
         val scheduledStart = JourneyStartUi.scheduledStart(vm.originDate,
             ui.route.stops.firstOrNull()?.departureMin, System.currentTimeMillis(),
             ui.answer.perStop.values.any { it.actualArrivalMin != null || it.actualDepartureMin != null } ||
-                ui.orgWebsiteReport != null || m.rows.any {
+                ui.orgWebsiteReport != null || ui.orgWebsiteDetachedClaim != null || m.rows.any {
                     it.source == TrackModel.MinuteSource.REPORTED ||
                         it.source == TrackModel.MinuteSource.SITE_REPORTED })
         if (scheduledStart != null) {
@@ -1994,6 +2033,10 @@ class TrainActivity : AppCompatActivity() {
                 append("Site claims are not verified actuals. Station distances can differ between maps.")
             }
             if (ui.activeSource == `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG) {
+                ui.orgWebsiteDetachedClaim?.let { detached ->
+                    append("\n\n").append(WebsiteReportDisplay.detachedClaimSummary(detached,
+                        ui.selectedLoadReceiptMillis))
+                }
                 WebsiteReportDisplay.allSiteCardsSummary(
                     ui.orgWebsiteCards.ifEmpty { ui.orgWebsiteReport?.siteCards.orEmpty() },
                     ui.orgWebsitePageUpdatedAt,
@@ -2072,6 +2115,18 @@ class TrainActivity : AppCompatActivity() {
         when {
             WebsiteReportDisplay.selected(ui.activeSource) &&
                 ui.orgWebsiteReport == null -> {
+                val detached = ui.orgWebsiteDetachedClaim
+                if (detached != null) {
+                    val siteEvent = detached.event
+                    val siteEventAt = siteEvent?.let {
+                        RailTime.railMinuteToEpochMillis(detached.originDay, it.minute)
+                    }
+                    binding.age.text = if (siteEvent != null && siteEventAt != null)
+                        "Detached website claim · ${siteEvent.kind.label} ${RailTime.formatClock(siteEventAt)} IST; selected run unverified"
+                    else "Detached website page · no qualifying selected-run event"
+                    binding.age.contentDescription = WebsiteReportDisplay.detachedClaimSummary(detached,
+                        ui.selectedLoadReceiptMillis)
+                } else {
                 val pageAt = ui.orgWebsitePageUpdatedAt
                 val checkedAt = ui.selectedLoadReceiptMillis
                 val pageAge = if (pageAt != null && checkedAt != null)
@@ -2096,6 +2151,7 @@ class TrainActivity : AppCompatActivity() {
                     }
                     pageAge?.let { append("; page age ").append(it).append(" at check") }
                     append(". Site cards are comparison only; neither timestamp is train movement.")
+                }
                 }
             }
             WebsiteReportDisplay.selected(ui.activeSource) &&

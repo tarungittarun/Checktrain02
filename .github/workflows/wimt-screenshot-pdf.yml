@@ -1,11 +1,11 @@
 # Report-only recovery from an ALREADY RUN device trial: zero new .org.in GETs.
-# Source screenshots are required; no generated/mock pixels can stand in for them.
+# Source-strict accepted claims or UI-confirmed refusals need real before/after captures.
 name: wimt-device-screenshot-pdf
 on:
   workflow_dispatch:
     inputs:
       source_run:
-        description: 'Existing installed-app run with a UI-confirmed HTTP 403 and a real final.png'
+        description: 'Existing installed-app run with a strict website-claim pass or UI-confirmed refusal and before/after captures'
         required: true
         type: string
       source_sha:
@@ -32,7 +32,7 @@ jobs:
           run-id: ${{ inputs.source_run }}
           github-token: ${{ github.token }}
           path: captured-wimt-device
-      - name: Create a PDF containing only the actual failed-source screenshots
+      - name: Create a PDF containing only actual in-app before/after screenshots
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -63,8 +63,31 @@ jobs:
           pdf="build/wimt-website-device-${{ inputs.source_run }}.pdf"
           gh release upload latest-apk "$pdf" --clobber
           link=https://github.com/${GITHUB_REPOSITORY}/releases/download/latest-apk/$(basename "$pdf")
-          printf '### WIMT website in-app device trial - failed HTTP 403\n\nPDF with actual retained screenshot(s): %s\n\nSource: Actions run ${{ inputs.source_run }}. No new website request; not phone-app data or a successful WIMT feed. Earlier run 42026847014 images were deleted by artifact cleanup.\n' "$link" \
-            | tee "$GITHUB_STEP_SUMMARY" > build/pdf-report-link.md
+          PDF_LINK="$link" SOURCE_RUN="${{ inputs.source_run }}" python3 - <<'PY' > build/pdf-report-link.md
+          import json, os
+          with open('captured-wimt-device/result.json', encoding='utf-8') as handle:
+              result = json.load(handle)
+          verdict = str(result.get('verdict', 'unknown'))
+          if result.get('accepted') is True:
+              status = 'strict route-matched website claim accepted (' + str(result.get('acceptedMode', 'unknown')) + ')'
+              caveat = 'A website claim is not independent movement verification, GPS, or the Google WIMT app feed.'
+          elif result.get('acceptedMode') == 'DETACHED_SITE_CLAIM_DIAGNOSTIC_ONLY':
+              status = 'route-conflicting detached site claim is diagnostic only; selected run NOT accepted (' + verdict + ')'
+              caveat = 'The claim is not attached to the selected timetable run and does not establish movement or position.'
+          elif result.get('websiteRefused') is True:
+              status = 'website request refused; no source claim accepted (' + verdict + ')'
+              caveat = 'A visible refusal is not a source-data success or train position.'
+          else:
+              status = 'website source claim not accepted (' + verdict + ')'
+              caveat = 'No source-data success, independent movement verification, or train position was established.'
+          print('### WIMT website in-app device trial — ' + status)
+          print()
+          print('PDF with actual in-app before/after captures: ' + os.environ['PDF_LINK'])
+          print()
+          print('Source: Actions run ' + os.environ['SOURCE_RUN'] + '. No new website request; not phone-app data.')
+          print(caveat)
+          PY
+          cat build/pdf-report-link.md | tee -a "$GITHUB_STEP_SUMMARY"
           gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
             -F body=@build/pdf-report-link.md > /dev/null
       - uses: actions/upload-artifact@v4

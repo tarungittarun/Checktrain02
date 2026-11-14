@@ -95,7 +95,12 @@ internal suspend fun erailIdentityFetch(trainNo: String): ErailLiveIdentity? {
     val rows = (ErailPairParser().parse(wire.body, wire.fetchedAtMillis) as? PairParse.Rows)
         ?.listing?.trains ?: return null
     val row = rows.singleOrNull { it.identity.number == trainNo.trim() } ?: return null
-    return ErailLiveIdentity(row.identity, row.boardMin, row.alightMin, row.alightDayOffset)
+    // PairParser is shared with the live pair-search endpoint. This call is specifically
+    // the by-number identity answer, so preserve its source/time while using identity
+    // provenance rather than leaving it mislabeled as a pair-list fact.
+    val identity = row.identity.copy(provenance = row.identity.provenance.copy(
+        kind = `in`.opentrack.india.v2.contract.SourceKind.LIVE_IDENTITY))
+    return ErailLiveIdentity(identity, row.boardMin, row.alightMin, row.alightDayOffset)
 }
 
 /**
@@ -179,6 +184,8 @@ class LiveViewModel(
         val railYatriClaim: PublicPageChecks.StationClaim? = null,
         /** The .org.in site's own past-card claims, not Google's app or verified GPS. */
         val orgWebsiteReport: `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.Report? = null,
+        /** Identity-matched site claim kept detached when its visible route conflicts with the selected timetable. */
+        val orgWebsiteDetachedClaim: `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.DetachedPageClaim? = null,
         /** Visible .org.in cards, including forecasts/duplicates when none qualifies as an event. */
         val orgWebsiteCards: List<`in`.opentrack.india.v2.mirror.OrgWebsiteStatus.SiteCardClaim> = emptyList(),
         /** Route-matched website display clocks, separate from event ledger and marker. */
@@ -388,7 +395,8 @@ class LiveViewModel(
                         // Keep the SAME source/parser and refusal/pacing qualification.
                         PublicPageChecks.fetch(name, trainNo, originEpochDay,
                             System.currentTimeMillis(), route.srcCode, route.dstCode,
-                            route.stops.map { it.code.uppercase() }.toSet(), route, mapAtRequest) { url ->
+                            route.stops.map { it.code.uppercase() }.toSet(), route, mapAtRequest,
+                            expectedIdentity = liveIdentity?.identity) { url ->
                             WebsiteBrowserRequest.document(app, url)
                         }
                     } else {
@@ -428,9 +436,11 @@ class LiveViewModel(
                 val previousWebsite = publicChecks[name]
                 val previousReport = previousWebsite?.orgReport
                 val retainPreviousWebsite = name == PublicPageChecks.ORG && !resolved.orgContentParsed &&
-                    (previousReport != null || previousWebsite?.orgSiteCards?.isNotEmpty() == true)
+                    (previousReport != null || previousWebsite?.orgSiteCards?.isNotEmpty() == true ||
+                        previousWebsite?.orgDetachedPageClaim != null)
                 publicChecks[name] = if (retainPreviousWebsite) resolved.copy(
                     orgReport = previousReport,
+                    orgDetachedPageClaim = previousWebsite?.orgDetachedPageClaim,
                     orgSiteCards = previousWebsite?.orgSiteCards.orEmpty(),
                     orgSiteClocks = previousWebsite?.orgSiteClocks.orEmpty(),
                     orgSitePageUpdatedAt = previousWebsite?.orgSitePageUpdatedAt,
@@ -465,6 +475,7 @@ class LiveViewModel(
                 if (select) _mirrorState.value = resolved.detail
                 Diary.get()?.log("SOURCE", "$name: ${resolved.detail}")
                 if (name == PublicPageChecks.ORG && resolved.orgContentParsed &&
+                    resolved.orgDetachedPageClaim == null &&
                     (_ui.value?.staticRoute?.stops?.size ?: 0) > (mapAtRequest?.stops?.size ?: 0)) {
                     Diary.get()?.log("SOURCE", "static map arrived during website request; rechecking intermediate stops")
                     probeSource(name, select = false, allowMapRecheck = true)
@@ -2041,6 +2052,9 @@ class LiveViewModel(
             provenanceLabel = when {
                 claimStop != null -> "RailYatri · comparison only"
                 orgStop != null -> "whereismytrain.org.in · website past-card report"
+                mirrorActiveSource == PublicPageChecks.ORG &&
+                    publicChecks[PublicPageChecks.ORG]?.orgDetachedPageClaim != null ->
+                    "whereismytrain.org.in · detached claim; route conflict"
                 webPoint != null -> "WIMT web · comparison only"
                 wimtLiveSelected && wimtEvidence == null -> "WIMT .in · not checked"
                 wimtLiveSelected && !wimtIdentityMatched -> "WIMT .in · run/route unverified"
@@ -2351,6 +2365,8 @@ class LiveViewModel(
             wimtIntermediate = wimtIntermediateForUi,
             railYatriClaim = railClaim,
             orgWebsiteReport = orgReport,
+            orgWebsiteDetachedClaim = publicChecks[PublicPageChecks.ORG]?.orgDetachedPageClaim
+                .takeIf { mirrorActiveSource == PublicPageChecks.ORG },
             orgWebsiteCards = publicChecks[PublicPageChecks.ORG]?.orgSiteCards
                 .takeIf { mirrorActiveSource == PublicPageChecks.ORG }.orEmpty(),
             orgWebsiteSiteClocks = publicChecks[PublicPageChecks.ORG]?.orgSiteClocks

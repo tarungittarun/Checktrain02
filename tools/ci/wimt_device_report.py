@@ -35,6 +35,13 @@ def verdict(instrumentation: str, diary: str, process_rc: int) -> dict:
     parsed = token(r"\bparsed=([A-Z_]+)")
     identity = token(r"\brunIdentity=([A-Z_]+)")
     rows = token(r"\bsiteRows=(\d+)")
+    detached_rows = token(r"\bdetachedSiteClaims=(\d+)")
+    site_claim_kind = token(r"\bsiteClaimKind=([A-Z_]+)")
+    site_route = token(r"\bsiteRoute=([A-Z0-9>]+)")
+    selected_route = token(r"\bselectedRoute=([A-Z0-9>]+)")
+    live_identity_route_match = token(r"\bliveIdentityRouteMatch=(true|false)") == "true"
+    claim_time_basis = token(r"\bsiteClaimTimeBasis=([A-Za-z_;]+)")
+    claim_at_raw = token(r"\bsiteClaimAt=(\d{1,16})\b")
     train = token(r"\btrain=(\d{5})\b")
     origin_day_raw = token(r"\boriginDay=(\d{1,8})\b")
     site_claim = re.search(r"\bsiteClaim=([A-Z0-9]{1,6}):(-?\d{1,5})\b", latest)
@@ -44,8 +51,9 @@ def verdict(instrumentation: str, diary: str, process_rc: int) -> dict:
     event_minute = int(site_claim.group(2)) if site_claim else None
     published_at = int(published_raw) if published_raw is not None else None
     checked_at = int(checked_raw) if checked_raw is not None else None
-    event_at = ((origin_day * 1440 + event_minute) * 60_000 - IST_OFFSET_MS
-                if origin_day is not None and event_minute is not None else None)
+    event_at = int(claim_at_raw) if claim_at_raw is not None else (
+        (origin_day * 1440 + event_minute) * 60_000 - IST_OFFSET_MS
+        if origin_day is not None and event_minute is not None else None)
     page_age = ((checked_at - published_at) // 1_000
                 if checked_at is not None and published_at is not None else None)
     event_age = ((checked_at - event_at) // 1_000
@@ -53,9 +61,7 @@ def verdict(instrumentation: str, diary: str, process_rc: int) -> dict:
     try:
         run_date = (EPOCH_IST + dt.timedelta(days=origin_day)).date().isoformat() \
             if origin_day is not None else None
-        claim_time = (EPOCH_IST + dt.timedelta(days=origin_day, minutes=event_minute)
-                      ).isoformat(timespec="seconds") \
-            if origin_day is not None and event_minute is not None else None
+        claim_time = _ist_time(event_at) if event_at is not None else None
     except (OverflowError, ValueError):
         run_date = None
         claim_time = None
@@ -69,34 +75,58 @@ def verdict(instrumentation: str, diary: str, process_rc: int) -> dict:
     # refusal. Do not invent a wire request count when the wire receipt is absent.
     ui_refused = bool(re.search(r"Website refused request \(HTTP (?:403|429)\)", instrumentation))
     refused = wire_refused or ui_refused
-    provenance_complete = (
+    common_provenance = (
         train == EXPECTED_TRAIN and origin_day is not None and origin_day >= 0 and
-        run_date is not None and identity == "INFERRED" and parsed == "SITE_COMPARISON" and
-        site_claim is not None and published_at is not None and checked_at is not None and
-        claim_time is not None and page_age is not None and 0 <= page_age <= 300 and
-        event_at is not None and event_age is not None and event_age >= 0 and
-        event_at <= published_at <= checked_at
+        run_date is not None and site_claim is not None and published_at is not None and
+        checked_at is not None and claim_time is not None and page_age is not None and
+        0 <= page_age <= 300 and event_at is not None and event_age is not None and
+        event_age >= 0 and event_at <= published_at <= checked_at
     )
+    mapped_site_report = (
+        identity == "INFERRED" and parsed == "SITE_COMPARISON" and
+        rows is not None and int(rows) > 0 and detached_rows is not None and
+        int(detached_rows) == 0
+    )
+    detached_site_claim = (
+        identity == "LIVE_ROUTE_MATCH_RUN_DATE_UNVERIFIED" and
+        parsed == "DETACHED_SITE_EVENT_CLAIM" and detached_rows is not None and
+        int(detached_rows) > 0 and site_claim_kind in {"ARRIVAL", "DEPARTURE"} and
+        site_route is not None and selected_route is not None and site_route != selected_route and
+        live_identity_route_match and
+        claim_time_basis == "page_clock_aligned;selected_origin_day_unverified" and
+        rows is not None and int(rows) == 0
+    )
+    provenance_complete = common_provenance and mapped_site_report
+    accepted_mode = ("ROUTE_MATCHED_SITE_REPORT" if mapped_site_report else
+                     "DETACHED_SITE_CLAIM_DIAGNOSTIC_ONLY" if detached_site_claim else "NONE")
     accepted = test_passed and site_answered and not refused and \
-        transport == "NETWORK_ANSWER" and rows is not None and int(rows) > 0 and \
-        provenance_complete
-    reason = ("PASS_SITE_CARD_AND_DEVICE_UI" if accepted else
-              "WEBSITE_REFUSED_WIRE" if wire_refused else
+        transport == "NETWORK_ANSWER" and mapped_site_report and provenance_complete
+    reason = ("WEBSITE_REFUSED_WIRE" if wire_refused else
               "WEBSITE_REFUSED_UI_DIARY_UNAVAILABLE" if ui_refused else
               "DEVICE_TEST_NOT_EXECUTED" if not instrumentation else
+              "SITE_ROUTE_MISMATCH_NOT_ACCEPTED" if site_answered and detached_site_claim else
+              "PASS_SITE_CARD_AND_DEVICE_UI" if accepted else
               "SITE_REPLY_OR_SOURCE_QUALIFICATION_MISSING" if site_answered else
               "NO_WEBSITE_NETWORK_ANSWER")
     return {"verdict": reason, "accepted": accepted, "instrumentationPassed": test_passed,
             "websiteGetCount": len(attempted) if attempted else None, "websiteAnswered": site_answered,
             "websiteRefused": refused, "wireReceiptAvailable": bool(attempted),
             "source": HOST, "sourceTransport": transport or "unknown",
+            "acceptedMode": accepted_mode,
             "siteRows": int(rows) if rows else 0,
+            "detachedSiteClaims": int(detached_rows) if detached_rows else 0,
             "trainNumber": train or "unknown", "originDay": origin_day,
             "originRunDateIst": run_date,
-            "runDateBasis": "inferred_from_selected_timetable; site does not publish run date",
+            "runDateBasis": ("selected_origin_day_unverified; site has no run-date selector; "
+                             "claim clock aligned to fresh page publication" if detached_site_claim else
+                             "inferred_from_selected_timetable; site does not publish run date"),
             "runIdentity": identity or "unknown",
+            "siteRoute": site_route, "selectedRoute": selected_route,
+            "liveIdentityRouteMatch": live_identity_route_match,
             "siteClaimStation": site_claim.group(1) if site_claim else "unknown",
+            "siteClaimKind": site_claim_kind or "unknown",
             "siteClaimMinuteFromOrigin": event_minute,
+            "siteClaimTimeBasis": claim_time_basis or "selected_origin_timetable",
             "siteClaimTimeIst": claim_time,
             "siteClaimAgeSecondsAtCheck": event_age,
             "pagePublishedAtIst": _ist_time(published_at),
@@ -106,6 +136,7 @@ def verdict(instrumentation: str, diary: str, process_rc: int) -> dict:
             "googlePhoneAppFeed": False, "browserEngineRequest": True,
             "websiteGetCountScope": "main_document_navigation_only",
             "note": "Website-published station claim, not independently verified movement/GPS; "
+                    "detached route acceptance does not verify the selected timetable run date; "
                     "emulator WebView, not owner's phone or Google WIMT app"}
 
 
@@ -117,7 +148,7 @@ def self_test() -> None:
             "11-05 [EVIDENCE] source=whereismytrain.org.in (website) train=16227 "
             "originDay=20769 transport=NETWORK_ANSWER bytes=108395 sha256_16=0123456789abcdef "
             "parsed=SITE_COMPARISON runIdentity=INFERRED primaryActuals=0 primaryMarker=none "
-            "siteRows=10 siteClaim=RRB:1217 pagePublishedAt=" + str(published) +
+            "siteRows=10 detachedSiteClaims=0 siteClaim=RRB:1217 pagePublishedAt=" + str(published) +
             " checkedAt=" + str(checked) + "\n")
     result = verdict("OK (1 test)", good, 0)
     assert result["accepted"]
@@ -125,6 +156,35 @@ def self_test() -> None:
     assert result["siteClaimTimeIst"] == "2026-11-12T20:17:00+05:30"
     assert result["siteClaimAgeSecondsAtCheck"] == 2_910
     assert result["pageAgeSecondsAtCheck"] == 30
+    assert not verdict("OK (1 test)", good.replace("detachedSiteClaims=0",
+        "detachedSiteClaims=1"), 0)["accepted"]
+    detached_event = int((dt.datetime(2026, 11, 12, 21, 0, tzinfo=IST) - EPOCH_UTC)
+                         .total_seconds() * 1_000)
+    detached = ("11-05 [HTTP] GET whereismytrain.org.in try#1 -> answered 108395B\n"
+        "11-05 [EVIDENCE] source=whereismytrain.org.in (website) train=16227 "
+        "originDay=20769 transport=NETWORK_ANSWER parsed=DETACHED_SITE_EVENT_CLAIM "
+        "runIdentity=LIVE_ROUTE_MATCH_RUN_DATE_UNVERIFIED primaryActuals=0 primaryMarker=none "
+        "siteRows=0 detachedSiteClaims=1 siteClaimStation=ARU siteClaim=ARU:1260 "
+        "siteClaimKind=ARRIVAL siteRoute=MYS>TLGP selectedRoute=SBC>SMET "
+        "liveIdentityRouteMatch=true "
+        "siteClaimTimeBasis=page_clock_aligned;selected_origin_day_unverified "
+        "siteClaimAt=" + str(detached_event) + " pagePublishedAt=" + str(published) +
+        " checkedAt=" + str(checked) + "\n")
+    detached_result = verdict("OK (1 test)", detached, 0)
+    assert not detached_result["accepted"]
+    assert detached_result["verdict"] == "SITE_ROUTE_MISMATCH_NOT_ACCEPTED"
+    assert detached_result["acceptedMode"] == "DETACHED_SITE_CLAIM_DIAGNOSTIC_ONLY"
+    assert detached_result["siteRows"] == 0 and detached_result["detachedSiteClaims"] == 1
+    assert detached_result["provenanceComplete"] is False
+    assert detached_result["runDateBasis"].startswith("selected_origin_day_unverified")
+    assert detached_result["siteClaimTimeIst"] == "2026-11-12T21:00:00+05:30"
+    assert not verdict("OK (1 test)", detached.replace("siteRows=0", "siteRows=1"), 0)["accepted"]
+    assert not verdict("OK (1 test)", detached.replace("liveIdentityRouteMatch=true",
+        "liveIdentityRouteMatch=false"), 0)["accepted"]
+    assert not verdict("OK (1 test)", detached.replace("selectedRoute=SBC>SMET",
+        "selectedRoute=MYS>TLGP"), 0)["accepted"]
+    assert not verdict("OK (1 test)", detached.replace("detachedSiteClaims=1",
+        "detachedSiteClaims=0"), 0)["accepted"]
     denied = good.replace("answered 108395B", "HTTP HTTP 403").replace(
         "transport=NETWORK_ANSWER", "transport=FAILED_OR_UNUSABLE").replace(
         "siteRows=10 siteClaim=RRB:1217", "siteRows=0 siteClaim=none")

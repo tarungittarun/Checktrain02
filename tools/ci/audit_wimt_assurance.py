@@ -15,14 +15,21 @@ def audit(folder: Path) -> dict:
     result = json.loads((folder / "result.json").read_text())
     inst = (folder / "instrumentation.txt").read_text(errors="replace")
     snap = json.loads((folder / "screen-verification.json").read_text())
+    route_matched_report = (
+        isinstance(result.get("siteRows"), int) and result["siteRows"] > 0 and
+        result.get("acceptedMode") == "ROUTE_MATCHED_SITE_REPORT" and
+        result.get("runIdentity") == "INFERRED" and
+        result.get("detachedSiteClaims") == 0
+    )
     if not (result.get("accepted") is True and result.get("instrumentationPassed") is True
+            and result.get("provenanceComplete") is True
             and result.get("websiteAnswered") is True
             and result.get("wireReceiptAvailable") is True
             and isinstance(result.get("websiteGetCount"), int)
             and result["websiteGetCount"] > 0
             and result.get("websiteRefused") is False
             and result.get("sourceTransport") == "NETWORK_ANSWER"
-            and isinstance(result.get("siteRows"), int) and result["siteRows"] > 0
+            and route_matched_report
             and result.get("googlePhoneAppFeed") is False
             and result.get("browserEngineRequest") is True
             and result.get("websiteGetCountScope") == "main_document_navigation_only"):
@@ -33,7 +40,8 @@ def audit(folder: Path) -> dict:
         raise ValueError("source-qualified in-app before/after screenshots were not verified")
     verify(folder, require_http_403=False)
     return {"sourceVerdict": "SITE_CARD_AND_APP_UI_ACCEPTED",
-            "websiteGetCount": result["websiteGetCount"], "siteRows": result["siteRows"],
+            "websiteGetCount": result["websiteGetCount"],
+            "siteRows": result["siteRows"],
             "googlePhoneAppFeed": False,
             "note": "Even a passing website APK run is not provider permission or owner-phone GPS"}
 

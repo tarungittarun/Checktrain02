@@ -13,8 +13,15 @@ on:
       - 'app/src/androidTest/java/in/opentrack/india/e2e/E2E.kt'
       - 'app/src/androidTest/java/in/opentrack/india/e2e/WimtWebsiteLiveAcceptanceTest.kt'
       - 'app/src/main/java/in/opentrack/india/v2/mirror/PublicPageChecks.kt'
+      - 'app/src/main/java/in/opentrack/india/v2/mirror/OrgWebsiteStatus.kt'
       - 'app/src/main/java/in/opentrack/india/core/WebsiteBrowserRequest.kt'
       - 'app/src/main/java/in/opentrack/india/ui/LiveViewModel.kt'
+      - 'app/src/main/java/in/opentrack/india/ui/TrainActivity.kt'
+      - 'app/src/main/java/in/opentrack/india/ui/WebsiteReportDisplay.kt'
+      - 'app/src/main/java/in/opentrack/india/ui/SourceEvidenceReceipt.kt'
+      - 'app/src/test/java/in/opentrack/india/v2/mirror/PublicPageChecksTest.kt'
+      - 'app/src/test/java/in/opentrack/india/ui/WebsiteReportDisplayTest.kt'
+      - 'app/src/test/java/in/opentrack/india/ui/SourceEvidencePolicyTest.kt'
       - 'tools/ci/wimt_recover.py'
       - 'tools/ci/run_wimt_cache_device.sh'
       - 'tools/ci/verify_wimt_cache_screens.py'
@@ -46,7 +53,6 @@ on:
       - 'app/src/test/java/in/opentrack/india/ui/ScreenRenderTest.kt'
       - 'app/src/main/java/in/opentrack/india/ui/TrackingSources.kt'
       - 'app/src/main/java/in/opentrack/india/ui/SourceIndicator.kt'
-      - 'app/src/main/java/in/opentrack/india/ui/TrainActivity.kt'
       - 'app/build.gradle' # version/signing changes must not bypass installed-APK acceptance
       - 'app/src/main/java/in/opentrack/india/core/BuildStamp.kt'
   workflow_dispatch:
@@ -211,7 +217,7 @@ jobs:
             exit "$rc"
           fi
           tail -12 /tmp/wimt-browser-build.log
-      - name: Real emulator · select website · require past card and painted clock
+      - name: Real emulator · select website · require qualified site claim and honest UI attribution
         run: bash tools/ci/run_wimt_device.sh
       - name: Evidence-backed result even on boot, build or site refusal
         if: always()

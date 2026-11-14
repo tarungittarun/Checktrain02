@@ -267,9 +267,11 @@ def summarize_website_artifact(folder: Path, original: dict, source_run: str,
         result = original
     safe_fields = (
         "verdict", "accepted", "instrumentationPassed", "websiteGetCount", "websiteAnswered",
-        "websiteRefused", "wireReceiptAvailable", "source", "sourceTransport", "siteRows",
+        "websiteRefused", "wireReceiptAvailable", "source", "sourceTransport",
+        "acceptedMode", "siteRows", "detachedSiteClaims",
         "trainNumber", "originDay", "originRunDateIst", "runDateBasis", "runIdentity",
-        "siteClaimStation", "siteClaimMinuteFromOrigin", "siteClaimTimeIst",
+        "siteRoute", "selectedRoute", "liveIdentityRouteMatch", "siteClaimStation",
+        "siteClaimKind", "siteClaimMinuteFromOrigin", "siteClaimTimeBasis", "siteClaimTimeIst",
         "siteClaimAgeSecondsAtCheck", "pagePublishedAtIst", "pageAgeSecondsAtCheck",
         "checkedAtIst", "provenanceComplete", "googlePhoneAppFeed", "browserEngineRequest",
         "websiteGetCountScope", "note",
@@ -307,11 +309,19 @@ def _run_website_report(folder: Path, original: dict) -> int:
     source_run = os.environ.get("WIMT_SOURCE_RUN", "unknown")
     source_artifact = os.environ.get("WIMT_SOURCE_ARTIFACT", "unknown")
     summary = summarize_website_artifact(folder, original, source_run, source_artifact)
+    detached = summary.get("result", {}).get("acceptedMode") == \
+        "DETACHED_SITE_CLAIM_DIAGNOSTIC_ONLY"
+    caveat = (
+        "The page yielded a detached site-claim diagnostic whose route matched the fresh live identity; "
+        "it is NOT accepted for the selected timetable because the route/date did not match or verify. "
+        "No timetable row, actual, or current position was inferred."
+        if detached else
+        "The event time remains a website-published claim; the service date is inferred from the "
+        "selected timetable because the page is undated. A failure or missing screenshot is not acceptance."
+    )
     report = [
         "### Existing installed-APK `.org.in` run · recovery diagnosis (no new website request)",
-        "", "```json", json.dumps(summary, indent=2, sort_keys=True), "```", "",
-        "The event time remains a website-published claim; the service date is inferred from the "
-        "selected timetable because the page is undated. A failure or missing screenshot is not acceptance.",
+        "", "```json", json.dumps(summary, indent=2, sort_keys=True), "```", "", caveat,
     ]
     text = "\n".join(report) + "\n"
     (folder / "recovered-report.md").write_text(text, encoding="utf-8")
