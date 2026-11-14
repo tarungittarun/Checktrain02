@@ -41,12 +41,15 @@ private const val MAX_WEBSITE_HTML = 1_000_000
 /** A single honest WebView navigation gets a bounded chance to load and hydrate its own DOM. */
 internal object WebsiteBrowserRequestTiming {
     const val DOCUMENT_TIMEOUT_MS = 40_000L
-    const val DOM_READINESS_WAIT_MS = 8_000L
+    // This site fills its station cards client-side; budget for the measured slow
+    // WebView path without ever treating an unhydrated shell as station data.
+    const val DOM_READINESS_WAIT_MS = 18_000L
     const val DOM_READINESS_POLL_MS = 250L
 }
 
 private val stationCardRoot = Regex(
     """(?is)<div\b(?=[^>]*\bclass\s*=\s*["'][^"']*\bflex-grow\b)(?=[^>]*\bclass\s*=\s*["'][^"']*\brounded-lg\b)[^>]*>""")
+private val divOpenTag = Regex("(?is)<div\\b[^>]*>")
 
 private val stationCardMarker = Regex("(?i)<!--\\s*Station Details Card\\s*-->")
 private val stationHeading = Regex("(?is)<h3\\b[^>]*>(.*?)</h3>")
@@ -86,15 +89,20 @@ internal fun hasPopulatedTrainDocument(html: String, trainNo: String): Boolean {
     }
     val source = hasLabeledValue("Source", "Destination")
     val destination = hasLabeledValue("Destination", "Journey\\s+Timeline")
-    val markers = stationCardMarker.findAll(visibleHtml).map { it.range.last + 1 }.toList()
-    val starts = if (markers.isNotEmpty()) markers
+    val markers = stationCardMarker.findAll(visibleHtml).toList()
+    val markerRoots = markers.mapNotNull { marker ->
+        val nextMarker = markers.firstOrNull { it.range.first > marker.range.first }?.range?.first
+            ?: visibleHtml.length
+        divOpenTag.find(visibleHtml, marker.range.last + 1)
+            ?.takeIf { it.range.first < nextMarker }?.range?.first
+    }.distinct()
+    // The explicit source comment is a semantic boundary; class names are only a
+    // fallback because the site can restyle its cards without changing their content.
+    val starts = if (markerRoots.isNotEmpty()) markerRoots
         else stationCardRoot.findAll(visibleHtml).map { it.range.first }.toList()
     val populatedCard = starts.indices.any { index ->
         val limit = starts.getOrNull(index + 1) ?: visibleHtml.length
-        val root = stationCardRoot.find(visibleHtml, starts[index])
-        val section = root?.takeIf { it.range.first < limit }?.let {
-            stationCardSection(visibleHtml, it.range.first, limit)
-        }
+        val section = stationCardSection(visibleHtml, starts[index], limit)
         section?.let { card ->
             val heading = stationHeading.find(card)?.groupValues?.get(1)
                 ?.replace(Regex("(?s)<[^>]*>"), " ")?.replace(Regex("\\s+"), " ")?.trim()

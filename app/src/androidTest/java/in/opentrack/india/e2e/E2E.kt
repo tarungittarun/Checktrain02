@@ -288,6 +288,10 @@ object E2E {
         val ctx = InstrumentationRegistry.getInstrumentation().targetContext
         val dir = File(ctx.filesDir, "evidence")
         check(dir.mkdirs() || dir.isDirectory) { "Cannot create test screenshot directory" }
+        // Let accessibility-triggered selection/layout updates settle before the screenshot
+        // and its hierarchy are captured as one proof pair.
+        ui.waitForIdle()
+        Thread.sleep(150)
         val image = File(dir, "$tag.png")
         check(ui.takeScreenshot(image) && image.isFile && image.length() > 1_000L) {
             "Screenshot $tag failed inside the running emulator"

@@ -27,6 +27,7 @@ class WebsiteBrowserRequestTest {
             <h1>Train 16227 Running Status</h1>
             <p>Last Updated: 04:25:10 AM</p>
             <p>Source: MYS</p><p>Destination: TLGP</p>
+            <!-- Station Details Card -->
             <div class="flex-grow p-3 rounded-lg bg-green-50 opacity-90">
               <h3><span>Arsikere (ASK)</span></h3>
               <div>ARRIVAL</div><div>04:20 AM</div>
@@ -34,6 +35,13 @@ class WebsiteBrowserRequestTest {
             </body></html>""".trimIndent()
 
         assertTrue(hasPopulatedTrainDocument(renderedDom, "16227"))
+        assertTrue("a visible route card can also be found without source comments",
+            hasPopulatedTrainDocument(renderedDom.replace("<!-- Station Details Card -->", ""), "16227"))
+        val restyledCard = renderedDom.replace(
+            "class=\"flex-grow p-3 rounded-lg bg-green-50 opacity-90\"",
+            "class=\"site-card-layout\"")
+        assertTrue("the source card boundary survives a CSS restyle",
+            hasPopulatedTrainDocument(restyledCard, "16227"))
         val namedEndpoints = renderedDom.replace("Source: MYS", "Source: Mysuru Junction")
             .replace("Destination: TLGP", "Destination: Talguppa")
         assertTrue("visible station names, not only short codes, indicate a hydrated document",
@@ -44,7 +52,8 @@ class WebsiteBrowserRequestTest {
         assertTrue(WebsiteBrowserRequestTiming.DOCUMENT_TIMEOUT_MS >= 35_000L)
         assertTrue("browser wait must fit inside the source acceptance's 45-second window",
             WebsiteBrowserRequestTiming.DOCUMENT_TIMEOUT_MS < 45_000L)
-        assertTrue(WebsiteBrowserRequestTiming.DOM_READINESS_WAIT_MS >= 6_000L)
+        assertTrue("client-side timetable cards need a useful hydration window",
+            WebsiteBrowserRequestTiming.DOM_READINESS_WAIT_MS >= 15_000L)
         assertTrue(WebsiteBrowserRequestTiming.DOM_READINESS_WAIT_MS <
             WebsiteBrowserRequestTiming.DOCUMENT_TIMEOUT_MS)
         assertTrue(WebsiteBrowserRequestTiming.DOM_READINESS_POLL_MS in 100L..500L)

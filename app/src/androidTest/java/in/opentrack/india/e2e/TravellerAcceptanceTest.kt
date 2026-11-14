@@ -64,6 +64,32 @@ class TravellerAcceptanceTest {
         return true
     }
 
+    /** Radio selection can redraw a frame after the click callback returns. Do not save
+     * screenshot proof until UiAutomator sees the exact option checked, not merely tapped. */
+    private fun tapRadioAndWait(label: String, timeoutMs: Long = E2E.LOCAL_MS): Boolean {
+        val selector = By.clazz("android.widget.RadioButton").text(label)
+        var radio = E2E.ui.wait(Until.findObject(selector), timeoutMs) ?: return false
+        if (!radio.isChecked) {
+            runCatching { radio.click() }.getOrElse { return false }
+        }
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            val current = E2E.ui.findObject(selector)
+            if (current == null) {
+                Thread.sleep(50)
+                continue
+            }
+            radio = current
+            if (radio.isChecked) {
+                E2E.ui.waitForIdle()
+                Thread.sleep(200) // let the touch ripple finish before the proof frame
+                return E2E.ui.findObject(selector)?.isChecked == true
+            }
+            Thread.sleep(50)
+        }
+        return false
+    }
+
     private fun visibleOnScreen(node: androidx.test.uiautomator.UiObject2?): Boolean {
         val bounds = node?.visibleBounds ?: return false
         return bounds.width() > 0 && bounds.height() > 0
@@ -502,12 +528,13 @@ class TravellerAcceptanceTest {
         E2E.shotRequired("alert-distance-source-note")
         assertTrue("Alert style choices cannot be brought back into view",
             revealTextContains("Vibration · one pattern", "alertDialogScroll", up = false))
-        assertTrue("Vibration preference cannot be selected", tapTextContains("Vibration · one pattern"))
+        assertTrue("Vibration preference cannot be selected",
+            tapRadioAndWait("Vibration · one pattern"))
         E2E.shotRequired("alert-feedback-selected")
         assertTrue("Five-minute low-work interval cannot be brought into view",
             revealTextContains("5 minutes · lower background work", "alertDialogScroll"))
         assertTrue("Five-minute low-work interval cannot be selected",
-            tapTextContains("5 minutes · lower background work"))
+            tapRadioAndWait("5 minutes · lower background work"))
         E2E.shotRequired("alert-interval-selected")
         assertTrue("Set alert action is missing before save", tapTextContains("Set alert"))
         allowPermissionIfPrompted()
