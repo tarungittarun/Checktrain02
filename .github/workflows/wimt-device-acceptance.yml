@@ -10,6 +10,9 @@ on:
       - 'tools/ci/wimt_device_report.py'
       - 'tools/ci/verify_wimt_screens.py'
       - 'tools/ci/build_wimt_pdf.py'
+      - 'tools/ci/test_build_wimt_pdf.py'
+      - 'tools/ci/audit_wimt_assurance.py'
+      - 'tools/ci/test_wimt_assurance.py'
       - 'app/src/androidTest/java/in/opentrack/india/e2e/E2E.kt'
       - 'app/src/androidTest/java/in/opentrack/india/e2e/WimtWebsiteLiveAcceptanceTest.kt'
       - 'app/src/main/java/in/opentrack/india/v2/mirror/PublicPageChecks.kt'
@@ -184,6 +187,8 @@ jobs:
       - name: Offline strict-result/redaction and workflow checks
         run: |
           python3 tools/ci/wimt_device_report.py --self-test
+          python3 tools/ci/test_build_wimt_pdf.py
+          python3 tools/ci/test_wimt_assurance.py
           python3 tools/ci/check_workflows.py
           bash -n tools/ci/run_wimt_device.sh
           python3 tools/ci/verify_wimt_screens.py --self-test
@@ -251,34 +256,41 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          mkdir -p build
+          mkdir -p wimt-device-evidence
           python3 -m pip install --disable-pip-version-check --quiet reportlab==4.2.5
-          pdf=build/wimt-website-device-${GITHUB_RUN_ID}.pdf
+          pdf=wimt-device-evidence/wimt-website-device-${GITHUB_RUN_ID}.pdf
           set +e
           python3 tools/ci/build_wimt_pdf.py wimt-device-evidence "$pdf" \
-            "$GITHUB_RUN_ID" "$GITHUB_SHA" 2> build/pdf-error.txt
+            "$GITHUB_RUN_ID" "$GITHUB_SHA" 2> wimt-device-evidence/pdf-error.txt
           status=$?
           set -e
           if [ "$status" -ne 0 ]; then
-            { echo '### Screenshot PDF unavailable: no qualifying captured UI refusal';
+            { echo '### Screenshot PDF unavailable: required in-app captures did not verify';
               echo 'Captured file names (no screenshot pixels altered):';
               find wimt-device-evidence -type f -printf '%P (%s bytes)\n' | head -35;
-              echo 'Bounded builder error:'; tail -12 build/pdf-error.txt; } > build/pdf-diagnostic.md
-            cat build/pdf-diagnostic.md >> "$GITHUB_STEP_SUMMARY"
+              echo 'Bounded builder error:'; tail -12 wimt-device-evidence/pdf-error.txt; } \
+                > wimt-device-evidence/pdf-diagnostic.md
+            cat wimt-device-evidence/pdf-diagnostic.md >> "$GITHUB_STEP_SUMMARY"
             gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
-              -F body=@build/pdf-diagnostic.md > /dev/null || true
+              -F body=@wimt-device-evidence/pdf-diagnostic.md > /dev/null || true
             exit "$status"
           fi
           test -s "$pdf"
-          gh release upload latest-apk "$pdf" --clobber
-          link=https://github.com/${GITHUB_REPOSITORY}/releases/download/latest-apk/$(basename "$pdf")
+          if gh release upload latest-apk "$pdf" --clobber; then
+            link=https://github.com/${GITHUB_REPOSITORY}/releases/download/latest-apk/$(basename "$pdf")
+          else
+            echo '::warning::PDF remains in the wimt-device-evidence artifact; rolling-release upload unavailable'
+            link='(in the wimt-device-evidence artifact)'
+          fi
           { echo '### Actual APK emulator screenshots (source verdict in result above)';
             echo "PDF: $link";
             echo "Source run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}";
-            echo 'This is a NEW device run, not the deleted 42026847014 screenshots. Read the strict source verdict above; a screenshot alone is not a feed success.'; } > build/pdf-report-link.md
-          cat build/pdf-report-link.md >> "$GITHUB_STEP_SUMMARY"
+            echo 'This PDF uses only original emulator captures. A NOT QUALIFIED result documents a failure; it is not a feed-success claim.'; } \
+            > wimt-device-evidence/pdf-report-link.md
+          cat wimt-device-evidence/pdf-report-link.md >> "$GITHUB_STEP_SUMMARY"
           gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
-            -F body=@build/pdf-report-link.md > /dev/null
+            -F body=@wimt-device-evidence/pdf-report-link.md > /dev/null || \
+              echo '::warning::PDF comment unavailable; it remains in the run artifact'
       - uses: actions/upload-artifact@v4
         if: always()
         with:

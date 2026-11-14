@@ -74,7 +74,8 @@ object RouteBetween {
     data class LegPoint(val code: String, val name: String, val mapKm: Int, val fraction: Float,
                         val passageMinute: Int? = null, val approximate: Boolean = false,
                         val isHalt: Boolean = false, val siteArrivalMin: Int? = null,
-                        val siteDepartureMin: Int? = null)
+                        val siteDepartureMin: Int? = null,
+                        val siteRunDateMatched: Boolean? = null)
     enum class MarkerKind { PROJECTED, WEB_CACHE_CANDIDATE, SITE_INTERMEDIATE, SITE_LAST_STOP, REPORTED_HALT, STATION_CLAIM, REPORTED_DEPARTURE_CUE, SITE_DEPARTURE_SUGGESTION }
     data class LegProjection(
         val from: String, val to: String, val fraction: Float,

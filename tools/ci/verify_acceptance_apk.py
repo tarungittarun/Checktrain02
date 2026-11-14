@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Fail closed on published-vs-built bytes, signing, permissions and install identity.
+"""Fail closed on same-run candidate-vs-built bytes, signing, permissions and identity.
 
-This is run BEFORE any end-user journey. An emulator green on a different APK is not evidence.
+This runs before any traveller journey. A green emulator on different APK bytes is not evidence.
 """
 import hashlib
 import os
@@ -28,14 +28,15 @@ def cert_sha256(raw):
     return match.group(1).replace(":", "").lower() if match else None
 
 
-def verify(release, artifact, expected_sha):
+def verify(candidate, build_artifact, expected_sha):
     assert len(expected_sha) == 40 and re.fullmatch(r"[0-9a-f]{40}", expected_sha), "invalid source SHA"
-    assert release.is_file() and artifact.is_file(), "release and same-run build APK both required"
-    built, downloaded = artifact.read_bytes(), release.read_bytes()
-    print(f"release size={len(downloaded)} sha256={hashlib.sha256(downloaded).hexdigest()}", flush=True)
-    assert built == downloaded, "RELEASE BYTES DIFFER from the same-run APK artifact"
+    assert candidate.is_file() and build_artifact.is_file(), \
+        "candidate and same-run build APK artifact both required"
+    built, downloaded = build_artifact.read_bytes(), candidate.read_bytes()
+    print(f"candidate size={len(downloaded)} sha256={hashlib.sha256(downloaded).hexdigest()}", flush=True)
+    assert built == downloaded, "CANDIDATE BYTES DIFFER from the same-run APK artifact"
     assert 1_000_000 < len(downloaded) < 20_000_000, "APK outside size policy"
-    with zipfile.ZipFile(release) as archive:
+    with zipfile.ZipFile(candidate) as archive:
         assert archive.testzip() is None, "corrupt APK ZIP"
         assert "classes.dex" in archive.namelist(), "compiled code absent"
         assert "assets/ref/refdb.dbgz" in archive.namelist(), "offline timetable absent"
@@ -46,7 +47,7 @@ def verify(release, artifact, expected_sha):
     aapt = str(toolsets[-1] / "aapt")
     # apksigner success verifies the cryptographic signature. The stable certificate comparison is
     # INDEPENDENT and mandatory; include the raw output if Android changes its display format.
-    raw = output(signer, "verify", "--verbose", "--print-certs", str(release))
+    raw = output(signer, "verify", "--verbose", "--print-certs", str(candidate))
     print("apksigner output:\n" + raw, flush=True)
     cert = cert_sha256(raw)
     assert cert, "apksigner succeeded but certificate SHA-256 was not parsed; key continuity unverified"
@@ -54,21 +55,21 @@ def verify(release, artifact, expected_sha):
                  "-storetype", "PKCS12", "-storepass", "android")
     expected = re.search(r"SHA256:\s*([a-fA-F0-9:]+)", key)
     assert expected and cert == expected.group(1).replace(":", "").lower(), "update certificate differs from stable test key"
-    info = output(aapt, "dump", "badging", str(release))
+    info = output(aapt, "dump", "badging", str(candidate))
     pkg = re.search(r"package: name='([^']+)' versionCode='([^']+)' versionName='([^']+)'", info)
     assert pkg and pkg.group(1) == "in.opentrack.india", "APK package identity wrong"
     gradle = Path("app/build.gradle").read_text()
     code = re.search(r"versionCode\s+(\d+)", gradle)
     name = re.search(r'versionName\s+"([^"]+)"', gradle)
     assert code and name and pkg.groups()[1:] == (code.group(1), name.group(1)), "APK version differs from this SHA"
-    perms = set(re.findall(r"uses-permission: name='([^']+)'", output(aapt, "dump", "permissions", str(release))))
+    perms = set(re.findall(r"uses-permission: name='([^']+)'", output(aapt, "dump", "permissions", str(candidate))))
     allowed = set(re.findall(r'<uses-permission android:name="([^"]+)"', Path("app/src/main/AndroidManifest.xml").read_text()))
     # AndroidX Core contributes its own package-scoped, signature-protected receiver
     # permission during manifest merger. It is NOT a new dangerous Android permission.
     generated = "in.opentrack.india.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
     assert not (perms - allowed - {generated}) and not (allowed - perms), \
         f"unexpected/missing permissions: {perms - allowed - {generated}} / {allowed - perms}"
-    print(f"PASS: release bytes == Android artifact; valid signature, stable key, version={pkg.groups()[1:]}, permissions={sorted(perms)}")
+    print(f"PASS: candidate bytes == same-run build artifact; valid signature, stable key, version={pkg.groups()[1:]}, permissions={sorted(perms)}")
     return hashlib.sha256(downloaded).hexdigest()
 
 
@@ -76,5 +77,5 @@ if __name__ == "__main__":
     try:
         verify(Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3])
     except (AssertionError, OSError, ValueError, IndexError, zipfile.BadZipFile) as error:
-        print(f"FAIL: APK acceptance preflight: {error}", file=sys.stderr, flush=True)
+        print(f"FAIL: same-run APK acceptance preflight: {error}", file=sys.stderr, flush=True)
         sys.exit(1)

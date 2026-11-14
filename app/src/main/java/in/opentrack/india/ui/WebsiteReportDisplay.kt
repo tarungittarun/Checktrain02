@@ -12,6 +12,9 @@ import java.util.Locale
 object WebsiteReportDisplay {
     const val STALE_BADGE = "WEBSITE · mapped event · stale · run inferred"
 
+    fun staleBadge(report: OrgWebsiteStatus.Report): String = if (report.originInferred)
+        STALE_BADGE else "WEBSITE · site claim · stale · page date matched"
+
     /** Event type for the website's last qualifying past card. A card with only a
      * departure is not an arrival; page-update time never chooses this label. */
     enum class SiteEventKind(val summaryLabel: String, val noun: String) {
@@ -239,6 +242,8 @@ object WebsiteReportDisplay {
             claim.platform?.let { append(" · PF ").append(it) }
             claim.statusText?.let { append(" · website status ‘").append(it).append("’") }
             duplicateNote?.let { append(" · ").append(it) }
+            append(" · ").append(if (report.originInferred)
+                "run date inferred from timetable" else "visible page date matches selected run")
             if (listOfNotNull(claim.arrival, claim.departure).any { it.afterPageUpdate })
                 append(" · ~ marks a displayed clock later than the page update; not an event")
             append(" · website claim, not a verified actual")
@@ -285,8 +290,14 @@ object WebsiteReportDisplay {
             if (event.provisionalDeparture)
                 append("Departure is provisional on the latest card. ")
         }
-        append("The site has no run-date selector; selected timetable origin day ")
-            .append(RailTime.formatDate(claim.originDay)).append(" is not confirmed by this page. ")
+        if (claim.runDateMatched) {
+            append("The visible page date matches selected origin day ")
+                .append(RailTime.formatDate(claim.originDay))
+                .append(", but its route conflicts with the selected timetable. ")
+        } else {
+            append("The page has no matching explicit run-date label; selected timetable origin day ")
+                .append(RailTime.formatDate(claim.originDay)).append(" is unverified. ")
+        }
         append("Page updated ").append(pageUpdateClock(claim.pageUpdatedAt,
             claim.pageClockHasSeconds)).append(" IST")
         if (appCheckedAt != null) {
@@ -323,7 +334,8 @@ object WebsiteReportDisplay {
     /** Full card-level copy for Source details: duplicates, site status/platform badges,
      * both site clocks and their grey site schedules, with no event/position promotion. */
     fun allSiteCardsSummary(report: OrgWebsiteStatus.Report?): String? = report?.let {
-        allSiteCardsSummary(it.siteCards, it.pageUpdatedAt, it.pageClockHasSeconds)
+        allSiteCardsSummary(it.siteCards, it.pageUpdatedAt, it.pageClockHasSeconds,
+            runDateMatched = !it.originInferred)
     }
 
     /** The same card summary also works when the page answered but no event qualified. */
@@ -332,6 +344,8 @@ object WebsiteReportDisplay {
         pageUpdatedAt: Long? = null,
         pageClockHasSeconds: Boolean = false,
         appCheckedAt: Long? = null,
+        runDateMatched: Boolean? = null,
+        pageRunDate: String? = null,
     ): String? {
         if (cards.isEmpty()) return null
         fun mark(mark: OrgWebsiteStatus.SiteCardMark) = when (mark) {
@@ -351,6 +365,12 @@ object WebsiteReportDisplay {
         }
         return buildString {
             append(".org.in visible cards · website display only; not NTES/railway actuals, movement, or current position:\n")
+            pageRunDate?.let { append("Visible page run date: ").append(it).append(". ") }
+            runDateMatched?.let { matched ->
+                append(if (matched) "Visible page date matches the selected origin run; "
+                    else "No matching explicit page run-date label; selected origin day is unverified; ")
+                append("site card clocks remain website claims, not independently verified actuals.\n")
+            }
             cards.sortedBy { it.cardIndex }.forEach { card ->
                 val name = card.stationName?.let { RowText.of(it) } ?: card.code
                 append("• ").append(name).append(" (").append(card.code).append(") · ")

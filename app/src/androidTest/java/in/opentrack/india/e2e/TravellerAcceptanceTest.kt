@@ -10,7 +10,7 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/** Acceptance tests against the RELEASE-DOWNLOAD BYTES, not a separately assembled app APK.
+/** Acceptance tests against the exact same-run build-artifact bytes, not a second app build.
  * Drive only visible controls; a spinner, an arbitrary nonempty status or an empty result is NOT success.
  * We intentionally keep these independent from the older, more permissive flow-counting suite. */
 @RunWith(AndroidJUnit4::class)
@@ -65,7 +65,7 @@ class TravellerAcceptanceTest {
     }
 
     /** Radio selection can redraw a frame after the click callback returns. Do not save
-     * screenshot proof until the exact option is checked and every competitor is visibly unchecked. */
+     * screenshot proof until the exact option is checked and every competitor is unchecked. */
     private fun tapRadioAndWait(label: String, competingOptions: List<String>, container: String,
                                 timeoutMs: Long = E2E.LOCAL_MS): Boolean {
         val selector = By.clazz("android.widget.RadioButton").text(label)
@@ -285,7 +285,7 @@ class TravellerAcceptanceTest {
         assertTrue("Offline screen calls a position live: $badge / $heading",
             !E2E.flag("offline") || (!badge.contains("LIVE", true) &&
                 !heading.contains("LIVE POSITION", true)))
-        E2E.shot("traveller-route")
+        E2E.shotRequired("traveller-route")
     }
 
     @Test fun manualRefreshKeepsTicketAndShowsAnAnswer() {
@@ -339,7 +339,7 @@ class TravellerAcceptanceTest {
         assertTrue("Refresh erased or changed the route: $route -> $afterRoute",
             afterRoute == route || route == baseRoute && afterRoute == confirmedRoute)
         assertTrue("Refresh erased the station list", E2E.count(E2E.res("stopName")) > 0)
-        E2E.shot("traveller-refresh")
+        E2E.shotRequired("traveller-refresh")
     }
 
     @Test fun batteryRefreshIsUnmistakableAndTicketSurvivesModeSwitch() {
@@ -360,7 +360,7 @@ class TravellerAcceptanceTest {
         assertTrue("Battery mode did not persist through Settings recreation",
             E2E.ui.wait(Until.hasObject(E2E.res("batteryMode")), E2E.NETWORK_MS) &&
                 E2E.find("batteryMode")?.isChecked == true)
-        E2E.shot("traveller-battery-enabled")
+        E2E.shotRequired("traveller-battery-enabled")
         E2E.ui.pressBack()
         assertTrue("Battery mode switch erased the selected search results",
             E2E.ui.wait(Until.hasObject(E2E.res("hitGo")), E2E.NETWORK_MS))
@@ -414,7 +414,7 @@ class TravellerAcceptanceTest {
         assertTrue("Battery Refresh has no spoken action label",
             refreshDescription.contains("Refresh selected source"))
         assertTrue("Refresh button is not visible to a traveller", E2E.visible("refresh"))
-        E2E.shot("traveller-battery-refresh")
+        E2E.shotRequired("traveller-battery-refresh")
 
         E2E.ui.pressBack()
         assertTrue("Search screen disappeared before restoring normal mode",
@@ -452,7 +452,7 @@ class TravellerAcceptanceTest {
             E2E.ui.wait(Until.hasObject(By.textContains("preceding station")), E2E.LOCAL_MS))
         for (distance in listOf(2, 5, 10)) assertTrue("$distance km distance choice is hidden",
             revealTextContains("Within $distance km", "alertDialogScroll"))
-        E2E.shot("traveller-alert-triggers")
+        E2E.shotRequired("traveller-alert-triggers")
         assertTrue("Top-level trigger chooser did not cancel", tapTextContains("Cancel"))
         assertEquals("cancelling the trigger chooser must not arm an alert", "Alert", E2E.text("arrivalAlert"))
         assertTrue("Journey alert control is not visible after chooser cancellation",
@@ -586,8 +586,7 @@ class TravellerAcceptanceTest {
         assertTrue("Five-minute low-work interval cannot be brought into view",
             revealTextContains("5 minutes · lower background work", "alertDialogScroll"))
         assertTrue("Five-minute low-work interval cannot be selected",
-            tapRadioAndWait("5 minutes · lower background work", listOf("1 minute", "2 minutes"),
-                "alertDialogScroll"))
+            tapRadioAndWait("5 minutes · lower background work", listOf("1 minute", "2 minutes")))
         E2E.shotRequired("alert-interval-selected")
         assertTrue("Set alert action is missing before save", tapTextContains("Set alert"))
         allowPermissionIfPrompted(firstPromptWaitMs = 8_000L)
@@ -687,14 +686,14 @@ class TravellerAcceptanceTest {
         assertTrue("Impossible trip kept stale train results after 3 seconds",
             E2E.ui.wait(Until.gone(E2E.res("hitNo")), 3_000L))
         assertEquals("Impossible trip still displays train results", 0, E2E.resultRows())
-        E2E.shot("traveller-invalid-trip")
+        E2E.shotRequired("traveller-invalid-trip")
     }
 
     @Test fun settingsRoundTripReturnsToUsableSearch() {
         assertTrue("Settings entry does not respond", E2E.tap("settings"))
         assertTrue("Settings opened no usable screen", E2E.visible("settingsScroll"))
         // Battery mode must be a separate opt-in, and turning it OFF must restore
-        // the ordinary search in this same published APK, without an uninstall.
+        // the ordinary search in this same installed APK, without an uninstall.
         assertTrue("Battery toggle missing or unexpectedly enabled",
             E2E.find("batteryMode")?.isChecked == false)
         assertTrue("Battery toggle cannot be enabled", E2E.tap("batteryMode"))
@@ -709,7 +708,7 @@ class TravellerAcceptanceTest {
             bars = activity.window.statusBarColor
         }
         assertEquals("Battery mode did not black out system bars", android.graphics.Color.BLACK, bars)
-        E2E.shot("traveller-battery-settings")
+        E2E.shotRequired("traveller-battery-settings")
         assertTrue("Battery toggle cannot be disabled", E2E.tap("batteryMode"))
         assertTrue("Battery mode did not switch off",
             E2E.ui.wait(Until.hasObject(E2E.res("batteryMode")), E2E.LOCAL_MS) &&
@@ -719,7 +718,7 @@ class TravellerAcceptanceTest {
         assertTrue("Search cannot be used after Settings", E2E.tap("modeTrain") &&
             E2E.typeInBox("trainBox", "12627") &&
             E2E.ui.wait(Until.hasObject(E2E.res("sugPrimary")), E2E.LOCAL_MS))
-        E2E.shot("traveller-settings-return")
+        E2E.shotRequired("traveller-settings-return")
     }
 
     @Test fun primaryControlsHaveLegibleTouchTargets() {
@@ -732,6 +731,6 @@ class TravellerAcceptanceTest {
             assertTrue("$id has no accessible spoken label",
                 control.contentDescription.orEmpty().isNotBlank() || control.text.orEmpty().isNotBlank())
         }
-        E2E.shot("traveller-controls")
+        E2E.shotRequired("traveller-controls")
     }
 }

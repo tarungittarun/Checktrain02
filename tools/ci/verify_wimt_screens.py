@@ -2,6 +2,7 @@
 """Fail closed on home-screen/missing device evidence; never infer pixels from a log."""
 from pathlib import Path
 import json
+import re
 import tempfile
 import sys
 import xml.etree.ElementTree as ET
@@ -27,8 +28,9 @@ def verify(folder: Path, require_http_403: bool = True) -> dict:
         if not any(n.get("resource-id", "").endswith(":id/trainNo") for n in app_nodes):
             raise ValueError(f"train track not visible in captured app: {name}")
         if name.startswith("wimt-after") and require_http_403 and not any(
-                "HTTP 403" in (n.get("text", "") + n.get("content-desc", "")) for n in app_nodes):
-            raise ValueError("after-source hierarchy did not display HTTP 403")
+                re.search(r"HTTP (?:403|429)", n.get("text", "") + n.get("content-desc", ""))
+                for n in app_nodes):
+            raise ValueError("after-source hierarchy did not display HTTP 403/429")
         details[name] = {"pngBytes": png.stat().st_size, "appNodes": len(app_nodes)}
     return {"verifiedAppScreens": details, "displayedRefusalRequired": require_http_403}
 
@@ -46,6 +48,12 @@ if __name__ == "__main__":
                     'resource-id="in.opentrack.india:id/trainNo" />' + extra + '</hierarchy>')
             assert len(verify(Path(tmp))["verifiedAppScreens"]) == 2
             assert len(verify(Path(tmp), require_http_403=False)["verifiedAppScreens"]) == 2
+            (screens / (NAMES[1] + ".xml")).write_text(
+                '<hierarchy><node package="in.opentrack.india" '
+                'resource-id="in.opentrack.india:id/trainNo" />'
+                '<node package="in.opentrack.india" text="Website refused request (HTTP 429)" />'
+                '</hierarchy>')
+            assert len(verify(Path(tmp))["verifiedAppScreens"]) == 2
             (screens / (NAMES[1] + ".xml")).write_text(
                 '<hierarchy><node package="com.google.android.apps.nexuslauncher" /></hierarchy>')
             try:

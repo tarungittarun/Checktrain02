@@ -2,11 +2,13 @@ package `in`.opentrack.india.v2.mirror
 
 import `in`.opentrack.india.core.Http
 import `in`.opentrack.india.core.RailTime
+import `in`.opentrack.india.core.WebsiteCardMarkup
 import `in`.opentrack.india.model.TrainRoute
 import `in`.opentrack.india.v2.contract.TrainIdentity
 import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Date
+import java.text.ParsePosition
 import java.util.Locale
 import java.util.TimeZone
 import java.security.MessageDigest
@@ -59,6 +61,12 @@ object PublicPageChecks {
         val orgSelectedRouteToCode: String? = null,
         /** Structural card containers found before station/timetable qualification. */
         val orgParsedCardContainers: Int = 0,
+        /** True only when visible site text explicitly names the selected origin date. */
+        val orgRunDateMatched: Boolean = false,
+        /** Canonical date parsed from the visible run-date label, if it was unambiguous. */
+        val orgPageRunDate: String? = null,
+        /** Bounded/redacted live-DOM shape, never raw HTML or a body excerpt. */
+        val orgPageShapeReceipt: String? = null,
     )
 
     /** Explain a missing destination in a returned website timeline without treating its
@@ -101,6 +109,45 @@ object PublicPageChecks {
             else -> null
         }
     }
+
+    private data class SelectedRunDate(val label: String, val day: Long?)
+
+    private val runDateLabel = Regex(
+        "(?i)\\b(?:Selected\\s+date|Running\\s+status\\s+(?:for|on)|" +
+            "Run\\s+date|Train\\s+date|Journey\\s+date|Date\\s+of\\s+journey)\\s*[:–—-]?\\s*" +
+            "(\\d{4}[-/.]\\d{1,2}[-/.]\\d{1,2}|" +
+            "\\d{1,2}[-/.]\\d{1,2}[-/.]\\d{4}|" +
+            "\\d{1,2}\\s+[A-Za-z]{3,9}[, ]+\\d{4}|" +
+            "[A-Za-z]{3,9}\\s+\\d{1,2},?\\s+\\d{4})")
+
+    private fun parseRunDateDay(value: String): Long? {
+        val formats = listOf("d-M-yyyy", "d/M/yyyy", "d.M.yyyy", "yyyy-M-d", "yyyy/M/d",
+            "yyyy.M.d", "d MMM yyyy", "d MMMM yyyy", "MMM d yyyy", "MMMM d yyyy")
+        return formats.firstNotNullOfOrNull { pattern ->
+            val parser = SimpleDateFormat(pattern, Locale.ENGLISH).apply {
+                isLenient = false
+                timeZone = TimeZone.getTimeZone("UTC")
+            }
+            val position = ParsePosition(0)
+            val parsed = parser.parse(value.trim(), position)
+            if (parsed != null && position.index == value.trim().length)
+                parsed.time / 86_400_000L else null
+        }
+    }
+
+    /** A page clock is never a date. Only a visible, labelled calendar date may match the run. */
+    private fun selectedRunDate(visibleText: String): SelectedRunDate? {
+        val matches = runDateLabel.findAll(visibleText).take(8).toList()
+        if (matches.isEmpty()) return null
+        val values = matches.map { it.groupValues[1].trim() }
+        val days = values.map(::parseRunDateDay)
+        val oneDay = days.distinct().singleOrNull()
+        return SelectedRunDate(values.first(), oneDay.takeIf { days.all { day -> day != null } })
+    }
+
+    private fun isoRunDate(day: Long): String = SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).apply {
+        timeZone = TimeZone.getTimeZone("UTC")
+    }.format(Date(day * 86_400_000L))
 
     /** One request per explicit website check. A refusal is never a cue to retry; the
      * transport's separate IPv4 recovery still applies to a broken socket, not HTTP 403. */
@@ -162,7 +209,8 @@ object PublicPageChecks {
                     orgDistanceProbe = "cached HTTP page; no same-page distance accepted",
                     orgSiteCards = emptyList(), orgSitePageUpdatedAt = null,
                     orgSitePageClockHasSeconds = false, orgSiteClocks = emptyMap(),
-                    orgPageEndpoints = null, orgParsedCardContainers = 0)
+                    orgPageEndpoints = null, orgParsedCardContainers = 0,
+                    orgRunDateMatched = false, orgPageRunDate = null)
                 else answer
             }
         }
@@ -224,19 +272,26 @@ object PublicPageChecks {
     private fun page(name: String, body: String, number: String, originDay: Long, now: Long,
                      knownCodes: Set<String>, route: TrainRoute?, mapRoute: TrainRoute?,
                      expectedIdentity: TrainIdentity?): Result {
-        // Only visible text. SEO/Next.js scripts can contain several runs and future ETA rows.
-        val visible = RunningStatusMirror.stripTags(body
-            .replace(Regex("(?is)<script\\b[^>]*>.*?</script>"), " ")
-            .replace(Regex("(?is)<style\\b[^>]*>.*?</style>"), " "))
+        // Only the visible DOM may identify the train, run date, or station data. Mask
+        // script/style/comment content first: SEO JSON is not a rendered source answer.
+        val visibleMarkup = WebsiteCardMarkup.visiblePageMarkup(body).html
+        val visible = RunningStatusMirror.stripTags(visibleMarkup)
+            .replace("&nbsp;", " ", ignoreCase = true)
+            .replace("&#160;", " ", ignoreCase = true)
             .replace(Regex("\\s+"), " ").trim().take(120_000)
         val title = if (name == IXIGO) "ixigo" else "whereismytrain.org.in"
-        if (number !in body) return Result("$title: returned page did not identify train $number; no position.",
-            now, false)
+        if (!Regex("(?i)\\b${Regex.escape(number)}\\b").containsMatchIn(visible))
+            return Result("$title: returned visible page did not identify train $number; no position.",
+                now, false).copy(orgPageShapeReceipt = if (name == ORG)
+                    OrgWebsiteStatus.pageStructureReceipt(body) else null)
         val date = SimpleDateFormat("dd-MM-yyyy", Locale.ENGLISH).apply {
             timeZone = TimeZone.getTimeZone("UTC")
         }.format(Date(originDay * 86_400_000L))
-        val selected = Regex("(?i)\\b(?:Today|Selected date|Running status for)\\s*[:–-]?\\s*" +
-            "(\\d{1,2}[-/]\\d{1,2}[-/]\\d{4})").find(visible)?.groupValues?.get(1)
+        // The selected-run label belongs in the train header, not in card clocks/footer text.
+        val runDate = selectedRunDate(visible.substringBefore("Journey Timeline", visible).take(4_000))
+        val selected = runDate?.label
+        val selectedDay = runDate?.day
+        val runDateMatchesSelected = runDate != null && selectedDay == originDay
         val status = when {
             Regex("(?i)\\b(?:yet to start|hasn.t started)\\b").containsMatchIn(visible) -> "yet to start"
             Regex("(?i)\\b(?:reached destination|run complete)\\b").containsMatchIn(visible) -> "reached destination"
@@ -259,10 +314,18 @@ object PublicPageChecks {
             lines[code] = "Page shows $code: ${excerpt.take(115)} · NOT dated Act"
         }
         val returned = selected?.let { "page-selected $it" } ?: "page does not identify a selected origin date"
-        val wrong = selected != null && selected.replace('/', '-') != date
-        val org = if (name == ORG && route != null && !wrong)
+        val wrong = selected != null && !runDateMatchesSelected
+        val parsedOrg = if (name == ORG && route != null && !wrong)
             OrgWebsiteStatus.parse(body, number, originDay, now, route, mapRoute,
                 expectedIdentity) else null
+        // A route-matched page may still be shown as a comparison when its run date is
+        // absent. Do not silently turn an inferred timetable day into verified provenance.
+        val org = parsedOrg?.let { parsed -> parsed.copy(
+            report = if (runDateMatchesSelected) parsed.report?.copy(originInferred = false)
+                else parsed.report,
+            detachedPageClaim = parsed.detachedPageClaim?.copy(
+                runDateMatched = runDateMatchesSelected))
+        }
         // HTTP 200, a matching number somewhere in the markup, or a partial text
         // timeline is not selected-run data. Only a fresh, route-matched site page
         // can populate the selected timetable's website columns. A separate detached
@@ -289,8 +352,13 @@ object PublicPageChecks {
                     "unverified candidate, NOT shown as live position"
             } ?: finding.reason
         }
-        val runLabel = if (org?.report != null && selected == null)
-            "site has no date selector; mapped to the active selected run by timetable" else returned
+        val runLabel = when {
+            org?.report != null && runDateMatchesSelected ->
+                "site explicitly selected $date, matching the active timetable run"
+            org?.report != null && selected == null ->
+                "site has no date selector; mapped to the active selected run by timetable"
+            else -> returned
+        }
         return Result("$title: train $number · $runLabel (requested origin $date) · $status" +
             (updated?.let { " · page update label $it" } ?: "") +
             "; " + (org?.reason ?: if (wrong) "wrong origin run" else "no event-level dated observation") +
@@ -316,6 +384,11 @@ object PublicPageChecks {
             orgPageEndpoints = org?.pageEndpoints,
             orgSelectedRouteFromCode = route?.srcCode?.uppercase(Locale.ROOT),
             orgSelectedRouteToCode = route?.dstCode?.uppercase(Locale.ROOT),
-            orgParsedCardContainers = org?.parsedCardContainers ?: 0)
+            orgParsedCardContainers = org?.parsedCardContainers ?: 0,
+            orgRunDateMatched = name == ORG && runDateMatchesSelected,
+            orgPageRunDate = if (name == ORG) selectedDay?.let(::isoRunDate) else null,
+            // Shape diagnosis is expensive and useful only when the live DOM did not qualify.
+            orgPageShapeReceipt = if (name == ORG && !orgContentParsed)
+                OrgWebsiteStatus.pageStructureReceipt(body) else null)
     }
 }

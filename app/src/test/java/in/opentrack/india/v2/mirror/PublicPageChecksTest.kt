@@ -145,6 +145,19 @@ class PublicPageChecksTest {
             route = selectedRoute, expectedIdentity = wrongIdentity)
         assertFalse("page endpoints must match the independent live identity",
             wrong.orgContentParsed)
+
+        val datedConflict = PublicPageChecks.parse(PublicPageChecks.ORG,
+            page.replace("<p>Source: MYS</p>",
+                "<p>Run date: 2026-10-14</p><p>Source: MYS</p>"),
+            "16227", day, now, route = selectedRoute, expectedIdentity = identity)
+        assertTrue(datedConflict.orgRunDateMatched)
+        assertTrue(datedConflict.orgDetachedPageClaim?.runDateMatched == true)
+        assertNull("a correct date cannot cure the page's route conflict", datedConflict.orgReport)
+        val receipt = `in`.opentrack.india.ui.SourceEvidenceReceipt.publicPage(
+            PublicPageChecks.ORG, "16227", day, datedConflict)
+        assertTrue(receipt.contains("runIdentity=LIVE_ROUTE_MATCH_DATE_VERIFIED"))
+        assertTrue(receipt.contains("sitePageRunDate=2026-10-14"))
+        assertTrue(receipt.contains("siteClaimTimeBasis=selected_origin_date_verified;route_conflict"))
     }
 
     @Test fun `20689 stale website timeline cannot become the phone apps SMET arrival`() {
@@ -213,6 +226,16 @@ class PublicPageChecksTest {
         assertEquals(1750, cardsOnly.orgSiteClocks["SRF"]?.arrivalMin)
         assertEquals(1755, cardsOnly.orgSiteClocks["SRF"]?.departureMin)
         assertTrue(cardsOnly.orgSiteClocks["SRF"]?.forecast == true)
+
+        val receiptAt = now + 12_000L
+        val delayedReceipt = PublicPageChecks.fetch(PublicPageChecks.ORG, "16227", day, now,
+            source = "MYS", destination = "TLGP",
+            knownCodes = orgRoute.stops.map { it.code }.toSet(), route = orgRoute,
+            responseClock = { receiptAt }) {
+            Http.Result.Ok(populatedOrgPage, fromCache = false, ageMillis = 0)
+        }
+        assertEquals("the app's evidence clock is the response receipt, not navigation start",
+            receiptAt, delayedReceipt.checkedAt)
     }
 
     @Test fun `each dropdown choice requests its own endpoint and cache never counts as fresh`() {

@@ -280,7 +280,7 @@ object E2E {
         runCatching { ui.dumpWindowHierarchy(File(dir, "$tag.xml")) }
     }
 
-    /** Mandatory app-window evidence for a release traveller path. Store it in the target app's
+    /** Mandatory app-window evidence for a same-run traveller path. Store it in the target app's
      * private files: external test storage is not mounted on every CI emulator. The acceptance
      * harness pulls these exact PNG/XML pairs with `run-as`; missing evidence fails the test. */
     fun shotRequired(tag: String) {

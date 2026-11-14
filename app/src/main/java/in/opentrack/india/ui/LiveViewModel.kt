@@ -187,6 +187,10 @@ class LiveViewModel(
         val railYatriClaim: PublicPageChecks.StationClaim? = null,
         /** The .org.in site's own past-card claims, not Google's app or verified GPS. */
         val orgWebsiteReport: `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.Report? = null,
+        /** The visible .org.in run-date label independently matched the selected timetable origin day. */
+        val orgWebsiteRunDateMatched: Boolean = false,
+        /** Canonical date shown on the .org.in page, never inferred from its publication clock. */
+        val orgWebsitePageRunDate: String? = null,
         /** Identity-matched site claim kept detached when its visible route conflicts with the selected timetable. */
         val orgWebsiteDetachedClaim: `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.DetachedPageClaim? = null,
         /** Visible .org.in cards, including forecasts/duplicates when none qualifies as an event. */
@@ -410,7 +414,8 @@ class LiveViewModel(
                         PublicPageChecks.fetch(name, trainNo, originEpochDay,
                             System.currentTimeMillis(), route.srcCode, route.dstCode,
                             route.stops.map { it.code.uppercase() }.toSet(), route, mapAtRequest,
-                            expectedIdentity = liveIdentity?.identity) { url ->
+                            expectedIdentity = liveIdentity?.identity,
+                            responseClock = { System.currentTimeMillis() }) { url ->
                             WebsiteBrowserRequest.document(app, url)
                         }
                     } else {
@@ -459,6 +464,13 @@ class LiveViewModel(
                     orgSiteClocks = previousWebsite?.orgSiteClocks.orEmpty(),
                     orgSitePageUpdatedAt = previousWebsite?.orgSitePageUpdatedAt,
                     orgSitePageClockHasSeconds = previousWebsite?.orgSitePageClockHasSeconds == true,
+                    orgPageEndpoints = previousWebsite?.orgPageEndpoints,
+                    orgSelectedRouteFromCode = previousWebsite?.orgSelectedRouteFromCode,
+                    orgSelectedRouteToCode = previousWebsite?.orgSelectedRouteToCode,
+                    orgParsedCardContainers = previousWebsite?.orgParsedCardContainers ?: 0,
+                    orgRunDateMatched = previousWebsite?.orgRunDateMatched == true,
+                    orgPageRunDate = previousWebsite?.orgPageRunDate,
+                    orgPageShapeReceipt = previousWebsite?.orgPageShapeReceipt,
                     orgQualificationNote = previousWebsite?.orgQualificationNote
                         ?: resolved.orgQualificationNote,
                     detail = resolved.detail + " · previous website card data retained, not refreshed")
@@ -499,7 +511,9 @@ class LiveViewModel(
                     Diary.get()?.log("ORG") {
                         "probe=${if (select) "selected" else "background comparison"} source=$name " +
                             "train=$trainNo run=${RailTime.formatDate(originEpochDay)} " +
-                            "(inferred, website undated); past-card=${website.anchorCode} " +
+                            (if (website.originInferred) "(origin date inferred; no matching visible page date); "
+                             else "(visible page date matches selected origin); ") +
+                            "past-card=${website.anchorCode} " +
                             "Web arr=${last?.actualArrivalMin?.let(RailTime::formatRailMinute) ?: "—"} " +
                             "dep=${last?.actualDepartureMin?.let(RailTime::formatRailMinute) ?: "—"}; " +
                             "${website.rows.size} page rows; page-clock=" +
@@ -2033,7 +2047,10 @@ class LiveViewModel(
             note = (if (orgReport != null && publicChecks[PublicPageChecks.ORG]?.orgContentParsed == false)
                     "Website response was not parsed into a complete station-card timeline. Keeping the " +
                         "previous site report at its original event time; position since then unknown."
-                else if (orgReport != null) "Past website card clocks shown; upcoming site estimates are not arrivals. Run day inferred from timetable; last mapped site event is not current GPS."
+                else if (orgReport != null) "Past website-published claims shown; upcoming site estimates are not arrivals. " +
+                    (if (orgReport.originInferred) "Run date inferred from timetable; "
+                     else "Visible page date matches the selected run; ") +
+                    "site claims are not independently verified actuals or current GPS."
                 else if (publicSelected) "No confirmed times from this site; timetable shown."
                 else if (mirrorSelected && !selectedMirrorForTable ||
                     erailSelected && erailAnswer == null || officialUnavailable)
@@ -2379,6 +2396,8 @@ class LiveViewModel(
             wimtIntermediate = wimtIntermediateForUi,
             railYatriClaim = railClaim,
             orgWebsiteReport = orgReport,
+            orgWebsiteRunDateMatched = publicChecks[PublicPageChecks.ORG]?.orgRunDateMatched == true,
+            orgWebsitePageRunDate = publicChecks[PublicPageChecks.ORG]?.orgPageRunDate,
             orgWebsiteDetachedClaim = publicChecks[PublicPageChecks.ORG]?.orgDetachedPageClaim
                 .takeIf { mirrorActiveSource == PublicPageChecks.ORG },
             orgWebsiteCards = publicChecks[PublicPageChecks.ORG]?.orgSiteCards

@@ -149,11 +149,26 @@ class WebsiteReportDisplayTest {
             WebsiteReportDisplay.eventKind(passage))
     }
 
+    @Test fun siteCardSummaryShowsExactVisibleRunDateWithoutPromotingSiteClocks() {
+        val card = OrgWebsiteStatus.SiteCardClaim(
+            code = "ARU", mark = OrgWebsiteStatus.SiteCardMark.PAST,
+            arrival = OrgWebsiteStatus.SiteCardTime(1_790, 1_783, "05:50 AM", "05:43 AM"),
+            departure = null)
+        val summary = WebsiteReportDisplay.allSiteCardsSummary(
+            listOf(card), runDateMatched = true, pageRunDate = "2026-10-14")!!
+        assertTrue(summary.contains("Visible page run date: 2026-10-14"))
+        assertTrue(summary.contains("Visible page date matches the selected origin run"))
+        assertTrue(summary.contains("website claims, not independently verified actuals"))
+        assertFalse(summary.contains("NTES actuals")) // remains an explicit display-only page
+    }
+
     @Test fun staleWebsiteBadgeRetainsInferredRunWarningAndAvoidsAssumingArrival() {
         assertTrue(WebsiteReportDisplay.STALE_BADGE.contains("stale"))
         assertTrue(WebsiteReportDisplay.STALE_BADGE.contains("run inferred"))
         assertTrue(WebsiteReportDisplay.STALE_BADGE.contains("mapped event"))
         assertFalse(WebsiteReportDisplay.STALE_BADGE.contains("GPS"))
+        assertEquals("WEBSITE · site claim · stale · page date matched",
+            WebsiteReportDisplay.staleBadge(report.copy(originInferred = false)))
     }
 
     @Test fun detachedSiteClaimKeepsIdentityMismatchPublicationAndEventClocksSeparate() {
@@ -175,6 +190,12 @@ class WebsiteReportDisplayTest {
         assertTrue(summary.contains("page age 2s at check"))
         assertTrue(summary.contains("not attached to timetable rows"))
         assertFalse(summary.contains("verified actuals"))
+        val datedRouteConflict = WebsiteReportDisplay.detachedClaimSummary(
+            detached.copy(runDateMatched = true), pageAt + 2_000L)
+        assertTrue(datedRouteConflict.contains("visible page date matches selected origin day"))
+        assertTrue(datedRouteConflict.contains("route conflicts with the selected timetable"))
+        assertFalse(datedRouteConflict.contains("origin day is unverified"))
+        assertTrue(datedRouteConflict.contains("not attached to timetable rows"))
     }
 
     @Test fun answeredSitePastCardsRemainSelectedButCacheAndUnparsedPagesFallBack() {

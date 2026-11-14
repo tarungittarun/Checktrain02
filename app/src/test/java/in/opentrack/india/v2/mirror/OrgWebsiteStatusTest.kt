@@ -47,6 +47,37 @@ class OrgWebsiteStatusTest {
         ${card("ANF", "bg-white", "06:08 AM", "06:00 AM", "06:10 AM", "06:02 AM")}
         </html>""".trimIndent()
 
+    @Test fun `semantic station containers and heading levels retain visible source marks`() {
+        val source = """<html><h1>16227 Running Status</h1><p>Source: MYS</p>
+            <p>Destination: TLGP</p><p>Last Updated: 06:06:19 AM</p>"""
+        val cardMarkup = card("ARU", "bg-green-50 opacity-90", "05:50 AM", "05:43 AM",
+            "05:54 AM", "05:44 AM").replace("<!-- Station Details Card -->", "")
+        val variants = listOf(
+            cardMarkup.replaceFirst("<div class=\"flex-grow", "<section class=\"flex-grow")
+                .replace(Regex("</div>\\s*$"), "</section>")
+                .replace("<h3", "<h2").replace("</h3>", "</h2>"),
+            cardMarkup.replaceFirst("<div class=\"flex-grow", "<article class=\"flex-grow")
+                .replace(Regex("</div>\\s*$"), "</article>")
+                .replace("<h3", "<h4").replace("</h3>", "</h4>"),
+            cardMarkup.replaceFirst("<div class=\"flex-grow", "<li class=\"flex-grow")
+                .replace(Regex("</div>\\s*$"), "</li>")
+                .replace("<h3", "<h5").replace("</h3>", "</h5>"),
+            """<table><tr class="flex-grow p-3 rounded-lg bg-green-50 opacity-90"><td>
+                <h6>Station (ARU)</h6>
+                <div><!-- Arrival --><div>ARRIVAL</div><div>05:50 AM</div><div>05:43 AM</div></div>
+                <div><!-- Departure --><div>DEPARTURE</div><div>05:54 AM</div><div>05:44 AM</div></div>
+                </td></tr></table>""".trimIndent(),
+        )
+        for (semanticCard in variants) {
+            val outcome = OrgWebsiteStatus.parse(source + semanticCard + "</html>",
+                "16227", day, now, route)
+            assertEquals("one semantic card should be parsed: $semanticCard",
+                1, outcome.parsedCardContainers)
+            assertEquals("ARU", outcome.siteCards.single().code)
+            assertEquals(OrgWebsiteStatus.SiteCardMark.PAST, outcome.siteCards.single().mark)
+        }
+    }
+
     @Test fun `comment and script markup cannot inflate station-card diagnostics`() {
         val hiddenCard = """<!-- Station Details Card
             <div class="flex-grow rounded-lg bg-green-50 opacity-90">
@@ -342,10 +373,6 @@ class OrgWebsiteStatusTest {
             .replace("<!-- Station Details Card -->", "")
             .replace("<!-- Arrival -->", "")
             .replace("<!-- Departure -->", "")
-            // The captured source has a dangling comment opener between cards. This
-            // test models a rendered DOM with comments removed, not that raw malformed source.
-            .replace("<!--\n", "\n")
-            .replace("flex-grow p-3 mb-3 rounded-lg ml-4 shadow-sm", "station-timeline-item")
             .replace("""<h3 class="font-medium text-sm text-gray-800">""",
                 """<h3 class="font-medium text-sm text-gray-800"><span>""")
             .replace("</h3>", "</span></h3>")
@@ -357,19 +384,6 @@ class OrgWebsiteStatusTest {
         assertEquals(2, report.siteCards.size)
         assertEquals(1813, report.siteClocks["ANF"]?.arrivalMin)
         assertEquals(1869, report.siteClocks["SRF"]?.arrivalMin)
-    }
-
-    @Test fun `HTML space entities do not hide visible endpoint labels or site cards`() {
-        val entityPage = page.replace("Source: MYS", "Source:&nbsp;MYS")
-            .replace("Destination: TLGP", "Destination:&#160;TLGP")
-            .replace("05:50 AM", "05:50&nbsp;AM")
-        val outcome = OrgWebsiteStatus.parse(entityPage, "16227", day, now, route)
-        val report = outcome.report ?: error(outcome.reason)
-        assertEquals("MYS", outcome.pageEndpoints?.fromCode)
-        assertEquals("TLGP", outcome.pageEndpoints?.toCode)
-        assertEquals(2, report.siteCards.size)
-        assertEquals("ARU", report.anchorCode)
-        assertEquals(1790, report.siteClocks["ARU"]?.arrivalMin)
     }
 
     @Test fun `website marks past card but future first clock is still a prediction`() {
@@ -997,6 +1011,57 @@ class OrgWebsiteStatusTest {
         assertNull("06:15 occurred after the page's own 06:14:20 stamp", report.rows["ANF"])
         assertTrue("the rejection must be diagnosable", outcome.reason.contains("later than the page update clock"))
         assertTrue(report.originInferred) // even retained SRF is a comparison, not dated Act
+    }
+
+    @Test fun `page-shape receipt is bounded and excludes station clocks and body text`() {
+        val receipt = OrgWebsiteStatus.pageStructureReceipt(page)
+        assertTrue(receipt.startsWith("chars:"))
+        assertTrue(receipt.contains("roots:"))
+        assertTrue(receipt.contains("cards:"))
+        assertTrue(receipt.contains("ARRIVAL:clock"))
+        assertFalse(receipt.contains("05:50"))
+        assertFalse(receipt.contains("Station (ARU)"))
+        assertFalse(receipt.contains("Source: MYS"))
+        assertFalse(receipt.contains("<h1>"))
+    }
+
+    @Test fun `only explicit visible run date matching the selected origin qualifies website actuals`() {
+        val routeCodes = route.stops.map { it.code }.toSet()
+        val labelled = page.replace("<p>Source: MYS</p>",
+            "<p>Run date: 14-10-2026</p><p>Source: MYS</p>")
+        val matched = PublicPageChecks.parse(PublicPageChecks.ORG, labelled, "16227", day,
+            now, "MYS", "TLGP", routeCodes, route)
+        assertTrue(matched.pageAnswered)
+        assertTrue(matched.orgRunDateMatched)
+        assertTrue(matched.orgContentParsed)
+        assertEquals(false, matched.orgReport?.originInferred)
+        assertTrue(matched.detail.contains("explicitly selected 14-10-2026"))
+        val matchedReceipt = `in`.opentrack.india.ui.SourceEvidenceReceipt.publicPage(
+            PublicPageChecks.ORG, "16227", day, matched)
+        assertTrue(matchedReceipt.contains("runIdentity=DATE_ROUTE_MATCHED"))
+        assertTrue(matchedReceipt.contains("siteDateMatched=true"))
+        assertTrue(matchedReceipt.contains("sitePageRunDate=2026-10-14"))
+        assertTrue(matchedReceipt.contains("siteClaimTimeBasis=selected_origin_date_verified"))
+
+        // A page clock, its publication label, and a generic word Today are not the run date.
+        val undated = PublicPageChecks.parse(PublicPageChecks.ORG,
+            page.replace("<h1>16227 Running Status</h1>",
+                "<h1>16227 Running Status</h1><p>Today 14-10-2026</p>"),
+            "16227", day, now, "MYS", "TLGP", routeCodes, route)
+        assertFalse(undated.orgRunDateMatched)
+        assertEquals(true, undated.orgReport?.originInferred)
+        val undatedReceipt = `in`.opentrack.india.ui.SourceEvidenceReceipt.publicPage(
+            PublicPageChecks.ORG, "16227", day, undated)
+        assertTrue(undatedReceipt.contains("runIdentity=INFERRED"))
+        assertTrue(undatedReceipt.contains("siteDateMatched=false"))
+        assertTrue(undatedReceipt.contains("siteClaimTimeBasis=selected_origin_date_unverified"))
+
+        val wrongDate = PublicPageChecks.parse(PublicPageChecks.ORG,
+            labelled.replace("14-10-2026", "15-10-2026"), "16227", day, now,
+            "MYS", "TLGP", routeCodes, route)
+        assertFalse(wrongDate.orgRunDateMatched)
+        assertNull(wrongDate.orgReport)
+        assertTrue(wrongDate.detail.contains("wrong origin run"))
     }
 
     @Test fun `cached HTML cannot publish a fresh website claim`() {

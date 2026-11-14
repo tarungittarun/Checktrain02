@@ -155,6 +155,14 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
                 rebindCodes(*routePoints.keys.toTypedArray())
             }
         }
+    /** Whether the selected site's visible run-date label matched this timetable origin day. */
+    var websiteRunDateMatched: Boolean = false
+        set(value) {
+            if (field != value) {
+                field = value
+                rebindCodes(*routePoints.keys.toTypedArray())
+            }
+        }
     /** Selected site's printed clocks, separate from qualified train events. */
     var websiteCardTimes: Map<String, OrgWebsiteStatus.SiteClocks> = emptyMap()
         set(value) {
@@ -604,7 +612,8 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             RouteBetween.LegPoint(point.code, point.name, point.schedKm, fraction,
                 planned, point.arrivalMin == null && planned != null, stopped,
                 web?.actualArrivalMin,
-                web?.actualDepartureMin.takeIf { stopped })
+                web?.actualDepartureMin.takeIf { stopped },
+                websiteRunDateMatched.takeIf { web != null })
         }
         val batteryExpanded = batteryMode && disclosed && available.isNotEmpty()
         if (batteryExpanded) batteryRouteDetails(holder.batteryStations, available)
@@ -710,7 +719,9 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
                 } ?: "passage time unavailable"
                 val actual = point.siteArrivalMin?.let {
                     ", website ${if (point.isHalt) "arrival" else "passage"} claim " +
-                        RailTime.formatRailMinute(it)
+                        RailTime.formatRailMinute(it) + "; " +
+                        (if (point.siteRunDateMatched == true) "page date matches selected run"
+                         else "run date inferred from timetable")
                 } ?: ", no validated site passage"
                 "${RowText.of(point.name)} (${point.code}), $clock$actual" +
                     (if (point.mapKm >= 0) ", ${point.mapKm} km" else ", distance unavailable")
@@ -939,8 +950,10 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             addLine(card, label(timetable, 12f, R.color.text2))
 
             if (point.siteArrivalMin != null || point.siteDepartureMin != null) {
+                val siteDate = if (websiteRunDateMatched)
+                    "page date matched" else "run inferred"
                 addLine(card, label(
-                    "whereismytrain.org.in · claim · run inferred · unverified",
+                    "whereismytrain.org.in · claim · $siteDate · unverified",
                     11f, R.color.warn, medium = true), top = 6)
                 val arrival = point.siteArrivalMin?.let(RailTime::formatRailMinute) ?: "—"
                 val departure = point.siteDepartureMin?.let(RailTime::formatRailMinute) ?: "—"

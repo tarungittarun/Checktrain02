@@ -97,6 +97,8 @@ object OrgWebsiteStatus {
         val latestPastCard: SiteCardClaim?,
         val event: SiteEventClaim?,
         val siteCards: List<SiteCardClaim>,
+        /** Visible run-date label matched the selected origin day; route can still conflict. */
+        val runDateMatched: Boolean = false,
     )
 
     data class Report(
@@ -181,9 +183,9 @@ object OrgWebsiteStatus {
     // not (05:50 AM). Parse the whole value; otherwise a substring matcher sees
     // "06:19 AM" inside 06:06:19 and invents a thirteen-minute-future clock.
     private val clock = Regex("(?i)\\b(\\d{1,2}):(\\d{2})(?::\\d{2})?\\s*(AM|PM)\\b")
-    private val headingText = Regex("(?is)<h3\\b[^>]*>(.*?)</h3>")
+    private val headingText = Regex("(?is)<h[2-6]\\b[^>]*>(.*?)</h[2-6]>")
     private val stationCode = Regex("(?i)\\(([A-Z0-9]{1,6})\\)")
-    private val cardClass = Regex("(?is)<div\\b[^>]*\\bclass\\s*=\\s*[\"']([^\"']+)[\"']")
+    private val cardClass = Regex("(?is)<(?:div|section|article|li|tr)\\b[^>]*\\bclass\\s*=\\s*[\"']([^\"']+)[\"']")
     private val spanTag = Regex("(?is)<span\\b[^>]*>(.*?)</span>")
     private val platformBadge = Regex("(?i)\\bPF\\s*[A-Z0-9]{1,3}\\b")
     private val platformValue = Regex("(?i)\\bPF\\s*([A-Z0-9]{1,3})\\b")
@@ -198,14 +200,69 @@ object OrgWebsiteStatus {
         val starts = WebsiteCardMarkup.stationCardSectionStarts(document)
         return starts.mapIndexedNotNull { index, start ->
             val limit = starts.getOrNull(index + 1) ?: document.html.length
-            val part = WebsiteCardMarkup.divSectionAt(document.html, start, limit)
+            val part = WebsiteCardMarkup.containerSectionAt(document.html, start, limit)
                 ?: document.html.substring(start, limit)
             part.takeIf { cardClass.find(it) != null || headingText.containsMatchIn(it) }
         }
     }
 
+    /** Prefer the container class visibly carrying a known site source mark. This never
+     * infers a card's timeline position from page order or its printed clock. */
+    private fun cardClassName(part: String): String {
+        val classes = cardClass.findAll(part).map { it.groupValues[1] }.toList()
+        return classes.firstOrNull { value ->
+            value.contains("bg-green-50") && value.contains("opacity-90") ||
+                value.contains("bg-blue-50")
+        } ?: classes.firstOrNull().orEmpty()
+    }
+
     /** Bounded structural diagnostic; never returns card text or raw website markup. */
     internal fun diagnosticCardCount(html: String): Int = cardParts(html).size
+
+    /** Bounded redacted DOM structure for a fresh answer with missing/parsed cards.
+     * No HTML, station names, clocks, URL, or response excerpt is returned. */
+    internal fun pageStructureReceipt(html: String): String {
+        val boundedHtml = html.take(120_000)
+        val document = WebsiteCardMarkup.visiblePageMarkup(boundedHtml)
+        val visible = document.html
+        val tags = listOf("main", "article", "section", "div", "ul", "ol", "li", "table", "tr",
+            "h1", "h2", "h3", "h4", "h5", "h6", "span", "p")
+        val tagCounts = tags.joinToString(",") { tag ->
+            val count = Regex("(?i)<$tag\\b").findAll(visible).take(100_001).count()
+            "$tag:$count"
+        }
+        val headings = Regex("(?is)<(h[1-6])\\b[^>]*>(.*?)</\\1>")
+            .findAll(visible).take(8).map { match ->
+                val text = plainText(match.groupValues[2])
+                val code = stationCode.find(text)?.groupValues?.get(1)
+                val kind = when {
+                    code != null -> "station_$code"
+                    Regex("(?i)\\brunning\\s+status\\b").containsMatchIn(text) -> "train_status"
+                    else -> "text"
+                }
+                match.groupValues[1].lowercase(Locale.ROOT) + "_" + kind
+            }.toList().joinToString("|").ifBlank { "none" }
+        val labels = Regex("(?i)\\b(ARRIVAL|DEPARTURE)\\b")
+            .findAll(visible).take(8).map { match ->
+                val tail = visible.substring(match.range.last + 1,
+                    minOf(visible.length, match.range.last + 221))
+                val clockPresent = Regex("(?i)\\b\\d{1,2}:\\d{2}\\s*(?:AM|PM)\\b")
+                    .containsMatchIn(plainText(tail))
+                "${match.groupValues[1].uppercase(Locale.ROOT)}:${if (clockPresent) "clock" else "no_clock"}"
+            }.toList().joinToString("|").ifBlank { "none" }
+        val roots = WebsiteCardMarkup.stationCardSectionStarts(document)
+        val cards = diagnosticCardCount(boundedHtml)
+        val openContainers = Regex("(?is)<(div|section|article|li|tr)\\b([^>]*)>")
+            .findAll(visible).take(10_000).toList()
+        val classAttribute = Regex("(?is)\\bclass\\s*=\\s*[\"']([^\"']+)[\"']")
+        val classSamples = roots.take(8).mapNotNull { root ->
+            val opening = openContainers.firstOrNull { it.range.first == root } ?: return@mapNotNull null
+            classAttribute.find(opening.groupValues[2])?.groupValues?.get(1)
+                ?.replace(Regex("[^A-Za-z0-9_-]+"), "_")?.trim('_')?.take(64)
+        }.joinToString("|").ifBlank { "none" }
+        return "chars:${visible.length}~truncated:${html.length > boundedHtml.length}~tags:$tagCounts~" +
+            "roots:${roots.size}~cards:$cards~heads:$headings~labels:$labels~classes:$classSamples"
+    }
 
     /** Read endpoint labels without guessing. Prefer an explicit candidate station code, then an
      * exact normalized match against names already carried by the selected timetable. Unrecognized
@@ -405,7 +462,7 @@ object OrgWebsiteStatus {
             val headingPlain = plainText(headingMarkup)
             val code = stationCodeFromCardHeading(headingPlain, route)
                 ?: return@mapIndexedNotNull null
-            val className = cardClass.find(part)?.groupValues?.get(1).orEmpty()
+            val className = cardClassName(part)
             val mark = when {
                 className.contains("bg-green-50") && className.contains("opacity-90") -> SiteCardMark.PAST
                 className.contains("bg-blue-50") -> SiteCardMark.HIGHLIGHTED
@@ -558,7 +615,7 @@ object OrgWebsiteStatus {
             val code = stationCodeFromCardHeading(headingPlain, route) ?: continue
             // Green is source-marked past, blue is highlighted, and white is upcoming.
             // None of those styles independently proves that the train moved.
-            val className = cardClass.find(part)?.groupValues?.get(1).orEmpty()
+            val className = cardClassName(part)
             val pastCard = className.contains("bg-green-50") && className.contains("opacity-90")
             val highlightedCard = className.contains("bg-blue-50")
             val mark = when {

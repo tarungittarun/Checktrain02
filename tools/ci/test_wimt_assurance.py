@@ -19,10 +19,25 @@ class AssuranceAuditTest(unittest.TestCase):
                 (screens / (name + ".png")).write_bytes(PNG + b"test-fixture" * 300)
                 (screens / (name + ".xml")).write_text(
                     '<hierarchy><node package="in.opentrack.india" '
-                    'resource-id="in.opentrack.india:id/trainNo" text="20651" /></hierarchy>')
+                    'resource-id="in.opentrack.india:id/trainNo" text="16227" /></hierarchy>')
             sample = {"accepted": True, "instrumentationPassed": True,
-                      "provenanceComplete": True, "acceptedMode": "ROUTE_MATCHED_SITE_REPORT",
-                      "runIdentity": "INFERRED", "detachedSiteClaims": 0,
+                      "provenanceComplete": True,
+                      "acceptedMode": "DATED_ROUTE_MATCHED_SITE_EVENT",
+                      "runIdentity": "DATE_ROUTE_MATCHED", "siteDateMatched": True,
+                      "originDay": 20769, "originRunDateIst": "2026-11-12",
+                      "sitePageRunDate": "2026-11-12", "trainNumber": "16227",
+                      "source": "whereismytrain.org.in",
+                      "siteRoute": "MYS>TLGP", "selectedRoute": "MYS>TLGP",
+                      "sitePageEndpoints": "MYS>TLGP",
+                      "siteClaimTimeBasis": "selected_origin_date_verified",
+                      "siteCardContainers": 8, "siteClaimKind": "ARRIVAL",
+                      "siteClaimStation": "RRB",
+                      "siteClaimTimeIst": "2026-11-12T20:17:00+05:30",
+                      "siteClaimAgeSecondsAtCheck": 2910,
+                      "pagePublishedAtIst": "2026-11-12T21:05:00+05:30",
+                      "pageAgeSecondsAtCheck": 30,
+                      "checkedAtIst": "2026-11-12T21:05:30+05:30",
+                      "detachedSiteClaims": 0,
                       "websiteAnswered": True, "wireReceiptAvailable": True,
                       "websiteGetCount": 1, "websiteRefused": False,
                       "sourceTransport": "NETWORK_ANSWER", "siteRows": 2,
@@ -34,9 +49,17 @@ class AssuranceAuditTest(unittest.TestCase):
                 "verifiedAppScreens": {name: {} for name in NAMES}}))
             result = folder / "result.json"
             result.write_text(json.dumps(sample))
-            self.assertEqual(audit(folder)["sourceVerdict"], "SITE_CARD_AND_APP_UI_ACCEPTED")
+            self.assertEqual(audit(folder)["sourceVerdict"],
+                             "DATED_ROUTE_MATCHED_SITE_EVENT_AND_APP_UI_ACCEPTED")
             for key, value in (("accepted", False), ("websiteGetCount", None),
                                ("wireReceiptAvailable", False), ("siteRows", 0),
+                               ("siteDateMatched", False), ("sitePageRunDate", "2026-11-13"),
+                               ("trainNumber", "12627"), ("originDay", 20768),
+                               ("originRunDateIst", "not-a-date"),
+                               ("runIdentity", "INFERRED"),
+                               ("siteRoute", "SBC>SMET"), ("sitePageEndpoints", "SBC>SMET"),
+                               ("siteClaimTimeBasis", "page_clock_aligned;selected_origin_day_unverified"),
+                               ("siteCardContainers", 0), ("detachedSiteClaims", 1),
                                ("websiteRefused", True), ("sourceTransport", "unknown")):
                 with self.subTest(key=key):
                     result.write_text(json.dumps({**sample, key: value}))
@@ -65,14 +88,25 @@ class AssuranceAuditTest(unittest.TestCase):
             sample = {"accepted": True, "instrumentationPassed": True,
                       "provenanceComplete": True,
                       "acceptedMode": "DETACHED_SITE_CLAIM_DIAGNOSTIC_ONLY",
-                      "runIdentity": "LIVE_ROUTE_MATCH_RUN_DATE_UNVERIFIED",
-                      "websiteAnswered": True, "wireReceiptAvailable": True,
-                      "websiteGetCount": 1, "websiteRefused": False,
-                      "sourceTransport": "NETWORK_ANSWER", "siteRows": 0,
-                      "detachedSiteClaims": 1, "siteClaimKind": "ARRIVAL",
+                      "runIdentity": "LIVE_ROUTE_MATCH_DATE_VERIFIED",
+                      "siteDateMatched": True, "originDay": 20769,
+                      "originRunDateIst": "2026-11-12",
+                      "sitePageRunDate": "2026-11-12", "trainNumber": "16227",
+                      "source": "whereismytrain.org.in", "websiteAnswered": True,
+                      "wireReceiptAvailable": True, "websiteGetCount": 1,
+                      "websiteRefused": False, "sourceTransport": "NETWORK_ANSWER",
+                      "siteRows": 0, "detachedSiteClaims": 1, "siteClaimKind": "ARRIVAL",
+                      "siteClaimStation": "ARU",
+                      "siteClaimTimeIst": "2026-11-12T21:00:00+05:30",
+                      "siteClaimAgeSecondsAtCheck": 330,
+                      "pagePublishedAtIst": "2026-11-12T21:05:00+05:30",
+                      "pageAgeSecondsAtCheck": 30,
+                      "checkedAtIst": "2026-11-12T21:05:30+05:30",
+                      "siteClaimTimeBasis": "selected_origin_date_verified;route_conflict",
+                      "siteCardContainers": 3,
                       "liveIdentityRouteMatch": True, "siteRoute": "MYS>TLGP",
-                      "selectedRoute": "SBC>SMET", "googlePhoneAppFeed": False,
-                      "browserEngineRequest": True,
+                      "sitePageEndpoints": "MYS>TLGP", "selectedRoute": "SBC>SMET",
+                      "googlePhoneAppFeed": False, "browserEngineRequest": True,
                       "websiteGetCountScope": "main_document_navigation_only"}
             (folder / "instrumentation.txt").write_text("OK (1 test)")
             (folder / "screen-verification.json").write_text(json.dumps({
@@ -91,8 +125,7 @@ class AssuranceAuditTest(unittest.TestCase):
                     result.write_text(json.dumps({**sample, key: value}))
                     with self.assertRaises(ValueError):
                         audit(folder)
-            # Even contradictory positive siteRows cannot override a detached mode
-            # or a non-INFERRED run identity.
+            # Contradictory rows cannot override a detached mode or route-conflicting date evidence.
             result.write_text(json.dumps({**sample, "siteRows": 2,
                                          "acceptedMode": "ROUTE_MATCHED_SITE_REPORT",
                                          "runIdentity": "INFERRED"}))

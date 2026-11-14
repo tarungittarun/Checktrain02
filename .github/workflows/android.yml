@@ -6,7 +6,7 @@
 #   ui      - every unit test, including the Robolectric render tests that paint the screens; the PNGs are
 #             uploaded and the small JPEGs are posted onto the commit as base64 so they can be reviewed
 #   build   - debug APK, uploaded as an artifact (no tests: `ui` runs them, in parallel with this)
-#   release - only on a tag: R8 release build, optional signing, GitHub Release
+#   release - tag publication remains fail-closed until the R8 artifact has its own installed-byte acceptance
 #
 # `ui` and `build` both need the generated timetable asset, so both call tools/ci/prepare_asset.sh; they
 # run at the same time on purpose. Splitting them is what turned a ~6 minute serial pipeline into a
@@ -59,12 +59,13 @@ jobs:
         run: |
           python3 tools/ci/test_check_workflows.py
           python3 tools/ci/check_workflows.py
-      - name: APK audit and published-APK acceptance self-tests
+      - name: APK audit and same-run acceptance self-tests
         run: |
           python3 tools/ci/test_apk_audit.py
           python3 tools/ci/test_e2e_matrix.py
           python3 tools/ci/test_verify_acceptance_apk.py
           python3 tools/ci/test_acceptance_plan.py
+          python3 tools/ci/test_workflow_acceptance.py
           python3 tools/ci/acceptance_plan.py --check
           python3 tools/ci/export_alert_screenshots.py --self-test
           bash -n tools/ci/run_apk_acceptance.sh
@@ -417,8 +418,8 @@ jobs:
           name: opentrack-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
-          # The installable APK lives on the `latest-apk` RELEASE (permanent, no sign-in, direct URL);
-          # this artifact copy is a convenience only, so its life is short (ADR-001).
+          # This is a same-run CI acceptance input, not public delivery. The rolling release
+          # is updated only by `publish` after the complete installed-APK traveller matrix passes.
           retention-days: 7
       # The Actions log host is not reachable from every environment that has to debug this build (the
       # agent sandbox that writes most of it, for one). Echoing the failure onto the commit through the
@@ -473,7 +474,11 @@ jobs:
 
 
   publish:
-    needs: build
+    # Public delivery is downstream of every validation gate, including the exact
+    # same-run installed-APK traveller matrix. A failed/skipped journey never refreshes
+    # the rolling release. WIMT source-test marker pushes are diagnostics, not releases.
+    needs: [checks, ui, build, field-tests, traveller-acceptance]
+    if: github.ref_type == 'branch' && !contains(github.event.head_commit.message, '[wimt-device]')
     runs-on: ubuntu-latest
     timeout-minutes: 3
     permissions:
@@ -521,12 +526,12 @@ jobs:
           fi
 
   traveller-acceptance:
-    # This stage runs AFTER publication and installs the actual downloaded release,
-    # not e2e.yml's independently compiled debug APK. No green assertion is credited
-    # unless the whole-file hash of Android artifact, download and installed base.apk agrees.
-    needs: [build, publish, field-tests]
+    # Exercise two independent downloads of the same-run build artifact, then install
+    # that candidate and compare its bytes with PackageManager's installed base.apk.
+    # This is a prerequisite for public APK delivery, never a test of a rolling release.
+    needs: [build, field-tests]
     if: github.ref_type == 'branch'
-    name: traveller / published APK / ${{ matrix.profile }} / ${{ matrix.group }}
+    name: traveller / same-run APK / ${{ matrix.profile }} / ${{ matrix.group }}
     runs-on: ubuntu-latest
     # SDK/emulator setup plus large-font Alerts traversal and screenshot pull can
     # exceed the shorter 15-minute budget on a cold runner. Keep the per-method
@@ -551,7 +556,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Verify and drive the exact published APK as a traveller
+      - name: Verify and drive the exact same-run APK artifact as a traveller
         env:
           GH_TOKEN: ${{ github.token }}
           PROFILE: ${{ matrix.profile }}
@@ -590,7 +595,7 @@ jobs:
           PROFILE: ${{ matrix.profile }}
           GROUP: ${{ matrix.group }}
         run: |
-          { echo "### Published APK traveller acceptance · $PROFILE / $GROUP · FAIL";
+          { echo "### Same-run APK traveller acceptance · $PROFILE / $GROUP · FAIL";
             echo '```'; tail -70 acceptance-evidence/session.log 2>/dev/null || echo 'no session log'; echo '```';
           } > /tmp/acceptance-failure.md
           cat /tmp/acceptance-failure.md >> "$GITHUB_STEP_SUMMARY"
@@ -598,10 +603,11 @@ jobs:
             -F body=@/tmp/acceptance-failure.md || echo '::warning::could not post comment; use job artifact'
 
   release:
-    # Only for tagged pushes: a release build is the one place R8 and resource shrinking run, so it is
-    # deliberately not on every push (it doubles the wall clock for no benefit until a tag is cut).
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: build
+    # An R8 APK has different bytes from the debug artifact covered by traveller-acceptance.
+    # Keep tag publication fail-closed until the release variant has its own same-run install matrix;
+    # a debug pass must not authorize an uninstalled, differently shrunk release APK.
+    if: startsWith(github.ref, 'refs/tags/v') && needs.traveller-acceptance.result == 'success'
+    needs: [checks, ui, build, field-tests, traveller-acceptance]
     runs-on: ubuntu-latest
     timeout-minutes: 40
     permissions:

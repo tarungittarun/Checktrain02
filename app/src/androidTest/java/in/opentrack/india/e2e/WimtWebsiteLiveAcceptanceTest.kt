@@ -18,9 +18,9 @@ import org.junit.runner.RunWith
 class WimtWebsiteLiveAcceptanceTest {
     @Test fun websiteRefreshMustPaintARealSourceQualifiedPastCardFor16227() {
         // Keep the live check pinned to the requested train; never substitute another
-        // train merely to get a green result. The site has no day selector: a route-matched
-        // report must pass the active-run gate, while a route conflict stays detached and
-        // explicitly does not verify this selected timetable's run date.
+        // train merely to get a green result. The visible page must explicitly identify
+        // the selected origin date as well as the selected route; timetable-day inference
+        // and a route-conflicting detached claim are diagnostic-only, never acceptance.
         // Do not gate on the CI wall-clock: that hid the actual fetch and its refusal. The
         // strict checks below still reject a stale/other-day page, timetable echo, or HTTP
         // success without a source-qualified past card.
@@ -88,9 +88,11 @@ class WimtWebsiteLiveAcceptanceTest {
                 eventFreshness = E2E.text("age", 250)
                 claimSummary = E2E.text("sourceSummary", 250)
                 detachedDescription = E2E.find("headline", 250)?.contentDescription?.toString().orEmpty()
-                val reported = headline.startsWith("Last qualifying website event ·") &&
-                    badge.contains("run inferred", true) &&
-                    eventFreshness.startsWith("Site ") && eventFreshness.contains("ago")
+                val reported = headline.startsWith("Last website-published claim ·") &&
+                    badge.contains("date matched", true) &&
+                    eventFreshness.contains("page date matched", true) &&
+                    claimSummary.contains("visible page date matches selected run", true) &&
+                    claimSummary.contains("website claim, not a verified actual", true)
                 detachedClaim = headline.startsWith("Website claims ") &&
                     badge.contains("Detached site claim", true) &&
                     claimSummary.contains("matches live identity from") &&

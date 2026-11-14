@@ -42,6 +42,9 @@ def verdict(instrumentation: str, diary: str, process_rc: int) -> dict:
     site_page_labels = token(r"\bsitePageLabels=([^\s]+)")
     selected_route = token(r"\bselectedRoute=([A-Z0-9>]+)")
     site_card_containers = token(r"\bsiteCardContainers=(\d+)")
+    site_date_matched = token(r"\bsiteDateMatched=(true|false)") == "true"
+    site_page_run_date = token(r"\bsitePageRunDate=(unknown|\d{4}-\d{2}-\d{2})")
+    site_shape = token(r"\bsiteShape=([^\s]{1,1800})")
     live_identity_route_match = token(r"\bliveIdentityRouteMatch=(true|false)") == "true"
     claim_time_basis = token(r"\bsiteClaimTimeBasis=([A-Za-z_;]+)")
     claim_at_raw = token(r"\bsiteClaimAt=(\d{1,16})\b")
@@ -86,21 +89,34 @@ def verdict(instrumentation: str, diary: str, process_rc: int) -> dict:
         event_age >= 0 and event_at <= published_at <= checked_at
     )
     mapped_site_report = (
-        identity == "INFERRED" and parsed == "SITE_COMPARISON" and
-        rows is not None and int(rows) > 0 and detached_rows is not None and
-        int(detached_rows) == 0
+        identity == "DATE_ROUTE_MATCHED" and parsed == "SITE_COMPARISON" and
+        site_date_matched and site_page_run_date == run_date and
+        rows is not None and int(rows) > 0 and
+        detached_rows is not None and int(detached_rows) == 0 and
+        site_claim_kind in {"ARRIVAL", "DEPARTURE"} and
+        site_route is not None and selected_route is not None and
+        site_page_endpoints is not None and site_route == selected_route == site_page_endpoints and
+        site_card_containers is not None and int(site_card_containers) > 0 and
+        claim_time_basis == "selected_origin_date_verified"
+    )
+    detached_date_basis_matches = (
+        identity == "LIVE_ROUTE_MATCH_DATE_VERIFIED" and site_date_matched and
+        site_page_run_date == run_date and
+        claim_time_basis == "selected_origin_date_verified;route_conflict"
+    ) or (
+        identity == "LIVE_ROUTE_MATCH_RUN_DATE_UNVERIFIED" and not site_date_matched and
+        claim_time_basis == "page_clock_aligned;selected_origin_day_unverified"
     )
     detached_site_claim = (
-        identity == "LIVE_ROUTE_MATCH_RUN_DATE_UNVERIFIED" and
+        identity in {"LIVE_ROUTE_MATCH_RUN_DATE_UNVERIFIED", "LIVE_ROUTE_MATCH_DATE_VERIFIED"} and
         parsed == "DETACHED_SITE_EVENT_CLAIM" and detached_rows is not None and
         int(detached_rows) > 0 and site_claim_kind in {"ARRIVAL", "DEPARTURE"} and
         site_route is not None and selected_route is not None and site_route != selected_route and
-        live_identity_route_match and
-        claim_time_basis == "page_clock_aligned;selected_origin_day_unverified" and
+        live_identity_route_match and detached_date_basis_matches and
         rows is not None and int(rows) == 0
     )
     provenance_complete = common_provenance and mapped_site_report
-    accepted_mode = ("ROUTE_MATCHED_SITE_REPORT" if mapped_site_report else
+    accepted_mode = ("DATED_ROUTE_MATCHED_SITE_EVENT" if mapped_site_report else
                      "DETACHED_SITE_CLAIM_DIAGNOSTIC_ONLY" if detached_site_claim else "NONE")
     accepted = test_passed and site_answered and not refused and \
         transport == "NETWORK_ANSWER" and mapped_site_report and provenance_complete
@@ -108,9 +124,24 @@ def verdict(instrumentation: str, diary: str, process_rc: int) -> dict:
               "WEBSITE_REFUSED_UI_DIARY_UNAVAILABLE" if ui_refused else
               "DEVICE_TEST_NOT_EXECUTED" if not instrumentation else
               "SITE_ROUTE_MISMATCH_NOT_ACCEPTED" if site_answered and detached_site_claim else
-              "PASS_SITE_CARD_AND_DEVICE_UI" if accepted else
+              "SITE_RUN_DATE_MISMATCH" if site_answered and site_page_run_date not in (None, "unknown") and
+                  run_date is not None and site_page_run_date != run_date else
+              "SITE_RUN_DATE_UNVERIFIED" if site_answered and rows is not None and int(rows) > 0 and not site_date_matched else
+              "PASS_DATED_ROUTE_MATCHED_SITE_EVENT" if accepted else
               "SITE_REPLY_OR_SOURCE_QUALIFICATION_MISSING" if site_answered else
               "NO_WEBSITE_NETWORK_ANSWER")
+    if detached_site_claim and site_date_matched:
+        run_date_basis = "explicit_page_date_matches_selected_origin_date; route conflict prevents acceptance"
+    elif detached_site_claim:
+        run_date_basis = (
+            "selected_origin_day_unverified; site has no matching run-date label; "
+            "claim clock aligned to fresh page publication")
+    elif site_page_run_date not in (None, "unknown") and site_page_run_date != run_date:
+        run_date_basis = "explicit_page_date_does_not_match_selected_origin_date"
+    elif site_date_matched and site_page_run_date == run_date:
+        run_date_basis = "explicit_page_date_matches_selected_origin_date"
+    else:
+        run_date_basis = "selected_origin_day_unverified; page has no matching explicit run date"
     return {"verdict": reason, "accepted": accepted, "instrumentationPassed": test_passed,
             "websiteGetCount": len(attempted) if attempted else None, "websiteAnswered": site_answered,
             "websiteRefused": refused, "wireReceiptAvailable": bool(attempted),
@@ -120,13 +151,13 @@ def verdict(instrumentation: str, diary: str, process_rc: int) -> dict:
             "detachedSiteClaims": int(detached_rows) if detached_rows else 0,
             "trainNumber": train or "unknown", "originDay": origin_day,
             "originRunDateIst": run_date,
-            "runDateBasis": ("selected_origin_day_unverified; site has no run-date selector; "
-                             "claim clock aligned to fresh page publication" if detached_site_claim else
-                             "inferred_from_selected_timetable; site does not publish run date"),
+            "runDateBasis": run_date_basis,
             "runIdentity": identity or "unknown",
             "siteRoute": site_route, "sitePageEndpoints": site_page_endpoints,
             "sitePageLabels": site_page_labels, "selectedRoute": selected_route,
             "siteCardContainers": int(site_card_containers) if site_card_containers else None,
+            "siteDateMatched": site_date_matched, "sitePageRunDate": site_page_run_date or "unknown",
+            "siteShape": site_shape,
             "liveIdentityRouteMatch": live_identity_route_match,
             "siteClaimStation": site_claim.group(1) if site_claim else "unknown",
             "siteClaimKind": site_claim_kind or "unknown",
@@ -140,8 +171,8 @@ def verdict(instrumentation: str, diary: str, process_rc: int) -> dict:
             "provenanceComplete": provenance_complete,
             "googlePhoneAppFeed": False, "browserEngineRequest": True,
             "websiteGetCountScope": "main_document_navigation_only",
-            "note": "Website-published station claim, not independently verified movement/GPS; "
-                    "detached route acceptance does not verify the selected timetable run date; "
+            "note": "A site event must be distinct from its printed timetable and match the selected train, route and explicit origin date; "
+                    "it remains a website claim, not measured GPS or independent movement proof; "
                     "emulator WebView, not owner's phone or Google WIMT app"}
 
 
@@ -152,10 +183,12 @@ def self_test() -> None:
     good = ("11-05 [HTTP] GET whereismytrain.org.in try#1 -> answered 108395B\n"
             "11-05 [EVIDENCE] source=whereismytrain.org.in (website) train=16227 "
             "originDay=20769 transport=NETWORK_ANSWER bytes=108395 sha256_16=0123456789abcdef "
-            "parsed=SITE_COMPARISON runIdentity=INFERRED primaryActuals=0 primaryMarker=none "
-            "siteRows=10 detachedSiteClaims=0 siteClaim=RRB:1217 "
-            "sitePageEndpoints=MYS>TLGP sitePageLabels=Mysuru_Junction>Talguppa "
-            "selectedRoute=MYS>TLGP siteCardContainers=30 "
+            "parsed=SITE_COMPARISON runIdentity=DATE_ROUTE_MATCHED primaryActuals=0 primaryMarker=none "
+            "siteRows=10 detachedSiteClaims=0 siteClaim=RRB:1217 siteClaimKind=ARRIVAL "
+            "siteRoute=MYS>TLGP sitePageEndpoints=MYS>TLGP sitePageLabels=Mysuru_Junction>Talguppa "
+            "selectedRoute=MYS>TLGP siteCardContainers=30 siteDateMatched=true "
+            "sitePageRunDate=2026-11-12 siteShape=chars:108395~truncated:false~roots:10~cards:10~heads:h1_train_status "
+            "siteClaimTimeBasis=selected_origin_date_verified "
             "pagePublishedAt=" + str(published) +
             " checkedAt=" + str(checked) + "\n")
     result = verdict("OK (1 test)", good, 0)
@@ -168,6 +201,22 @@ def self_test() -> None:
     assert result["siteClaimTimeIst"] == "2026-11-12T20:17:00+05:30"
     assert result["siteClaimAgeSecondsAtCheck"] == 2_910
     assert result["pageAgeSecondsAtCheck"] == 30
+    assert result["siteDateMatched"] is True
+    assert result["sitePageRunDate"] == result["originRunDateIst"]
+    assert result["siteShape"].startswith("chars:")
+    undated = good.replace("runIdentity=DATE_ROUTE_MATCHED", "runIdentity=INFERRED") \
+        .replace("siteDateMatched=true", "siteDateMatched=false") \
+        .replace("sitePageRunDate=2026-11-12", "sitePageRunDate=unknown") \
+        .replace("siteClaimTimeBasis=selected_origin_date_verified", "siteClaimTimeBasis=selected_origin_date_unverified")
+    undated_result = verdict("OK (1 test)", undated, 0)
+    assert not undated_result["accepted"]
+    assert undated_result["verdict"] == "SITE_RUN_DATE_UNVERIFIED"
+    mismatched_date = good.replace("sitePageRunDate=2026-11-12", "sitePageRunDate=2026-11-13")
+    mismatched_result = verdict("OK (1 test)", mismatched_date, 0)
+    assert not mismatched_result["accepted"]
+    assert mismatched_result["verdict"] == "SITE_RUN_DATE_MISMATCH"
+    assert not verdict("OK (1 test)", good.replace("siteRoute=MYS>TLGP", "siteRoute=SBC>SMET"), 0)["accepted"]
+    assert not verdict("OK (1 test)", good.replace("siteRows=10", "siteRows=0"), 0)["accepted"]
     assert not verdict("OK (1 test)", good.replace("detachedSiteClaims=0",
         "detachedSiteClaims=1"), 0)["accepted"]
     detached_event = int((dt.datetime(2026, 11, 12, 21, 0, tzinfo=IST) - EPOCH_UTC)
@@ -190,6 +239,21 @@ def self_test() -> None:
     assert detached_result["provenanceComplete"] is False
     assert detached_result["runDateBasis"].startswith("selected_origin_day_unverified")
     assert detached_result["siteClaimTimeIst"] == "2026-11-12T21:00:00+05:30"
+    dated_detached = detached.replace("runIdentity=LIVE_ROUTE_MATCH_RUN_DATE_UNVERIFIED",
+        "runIdentity=LIVE_ROUTE_MATCH_DATE_VERIFIED").replace(
+        "siteRoute=MYS>TLGP selectedRoute=SBC>SMET",
+        "siteRoute=MYS>TLGP sitePageEndpoints=MYS>TLGP selectedRoute=SBC>SMET "
+        "siteCardContainers=3 siteDateMatched=true sitePageRunDate=2026-11-12 "
+        "siteShape=chars:100~roots:3~cards:3").replace(
+        "siteClaimTimeBasis=page_clock_aligned;selected_origin_day_unverified",
+        "siteClaimTimeBasis=selected_origin_date_verified;route_conflict")
+    dated_detached_result = verdict("OK (1 test)", dated_detached, 0)
+    assert not dated_detached_result["accepted"]
+    assert dated_detached_result["verdict"] == "SITE_ROUTE_MISMATCH_NOT_ACCEPTED"
+    assert dated_detached_result["acceptedMode"] == "DETACHED_SITE_CLAIM_DIAGNOSTIC_ONLY"
+    assert dated_detached_result["siteDateMatched"] is True
+    assert dated_detached_result["runDateBasis"].startswith(
+        "explicit_page_date_matches_selected_origin_date; route conflict")
     assert not verdict("OK (1 test)", detached.replace("siteRows=0", "siteRows=1"), 0)["accepted"]
     assert not verdict("OK (1 test)", detached.replace("liveIdentityRouteMatch=true",
         "liveIdentityRouteMatch=false"), 0)["accepted"]

@@ -585,30 +585,18 @@ class TrainActivity : AppCompatActivity() {
     }
 
     private fun refreshArrivalAlertButton() {
-        val active = currentJourneyAlerts()
-        val ringing = active.count { it.state == AlertState.RINGING }
-        val text: String
-        val description: String
-        when {
-            ringing > 0 -> {
-                text = if (ringing == 1) "Stop alarm" else "Alarms · $ringing"
-                description = "$ringing arrival alarm${if (ringing == 1) " is" else "s are"} ringing for this journey; open Alerts to manage each independently"
-            }
-            active.isNotEmpty() -> {
-                text = if (active.size == 1) "Alert on" else "Alerts · ${active.size}"
-                description = "${active.size} alert${if (active.size == 1) " is" else "s are"} monitoring this journey; tap to add another or manage all alerts"
-            }
-            else -> {
-                text = "Alert"
-                description = "Configure an arrival alert for this journey"
-            }
-        }
-        binding.arrivalAlert.text = text
-        binding.arrivalAlert.contentDescription = description
+        val presentation = journeyAlertPresentation(currentJourneyAlerts().map { it.state })
+        binding.arrivalAlert.text = presentation.label
+        binding.arrivalAlert.contentDescription = presentation.contentDescription
     }
 
     private fun onArrivalAlertClick() {
         val active = currentJourneyAlerts()
+        val presentation = journeyAlertPresentation(active.map { it.state })
+        if (presentation.openAlerts) {
+            startActivity(Intent(this, AlertsActivity::class.java))
+            return
+        }
         if (active.isEmpty()) {
             // Let travellers inspect the route-qualified triggers before Android asks for
             // notification access. Permission is needed only when they choose Set alert.
@@ -1682,7 +1670,7 @@ class TrainActivity : AppCompatActivity() {
                 it.code.equals(report.anchorCode, true) } }
             val place = org?.intermediate?.name ?: station?.name ?: org?.anchorCode
             binding.headline.text = when {
-                org != null -> "Last qualifying website event · ${RowText.of(place ?: org.anchorCode)} " +
+                org != null -> "Last website-published claim · ${RowText.of(place ?: org.anchorCode)} " +
                     "${RailTime.formatRailMinuteBare(org.eventMinute)}"
                 detachedEvent != null -> "Website claims ${detachedEvent.kind.label} · " +
                     "${detachedPlace ?: detachedEvent.stationCode} · " +
@@ -1699,15 +1687,22 @@ class TrainActivity : AppCompatActivity() {
                 "${binding.headline.text}. Website route ${detached.websiteFromCode}→${detached.websiteToCode} " +
                     "matches live identity from ${detached.identitySource}, but selected timetable is " +
                     "${detached.selectedRouteFromCode}→${detached.selectedRouteToCode}$eventText " +
-                    "The site has no run-date selector; selected origin day ${RailTime.formatDate(detached.originDay)} " +
-                    "is not confirmed. Page route does not independently verify this selected run. " +
+                    (if (detached.runDateMatched)
+                        "The visible page date matches selected origin day ${RailTime.formatDate(detached.originDay)}, " +
+                            "but its route conflicts with the selected timetable. "
+                     else "The page has no matching explicit run-date label; selected origin day " +
+                            "${RailTime.formatDate(detached.originDay)} is unverified. ") +
                     "The site claim is detached, " +
                     "not a timetable actual, independent verification, GPS, or current position."
             } else binding.headline.text.toString() +
-                ". Selected ${sourceName(publicCheck)}. Website origin run inferred; this is a " +
-                "qualifying page-published event claim, not an independently verified actual, GPS, or current position."
+                ". Selected ${sourceName(publicCheck)}. " +
+                (if (org != null && !org.originInferred)
+                    "The visible page date matches the selected origin run; this remains a "
+                 else "The website run date is inferred from the timetable; this is a ") +
+                "website-published claim, not an independently verified actual, GPS, or current position."
             binding.provenance.text = when {
-                org != null -> "Past site card · run inferred"
+                org != null -> if (org.originInferred)
+                    "Past site claim · run inferred" else "Past site claim · date matched"
                 detached != null -> "Detached site claim · route mismatch"
                 else -> "Comparison only"
             }
@@ -1715,7 +1710,8 @@ class TrainActivity : AppCompatActivity() {
             binding.provenance.setTextColor(getColor(R.color.warn))
             val detachedPageClock = detached?.let { WebsiteReportDisplay.pageUpdateClock(it.pageUpdatedAt, it.pageClockHasSeconds) }.orEmpty()
             binding.age.text = when {
-                org != null -> "Site event · run inferred"
+                org != null -> if (org.originInferred)
+                    "Site claim · run inferred" else "Site claim · page date matched"
                 detachedEvent != null -> "Website claim time ${RailTime.formatClock(detachedEventAt!!)} IST · " +
                     "page updated $detachedPageClock IST; not verified"
                 detached != null -> "Page updated $detachedPageClock IST · no distinct event claim"
@@ -1797,15 +1793,21 @@ class TrainActivity : AppCompatActivity() {
             val appCheckedAt = ui.selectedLoadReceiptMillis ?: System.currentTimeMillis()
             binding.provenance.contentDescription = binding.provenance.contentDescription?.toString().orEmpty() +
                 ". Website ${eventKind.noun} claim ${RailTime.formatRailMinute(report.eventMinute)}, " +
-                "$eventAge old. Page updated ${WebsiteReportDisplay.pageUpdateClock(report)} IST; " +
+                "$eventAge old. " +
+                (if (report.originInferred)
+                    "The page did not match an explicit selected run date. "
+                 else "The visible page date matches the selected origin run. ") +
+                "Page updated ${WebsiteReportDisplay.pageUpdateClock(report)} IST; " +
                 "app response received ${RailTime.formatClockSeconds(appCheckedAt)} IST; " +
-                "page clock is not a train movement."
+                "the page clock is not a train movement and the site claim is not independent verification."
         }
         // A selected website paints its own parsed past cards, never NTES's cells.
         // An intermediate without a documented stop event stays timetable-only.
         stopAdapter.reports = ui.sourceLines[ui.activeSource] ?: ui.reports
         stopAdapter.websiteIntermediateReports = if (WebsiteReportDisplay.selected(ui.activeSource))
             ui.orgWebsiteReport?.rows.orEmpty() else emptyMap()
+        stopAdapter.websiteRunDateMatched = WebsiteReportDisplay.selected(ui.activeSource) &&
+            ui.orgWebsiteReport?.originInferred == false
         stopAdapter.websiteTentativeDeparture = null
         val siteNow = System.currentTimeMillis()
         val selectedWebsiteClocks = websiteClocksFor(ui, ui.model.rows.map { it.code }, siteNow)
@@ -2010,13 +2012,17 @@ class TrainActivity : AppCompatActivity() {
                         name == `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE ->
                             "${ui.sourceLines[name].orEmpty().size} source-reported web-cache time row(s); unverified, not railway ACTUAL"
                         name == `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG &&
-                            ui.orgWebsiteReport != null -> "site-published past station times; run date inferred, not railway ACTUAL"
+                            ui.orgWebsiteReport != null -> "site-published claims; " +
+                            (if (ui.orgWebsiteReport.originInferred) "run date inferred" else
+                                "visible page date matches selected run") + "; not railway ACTUAL"
                         else -> "comparison only; not independently verified ACTUAL"
                     }
                     "candidate" -> when {
                         name == `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG &&
-                            ui.orgWebsiteReport != null -> "site-published past station times; " +
-                            "last card's departure provisional, not railway Act; site omits run date"
+                            ui.orgWebsiteReport != null -> "site-published claims; " +
+                            (if (ui.orgWebsiteReport.originInferred) "run date inferred" else
+                                "visible page date matches selected run") +
+                            "; last card's departure provisional, not railway ACTUAL"
                         name == `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE &&
                             ui.wimtWebPoint != null -> "recent unverified web point; stop times are static"
                         else -> "unverified source claim; not railway actuals"
@@ -2059,7 +2065,9 @@ class TrainActivity : AppCompatActivity() {
                     ui.orgWebsiteCards.ifEmpty { ui.orgWebsiteReport?.siteCards.orEmpty() },
                     ui.orgWebsitePageUpdatedAt,
                     ui.orgWebsitePageClockHasSeconds,
-                    ui.selectedLoadReceiptMillis)?.let {
+                    ui.selectedLoadReceiptMillis,
+                    ui.orgWebsiteRunDateMatched,
+                    ui.orgWebsitePageRunDate)?.let {
                     append("\n\n").append(it)
                 }
             }
@@ -2244,8 +2252,8 @@ class TrainActivity : AppCompatActivity() {
         binding.age.setTextColor(getColor(if (stale) R.color.late else R.color.text3))
         if (stale && WebsiteReportDisplay.selected(ui.activeSource) &&
             ui.orgWebsiteReport != null) {
-            // Staleness must not erase the website's inferred-run warning.
-            binding.provenance.text = WebsiteReportDisplay.STALE_BADGE
+            // Preserve whether the visible page date matched; either way it remains a site claim.
+            binding.provenance.text = WebsiteReportDisplay.staleBadge(ui.orgWebsiteReport!!)
             binding.provenance.setBackgroundResource(R.drawable.bg_badge_problem)
             binding.provenance.setTextColor(getColor(R.color.late))
         } else if (stale && ui.activeSource == "NTES (official)" && eventAt != null) {
@@ -2498,10 +2506,12 @@ class TrainActivity : AppCompatActivity() {
                 append("website last past-card ${p.anchorCode} at " +
                     "${RailTime.formatRailMinute(p.eventMinute)}; page updated " +
                     "${RailTime.formatClock(p.pageUpdatedAt)} IST (not event clock); " +
-                    "origin run inferred, not printed on page\n")
+                    (if (p.originInferred) "origin date inferred from timetable\n"
+                     else "visible page date matches selected origin\n"))
                 for ((code, cell) in p.rows.entries.toList().takeLast(4)) append("  $code Web past card " +
                     "arr ${hhmm(cell.actualArrivalMin)} dep ${hhmm(cell.actualDepartureMin)} " +
-                    "pf ${cell.platform ?: "–"}; site report, run inferred (not NTES)\n")
+                    "pf ${cell.platform ?: "–"}; website claim, " +
+                    (if (p.originInferred) "run inferred" else "page date matched") + " (not NTES)\n")
             }
             u.orgWebsiteDistanceProbe?.let {
                 append("same-website distance POC: $it; no other request; not a live position\n")

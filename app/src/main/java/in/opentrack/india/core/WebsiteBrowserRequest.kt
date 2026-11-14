@@ -49,17 +49,17 @@ internal object WebsiteBrowserRequestTiming {
 
 internal object WebsiteCardMarkup {
     private val stationCardRoot = Regex(
-        """(?is)<div\b(?=[^>]*\bclass\s*=\s*["'][^"']*\bflex-grow\b)(?=[^>]*\bclass\s*=\s*["'][^"']*\brounded-lg\b)[^>]*>""")
-    private val divOpenTag = Regex("(?is)<div\\b[^>]*>")
-    private val divTag = Regex("(?is)</?div\\b[^>]*>")
+        """(?is)<(?:div|section|article|li|tr)\b(?=[^>]*\bclass\s*=\s*["'][^"']*\bflex-grow\b)(?=[^>]*\bclass\s*=\s*["'][^"']*\brounded-lg\b)[^>]*>""")
+    private val containerOpenTag = Regex("(?is)<(div|section|article|li|tr)\\b[^>]*>")
+    private val containerTag = Regex("(?is)</?(div|section|article|li|tr)\\b[^>]*>")
+    private val containerTagName = Regex("(?is)^</?\\s*(div|section|article|li|tr)\\b")
     private val stationCardMarker = Regex("(?is)^<!--\\s*Station Details Card\\s*-->$")
-    private val stationHeading = Regex("(?is)<h3\\b[^>]*>(.*?)</h3>")
+    private val stationHeading = Regex("(?is)<h[2-6]\\b[^>]*>(.*?)</h[2-6]>")
     private val cardClock = Regex("(?is)\\b(?:ARRIVAL|DEPARTURE)\\b.{0,900}?\\b\\d{1,2}:\\d{2}\\s*(?:AM|PM)\\b")
     private val htmlSpaceEntity = Regex("&(?:nbsp;|#160;|#x0*a0;)", RegexOption.IGNORE_CASE)
     private val scriptOrStyle = Regex("(?is)<(?:script|style)\\b[^>]*>.*?</(?:script|style)\\s*>")
 
-    /** HTML after scripts, styles and comments are masked and HTML-space entities normalized
-     * without changing offsets. */
+    /** HTML after scripts, styles and comments are masked; normalized entities preserve offsets. */
     internal data class VisiblePageMarkup(
         val html: String,
         val stationCardMarkerOffsets: List<Int>,
@@ -91,7 +91,7 @@ internal object WebsiteCardMarkup {
         return VisiblePageMarkup(normalized, markers)
     }
 
-    /** Roots for marked cards and rendered DOM variants whose CSS classes/comments changed. */
+    /** One root per heading, even when a marker, a styled root and a semantic fallback overlap. */
     internal fun stationCardSectionStarts(document: VisiblePageMarkup): List<Int> {
         val html = document.html
         val classRoots = stationCardRoot.findAll(html).map { it.range.first }.toList()
@@ -99,20 +99,35 @@ internal object WebsiteCardMarkup {
             val nextMarker = document.stationCardMarkerOffsets.firstOrNull { it > marker }
                 ?: html.length
             classRoots.firstOrNull { it >= marker && it < nextMarker }
-                ?: divOpenTag.find(html, marker)
+                ?: containerOpenTag.find(html, marker)
                     ?.takeIf { it.range.first < nextMarker }?.range?.first
         }
         val semanticRoots = semanticStationCardSectionStarts(html)
-        return (markerRoots + classRoots + semanticRoots).distinct().sorted()
+        val candidates = (markerRoots + classRoots + semanticRoots).distinct().mapNotNull { start ->
+            val section = containerSectionAt(html, start) ?: return@mapNotNull null
+            val headings = stationHeading.findAll(section).take(2).toList()
+            if (headings.size != 1 || !cardClock.containsMatchIn(section)) return@mapNotNull null
+            val priority = when {
+                start in markerRoots -> 0
+                start in classRoots -> 1
+                else -> 2
+            }
+            RootCandidate(start, start + headings[0].range.first, section.length, priority)
+        }
+        return candidates.groupBy { it.headingStart }.values.mapNotNull { roots ->
+            roots.minWithOrNull(compareBy<RootCandidate> { it.priority }
+                .thenByDescending { it.length })?.start
+        }.sorted()
     }
 
-    /** A station heading and its own labelled clock are a safe structural fallback when
-     * a hydrated DOM omits source comments or changes Tailwind class names. Search only bounded,
-     * balanced div ancestors and choose the nearest one containing exactly one station heading. */
+    private data class RootCandidate(val start: Int, val headingStart: Int,
+                                    val length: Int, val priority: Int)
+
+    /** A station heading plus its own labelled clock is a structural fallback when classes/comments change. */
     private fun semanticStationCardSectionStarts(html: String): List<Int> {
         val headings = stationHeading.findAll(html).take(100).toList()
         if (headings.isEmpty()) return emptyList()
-        val openings = divOpenTag.findAll(html).take(10_000)
+        val openings = containerOpenTag.findAll(html).take(10_000)
             .map { it.range.first }.toList()
         return headings.mapNotNull { heading ->
             var low = 0
@@ -126,7 +141,7 @@ internal object WebsiteCardMarkup {
             val earliest = (lastBeforeHeading - 96).coerceAtLeast(0)
             for (index in lastBeforeHeading downTo earliest) {
                 val start = openings[index]
-                val section = divSectionAt(html, start) ?: continue
+                val section = containerSectionAt(html, start) ?: continue
                 if (heading.range.last >= start + section.length) continue
                 if (stationHeading.findAll(section).take(2).count() != 1) continue
                 if (!cardClock.containsMatchIn(section)) continue
@@ -136,15 +151,39 @@ internal object WebsiteCardMarkup {
         }
     }
 
-    /** Extract the station card's own balanced div subtree, not neighboring page clocks. */
+    /** Extract a balanced div subtree for compatibility with focused parser tests. */
     internal fun divSectionAt(html: String, rootStart: Int, limit: Int = html.length): String? {
+        val open = containerOpenTag.find(html, rootStart)?.takeIf { it.range.first == rootStart }
+            ?: return null
+        if (!containerTagName.find(open.value)?.groupValues?.get(1).orEmpty()
+                .equals("div", ignoreCase = true)) return null
+        return containerSectionAt(html, rootStart, limit)
+    }
+
+    /** Extract a balanced div/section/article/list-row subtree without crossing its sibling. */
+    internal fun containerSectionAt(html: String, rootStart: Int,
+                                    limit: Int = html.length): String? {
         if (rootStart !in html.indices || limit <= rootStart) return null
-        var depth = 0
-        for (tag in divTag.findAll(html, rootStart)) {
+        val open = containerOpenTag.find(html, rootStart)?.takeIf { it.range.first == rootStart }
+            ?: return null
+        val rootName = containerTagName.find(open.value)?.groupValues?.get(1)
+            ?.lowercase(java.util.Locale.ROOT) ?: return null
+        val stack = mutableListOf<String>()
+        for (tag in containerTag.findAll(html, rootStart)) {
             if (tag.range.first >= limit) break
-            if (tag.value.startsWith("</", ignoreCase = true)) depth--
-            else if (!tag.value.endsWith("/>")) depth++
-            if (depth == 0) return html.substring(rootStart, tag.range.last + 1)
+            val name = containerTagName.find(tag.value)?.groupValues?.get(1)
+                ?.lowercase(java.util.Locale.ROOT) ?: continue
+            val closing = tag.value.trimStart().startsWith("</")
+            if (closing) {
+                val matching = stack.indexOfLast { it == name }
+                if (matching >= 0) {
+                    while (stack.size > matching) stack.removeAt(stack.lastIndex)
+                }
+            } else if (!tag.value.trimEnd().endsWith("/>")) {
+                if (stack.isEmpty() && name != rootName) return null
+                stack += name
+            }
+            if (stack.isEmpty()) return html.substring(rootStart, tag.range.last + 1)
         }
         return null
     }
@@ -181,12 +220,10 @@ internal fun hasPopulatedTrainDocument(html: String, trainNo: String): Boolean {
     }
     val source = hasLabeledValue("Source", "Destination")
     val destination = hasLabeledValue("Destination", "Journey\\s+Timeline")
-    // The explicit closed source comment is a semantic boundary; station-card classes
-    // remain a fallback when the rendered DOM omits comments or a card is restyled.
     val starts = WebsiteCardMarkup.stationCardSectionStarts(document)
     val populatedCard = starts.indices.any { index ->
         val limit = starts.getOrNull(index + 1) ?: visibleHtml.length
-        WebsiteCardMarkup.divSectionAt(visibleHtml, starts[index], limit)
+        WebsiteCardMarkup.containerSectionAt(visibleHtml, starts[index], limit)
             ?.let { WebsiteCardMarkup.isPopulatedStationCard(it) } == true
     }
     return identity && update && source && destination && populatedCard

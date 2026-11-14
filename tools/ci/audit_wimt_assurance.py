@@ -8,6 +8,7 @@ from pathlib import Path
 import json
 import sys
 
+from build_wimt_pdf import accepted_result as strict_accepted_result
 from verify_wimt_screens import verify
 
 
@@ -15,12 +16,7 @@ def audit(folder: Path) -> dict:
     result = json.loads((folder / "result.json").read_text())
     inst = (folder / "instrumentation.txt").read_text(errors="replace")
     snap = json.loads((folder / "screen-verification.json").read_text())
-    route_matched_report = (
-        isinstance(result.get("siteRows"), int) and result["siteRows"] > 0 and
-        result.get("acceptedMode") == "ROUTE_MATCHED_SITE_REPORT" and
-        result.get("runIdentity") == "INFERRED" and
-        result.get("detachedSiteClaims") == 0
-    )
+    route_matched_report = strict_accepted_result(result)
     if not (result.get("accepted") is True and result.get("instrumentationPassed") is True
             and result.get("provenanceComplete") is True
             and result.get("websiteAnswered") is True
@@ -39,7 +35,7 @@ def audit(folder: Path) -> dict:
     if snap.get("displayedRefusalRequired") is not False or len(snap.get("verifiedAppScreens", {})) != 2:
         raise ValueError("source-qualified in-app before/after screenshots were not verified")
     verify(folder, require_http_403=False)
-    return {"sourceVerdict": "SITE_CARD_AND_APP_UI_ACCEPTED",
+    return {"sourceVerdict": "DATED_ROUTE_MATCHED_SITE_EVENT_AND_APP_UI_ACCEPTED",
             "websiteGetCount": result["websiteGetCount"],
             "siteRows": result["siteRows"],
             "googlePhoneAppFeed": False,

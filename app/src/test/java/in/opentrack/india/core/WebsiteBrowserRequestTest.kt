@@ -57,6 +57,26 @@ class WebsiteBrowserRequestTest {
             hasPopulatedTrainDocument(namedEndpoints, "16227"))
     }
 
+    @Test fun hydratedCardsWithSemanticWrappersAndHeadingLevelsPassReadiness() {
+        val cards = listOf(
+            """<section class="flex-grow rounded-lg"><h2>Arasalu (ARU)</h2>
+                <div>ARRIVAL</div><div>04:20 AM</div></section>""",
+            """<article class="flex-grow rounded-lg"><h4>Birur (RRB)</h4>
+                <div>DEPARTURE</div><div>04:25 AM</div></article>""",
+            """<li class="timeline-station"><h5>Tarikere (TKE)</h5>
+                <div>ARRIVAL</div><div>04:30 AM</div></li>""",
+            """<table><tr class="timeline-station"><td><h6>Bhadravati (BDVT)</h6>
+                <div>ARRIVAL</div><div>04:35 AM</div></td></tr></table>""",
+        )
+        for (card in cards) {
+            val document = """<html><body><h1>Train 16227 Running Status</h1>
+                <p>Last Updated: 04:25:10 AM</p><p>Source: MYS</p>
+                <p>Destination: TLGP</p>$card</body></html>""".trimIndent()
+            assertTrue("semantic card was not recognized: $card",
+                hasPopulatedTrainDocument(document, "16227"))
+        }
+    }
+
     @Test fun oneWebsiteNavigationGetsARealBoundedLoadAndDomHydrationWindow() {
         assertTrue(WebsiteBrowserRequestTiming.DOCUMENT_TIMEOUT_MS >= 35_000L)
         assertTrue("browser wait must fit inside the source acceptance's 45-second window",

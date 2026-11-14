@@ -17,16 +17,12 @@ import re
 import subprocess
 import tempfile
 import time
+
+from acceptance_plan import SOURCE as TEST_SOURCE, screenshot_tags
 from io import BytesIO
 from zipfile import ZIP_DEFLATED, ZipFile
 
-TEST_SOURCE = Path("app/src/androidTest/java/in/opentrack/india/e2e/TravellerAcceptanceTest.kt")
 DIAGNOSTIC_TAGS = ("alert-diagnostic-open-failure", "alert-save-did-not-arm")
-# openAlertChoices() takes a literal screenshot tag and calls shotRequired() internally;
-# include those helper-driven traversals as well as the direct mandatory captures.
-TAG_RE = re.compile(
-    r'(?:E2E\.shotRequired|openAlertChoices)\("(alert-[A-Za-z0-9._-]+)"\)'
-)
 CHUNK_CHARS = 60_000  # GitHub's comment limit is 65,536 bytes, including the marker line.
 POST_INTERVAL_SECONDS = 2.0  # Keep concurrent online/offline exports below comment abuse thresholds.
 MAX_POST_ATTEMPTS = 6
@@ -39,10 +35,7 @@ def split_payload(payload: str, limit: int = CHUNK_CHARS) -> list[str]:
 
 
 def required_tags() -> list[str]:
-    tags = TAG_RE.findall(TEST_SOURCE.read_text(encoding="utf-8"))
-    if not tags or len(tags) != len(set(tags)):
-        raise RuntimeError("Alerts test must define unique mandatory screenshot tags")
-    return tags
+    return screenshot_tags("alerts")
 
 
 def build_bundle(evidence_dir: Path, profile: str, run_id: str, sha: str,
@@ -156,7 +149,7 @@ def self_test() -> None:
         r'openAlertChoices\("(alert-[A-Za-z0-9._-]+)"\)',
         TEST_SOURCE.read_text(encoding="utf-8"),
     )
-    assert len(tags) == 28 and len(helper_tags) == 4, (len(tags), helper_tags)
+    assert len(tags) == 29 and len(helper_tags) == 4, (len(tags), helper_tags)
     with tempfile.TemporaryDirectory(prefix="alert-evidence-self-test-") as temp:
         evidence = Path(temp)
         first = tags[0]

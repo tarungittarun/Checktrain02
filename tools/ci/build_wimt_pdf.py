@@ -1,17 +1,89 @@
 #!/usr/bin/env python3
-"""PDF from an already captured Android emulator artifact. No provider request.
+"""PDF from actual in-app emulator captures. No provider request or fabricated evidence.
 
-The PDF uses only a source-strict passed run or a UI-confirmed 403. No mock image, Google-app identity,
-secret/cookie/CDN-ID, or uncaptured train position is allowed into its prose.
+A dated route-matched source claim may be labelled PASS; refusals and every other
+source outcome are diagnostics only. No Google-app identity, secret/cookie/CDN-ID,
+or uncaptured train position is added to the PDF.
 """
 from pathlib import Path
+import datetime as dt
 import json
 import sys
-from reportlab.lib import colors
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.utils import ImageReader
-from reportlab.pdfgen import canvas
 
+EXPECTED_TRAIN = "16227"
+EPOCH = dt.date(1970, 1, 1)
+IST = dt.timezone(dt.timedelta(hours=5, minutes=30))
+
+
+def _same_origin_date(original: dict) -> bool:
+    day = original.get("originDay")
+    date = original.get("originRunDateIst")
+    if type(day) is not int or day < 0 or not isinstance(date, str):
+        return False
+    try:
+        expected = (EPOCH + dt.timedelta(days=day)).isoformat()
+        parsed = dt.date.fromisoformat(date)
+    except (OverflowError, ValueError):
+        return False
+    return date == expected == parsed.isoformat()
+
+
+def _event_freshness_complete(original: dict) -> bool:
+    try:
+        claim = dt.datetime.fromisoformat(original["siteClaimTimeIst"])
+        published = dt.datetime.fromisoformat(original["pagePublishedAtIst"])
+        checked = dt.datetime.fromisoformat(original["checkedAtIst"])
+        claim_age = original["siteClaimAgeSecondsAtCheck"]
+        page_age = original["pageAgeSecondsAtCheck"]
+        if claim.tzinfo is None or published.tzinfo is None or checked.tzinfo is None:
+            return False
+        claim, published, checked = (value.astimezone(IST) for value in
+                                     (claim, published, checked))
+        if not (claim <= published <= checked):
+            return False
+        return (type(claim_age) is int and claim_age >= 0 and
+                type(page_age) is int and 0 <= page_age <= 300 and
+                abs(int((checked - claim).total_seconds()) - claim_age) <= 1 and
+                abs(int((checked - published).total_seconds()) - page_age) <= 1)
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return False
+
+
+def accepted_result(original: dict) -> bool:
+    site_route = original.get("siteRoute")
+    site_rows = original.get("siteRows")
+    containers = original.get("siteCardContainers")
+    gets = original.get("websiteGetCount")
+    return (original.get("accepted") is True and
+            original.get("instrumentationPassed") is True and
+            original.get("websiteAnswered") is True and
+            original.get("websiteRefused") is False and
+            original.get("wireReceiptAvailable") is True and
+            type(gets) is int and gets > 0 and
+            original.get("source") == "whereismytrain.org.in" and
+            original.get("trainNumber") == EXPECTED_TRAIN and
+            _same_origin_date(original) and
+            original.get("sitePageRunDate") == original.get("originRunDateIst") and
+            original.get("siteDateMatched") is True and
+            type(site_rows) is int and site_rows > 0 and
+            original.get("acceptedMode") == "DATED_ROUTE_MATCHED_SITE_EVENT" and
+            original.get("runIdentity") == "DATE_ROUTE_MATCHED" and
+            site_route is not None and site_route == original.get("selectedRoute") and
+            site_route == original.get("sitePageEndpoints") and
+            original.get("siteClaimTimeBasis") == "selected_origin_date_verified" and
+            original.get("siteClaimKind") in {"ARRIVAL", "DEPARTURE"} and
+            isinstance(original.get("siteClaimStation"), str) and
+            original["siteClaimStation"].isalnum() and
+            1 <= len(original["siteClaimStation"]) <= 6 and
+            type(containers) is int and containers > 0 and
+            type(original.get("detachedSiteClaims")) is int and
+            original["detachedSiteClaims"] == 0 and
+            original.get("provenanceComplete") is True and
+            original.get("sourceTransport") == "NETWORK_ANSWER" and
+            original.get("googlePhoneAppFeed") is False and
+            original.get("browserEngineRequest") is True and
+            original.get("websiteGetCountScope") == "main_document_navigation_only" and
+            _event_freshness_complete(original))
 
 
 def screenshot(folder: Path, name: str) -> Path:
@@ -22,24 +94,21 @@ def screenshot(folder: Path, name: str) -> Path:
 
 
 def make_pdf(folder: Path, output: Path, source_run: str, source_sha: str) -> None:
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.utils import ImageReader
+    from reportlab.pdfgen import canvas
+
     original = json.loads((folder / "result.json").read_text())
     instrumentation = (folder / "instrumentation.txt").read_text(errors="replace")
     from wimt_device_report import verdict
     diagnosed = verdict(instrumentation, "", 1)
-    accepted = (original.get("accepted") is True and original.get("instrumentationPassed") is True
-                and original.get("websiteAnswered") is True
-                and isinstance(original.get("siteRows"), int) and original["siteRows"] > 0
-                and original.get("acceptedMode") == "ROUTE_MATCHED_SITE_REPORT"
-                and original.get("runIdentity") == "INFERRED"
-                and original.get("detachedSiteClaims") == 0
-                and original.get("provenanceComplete") is True
-                and original.get("sourceTransport") == "NETWORK_ANSWER")
-    # The wire diary may independently confirm 403/429 and therefore use a
-    # different verdict string than the UI-only fallback. The screenshot gate
-    # below is still mandatory and requires the refusal to be visibly rendered.
+    accepted = accepted_result(original)
+    # A failed parser run can still be a useful actual-screenshot diagnostic. The
+    # PDF always labels that case NOT QUALIFIED; only a source-qualified, explicit
+    # date+route pass can receive a PASS label. A refusal needs a matching UI capture.
     refused = not accepted and diagnosed.get("websiteRefused") is True
-    if not accepted and not refused:
-        raise ValueError("PDF requires strict accepted website evidence OR UI-confirmed refusal")
+    status_label = "PASS" if accepted else "REFUSED" if refused else "NOT QUALIFIED"
     if not source_run.isdigit() or len(source_sha) != 40 or not all(c in "0123456789abcdef" for c in source_sha):
         raise ValueError("run id and exact 40-character commit SHA are required")
     # Require in-test captures AND a matching app UI hierarchy; a host
@@ -50,8 +119,7 @@ def make_pdf(folder: Path, output: Path, source_run: str, source_sha: str) -> No
               ("After selected website response", screenshot(folder / "screens", "wimt-after-selected-source"))]
     output.parent.mkdir(parents=True, exist_ok=True)
     pdf = canvas.Canvas(str(output), pagesize=A4)
-    pdf.setTitle("TrackTrain independent website device trial - " +
-                 ("PASS" if accepted else "HTTP 403") + " - run " + source_run)
+    pdf.setTitle("TrackTrain independent website device trial - " + status_label + " - run " + source_run)
     pdf.setAuthor("TrackTrain CI evidence; independent website, not Google WIMT app")
     width, height = A4
     margin = 45
@@ -59,7 +127,7 @@ def make_pdf(folder: Path, output: Path, source_run: str, source_sha: str) -> No
     pdf.rect(0, height - 112, width, 112, fill=1, stroke=0)
     pdf.setFillColor(colors.white)
     pdf.setFont("Helvetica-Bold", 19)
-    pdf.drawString(margin, height - 58, "WIMT website in-app test: " + ("PASSED" if accepted else "FAILED"))
+    pdf.drawString(margin, height - 58, "WIMT website in-app test: " + status_label)
     pdf.setFont("Helvetica", 10)
     pdf.drawString(margin, height - 80, "Actual API 34 emulator capture, not a mock-up or phone-app feed")
     y = height - 145
@@ -69,17 +137,23 @@ def make_pdf(folder: Path, output: Path, source_run: str, source_sha: str) -> No
     ]
     if accepted:
         lines += [
-            "Strict installed-APK test: PASS_SITE_CARD_AND_DEVICE_UI.",
-            "Website network answer and route-matched in-app past card + source-attributed website clock verified.",
-            "This does not establish measured GPS position, operator permission or owner-phone access.",
+            "Strict installed-APK test: PASS_DATED_ROUTE_MATCHED_SITE_EVENT.",
+            "Visible site date, selected train, selected route, and a distinct source-marked station claim matched.",
+            "This is still a website claim, not independently measured train movement or GPS.",
+        ]
+    elif refused:
+        lines += [
+            "Result: the installed app visibly displayed an HTTP 403/429 website refusal.",
+            "No qualified website station claim was shown; the strict instrumented assertion did not pass.",
+            "Wire-level refusal and GET count are reported separately and are not inferred from the screenshot.",
         ]
     else:
+        reason = str(original.get("verdict", "SITE_REPLY_OR_SOURCE_QUALIFICATION_MISSING"))[:180]
         lines += [
-            "Result: the installed app visibly displayed 'Website refused request (HTTP 403)'.",
-            "No qualified website past card or source-attributed station clock was shown.",
-            "The strict instrumented assertion FAILED; Android build success is not source success.",
-            "Wire-level refusal and GET count are reported separately and are not inferred from the screenshot.",
-            "The UI refusal does not establish a qualified train position or station clock.",
+            "Strict status: NOT QUALIFIED — " + reason + ".",
+            "No explicit selected-date + route-qualified site event passed the installed-app gate.",
+            "A network answer, timetable echo, page clock, or detached route claim is not a pass.",
+            "The screenshots document the actual app state; they do not prove train movement or GPS.",
         ]
     lines += [
         "Screenshots were taken during this installed-app test, not from the launcher.",

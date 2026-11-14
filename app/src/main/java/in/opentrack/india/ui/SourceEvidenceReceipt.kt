@@ -22,7 +22,10 @@ object SourceEvidenceReceipt {
             else -> "NO_DATED_EVENT"
         }
         val identity = when {
+            result.orgReport != null && !result.orgReport.originInferred &&
+                result.orgRunDateMatched -> "DATE_ROUTE_MATCHED"
             result.orgReport?.originInferred == true -> "INFERRED"
+            detached?.runDateMatched == true -> "LIVE_ROUTE_MATCH_DATE_VERIFIED"
             detached != null -> "LIVE_ROUTE_MATCH_RUN_DATE_UNVERIFIED"
             result.orgSiteCards.isNotEmpty() -> "INFERRED_FOR_PAGE_DISPLAY_ONLY"
             else -> "UNVERIFIED"
@@ -31,7 +34,11 @@ object SourceEvidenceReceipt {
             ?: detached?.event?.let { it.stationCode + ":" + it.minute } ?: "none"
         val siteClaimKind = result.orgReport?.let { if (it.departed) "DEPARTURE" else "ARRIVAL" }
             ?: detached?.event?.kind?.name ?: "none"
-        val siteRoute = detached?.let { it.websiteFromCode + ">" + it.websiteToCode } ?: "none"
+        val siteRoute = detached?.let { it.websiteFromCode + ">" + it.websiteToCode }
+            ?: result.orgPageEndpoints?.let { endpoints ->
+                if (endpoints.fromCode != null && endpoints.toCode != null)
+                    endpoints.fromCode + ">" + endpoints.toCode else "none"
+            } ?: "none"
         val selectedRoute = detached?.let { it.selectedRouteFromCode + ">" + it.selectedRouteToCode }
             ?: result.orgSelectedRouteFromCode?.let { from -> result.orgSelectedRouteToCode
                 ?.let { to -> from + ">" + to } } ?: "none"
@@ -47,6 +54,14 @@ object SourceEvidenceReceipt {
         val siteClaimAt = detached?.event?.let {
             RailTime.railMinuteToEpochMillis(detached.originDay, it.minute)
         }
+        val claimTimeBasis = when {
+            detached?.runDateMatched == true -> "selected_origin_date_verified;route_conflict"
+            detached != null -> "page_clock_aligned;selected_origin_day_unverified"
+            result.orgRunDateMatched -> "selected_origin_date_verified"
+            result.orgReport != null -> "selected_origin_date_unverified"
+            else -> "none"
+        }
+        val shape = result.orgPageShapeReceipt?.take(1800)?.ifBlank { "none" } ?: "none"
         return "source=$source train=$train originDay=$originDay " +
             "transport=$transport bytes=${result.responseBytes} sha256_16=${result.responseDigest ?: "none"} " +
             "parsed=$parsed orgContentParsed=${result.orgContentParsed} runIdentity=$identity " +
@@ -57,9 +72,10 @@ object SourceEvidenceReceipt {
             "siteClaim=$siteClaim siteClaimKind=$siteClaimKind " +
             "siteRoute=$siteRoute sitePageEndpoints=$pageEndpoints " +
             "sitePageLabels=$pageEndpointLabels selectedRoute=$selectedRoute " +
-            "siteCardContainers=${result.orgParsedCardContainers} " +
-            "liveIdentityRouteMatch=${detached != null} siteClaimTimeBasis=" +
-            "${if (detached != null) "page_clock_aligned;selected_origin_day_unverified" else "selected_origin_timetable"} " +
+            "siteCardContainers=${result.orgParsedCardContainers} siteDateMatched=${result.orgRunDateMatched} " +
+            "sitePageRunDate=${result.orgPageRunDate ?: "unknown"} " +
+            "siteShape=$shape liveIdentityRouteMatch=${detached != null} " +
+            "siteClaimTimeBasis=$claimTimeBasis " +
             "siteClaimAt=${siteClaimAt ?: "unknown"} " +
             "pagePublishedAt=${result.orgReport?.pageUpdatedAt ?: detached?.pageUpdatedAt ?: result.orgSitePageUpdatedAt ?: "unknown"} " +
             "pageClockHasSeconds=${result.orgSitePageClockHasSeconds || detached?.pageClockHasSeconds == true} " +
