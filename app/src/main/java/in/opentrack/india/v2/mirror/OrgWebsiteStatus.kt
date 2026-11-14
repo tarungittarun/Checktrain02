@@ -1,6 +1,7 @@
 package `in`.opentrack.india.v2.mirror
 
 import `in`.opentrack.india.core.RailTime
+import `in`.opentrack.india.core.WebsiteCardMarkup
 import `in`.opentrack.india.domain.RouteBetween
 import `in`.opentrack.india.model.LiveStopFields
 import `in`.opentrack.india.model.TrainRoute
@@ -183,37 +184,28 @@ object OrgWebsiteStatus {
     private val headingText = Regex("(?is)<h3\\b[^>]*>(.*?)</h3>")
     private val stationCode = Regex("(?i)\\(([A-Z0-9]{1,6})\\)")
     private val cardClass = Regex("(?is)<div\\b[^>]*\\bclass\\s*=\\s*[\"']([^\"']+)[\"']")
-    private val stationCardRoot = Regex(
-        """(?is)<div\b(?=[^>]*\bclass\s*=\s*["'][^"']*\bflex-grow\b)(?=[^>]*\bclass\s*=\s*["'][^"']*\brounded-lg\b)[^>]*>""")
     private val spanTag = Regex("(?is)<span\\b[^>]*>(.*?)</span>")
     private val platformBadge = Regex("(?i)\\bPF\\s*[A-Z0-9]{1,3}\\b")
     private val platformValue = Regex("(?i)\\bPF\\s*([A-Z0-9]{1,3})\\b")
     private val updated = Regex("(?i)\\bLast\\s+Updated\\s*:\\s*(\\d{1,2}:\\d{2}(?::\\d{2})?\\s*(?:AM|PM))")
-    private val card = Regex("(?i)<!--\\s*Station Details Card\\s*-->")
-    private val arrivalMarker = Regex("(?i)<!--\\s*Arrival\\s*-->")
-    private val departureMarker = Regex("(?i)<!--\\s*Departure\\s*-->")
     private val arrivalLabel = Regex("(?i)\\bARRIVAL\\b")
     private val departureLabel = Regex("(?i)\\bDEPARTURE\\b")
 
-    /** Prefer the source's explicit card comments, but retain a DOM-root fallback:
-     * WebView serialization/client rendering may omit HTML comments while keeping
-     * the visible card containers and nested station headings. */
+    /** Parse only actual rendered station-card subtrees. Comments and script text are
+     * masked first, so source-looking markup hidden in either cannot become a card. */
     private fun cardParts(html: String): List<String> {
-        val comments = card.findAll(html).map { it.range.last + 1 }.toList()
-        val starts = if (comments.isNotEmpty()) comments
-            else stationCardRoot.findAll(html).map { it.range.first }.toList()
+        val document = WebsiteCardMarkup.visiblePageMarkup(html)
+        val starts = WebsiteCardMarkup.stationCardSectionStarts(document)
         return starts.mapIndexedNotNull { index, start ->
-            val end = starts.getOrNull(index + 1) ?: html.length
-            html.substring(start, end).takeIf { cardClass.find(it) != null }
+            val limit = starts.getOrNull(index + 1) ?: document.html.length
+            val part = WebsiteCardMarkup.divSectionAt(document.html, start, limit)
+                ?: document.html.substring(start, limit)
+            part.takeIf { cardClass.find(it) != null || headingText.containsMatchIn(it) }
         }
     }
 
     /** Bounded structural diagnostic; never returns card text or raw website markup. */
-    internal fun diagnosticCardCount(html: String): Int {
-        val visibleHtml = html.replace(Regex("(?is)<script\\b[^>]*>.*?</script>"), " ")
-            .replace(Regex("(?is)<style\\b[^>]*>.*?</style>"), " ")
-        return cardParts(visibleHtml).size
-    }
+    internal fun diagnosticCardCount(html: String): Int = cardParts(html).size
 
     /** Read endpoint labels without guessing. Prefer an explicit candidate station code, then an
      * exact normalized match against names already carried by the selected timetable. Unrecognized
@@ -299,17 +291,11 @@ object OrgWebsiteStatus {
     }
 
     private fun cardSections(part: String): Pair<String, String> {
-        val arrivalCommentMatch = arrivalMarker.find(part)
-        val departureCommentMatch = departureMarker.find(part)
-        val arrivalTextMatch = if (arrivalCommentMatch == null) arrivalLabel.find(part) else null
-        val departureTextMatch = if (departureCommentMatch == null) departureLabel.find(part,
-            (arrivalTextMatch?.range?.last ?: -1) + 1) else null
-        val arrivalStart = arrivalCommentMatch?.range?.last?.plus(1)
-            ?: arrivalTextMatch?.range?.last?.plus(1)
-        val arrivalEnd = departureCommentMatch?.range?.first ?: departureTextMatch?.range?.first
-            ?: part.length
-        val departureStart = departureCommentMatch?.range?.last?.plus(1)
-            ?: departureTextMatch?.range?.last?.plus(1)
+        val arrival = arrivalLabel.find(part)
+        val departure = arrival?.let { departureLabel.find(part, it.range.last + 1) }
+        val arrivalStart = arrival?.range?.last?.plus(1)
+        val arrivalEnd = departure?.range?.first ?: part.length
+        val departureStart = departure?.range?.last?.plus(1)
         return (arrivalStart?.let { part.substring(it, arrivalEnd) } ?: "") to
             (departureStart?.let { part.substring(it) } ?: "")
     }
@@ -392,7 +378,9 @@ object OrgWebsiteStatus {
         } ?: return null
         if (route.trainNo != number || route.stops.size < 3) return null
 
-        val visibleText = html.replace(Regex("(?s)<[^>]*>"), " ")
+        val visibleHtml = WebsiteCardMarkup.visiblePageMarkup(html).html
+        val visibleBody = WebsiteCardMarkup.visiblePageMarkup(body).html
+        val visibleText = visibleHtml.replace(Regex("(?s)<[^>]*>"), " ")
             .replace("&nbsp;", " ", ignoreCase = true)
             .replace("&#160;", " ", ignoreCase = true)
             .replace(Regex("\\s+"), " ").trim()
@@ -408,8 +396,8 @@ object OrgWebsiteStatus {
         if (!websiteFrom.equals(identity.fromCode, true) ||
             !websiteTo.equals(identity.toCode, true) ||
             websiteFrom.equals(route.srcCode, true) && websiteTo.equals(route.dstCode, true)) return null
-        val publishedAt = pageClock(body, now) ?: return null
-        val hasSeconds = updated.find(body)?.groupValues?.get(1)?.let {
+        val publishedAt = pageClock(visibleBody, now) ?: return null
+        val hasSeconds = updated.find(visibleBody)?.groupValues?.get(1)?.let {
             Regex("\\d{1,2}:\\d{2}:\\d{2}").containsMatchIn(it)
         } == true
         val cards = cardParts(html).mapIndexedNotNull { index, part ->
@@ -424,10 +412,7 @@ object OrgWebsiteStatus {
                 else -> SiteCardMark.UPCOMING
             }
             val (arrivalSection, departureSection) = cardSections(part)
-            val cardHeaderEnd = listOfNotNull(
-                arrivalMarker.find(part)?.range?.first,
-                arrivalLabel.find(part)?.range?.first,
-            ).minOrNull() ?: part.length
+            val cardHeaderEnd = arrivalLabel.find(part)?.range?.first ?: part.length
             val cardHeader = part.substring(0, cardHeaderEnd)
             val stationName = headingPlain.let { title ->
                 val suffix = " ($code)"
@@ -483,8 +468,7 @@ object OrgWebsiteStatus {
         // timetable match we have already disproved.
         // Reject script content before reading identity or rows. Never find a different
         // train/run hidden in SEO JSON and mistake it for the visible page.
-        val html = body.replace(Regex("(?is)<script\\b[^>]*>.*?</script>"), " ")
-            .replace(Regex("(?is)<style\\b[^>]*>.*?</style>"), " ")
+        val html = WebsiteCardMarkup.visiblePageMarkup(body).html
         val text = html.replace(Regex("(?s)<[^>]*>"), " ").replace(Regex("\\s+"), " ")
         val header = text.substringBefore("Journey Timeline", text).take(1500)
         if (!Regex("(?i)\\b${Regex.escape(number)}\\b").containsMatchIn(text))
@@ -492,7 +476,7 @@ object OrgWebsiteStatus {
         val endpoints = routeEndpointsFromVisibleText(text,
             setOf(route.srcCode, route.dstCode, expectedIdentity?.fromCode.orEmpty(),
                 expectedIdentity?.toCode.orEmpty()), routeStationNames(route))
-        val parsedCardContainers = diagnosticCardCount(html)
+        val parsedCardContainers = diagnosticCardCount(body)
         fun rejected(reason: String): Outcome = Outcome(null, reason, null, emptyList(),
             emptyMap(), null, null, endpoints, parsedCardContainers)
         val websiteFrom = endpoints.fromCode
@@ -500,7 +484,7 @@ object OrgWebsiteStatus {
         val routeMatchesPage = websiteFrom?.equals(route.srcCode, true) == true &&
             websiteTo?.equals(route.dstCode, true) == true
         if (!routeMatchesPage) {
-            val detached = detachedPageClaim(html, body, number, originDay, now, route,
+            val detached = detachedPageClaim(body, body, number, originDay, now, route,
                 expectedIdentity)
             if (detached != null) {
                 val routeLabel = "${detached.selectedRouteFromCode}→${detached.selectedRouteToCode}"
@@ -568,7 +552,7 @@ object OrgWebsiteStatus {
         var lastAcceptedCard = -1
         var latestSiteCardIndex = -1
         var latestSiteCard: SiteCardClaim? = null
-        for ((cardIndex, part) in cardParts(html).withIndex()) {
+        for ((cardIndex, part) in cardParts(body).withIndex()) {
             val headingMarkup = headingText.find(part)?.groupValues?.get(1).orEmpty()
             val headingPlain = plainText(headingMarkup)
             val code = stationCodeFromCardHeading(headingPlain, route) ?: continue
@@ -584,10 +568,7 @@ object OrgWebsiteStatus {
             }
             val halt = route.stops.firstOrNull { it.code.equals(code, true) }
             val (arrSection, depSection) = cardSections(part)
-            val cardHeaderEnd = listOfNotNull(
-                arrivalMarker.find(part)?.range?.first,
-                arrivalLabel.find(part)?.range?.first,
-            ).minOrNull() ?: part.length
+            val cardHeaderEnd = arrivalLabel.find(part)?.range?.first ?: part.length
             val cardHeader = part.substring(0, cardHeaderEnd)
             // Keep the literal display for every card (including duplicate and white cards).
             // These values are separate from the narrowly qualified `rows` event ledger.
@@ -759,7 +740,8 @@ object OrgWebsiteStatus {
                 continue
             }
             val eventPlatform = Regex("(?i)\\bPF\\s*([A-Z0-9]{1,3})\\b")
-                .find(part.substringBefore("<!-- Arrival -->"))?.groupValues?.get(1)
+                .find(part.substring(0, arrivalLabel.find(part)?.range?.first ?: part.length))
+                ?.groupValues?.get(1)
             rows[code] = LiveStopFields(actualArrivalMin = arr, actualDepartureMin = dep,
                 platform = eventPlatform)
             previousSeq = stop.seq

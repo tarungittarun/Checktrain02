@@ -80,6 +80,13 @@ class WebsiteBrowserRequestTest {
         val scriptOnlyCard = partial.replace("</body>",
             "<script><!-- Station Details Card --><div class='flex-grow rounded-lg'>" +
                 "<h3>Arsikere (ASK)</h3><div>ARRIVAL 04:20 AM</div></div></script></body>")
+        val commentOnlyCard = partial.replace("</body>",
+            "<!-- Station Details Card <div class='flex-grow rounded-lg'>" +
+                "<h3>Arsikere (ASK)</h3><div>ARRIVAL 04:20 AM</div></div> -->" +
+                "</body>")
+        val unclosedCommentCard = partial.replace("</body>",
+            "<!-- Station Details Card <div class='flex-grow rounded-lg'>" +
+                "<h3>Arsikere (ASK)</h3><div>ARRIVAL 04:20 AM</div></div>")
 
         assertFalse(hasPopulatedTrainDocument(partial, "16227"))
         assertFalse(hasPopulatedTrainDocument(scriptOnlyIdentity, "16227"))
@@ -87,6 +94,10 @@ class WebsiteBrowserRequestTest {
             hasPopulatedTrainDocument(clockOutsideCard, "16227"))
         assertFalse("card-like script text is not a visible timetable",
             hasPopulatedTrainDocument(scriptOnlyCard, "16227"))
+        assertFalse("card-like comment text is not a visible timetable",
+            hasPopulatedTrainDocument(commentOnlyCard, "16227"))
+        assertFalse("an unclosed source comment hides all following card-looking markup",
+            hasPopulatedTrainDocument(unclosedCommentCard, "16227"))
         assertFalse(hasPopulatedTrainDocument(partial, "12627"))
     }
 }

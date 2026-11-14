@@ -47,6 +47,26 @@ class OrgWebsiteStatusTest {
         ${card("ANF", "bg-white", "06:08 AM", "06:00 AM", "06:10 AM", "06:02 AM")}
         </html>""".trimIndent()
 
+    @Test fun `comment and script markup cannot inflate station-card diagnostics`() {
+        val hiddenCard = """<!-- Station Details Card
+            <div class="flex-grow rounded-lg bg-green-50 opacity-90">
+              <h3>Hidden (ARU)</h3><div>ARRIVAL 05:50 AM</div>
+            </div> -->"""
+        val scriptCard = """<script><!-- Station Details Card --><div class="flex-grow rounded-lg">
+            <h3>Script (ARU)</h3><div>ARRIVAL 05:50 AM</div></div></script>"""
+        val unclosedCard = """<!-- Station Details Card <div class="flex-grow rounded-lg">
+            <h3>Unclosed (ARU)</h3><div>ARRIVAL 05:50 AM</div></div>"""
+        val visibleCard = """<!-- Station Details Card -->
+            <div class="flex-grow rounded-lg bg-green-50 opacity-90">
+              <h3>Visible (ARU)</h3><div>ARRIVAL 05:50 AM</div>
+            </div>"""
+
+        assertEquals(0, OrgWebsiteStatus.diagnosticCardCount(hiddenCard))
+        assertEquals(0, OrgWebsiteStatus.diagnosticCardCount(scriptCard))
+        assertEquals(0, OrgWebsiteStatus.diagnosticCardCount(unclosedCard))
+        assertEquals(1, OrgWebsiteStatus.diagnosticCardCount(visibleCard))
+    }
+
     @Test fun `20652 website arrival after scheduled departure never prints a backwards pair`() {
         // Diary 09:54: the SMET card printed first arrival 09:37 and first
         // departure 07:10, identical to STD. SME was the later site card.

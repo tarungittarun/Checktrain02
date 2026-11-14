@@ -47,31 +47,77 @@ internal object WebsiteBrowserRequestTiming {
     const val DOM_READINESS_POLL_MS = 250L
 }
 
-private val stationCardRoot = Regex(
-    """(?is)<div\b(?=[^>]*\bclass\s*=\s*["'][^"']*\bflex-grow\b)(?=[^>]*\bclass\s*=\s*["'][^"']*\brounded-lg\b)[^>]*>""")
-private val divOpenTag = Regex("(?is)<div\\b[^>]*>")
+internal object WebsiteCardMarkup {
+    private val stationCardRoot = Regex(
+        """(?is)<div\b(?=[^>]*\bclass\s*=\s*["'][^"']*\bflex-grow\b)(?=[^>]*\bclass\s*=\s*["'][^"']*\brounded-lg\b)[^>]*>""")
+    private val divOpenTag = Regex("(?is)<div\\b[^>]*>")
+    private val divTag = Regex("(?is)</?div\\b[^>]*>")
+    private val stationCardMarker = Regex("(?is)^<!--\\s*Station Details Card\\s*-->$")
+    private val stationHeading = Regex("(?is)<h3\\b[^>]*>(.*?)</h3>")
+    private val cardClock = Regex("(?is)\\b(?:ARRIVAL|DEPARTURE)\\b.{0,900}?\\b\\d{1,2}:\\d{2}\\s*(?:AM|PM)\\b")
+    private val scriptOrStyle = Regex("(?is)<(?:script|style)\\b[^>]*>.*?</(?:script|style)\\s*>")
 
-private val stationCardMarker = Regex("(?i)<!--\\s*Station Details Card\\s*-->")
-private val stationHeading = Regex("(?is)<h3\\b[^>]*>(.*?)</h3>")
-private val cardClock = Regex("(?is)\\b(?:ARRIVAL|DEPARTURE)\\b.{0,900}?\\b\\d{1,2}:\\d{2}\\s*(?:AM|PM)\\b")
-private val divTag = Regex("(?is)</?div\\b[^>]*>")
+    /** HTML after scripts, styles and comments are masked, with same-length offsets retained. */
+    internal data class VisiblePageMarkup(
+        val html: String,
+        val stationCardMarkerOffsets: List<Int>,
+    )
 
-private fun stationCardSection(html: String, rootStart: Int, limit: Int): String? {
-    var depth = 0
-    for (tag in divTag.findAll(html, rootStart)) {
-        if (tag.range.first >= limit) break
-        if (tag.value.startsWith("</", ignoreCase = true)) depth--
-        else if (!tag.value.endsWith("/>")) depth++
-        if (depth == 0) return html.substring(rootStart, tag.range.last + 1)
+    /** Only actual document markup can satisfy readiness; card-looking script/comment text is invisible. */
+    internal fun visiblePageMarkup(html: String): VisiblePageMarkup {
+        val source = scriptOrStyle.replace(html) { match -> " ".repeat(match.value.length) }
+        val visible = StringBuilder(source.length)
+        val markers = mutableListOf<Int>()
+        var cursor = 0
+        while (cursor < source.length) {
+            val commentStart = source.indexOf("<!--", cursor)
+            if (commentStart < 0) {
+                visible.append(source, cursor, source.length)
+                break
+            }
+            visible.append(source, cursor, commentStart)
+            val closeStart = source.indexOf("-->", commentStart + 4)
+            val end = if (closeStart < 0) source.length else closeStart + 3
+            val comment = source.substring(commentStart, end)
+            if (closeStart >= 0 && stationCardMarker.matches(comment)) markers += end
+            visible.append(" ".repeat(comment.length))
+            cursor = end
+        }
+        return VisiblePageMarkup(visible.toString(), markers)
     }
-    return null
+
+    /** Root offsets for source-marked cards, plus DOM-class roots when markers are missing. */
+    internal fun stationCardSectionStarts(document: VisiblePageMarkup): List<Int> {
+        val classRoots = stationCardRoot.findAll(document.html).map { it.range.first }.toList()
+        val markerRoots = document.stationCardMarkerOffsets.mapNotNull { marker ->
+            val nextMarker = document.stationCardMarkerOffsets.firstOrNull { it > marker }
+                ?: document.html.length
+            classRoots.firstOrNull { it >= marker && it < nextMarker }
+                ?: divOpenTag.find(document.html, marker)
+                    ?.takeIf { it.range.first < nextMarker }?.range?.first
+        }
+        return (markerRoots + classRoots).distinct().sorted()
+    }
+
+    /** Extract the station card's own balanced div subtree, not neighboring page clocks. */
+    internal fun divSectionAt(html: String, rootStart: Int, limit: Int = html.length): String? {
+        if (rootStart !in html.indices || limit <= rootStart) return null
+        var depth = 0
+        for (tag in divTag.findAll(html, rootStart)) {
+            if (tag.range.first >= limit) break
+            if (tag.value.startsWith("</", ignoreCase = true)) depth--
+            else if (!tag.value.endsWith("/>")) depth++
+            if (depth == 0) return html.substring(rootStart, tag.range.last + 1)
+        }
+        return null
+    }
 }
 
 /** Pure DOM-readiness check: do not confuse a page shell or a timetable echo with populated cards. */
 internal fun hasPopulatedTrainDocument(html: String, trainNo: String): Boolean {
     if (html.isBlank() || html.length > MAX_WEBSITE_HTML) return false
-    val visibleHtml = html.replace(Regex("(?is)<script\\b[^>]*>.*?</script>"), " ")
-        .replace(Regex("(?is)<style\\b[^>]*>.*?</style>"), " ")
+    val document = WebsiteCardMarkup.visiblePageMarkup(html)
+    val visibleHtml = document.html
     val visible = visibleHtml.replace(Regex("(?s)<[^>]*>"), " ")
         .replace("&nbsp;", " ", ignoreCase = true)
         .replace("&#160;", " ", ignoreCase = true)
@@ -89,20 +135,12 @@ internal fun hasPopulatedTrainDocument(html: String, trainNo: String): Boolean {
     }
     val source = hasLabeledValue("Source", "Destination")
     val destination = hasLabeledValue("Destination", "Journey\\s+Timeline")
-    val markers = stationCardMarker.findAll(visibleHtml).toList()
-    val markerRoots = markers.mapNotNull { marker ->
-        val nextMarker = markers.firstOrNull { it.range.first > marker.range.first }?.range?.first
-            ?: visibleHtml.length
-        divOpenTag.find(visibleHtml, marker.range.last + 1)
-            ?.takeIf { it.range.first < nextMarker }?.range?.first
-    }.distinct()
-    // The explicit source comment is a semantic boundary; class names are only a
-    // fallback because the site can restyle its cards without changing their content.
-    val starts = if (markerRoots.isNotEmpty()) markerRoots
-        else stationCardRoot.findAll(visibleHtml).map { it.range.first }.toList()
+    // The explicit closed source comment is a semantic boundary; station-card classes
+    // remain a fallback when the rendered DOM omits comments or a card is restyled.
+    val starts = WebsiteCardMarkup.stationCardSectionStarts(document)
     val populatedCard = starts.indices.any { index ->
         val limit = starts.getOrNull(index + 1) ?: visibleHtml.length
-        val section = stationCardSection(visibleHtml, starts[index], limit)
+        val section = WebsiteCardMarkup.divSectionAt(visibleHtml, starts[index], limit)
         section?.let { card ->
             val heading = stationHeading.find(card)?.groupValues?.get(1)
                 ?.replace(Regex("(?s)<[^>]*>"), " ")?.replace(Regex("\\s+"), " ")?.trim()

@@ -65,25 +65,28 @@ class TravellerAcceptanceTest {
     }
 
     /** Radio selection can redraw a frame after the click callback returns. Do not save
-     * screenshot proof until UiAutomator sees the exact option checked, not merely tapped. */
-    private fun tapRadioAndWait(label: String, timeoutMs: Long = E2E.LOCAL_MS): Boolean {
+     * screenshot proof until the exact option is checked and every competitor is unchecked. */
+    private fun tapRadioAndWait(label: String, competingOptions: List<String>,
+                                timeoutMs: Long = E2E.LOCAL_MS): Boolean {
         val selector = By.clazz("android.widget.RadioButton").text(label)
-        var radio = E2E.ui.wait(Until.findObject(selector), timeoutMs) ?: return false
+        val radio = E2E.ui.wait(Until.findObject(selector), timeoutMs) ?: return false
         if (!radio.isChecked) {
             runCatching { radio.click() }.getOrElse { return false }
         }
+        fun isExclusiveSelection(): Boolean {
+            if (E2E.ui.findObject(selector)?.isChecked != true) return false
+            return competingOptions.all { other ->
+                val peer = E2E.ui.findObject(
+                    By.clazz("android.widget.RadioButton").text(other))
+                peer != null && !peer.isChecked
+            }
+        }
         val deadline = System.currentTimeMillis() + timeoutMs
         while (System.currentTimeMillis() < deadline) {
-            val current = E2E.ui.findObject(selector)
-            if (current == null) {
-                Thread.sleep(50)
-                continue
-            }
-            radio = current
-            if (radio.isChecked) {
+            if (isExclusiveSelection()) {
                 E2E.ui.waitForIdle()
                 Thread.sleep(200) // let the touch ripple finish before the proof frame
-                return E2E.ui.findObject(selector)?.isChecked == true
+                return isExclusiveSelection()
             }
             Thread.sleep(50)
         }
@@ -144,15 +147,55 @@ class TravellerAcceptanceTest {
      * permission chain when a profile/API still presents one. For a distance alert,
      * Android may ask for notifications first and location immediately afterwards.
      * This only clicks visible, affirmative system choices; it never changes settings. */
-    private fun allowPermissionIfPrompted() {
-        val labels = listOf("Allow", "While using the app", "Allow while using the app",
-            "Only this time")
-        repeat(3) {
-            val button = labels.asSequence().mapNotNull { label ->
-                E2E.ui.wait(Until.findObject(By.text(label)), 350)
-            }.firstOrNull() ?: return
-            runCatching { button.click() }.getOrElse { return }
-            E2E.ui.waitForIdle()
+    private fun allowPermissionIfPrompted(firstPromptWaitMs: Long = 8_000L) {
+        val systemPermissionId = "com.android.permissioncontroller"
+        val permissionPackages = listOf("com.google.android.permissioncontroller",
+            "com.android.permissioncontroller", "com.android.packageinstaller")
+        val affirmativeLabels = listOf("While using the app", "Allow while using the app",
+            "Only this time", "Allow")
+        val affirmativeChoices = listOf(
+            By.res(systemPermissionId, "permission_allow_foreground_only_button"),
+            By.res(systemPermissionId, "permission_allow_one_time_button"),
+            By.res(systemPermissionId, "permission_allow_button"),
+        ) + permissionPackages.flatMap { pkg ->
+            affirmativeLabels.map { label -> By.pkg(pkg).text(label) }
+        }
+        val firstPromptDeadline = System.currentTimeMillis() + firstPromptWaitMs
+        var promptsAccepted = 0
+        var quietSince: Long? = null
+        while (promptsAccepted < 3) {
+            val button = affirmativeChoices.asSequence()
+                .mapNotNull { selector -> runCatching { E2E.ui.findObject(selector) }.getOrNull() }
+                .firstOrNull()
+            if (button != null) {
+                val label = runCatching { button.text.orEmpty() }.getOrDefault("")
+                var clicked = runCatching { button.click(); true }.getOrDefault(false)
+                if (!clicked) {
+                    val bounds = runCatching { button.visibleBounds }.getOrNull()
+                    if (bounds != null && bounds.width() > 0 && bounds.height() > 0)
+                        clicked = runCatching {
+                            E2E.ui.click(bounds.centerX(), bounds.centerY())
+                        }.getOrDefault(false)
+                }
+                if (!clicked) {
+                    println("E2E_PERMISSION_PROMPT_NOT_CLICKED label=$label")
+                    return
+                }
+                println("E2E_PERMISSION_PROMPT_ACCEPTED label=$label")
+                promptsAccepted++
+                quietSince = null
+                E2E.ui.waitForIdle()
+                Thread.sleep(200)
+                continue
+            }
+            val now = System.currentTimeMillis()
+            if (promptsAccepted == 0) {
+                if (now >= firstPromptDeadline) return
+            } else {
+                if (quietSince == null) quietSince = now
+                if (now - quietSince >= 1_500L) return
+            }
+            Thread.sleep(75)
         }
     }
 
@@ -529,15 +572,16 @@ class TravellerAcceptanceTest {
         assertTrue("Alert style choices cannot be brought back into view",
             revealTextContains("Vibration · one pattern", "alertDialogScroll", up = false))
         assertTrue("Vibration preference cannot be selected",
-            tapRadioAndWait("Vibration · one pattern"))
+            tapRadioAndWait("Vibration · one pattern", listOf(
+                "Notification · one alert", "Ring until I stop it")))
         E2E.shotRequired("alert-feedback-selected")
         assertTrue("Five-minute low-work interval cannot be brought into view",
             revealTextContains("5 minutes · lower background work", "alertDialogScroll"))
         assertTrue("Five-minute low-work interval cannot be selected",
-            tapRadioAndWait("5 minutes · lower background work"))
+            tapRadioAndWait("5 minutes · lower background work", listOf("1 minute", "2 minutes")))
         E2E.shotRequired("alert-interval-selected")
         assertTrue("Set alert action is missing before save", tapTextContains("Set alert"))
-        allowPermissionIfPrompted()
+        allowPermissionIfPrompted(firstPromptWaitMs = 8_000L)
         val alertSaved = E2E.ui.wait(Until.hasObject(By.text("Alert on")), E2E.NETWORK_MS)
         if (!alertSaved) E2E.shotDiagnostic("alert-save-did-not-arm")
         assertTrue("Set alert did not save or start: '${textContains("Permission needed for arrival alerts", 300)}'",
