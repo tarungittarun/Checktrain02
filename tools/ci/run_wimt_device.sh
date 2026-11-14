@@ -87,8 +87,10 @@ cmp "$app_apk" /tmp/wimt-installed.apk || {
 adb shell pm clear in.opentrack.india
 # Android's instrumentation command can return zero even when tests fail; the
 # report gate independently requires exactly one successful instrumented method.
+# The website test has a 120-second single-request publication budget, in addition
+# to route/context setup; do not kill it at the former 180-second outer limit.
 set +e
-timeout 180 adb shell am instrument -w -e class \
+timeout 300 adb shell am instrument -w -e class \
   in.opentrack.india.e2e.WimtWebsiteLiveAcceptanceTest#websiteRefreshMustPaintARealSourceQualifiedPastCardFor16227 \
   in.opentrack.india.test/androidx.test.runner.AndroidJUnitRunner \
   > wimt-device-evidence/instrumentation.txt 2>&1
