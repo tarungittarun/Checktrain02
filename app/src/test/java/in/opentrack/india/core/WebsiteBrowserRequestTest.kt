@@ -87,6 +87,9 @@ class WebsiteBrowserRequestTest {
         val unclosedCommentCard = partial.replace("</body>",
             "<!-- Station Details Card <div class='flex-grow rounded-lg'>" +
                 "<h3>Arsikere (ASK)</h3><div>ARRIVAL 04:20 AM</div></div>")
+        val blankHeadingCard = partial.replace("</body>",
+            "<!-- Station Details Card --><div class='flex-grow rounded-lg'>" +
+                "<h3><span>&nbsp;</span> &#160; </h3><div>ARRIVAL 04:20 AM</div></div></body>")
 
         assertFalse(hasPopulatedTrainDocument(partial, "16227"))
         assertFalse(hasPopulatedTrainDocument(scriptOnlyIdentity, "16227"))
@@ -98,6 +101,8 @@ class WebsiteBrowserRequestTest {
             hasPopulatedTrainDocument(commentOnlyCard, "16227"))
         assertFalse("an unclosed source comment hides all following card-looking markup",
             hasPopulatedTrainDocument(unclosedCommentCard, "16227"))
+        assertFalse("a heading containing only HTML space entities is not a station label",
+            hasPopulatedTrainDocument(blankHeadingCard, "16227"))
         assertFalse(hasPopulatedTrainDocument(partial, "12627"))
     }
 }

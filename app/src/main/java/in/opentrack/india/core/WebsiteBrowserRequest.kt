@@ -114,7 +114,10 @@ internal object WebsiteCardMarkup {
 
     internal fun isPopulatedStationCard(card: String): Boolean {
         val heading = stationHeading.find(card)?.groupValues?.get(1)
-            ?.replace(Regex("(?s)<[^>]*>"), " ")?.replace(Regex("\\s+"), " ")?.trim()
+            ?.replace(Regex("(?s)<[^>]*>"), " ")
+            ?.replace("&nbsp;", " ", ignoreCase = true)
+            ?.replace("&#160;", " ", ignoreCase = true)
+            ?.replace(Regex("\\s+"), " ")?.trim()
         return !heading.isNullOrBlank() && cardClock.containsMatchIn(card)
     }
 }
