@@ -72,7 +72,7 @@ class PublicPageChecksTest {
 
     @Test fun `public pages show status and selected date without converting timetable to position`() {
         val ixigo = """<html><script>Today 14-10-2026 train arrived TKE</script>
-            <h1>16227 Running Status</h1><p>Today 15-10-2026</p><p>Yet to start</p>
+            <h1>16227 Running Status</h1><p>Run date: 15-10-2026</p><p>Yet to start</p>
             <div>BDVT 04:40 arrived on time</div></html>"""
         val r = PublicPageChecks.parse(PublicPageChecks.IXIGO, ixigo, "16227", day, now)
         assertTrue(r.detail.contains("page-selected 15-10-2026"))

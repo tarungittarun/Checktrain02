@@ -586,7 +586,8 @@ class TravellerAcceptanceTest {
         assertTrue("Five-minute low-work interval cannot be brought into view",
             revealTextContains("5 minutes · lower background work", "alertDialogScroll"))
         assertTrue("Five-minute low-work interval cannot be selected",
-            tapRadioAndWait("5 minutes · lower background work", listOf("1 minute", "2 minutes")))
+            tapRadioAndWait("5 minutes · lower background work", listOf("1 minute", "2 minutes"),
+                "alertDialogScroll"))
         E2E.shotRequired("alert-interval-selected")
         assertTrue("Set alert action is missing before save", tapTextContains("Set alert"))
         allowPermissionIfPrompted(firstPromptWaitMs = 8_000L)

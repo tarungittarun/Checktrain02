@@ -376,6 +376,10 @@ class OrgWebsiteStatusTest {
             .replace("""<h3 class="font-medium text-sm text-gray-800">""",
                 """<h3 class="font-medium text-sm text-gray-800"><span>""")
             .replace("</h3>", "</span></h3>")
+            // This captured source includes one malformed dangling comment opener between cards.
+            // The test models the rendered DOM with comments removed; a raw unterminated comment
+            // must remain invisible to the production parser rather than swallowing later cards.
+            .replace("<!--\n", "\n")
         val outcome = OrgWebsiteStatus.parse(domHtml, "16227", run, checked, halts)
         val report = outcome.report ?: error(outcome.reason)
         assertEquals("ANF", report.anchorCode)
@@ -473,8 +477,8 @@ class OrgWebsiteStatusTest {
         // screenshot or asserted to occur in the captured runner response.
         val unknown = beforeKumsi.replace("</html>", """<!-- Station Details Card -->
             <div class="bg-green-50 opacity-90"><h3>Harnahalli (HNHL)</h3>
-            <!-- Arrival -->05:23 AM 05:23 AM
-            <!-- Departure -->05:25 AM 05:23 AM</div></html>""")
+            <div>ARRIVAL</div><div>05:23 AM</div><div>05:23 AM</div>
+            <div>DEPARTURE</div><div>05:25 AM</div><div>05:23 AM</div></div></html>""")
         val unmapped = OrgWebsiteStatus.parse(unknown.replace("05:35:56", "05:26:19"),
             "16227", run, checked, halts)
         assertEquals("SME", unmapped.report?.anchorCode)
