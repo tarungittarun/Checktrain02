@@ -380,7 +380,19 @@ class LiveViewModel(
         if (select) manualProbeSource = name
         val order = ++sourceProbeOrder
         latestProbeOrder[name] = order
-        if (select) latestManualProbeOrder[name] = order
+        if (select) {
+            latestManualProbeOrder[name] = order
+            // Selection is a traveller action, not a claim that the request has answered.
+            // Bind the schedule-only source view immediately so a slow/refused website cannot
+            // leave NTES selected (or its actuals painted under the website label) while waiting.
+            mirrorActiveSource = name
+            _ui.value?.let { current ->
+                if (current.activeSource != name) {
+                    _ui.value = buildUi(current.route, lastAnswer ?: current.answer, current.tried)
+                        .copy(relayOk = current.relayOk)
+                }
+            }
+        }
         Diary.get()?.log("SOURCE", "${if (select) "manual" else "first-load"} probe requested: $name")
         if (name == RunningStatusMirror.SOURCE || name == ConfirmTktMirror.SOURCE) {
             maybeMirror(force = true, preferred = if (select) name else null)

@@ -80,6 +80,18 @@ class WimtWebsiteLiveAcceptanceTest {
                 E2E.fingerTap(By.textContains("Where Is My Train · website")))
             assertTrue("website option stayed open after the tap; no selection was consumed",
                 E2E.ui.wait(Until.gone(By.textContains("Where Is My Train · website")), E2E.LOCAL_MS))
+            val selectionDeadline = System.currentTimeMillis() + 5_000L
+            var selectedBeforeResponse = false
+            while (System.currentTimeMillis() < selectionDeadline) {
+                selectedBeforeResponse = E2E.find("sourceSpinner", 250)?.contentDescription?.toString()
+                    ?.contains("Selected Where Is My Train · website") == true
+                if (selectedBeforeResponse) break
+                Thread.sleep(100)
+            }
+            E2E.shotWimt("wimt-source-selected-pending")
+            assertTrue("website selection did not bind synchronously before the network response; " +
+                "spinner='${E2E.find("sourceSpinner", 250)?.contentDescription}'",
+                selectedBeforeResponse)
             // One deliberate selected-source request; no background retry in the test.
             // The selected website call can wait for the current route/identity snapshot,
             // then spend up to 40 seconds loading and hydrating its one WebView document.

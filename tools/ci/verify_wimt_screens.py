@@ -14,9 +14,10 @@ SEARCH_CRITERIA = "wimt-search-route-criteria"
 SEARCH_RESULTS = "wimt-search-route-results"
 BEFORE = "wimt-before-selected-source"
 PICKER = "wimt-source-picker-open"
+PENDING = "wimt-source-selected-pending"
 AFTER = "wimt-after-selected-source"
-NAMES = (SETTINGS, SEARCH_CRITERIA, SEARCH_RESULTS, BEFORE, PICKER, AFTER)
-TRACK_NAMES = (BEFORE, PICKER, AFTER)
+NAMES = (SETTINGS, SEARCH_CRITERIA, SEARCH_RESULTS, BEFORE, PICKER, PENDING, AFTER)
+TRACK_NAMES = (BEFORE, PICKER, PENDING, AFTER)
 EXPECTED_TRAIN = "16227"
 EXPECTED_ROUTE = "MYS → TLGP"
 EXPECTED_BEFORE_SOURCE = "Selected NTES · official"
@@ -127,7 +128,7 @@ def _verify_capture(folder: Path, name: str, require_http_403: bool,
         selectors = _nodes_for(app_nodes, "sourceSpinner")
         selected_source = next((node.get("content-desc", "") for node in selectors
                                 if node.get("content-desc", "")), "")
-        expected_source = EXPECTED_AFTER_SOURCE if name == AFTER else EXPECTED_BEFORE_SOURCE
+        expected_source = EXPECTED_AFTER_SOURCE if name in (PENDING, AFTER) else EXPECTED_BEFORE_SOURCE
         if name == AFTER and allow_unselected_website:
             allowed_sources = (EXPECTED_AFTER_SOURCE, EXPECTED_BEFORE_SOURCE)
         else:
@@ -234,7 +235,7 @@ def _sample_hierarchy(name: str, refusal: bool = False) -> str:
     elif name == SEARCH_RESULTS:
         body = _node("hitNo", text=EXPECTED_TRAIN) + _node("hitGo", text="Track")
     else:
-        before = name != AFTER
+        before = name not in (PENDING, AFTER)
         selected = EXPECTED_BEFORE_SOURCE if before else EXPECTED_AFTER_SOURCE
         route = "MYS → TLGP · identity confirmed live (via erail)"
         body = _node("trainNo", text=EXPECTED_TRAIN) + _node("routeLabel", text=route) + \
@@ -291,6 +292,14 @@ if __name__ == "__main__":
             assert diagnostic["selectedWebsiteObserved"] is False
             assert diagnostic["verificationMode"] == "DIAGNOSTIC"
             (screens / (AFTER + ".xml")).write_text(_sample_hierarchy(AFTER))
+            (screens / (PENDING + ".xml")).write_text(
+                _sample_hierarchy(PENDING).replace(EXPECTED_AFTER_SOURCE, EXPECTED_BEFORE_SOURCE))
+            try:
+                verify(Path(tmp))
+                raise AssertionError("the pre-response selection capture accepted NTES")
+            except ValueError:
+                pass
+            (screens / (PENDING + ".xml")).write_text(_sample_hierarchy(PENDING))
             (screens / (SEARCH_RESULTS + ".png")).unlink()
             partial = verify(Path(tmp), allow_unselected_website=True, allow_partial=True)
             assert partial["completeTraversal"] is False

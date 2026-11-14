@@ -1396,8 +1396,9 @@ class TrainActivity : AppCompatActivity() {
                         Toast.makeText(applicationContext,
                             "Checking ${sourceName(name)}…",
                             Toast.LENGTH_SHORT).show()
-                        val previous = names.indexOf(lastUi?.activeSource)
-                        if (previous >= 0) binding.sourceSpinner.setSelection(previous, false)
+                        // Keep the option the traveller just chose selected during its fresh
+                        // request. The ViewModel switches to this source's schedule-only rows
+                        // synchronously; it must not wait on the network to stop showing NTES.
                         vm.probeSource(name)
                     } else vm.setActiveSource(name)
                     // The source's result is at the top of the bounded card. Bring it

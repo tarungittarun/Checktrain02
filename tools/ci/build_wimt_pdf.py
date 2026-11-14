@@ -129,6 +129,7 @@ def make_pdf(folder: Path, output: Path, source_run: str, source_sha: str) -> No
         "wimt-search-route-results": "Search: live train results before opening",
         "wimt-before-selected-source": "Track: before selecting website source",
         "wimt-source-picker-open": "Source picker: website option open",
+        "wimt-source-selected-pending": "Track: website selected before its response",
         "wimt-after-selected-source": "Track: after selected website response",
     }
     verified_names = set(verified.get("verifiedAppScreens", {}))

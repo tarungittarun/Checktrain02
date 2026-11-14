@@ -13,8 +13,8 @@ finish() {
   # Pull each *in-test* screenshot from the debuggable TARGET app's data dir.
   # A missing file is a capture failure, not permission to use the launcher.
   for name in wimt-settings-diagnostics wimt-search-route-criteria wimt-search-route-results \
-      wimt-before-selected-source wimt-source-picker-open wimt-after-selected-source \
-      wimt-final-even-on-failure; do
+      wimt-before-selected-source wimt-source-picker-open wimt-source-selected-pending \
+      wimt-after-selected-source wimt-final-even-on-failure; do
     for ext in png xml; do
       adb exec-out run-as in.opentrack.india cat "files/evidence/$name.$ext" \
         > "wimt-device-evidence/screens/$name.$ext" 2>/dev/null || \
