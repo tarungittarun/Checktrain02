@@ -108,6 +108,20 @@ object E2E {
         return false
     }
 
+    /** Physical coordinate tap for platform widgets whose click-action path omits MotionEvent. */
+    fun fingerTap(name: String, timeoutMs: Long = LOCAL_MS): Boolean = fingerTap(find(name, timeoutMs))
+
+    fun fingerTap(selector: BySelector, timeoutMs: Long = LOCAL_MS): Boolean =
+        fingerTap(ui.wait(Until.findObject(selector), timeoutMs))
+
+    fun fingerTap(target: UiObject2?): Boolean {
+        val bounds = runCatching { target?.visibleBounds }.getOrNull() ?: return false
+        if (bounds.width() < 20 || bounds.height() < 20) return false
+        val clicked = ui.click(bounds.centerX(), bounds.centerY())
+        ui.waitForIdle()
+        return clicked
+    }
+
     /** Types into a field the way a hardware keyboard does, after focusing it the way a finger does. */
     fun type(name: String, value: String, timeoutMs: Long = LOCAL_MS): Boolean {
         val o = find(name, timeoutMs) ?: return false

@@ -12,28 +12,35 @@ finish() {
   adb pull /sdcard/wimt-window.xml wimt-device-evidence/window.xml >/dev/null 2>&1 || true
   # Pull each *in-test* screenshot from the debuggable TARGET app's data dir.
   # A missing file is a capture failure, not permission to use the launcher.
-  for name in wimt-before-selected-source wimt-after-selected-source wimt-final-even-on-failure; do
+  for name in wimt-settings-diagnostics wimt-search-route-criteria wimt-search-route-results \
+      wimt-before-selected-source wimt-source-picker-open wimt-after-selected-source \
+      wimt-final-even-on-failure; do
     for ext in png xml; do
       adb exec-out run-as in.opentrack.india cat "files/evidence/$name.$ext" \
         > "wimt-device-evidence/screens/$name.$ext" 2>/dev/null || \
         rm -f "wimt-device-evidence/screens/$name.$ext"
     done
   done
-  # Every outcome needs authentic same-train/route/date screenshots showing the selected
-  # website. A non-403 parse failure is still useful diagnostic evidence; refusal is checked
-  # separately when a report labels the result as a displayed HTTP 403/429.
-  if ! python3 tools/ci/verify_wimt_screens.py wimt-device-evidence --accepted \
-    > wimt-device-evidence/screen-verification.json \
-    2> wimt-device-evidence/screen-verification-error.txt; then
-    rm -f wimt-device-evidence/screen-verification.json
-    cat wimt-device-evidence/screen-verification-error.txt
-    rc=4 # An apparent success without app screenshots is NOT a device pass.
-  fi
   # Raw device diary is transient: never upload it or post CDN IDs, cookies or IPs.
   adb shell run-as in.opentrack.india cat files/diag/log.txt \
     > /tmp/wimt-device-private-diary.txt 2>/dev/null || true
   python3 tools/ci/wimt_device_report.py wimt-device-evidence/instrumentation.txt \
     /tmp/wimt-device-private-diary.txt "$rc" > wimt-device-evidence/result.json || true
+  # Validate same-run screenshots against the result's origin date. A failed journey
+  # still leaves its genuine captures for the diagnostic PDF, but never a pass record.
+  if python3 tools/ci/verify_wimt_screens.py wimt-device-evidence --accepted \
+    > wimt-device-evidence/screen-verification.json \
+    2> wimt-device-evidence/screen-verification-error.txt; then
+    : # The strict verifier checked every stage, selected website and result date.
+  else
+    rm -f wimt-device-evidence/screen-verification.json
+    cat wimt-device-evidence/screen-verification-error.txt
+    if [ "$rc" -eq 0 ]; then
+      rc=4 # Instrumentation alone is not an acceptance pass without strict UI evidence.
+      python3 tools/ci/wimt_device_report.py wimt-device-evidence/instrumentation.txt \
+        /tmp/wimt-device-private-diary.txt "$rc" > wimt-device-evidence/result.json || true
+    fi
+  fi
   rm -f /tmp/wimt-device-private-diary.txt
   cat wimt-device-evidence/result.json
   trap - EXIT

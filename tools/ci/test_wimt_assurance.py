@@ -6,7 +6,7 @@ import tempfile
 import unittest
 
 from audit_wimt_assurance import audit
-from verify_wimt_screens import NAMES, PNG
+from verify_wimt_screens import NAMES, PNG, _sample_hierarchy
 
 
 class AssuranceAuditTest(unittest.TestCase):
@@ -17,18 +17,7 @@ class AssuranceAuditTest(unittest.TestCase):
             screens.mkdir()
             for name in NAMES:
                 (screens / (name + ".png")).write_bytes(PNG + b"test-fixture" * 300)
-                selected = ("Selected NTES · official" if name == NAMES[0]
-                            else "Selected Where Is My Train · website")
-                (screens / (name + ".xml")).write_text(
-                    '<hierarchy><node package="in.opentrack.india" '
-                    'resource-id="in.opentrack.india:id/trainNo" text="16227" />'
-                    '<node package="in.opentrack.india" '
-                    'resource-id="in.opentrack.india:id/routeLabel" text="MYS → TLGP" />'
-                    '<node package="in.opentrack.india" '
-                    'resource-id="in.opentrack.india:id/runDate" text="run of 12 Nov 2026" />'
-                    '<node package="in.opentrack.india" '
-                    'resource-id="in.opentrack.india:id/sourceSpinner" '
-                    f'content-desc="{selected}" /></hierarchy>')
+                (screens / (name + ".xml")).write_text(_sample_hierarchy(name))
             sample = {"accepted": True, "instrumentationPassed": True,
                       "provenanceComplete": True,
                       "acceptedMode": "DATED_ROUTE_MATCHED_SITE_EVENT",
@@ -56,6 +45,8 @@ class AssuranceAuditTest(unittest.TestCase):
             (folder / "screen-verification.json").write_text(json.dumps({
                 "displayedRefusalRequired": False,
                 "selectedWebsiteRequired": True,
+                "selectedWebsiteObserved": True,
+                "completeTraversal": True,
                 "sameSelectedOriginDate": True,
                 "verifiedAppScreens": {name: {} for name in NAMES}}))
             result = folder / "result.json"
@@ -93,18 +84,7 @@ class AssuranceAuditTest(unittest.TestCase):
             screens.mkdir()
             for name in NAMES:
                 (screens / (name + ".png")).write_bytes(PNG + b"test-fixture" * 300)
-                selected = ("Selected NTES · official" if name == NAMES[0]
-                            else "Selected Where Is My Train · website")
-                (screens / (name + ".xml")).write_text(
-                    '<hierarchy><node package="in.opentrack.india" '
-                    'resource-id="in.opentrack.india:id/trainNo" text="16227" />'
-                    '<node package="in.opentrack.india" '
-                    'resource-id="in.opentrack.india:id/routeLabel" text="MYS → TLGP" />'
-                    '<node package="in.opentrack.india" '
-                    'resource-id="in.opentrack.india:id/runDate" text="run of 12 Nov 2026" />'
-                    '<node package="in.opentrack.india" '
-                    'resource-id="in.opentrack.india:id/sourceSpinner" '
-                    f'content-desc="{selected}" /></hierarchy>')
+                (screens / (name + ".xml")).write_text(_sample_hierarchy(name))
             sample = {"accepted": True, "instrumentationPassed": True,
                       "provenanceComplete": True,
                       "acceptedMode": "DETACHED_SITE_CLAIM_DIAGNOSTIC_ONLY",
@@ -132,6 +112,8 @@ class AssuranceAuditTest(unittest.TestCase):
             (folder / "screen-verification.json").write_text(json.dumps({
                 "displayedRefusalRequired": False,
                 "selectedWebsiteRequired": True,
+                "selectedWebsiteObserved": True,
+                "completeTraversal": True,
                 "sameSelectedOriginDate": True,
                 "verifiedAppScreens": {name: {} for name in NAMES}}))
             result = folder / "result.json"

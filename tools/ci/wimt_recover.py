@@ -283,7 +283,9 @@ def summarize_website_artifact(folder: Path, original: dict, source_run: str,
     if not isinstance(verified, dict):
         verified = {}
     failed_log = _read_text(folder / "failed-step-log.txt")
-    hierarchy_names = ("wimt-before-selected-source", "wimt-after-selected-source")
+    hierarchy_names = (
+        "wimt-settings-diagnostics", "wimt-search-route-criteria", "wimt-search-route-results",
+        "wimt-before-selected-source", "wimt-source-picker-open", "wimt-after-selected-source")
     captured_hierarchies = {}
     for name in hierarchy_names:
         path = folder / "screens" / f"{name}.xml"

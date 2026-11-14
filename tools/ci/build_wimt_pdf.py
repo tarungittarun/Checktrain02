@@ -9,6 +9,7 @@ from pathlib import Path
 import datetime as dt
 import json
 import sys
+import xml.etree.ElementTree as ET
 
 EXPECTED_TRAIN = "16227"
 EPOCH = dt.date(1970, 1, 1)
@@ -104,19 +105,37 @@ def make_pdf(folder: Path, output: Path, source_run: str, source_sha: str) -> No
     from wimt_device_report import verdict
     diagnosed = verdict(instrumentation, "", 1)
     accepted = accepted_result(original)
-    # A failed parser run can still be a useful actual-screenshot diagnostic. The
-    # PDF always labels that case NOT QUALIFIED; only a source-qualified, explicit
-    # date+route pass can receive a PASS label. A refusal needs a matching UI capture.
-    refused = not accepted and diagnosed.get("websiteRefused") is True
-    status_label = "PASS" if accepted else "REFUSED" if refused else "NOT QUALIFIED"
+    reported_refusal = not accepted and diagnosed.get("websiteRefused") is True
     if not source_run.isdigit() or len(source_sha) != 40 or not all(c in "0123456789abcdef" for c in source_sha):
         raise ValueError("run id and exact 40-character commit SHA are required")
-    # Require in-test captures AND a matching app UI hierarchy; a host
-    # screencap after instrumentation exits is commonly the HOME SCREEN.
-    from verify_wimt_screens import verify
-    verified = verify(folder, require_http_403=refused)
-    images = [("Before selecting website source", screenshot(folder / "screens", "wimt-before-selected-source")),
-              ("After selected website response", screenshot(folder / "screens", "wimt-after-selected-source"))]
+    # The APK gate stays strict. A failed run can still produce a clearly labelled
+    # diagnostic PDF from the actual in-test captures, even when the picker stayed
+    # on NTES or one of the later traversal stages was never reached.
+    from verify_wimt_screens import NAMES, verify
+    if accepted:
+        verified = verify(folder)
+        refused = False
+    else:
+        try:
+            verified = verify(folder, require_http_403=reported_refusal)
+        except (ValueError, OSError, ET.ParseError):
+            verified = verify(folder, allow_unselected_website=True, allow_partial=True)
+        refused = (reported_refusal and verified.get("selectedWebsiteObserved") is True and
+                   verified.get("displayedRefusalObserved") is True)
+    status_label = "PASS" if accepted else "REFUSED" if refused else "NOT QUALIFIED"
+    labels = {
+        "wimt-settings-diagnostics": "Settings: diagnostic diary enabled",
+        "wimt-search-route-criteria": "Search: selected MYS→TLGP criteria",
+        "wimt-search-route-results": "Search: live train results before opening",
+        "wimt-before-selected-source": "Track: before selecting website source",
+        "wimt-source-picker-open": "Source picker: website option open",
+        "wimt-after-selected-source": "Track: after selected website response",
+    }
+    verified_names = set(verified.get("verifiedAppScreens", {}))
+    images = [(labels[name], screenshot(folder / "screens", name))
+              for name in NAMES if name in verified_names]
+    if not images:
+        raise ValueError("no authentic in-test app captures are available for a diagnostic PDF")
     output.parent.mkdir(parents=True, exist_ok=True)
     pdf = canvas.Canvas(str(output), pagesize=A4)
     pdf.setTitle("TrackTrain independent website device trial - " + status_label + " - run " + source_run)
@@ -155,6 +174,16 @@ def make_pdf(folder: Path, output: Path, source_run: str, source_sha: str) -> No
             "A network answer, timetable echo, page clock, or detached route claim is not a pass.",
             "The screenshots document the actual app state; they do not prove train movement or GPS.",
         ]
+    if not accepted and verified.get("selectedWebsiteObserved") is not True:
+        if "wimt-after-selected-source" in verified_names:
+            lines.append("Picker result: NOT SELECTED — after-screen still shows NTES · official.")
+        else:
+            lines.append("Picker result: NOT VERIFIED — no valid after-selection screen was captured.")
+    missing = verified.get("missingScreens", [])
+    if missing:
+        short_missing = ", ".join(name.replace("wimt-", "") for name in missing[:4])
+        suffix = " …" if len(missing) > 4 else ""
+        lines.append("Missing traversal captures: " + short_missing + suffix + ".")
     lines += [
         "Screenshots were taken during this installed-app test, not from the launcher.",
         "PR #3 stays open; an emulator test is not Google's phone-app telemetry.",
@@ -201,6 +230,8 @@ def make_pdf(folder: Path, output: Path, source_run: str, source_sha: str) -> No
                       "detachedSiteClaims": original.get("detachedSiteClaims", 0),
                       "appScreenshotVerification": verified,
                       "screenshotNames": [p.name for _, p in images],
+                      "sourceSelectionVerified": verified.get("selectedWebsiteObserved") is True,
+                      "completeTraversal": verified.get("completeTraversal") is True,
                       "bytes": output.stat().st_size}, sort_keys=True))
 
 

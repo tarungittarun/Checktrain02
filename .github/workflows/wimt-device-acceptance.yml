@@ -328,8 +328,12 @@ jobs:
                   result.get('provenanceComplete') is True):
               raise SystemExit('selected train/route/date website event did not pass; APK not delivered')
           if not (screens.get('selectedWebsiteRequired') is True and
+                  screens.get('selectedWebsiteObserved') is True and
+                  screens.get('completeTraversal') is True and
                   screens.get('sameSelectedOriginDate') is True and
-                  len(screens.get('verifiedAppScreens', {})) == 2):
+                  screens.get('screenshotsMatchResultOriginDate') is True and
+                  screens.get('screenshotOriginDateIst') == result.get('originRunDateIst') and
+                  len(screens.get('verifiedAppScreens', {})) == 6):
               raise SystemExit('same-run source-selection screenshots/XML did not verify; APK not delivered')
           PY
           test -s app/build/outputs/apk/debug/app-debug.apk

@@ -35,6 +35,7 @@ class WimtWebsiteLiveAcceptanceTest {
             assertTrue("Settings not reachable", E2E.tap("settings"))
             assertTrue("diagnostic switch not reachable", E2E.reveal("diagToggle", "settingsScroll"))
             assertTrue("cannot enable source diary", E2E.tap("diagToggle"))
+            E2E.shotWimt("wimt-settings-diagnostics")
             E2E.ui.pressBack()
             // Select the stated passenger segment. Searching by number alone would open the
             // stale bundled SBC→SMET corridor before the live MYS→TLGP route is known.
@@ -45,9 +46,12 @@ class WimtWebsiteLiveAcceptanceTest {
             assertTrue("TLGP destination is not searchable", E2E.typeInBox("toBox", toCode.lowercase()) &&
                 E2E.ui.wait(Until.hasObject(E2E.res("sugPrimary")), E2E.LOCAL_MS))
             assertTrue("could not select TLGP", E2E.tapSuggestion("toBox"))
-            assertTrue("Find missing", E2E.reveal("find", "searchCardScroll") && E2E.tap("find"))
+            assertTrue("Find missing", E2E.reveal("find", "searchCardScroll"))
+            E2E.shotWimt("wimt-search-route-criteria")
+            assertTrue("Find could not be tapped", E2E.tap("find"))
             assertTrue("MYS→TLGP search produced no real train results",
                 E2E.ui.wait(Until.hasObject(E2E.res("hitGo")), E2E.NETWORK_MS))
+            E2E.shotWimt("wimt-search-route-results")
             val opened = E2E.openTrackForTrain(number)
             val visibleTrains = E2E.all(E2E.res("hitNo")).map { it.text.orEmpty() }
             assertTrue("MYS→TLGP did not return the pinned train $number; visible=$visibleTrains", opened)
@@ -63,7 +67,7 @@ class WimtWebsiteLiveAcceptanceTest {
                 selectedRoute.startsWith("$fromCode → $toCode"))
             E2E.shotWimt("wimt-before-selected-source")
             assertTrue("source selector not reachable", E2E.reveal("sourceSpinner", "scroller") &&
-                E2E.tap("sourceSpinner"))
+                E2E.fingerTap("sourceSpinner"))
             val site = E2E.ui.wait(Until.findObject(By.textContains("Where Is My Train · website")),
                 E2E.LOCAL_MS)
             assertNotNull("independent website not selectable", site)
@@ -71,7 +75,12 @@ class WimtWebsiteLiveAcceptanceTest {
                 E2E.ui.findObject(By.textContains("WIMT .in live-status feed")) == null)
             assertTrue("the .in web cache is a distinct provider, not a picker choice",
                 E2E.ui.findObject(By.textContains("WIMT web cache · experimental")) == null)
-            site!!.click() // one deliberate selected-source request; no background retry in the test
+            E2E.shotWimt("wimt-source-picker-open")
+            assertTrue("could not physically tap the website source option",
+                E2E.fingerTap(By.textContains("Where Is My Train · website")))
+            assertTrue("website option stayed open after the tap; no selection was consumed",
+                E2E.ui.wait(Until.gone(By.textContains("Where Is My Train · website")), E2E.LOCAL_MS))
+            // One deliberate selected-source request; no background retry in the test.
             val until = System.currentTimeMillis() + E2E.NETWORK_MS
             var accepted = false
             var warning = ""

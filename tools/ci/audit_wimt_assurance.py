@@ -9,7 +9,7 @@ import json
 import sys
 
 from build_wimt_pdf import accepted_result as strict_accepted_result
-from verify_wimt_screens import verify
+from verify_wimt_screens import NAMES, verify
 
 
 def audit(folder: Path) -> dict:
@@ -34,8 +34,10 @@ def audit(folder: Path) -> dict:
         raise ValueError("exact installed-app instrumented test did not pass")
     if (snap.get("displayedRefusalRequired") is not False or
             snap.get("selectedWebsiteRequired") is not True or
+            snap.get("selectedWebsiteObserved") is not True or
+            snap.get("completeTraversal") is not True or
             snap.get("sameSelectedOriginDate") is not True or
-            len(snap.get("verifiedAppScreens", {})) != 2):
+            len(snap.get("verifiedAppScreens", {})) != len(NAMES)):
         raise ValueError("source-qualified in-app before/after screenshots were not verified")
     verify(folder, require_http_403=False)
     return {"sourceVerdict": "DATED_ROUTE_MATCHED_SITE_EVENT_AND_APP_UI_ACCEPTED",
