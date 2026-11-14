@@ -621,9 +621,7 @@ class TrainActivity : AppCompatActivity() {
         AlertDialog.Builder(this)
             .setTitle("${active.size} active alert${if (active.size == 1) "" else "s"} for this journey")
             .setMessage(current + "\n\nAdd another alert, or open the central list to stop one without affecting the others.")
-            .setPositiveButton("Add another") { _, _ ->
-                requestNotificationAccess { loadJourneyForAlarm() }
-            }
+            .setPositiveButton("Add another") { _, _ -> loadJourneyForAlarm() }
             .setNeutralButton("Manage alerts") {
                     _, _ -> startActivity(Intent(this, AlertsActivity::class.java))
             }
@@ -1017,9 +1015,11 @@ class TrainActivity : AppCompatActivity() {
             val armedConfig = config.copy(createdAtMillis = System.currentTimeMillis())
             try {
                 val repo = (application as App).repository()
-                val monitorRoute = repo?.savedSchedule(config.trainNo, config.fromCode,
-                    config.toCode, config.originEpochDay) ?: repo?.route(config.trainNo)
-                    ?: lastUi?.route?.takeIf { it.trainNo == config.trainNo }
+                // Setup and background monitoring must use the same ordered route. The
+                // generic train-number lookup can be valid for the train yet describe a
+                // different corridor/stop sequence than the journey the traveller selected.
+                val monitorRoute = routeForAlertSetup(repo, config.trainNo, config.fromCode,
+                    config.toCode, config.originEpochDay)
                 val monitorFrom = monitorRoute?.stops?.firstOrNull {
                     it.code.equals(config.fromCode, true)
                 }

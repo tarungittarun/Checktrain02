@@ -48,26 +48,60 @@ internal object WebsiteBrowserRequestTiming {
 private val stationCardRoot = Regex(
     """(?is)<div\b(?=[^>]*\bclass\s*=\s*["'][^"']*\bflex-grow\b)(?=[^>]*\bclass\s*=\s*["'][^"']*\brounded-lg\b)[^>]*>""")
 
+private val stationCardMarker = Regex("(?i)<!--\\s*Station Details Card\\s*-->")
+private val stationHeading = Regex("(?is)<h3\\b[^>]*>(.*?)</h3>")
+private val cardClock = Regex("(?is)\\b(?:ARRIVAL|DEPARTURE)\\b.{0,900}?\\b\\d{1,2}:\\d{2}\\s*(?:AM|PM)\\b")
+private val divTag = Regex("(?is)</?div\\b[^>]*>")
+
+private fun stationCardSection(html: String, rootStart: Int, limit: Int): String? {
+    var depth = 0
+    for (tag in divTag.findAll(html, rootStart)) {
+        if (tag.range.first >= limit) break
+        if (tag.value.startsWith("</", ignoreCase = true)) depth--
+        else if (!tag.value.endsWith("/>")) depth++
+        if (depth == 0) return html.substring(rootStart, tag.range.last + 1)
+    }
+    return null
+}
+
 /** Pure DOM-readiness check: do not confuse a page shell or a timetable echo with populated cards. */
 internal fun hasPopulatedTrainDocument(html: String, trainNo: String): Boolean {
     if (html.isBlank() || html.length > MAX_WEBSITE_HTML) return false
-    val visible = html.replace(Regex("(?is)<script\\b[^>]*>.*?</script>"), " ")
+    val visibleHtml = html.replace(Regex("(?is)<script\\b[^>]*>.*?</script>"), " ")
         .replace(Regex("(?is)<style\\b[^>]*>.*?</style>"), " ")
-        .replace(Regex("(?s)<[^>]*>"), " ")
+    val visible = visibleHtml.replace(Regex("(?s)<[^>]*>"), " ")
         .replace("&nbsp;", " ", ignoreCase = true)
         .replace("&#160;", " ", ignoreCase = true)
         .replace(Regex("\\s+"), " ")
     val identity = Regex("(?i)\\b${Regex.escape(trainNo)}\\b").containsMatchIn(visible)
     val update = Regex("(?i)\\bLast\\s+Updated\\s*:\\s*\\d{1,2}:\\d{2}(?::\\d{2})?\\s*(?:AM|PM)")
         .containsMatchIn(visible)
-    val source = Regex("(?i)\\bSource:\\s*[A-Z0-9]{1,6}\\b").containsMatchIn(visible)
-    val destination = Regex("(?i)\\bDestination:\\s*[A-Z0-9]{1,6}\\b")
-        .containsMatchIn(visible)
-    val card = Regex("(?i)<!--\\s*Station Details Card\\s*-->").containsMatchIn(html) ||
-        stationCardRoot.containsMatchIn(html)
-    val clock = Regex("(?is)\\b(?:ARRIVAL|DEPARTURE)\\b.{0,900}?\\b\\d{1,2}:\\d{2}\\s*(?:AM|PM)\\b")
-        .containsMatchIn(html)
-    return identity && update && source && destination && card && clock
+    fun hasLabeledValue(label: String, nextLabel: String): Boolean {
+        val start = Regex("(?i)\\b${Regex.escape(label)}\\s*:\\s*").find(visible)
+            ?: return false
+        val rest = visible.substring(start.range.last + 1)
+        val end = Regex("(?i)\\b(?:${nextLabel}|Last\\s+Updated)\\s*:")
+            .find(rest)?.range?.first ?: rest.length
+        return rest.substring(0, end).trim().take(100).isNotEmpty()
+    }
+    val source = hasLabeledValue("Source", "Destination")
+    val destination = hasLabeledValue("Destination", "Journey\\s+Timeline")
+    val markers = stationCardMarker.findAll(visibleHtml).map { it.range.last + 1 }.toList()
+    val starts = if (markers.isNotEmpty()) markers
+        else stationCardRoot.findAll(visibleHtml).map { it.range.first }.toList()
+    val populatedCard = starts.indices.any { index ->
+        val limit = starts.getOrNull(index + 1) ?: visibleHtml.length
+        val root = stationCardRoot.find(visibleHtml, starts[index])
+        val section = root?.takeIf { it.range.first < limit }?.let {
+            stationCardSection(visibleHtml, it.range.first, limit)
+        }
+        section?.let { card ->
+            val heading = stationHeading.find(card)?.groupValues?.get(1)
+                ?.replace(Regex("(?s)<[^>]*>"), " ")?.replace(Regex("\\s+"), " ")?.trim()
+            !heading.isNullOrBlank() && cardClock.containsMatchIn(card)
+        } ?: false
+    }
+    return identity && update && source && destination && populatedCard
 }
 
 /** The selected independent website's document navigation through Android's actual WebView engine.

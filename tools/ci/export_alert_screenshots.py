@@ -16,17 +16,20 @@ from pathlib import Path
 import re
 import subprocess
 import tempfile
+import time
 from io import BytesIO
 from zipfile import ZIP_DEFLATED, ZipFile
 
 TEST_SOURCE = Path("app/src/androidTest/java/in/opentrack/india/e2e/TravellerAcceptanceTest.kt")
-DIAGNOSTIC_TAGS = ("alert-diagnostic-open-failure",)
+DIAGNOSTIC_TAGS = ("alert-diagnostic-open-failure", "alert-save-did-not-arm")
 # openAlertChoices() takes a literal screenshot tag and calls shotRequired() internally;
 # include those helper-driven traversals as well as the direct mandatory captures.
 TAG_RE = re.compile(
     r'(?:E2E\.shotRequired|openAlertChoices)\("(alert-[A-Za-z0-9._-]+)"\)'
 )
 CHUNK_CHARS = 60_000  # GitHub's comment limit is 65,536 bytes, including the marker line.
+POST_INTERVAL_SECONDS = 2.0  # Keep concurrent online/offline exports below comment abuse thresholds.
+MAX_POST_ATTEMPTS = 6
 
 
 def split_payload(payload: str, limit: int = CHUNK_CHARS) -> list[str]:
@@ -114,15 +117,29 @@ def post_chunks(payload: bytes, profile: str, run_id: str, sha: str) -> str:
             header = (f"<!-- E2E_ALERT_EVIDENCE_V1 run={run_id} profile={profile} "
                       f"sha256={digest} chunk={index}/{len(chunks)} -->\n")
             path.write_text(header + chunk, encoding="ascii")
-            result = subprocess.run(
-                ["gh", "api", "-X", "POST", endpoint, "-F", f"body=@{path}"],
-                text=True, capture_output=True, check=False,
-            )
-            if result.returncode:
-                raise RuntimeError(
-                    f"could not post evidence transport chunk {index}/{len(chunks)}: "
-                    f"{result.stderr.strip()[:300]}"
+            for attempt in range(1, MAX_POST_ATTEMPTS + 1):
+                result = subprocess.run(
+                    ["gh", "api", "-X", "POST", endpoint, "-F", f"body=@{path}"],
+                    text=True, capture_output=True, check=False,
                 )
+                if result.returncode == 0:
+                    break
+                error = result.stderr.strip()[:300]
+                lowered = error.lower()
+                retryable = any(marker in lowered for marker in (
+                    "rate limit", "secondary rate", "abuse", "http 429", "http 502",
+                    "http 503", "http 504", "timed out", "connection reset", "unexpected eof",
+                ))
+                if not retryable or attempt == MAX_POST_ATTEMPTS:
+                    raise RuntimeError(
+                        f"could not post evidence transport chunk {index}/{len(chunks)}: {error}"
+                    )
+                delay = min(30, 2 ** attempt)
+                print(f"Transient GitHub comment failure for chunk {index}/{len(chunks)} "
+                      f"(attempt {attempt}/{MAX_POST_ATTEMPTS}); retrying in {delay}s")
+                time.sleep(delay)
+            if index < len(chunks):
+                time.sleep(POST_INTERVAL_SECONDS)
     return digest
 
 
@@ -145,22 +162,23 @@ def self_test() -> None:
         first = tags[0]
         (evidence / f"{first}.png").write_bytes(b"\x89PNG\r\n" + "x".encode() * 2000)
         (evidence / f"{first}.xml").write_text("<hierarchy/>" + " " * 101, encoding="utf-8")
-        diagnostic = DIAGNOSTIC_TAGS[0]
-        (evidence / f"{diagnostic}.png").write_bytes(b"\x89PNG\r\n" + "y".encode() * 2000)
-        (evidence / f"{diagnostic}.xml").write_text("<hierarchy/>" + " " * 101, encoding="utf-8")
+        diagnostics = list(DIAGNOSTIC_TAGS)
+        for index, diagnostic in enumerate(diagnostics):
+            filler = chr(ord("y") + index)
+            (evidence / f"{diagnostic}.png").write_bytes(b"\x89PNG\r\n" + filler.encode() * 2000)
+            (evidence / f"{diagnostic}.xml").write_text(
+                "<hierarchy/>" + " " * 101, encoding="utf-8")
         bundle, manifest = build_bundle(evidence, "online", "self-test", "deadbeef", True,
                                         only_tags=[first])
         assert manifest["complete"] is True
         assert manifest["requiredTags"] == tags
         assert manifest["scopeTags"] == [first]
-        assert manifest["includedFiles"] == [
-            f"{first}.png", f"{first}.xml", f"{diagnostic}.png", f"{diagnostic}.xml"
-        ]
-        assert manifest["diagnosticFiles"] == [f"{diagnostic}.png", f"{diagnostic}.xml"]
+        diagnostic_files = [f"{tag}.{ext}" for tag in diagnostics for ext in ("png", "xml")]
+        assert manifest["includedFiles"] == [f"{first}.png", f"{first}.xml"] + diagnostic_files
+        assert manifest["diagnosticFiles"] == diagnostic_files
         with ZipFile(BytesIO(bundle)) as archive:
-            assert set(archive.namelist()) == {
-                "manifest.json", f"screens/{first}.png", f"screens/{first}.xml",
-                f"screens/{diagnostic}.png", f"screens/{diagnostic}.xml",
+            assert set(archive.namelist()) == {"manifest.json"} | {
+                f"screens/{name}" for name in [f"{first}.png", f"{first}.xml"] + diagnostic_files
             }
             stored_manifest = json.loads(archive.read("manifest.json"))
             assert stored_manifest["runId"] == "self-test"

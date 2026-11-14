@@ -507,8 +507,10 @@ class TravellerAcceptanceTest {
         E2E.shotRequired("alert-interval-selected")
         assertTrue("Set alert action is missing before save", tapTextContains("Set alert"))
         allowPermissionIfPrompted()
+        val alertSaved = E2E.ui.wait(Until.hasObject(By.text("Alert on")), E2E.NETWORK_MS)
+        if (!alertSaved) E2E.shotDiagnostic("alert-save-did-not-arm")
         assertTrue("Set alert did not save or start: '${textContains("Permission needed for arrival alerts", 300)}'",
-            E2E.ui.wait(Until.hasObject(By.text("Alert on")), E2E.NETWORK_MS))
+            alertSaved)
         assertTrue("Saved alert is not visible on its control",
             E2E.text("arrivalAlert") == "Alert on")
         assertTrue("Saved alert control is not visible on the journey screen",

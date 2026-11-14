@@ -126,7 +126,11 @@ object OrgWebsiteStatus {
                        val pageUpdatedAt: Long? = null,
                        /** A site claim identity-matched to an independent live endpoint witness,
                         * but deliberately detached from the selected timetable when routes differ. */
-                       val detachedPageClaim: DetachedPageClaim? = null)
+                       val detachedPageClaim: DetachedPageClaim? = null,
+                       /** Bounded endpoint codes/labels from visible text, never raw website HTML. */
+                       val pageEndpoints: PageEndpoints? = null,
+                       /** Structural card containers found, whether or not their labels qualify. */
+                       val parsedCardContainers: Int = 0)
 
     /** Ordered route progress, NOT an absolute km. Map intermediate km and dated halt km
      * can be on different static axes; BEI 905 in a separately mapped leg must still
@@ -202,6 +206,96 @@ object OrgWebsiteStatus {
             val end = starts.getOrNull(index + 1) ?: html.length
             html.substring(start, end).takeIf { cardClass.find(it) != null }
         }
+    }
+
+    /** Bounded structural diagnostic; never returns card text or raw website markup. */
+    internal fun diagnosticCardCount(html: String): Int {
+        val visibleHtml = html.replace(Regex("(?is)<script\\b[^>]*>.*?</script>"), " ")
+            .replace(Regex("(?is)<style\\b[^>]*>.*?</style>"), " ")
+        return cardParts(visibleHtml).size
+    }
+
+    /** Read endpoint labels without guessing. Prefer an explicit candidate station code, then an
+     * exact normalized match against names already carried by the selected timetable. Unrecognized
+     * or ambiguous names remain unknown; a route is never inferred from a loose prefix. Only the
+     * bounded visible labels are retained for diagnosis, never raw website markup. */
+    data class PageEndpoints(
+        val fromCode: String?,
+        val toCode: String?,
+        val fromLabel: String? = null,
+        val toLabel: String? = null,
+    )
+
+    internal fun routeEndpointsFromVisibleText(text: String,
+        candidates: Set<String>, namesByCode: Map<String, Set<String>> = emptyMap()): PageEndpoints {
+        val header = text.substringBefore("Journey Timeline", text).take(1500)
+        val allowed = candidates.map { it.uppercase(Locale.ROOT) }.toSet()
+        fun field(label: String): String? {
+            val start = Regex("(?i)\\b${Regex.escape(label)}\\s*:\\s*").find(header)
+                ?: return null
+            val rest = header.substring(start.range.last + 1)
+            val end = Regex("(?i)\\b(?:Source|Destination|Last\\s+Updated)\\s*:|\\bJourney\\s+Timeline\\b")
+                .find(rest)?.range?.first ?: rest.length
+            return rest.substring(0, end).trim()
+        }
+        fun code(value: String?): String? {
+            if (value.isNullOrBlank() || allowed.isEmpty()) return null
+            val explicit = stationCode.findAll(value)
+                .map { it.groupValues[1].uppercase(Locale.ROOT) }
+                .firstOrNull { it in allowed }
+            if (explicit != null) return explicit
+            val tokens = Regex("(?i)\\b([A-Z0-9]{2,6})\\b").findAll(value)
+                .map { it.groupValues[1].uppercase(Locale.ROOT) }
+                .filter { it in allowed }.distinct().toList()
+            if (tokens.size == 1) return tokens.firstOrNull()
+            if (tokens.size > 1) return null
+
+            val printedName = normalizedStationLabel(value)
+            if (printedName.isEmpty()) return null
+            val matches = namesByCode.entries.asSequence()
+                .filter { it.key.uppercase(Locale.ROOT) in allowed }
+                .filter { (_, names) -> names.any { normalizedStationLabel(it) == printedName } }
+                .map { it.key.uppercase(Locale.ROOT) }.distinct().toList()
+            return matches.singleOrNull()
+        }
+        fun safeLabel(value: String?): String? {
+            val label = value.orEmpty().replace(Regex("[\\p{Cntrl}<>]"), " ")
+                .replace(Regex("\\s+"), " ").trim().take(80)
+            return label.takeIf { it.isNotEmpty() }
+        }
+        val fromLabel = field("Source")
+        val toLabel = field("Destination")
+        return PageEndpoints(code(fromLabel), code(toLabel),
+            safeLabel(fromLabel), safeLabel(toLabel))
+    }
+
+    private val endpointSuffixes = setOf("junction", "jn", "jct", "station", "railway")
+
+    private fun normalizedStationLabel(value: String): String = value
+        .replace(Regex("(?i)&(?:amp;)?"), " and ")
+        .lowercase(Locale.ROOT)
+        .split(Regex("[^\\p{L}\\p{N}]+"))
+        .filter { it.isNotBlank() && it !in endpointSuffixes }
+        .joinToString(" ")
+
+    private fun routeStationNames(route: TrainRoute): Map<String, Set<String>> =
+        route.stops.associate { stop ->
+            val aliases = linkedSetOf(stop.name)
+            if (stop.code.equals(route.srcCode, true)) aliases += route.srcName
+            if (stop.code.equals(route.dstCode, true)) aliases += route.dstName
+            stop.code.uppercase(Locale.ROOT) to aliases
+        }
+
+    /** Explicit station codes remain useful even when they are not on the selected route;
+     * name-only cards map only when one selected-route stop has an exact normalized name. */
+    private fun stationCodeFromCardHeading(heading: String, route: TrainRoute): String? {
+        stationCode.find(heading)?.groupValues?.get(1)?.uppercase(Locale.ROOT)?.let { return it }
+        val label = normalizedStationLabel(heading)
+        if (label.isEmpty()) return null
+        val matches = routeStationNames(route).entries.asSequence()
+            .filter { (_, names) -> names.any { normalizedStationLabel(it) == label } }
+            .map { it.key }.distinct().toList()
+        return matches.singleOrNull()
     }
 
     private fun cardSections(part: String): Pair<String, String> {
@@ -306,10 +400,11 @@ object OrgWebsiteStatus {
         if (!Regex("(?i)\\b${Regex.escape(number)}\\b").containsMatchIn(header) ||
             Regex("(?i)\\b(?:not running today|yet to start|has not started|cancelled|diverted)\\b")
                 .containsMatchIn(header)) return null
-        val websiteFrom = Regex("(?i)\\bSource:\\s*([A-Z0-9]{1,6})\\b")
-            .find(header)?.groupValues?.get(1)?.uppercase(Locale.ROOT) ?: return null
-        val websiteTo = Regex("(?i)\\bDestination:\\s*([A-Z0-9]{1,6})\\b")
-            .find(header)?.groupValues?.get(1)?.uppercase(Locale.ROOT) ?: return null
+        val endpoints = routeEndpointsFromVisibleText(visibleText,
+            setOf(route.srcCode, route.dstCode, identity.fromCode, identity.toCode),
+            routeStationNames(route))
+        val websiteFrom = endpoints.fromCode ?: return null
+        val websiteTo = endpoints.toCode ?: return null
         if (!websiteFrom.equals(identity.fromCode, true) ||
             !websiteTo.equals(identity.toCode, true) ||
             websiteFrom.equals(route.srcCode, true) && websiteTo.equals(route.dstCode, true)) return null
@@ -320,8 +415,8 @@ object OrgWebsiteStatus {
         val cards = cardParts(html).mapIndexedNotNull { index, part ->
             val headingMarkup = headingText.find(part)?.groupValues?.get(1).orEmpty()
             val headingPlain = plainText(headingMarkup)
-            val code = stationCode.find(headingPlain)?.groupValues?.get(1)
-                ?.uppercase(Locale.ROOT) ?: return@mapIndexedNotNull null
+            val code = stationCodeFromCardHeading(headingPlain, route)
+                ?: return@mapIndexedNotNull null
             val className = cardClass.find(part)?.groupValues?.get(1).orEmpty()
             val mark = when {
                 className.contains("bg-green-50") && className.contains("opacity-90") -> SiteCardMark.PAST
@@ -391,13 +486,17 @@ object OrgWebsiteStatus {
         val html = body.replace(Regex("(?is)<script\\b[^>]*>.*?</script>"), " ")
             .replace(Regex("(?is)<style\\b[^>]*>.*?</style>"), " ")
         val text = html.replace(Regex("(?s)<[^>]*>"), " ").replace(Regex("\\s+"), " ")
+        val header = text.substringBefore("Journey Timeline", text).take(1500)
         if (!Regex("(?i)\\b${Regex.escape(number)}\\b").containsMatchIn(text))
             return Outcome(null, "website page does not identify train $number")
-        val header = text.substringBefore("Journey Timeline", text).take(1500)
-        val websiteFrom = Regex("(?i)\\bSource:\\s*([A-Z0-9]{1,6})\\b")
-            .find(header)?.groupValues?.get(1)
-        val websiteTo = Regex("(?i)\\bDestination:\\s*([A-Z0-9]{1,6})\\b")
-            .find(header)?.groupValues?.get(1)
+        val endpoints = routeEndpointsFromVisibleText(text,
+            setOf(route.srcCode, route.dstCode, expectedIdentity?.fromCode.orEmpty(),
+                expectedIdentity?.toCode.orEmpty()), routeStationNames(route))
+        val parsedCardContainers = diagnosticCardCount(html)
+        fun rejected(reason: String): Outcome = Outcome(null, reason, null, emptyList(),
+            emptyMap(), null, null, endpoints, parsedCardContainers)
+        val websiteFrom = endpoints.fromCode
+        val websiteTo = endpoints.toCode
         val routeMatchesPage = websiteFrom?.equals(route.srcCode, true) == true &&
             websiteTo?.equals(route.dstCode, true) == true
         if (!routeMatchesPage) {
@@ -416,25 +515,31 @@ object OrgWebsiteStatus {
                     "website route $siteLabel matches live ${detached.identitySource} identity but " +
                         "differs from selected timetable $routeLabel;$claimLabel; comparison only, " +
                         "not mapped to this route or current position",
-                    null, detached.siteCards, emptyMap(), detached.pageUpdatedAt, detached)
+                    null, detached.siteCards, emptyMap(), detached.pageUpdatedAt, detached,
+                    endpoints, parsedCardContainers)
             }
-            return Outcome(null, "website train or endpoints do not match selected run")
+            val siteLabel = "${websiteFrom ?: "unknown"}→${websiteTo ?: "unknown"}"
+            val selectedLabel = "${route.srcCode.uppercase(Locale.ROOT)}→${route.dstCode.uppercase(Locale.ROOT)}"
+            return rejected("website endpoints $siteLabel do not match selected timetable " +
+                "$selectedLabel; $parsedCardContainers parsed station card container(s); " +
+                "no selected-run claim admitted")
         }
         if (!RailTime.runsOn(route.runDays, RailTime.istWeekdayOfEpochDay(originDay)))
-            return Outcome(null, "selected train does not run on this origin day")
+            return rejected("selected train does not run on this origin day")
         // This site has no date selector. Only a route-matched page may be associated
         // with the active selected timetable run; a detached page is never given that
         // run identity or mapped to its schedule.
         val originDep = route.stops.first().departureMin
-            ?: return Outcome(null, "origin departure timetable missing")
+            ?: return rejected("origin departure timetable missing")
         val railNow = ((RailTime.istEpochDay(now) - originDay) * 1440 + RailTime.istMinuteOfDay(now)).toInt()
         val elapsed = railNow - originDep
         if (elapsed !in 0..minOf(1439, (route.totalMin ?: 1440) + 240))
-            return Outcome(null, "site has no day selector; selected origin run is not unambiguously active")
+            return rejected("site has no day selector; selected origin run is not unambiguously active")
         if (Regex("(?i)\\b(?:not running today|yet to start|has not started|cancelled|diverted)\\b")
                 .containsMatchIn(header))
-            return Outcome(null, "website reports this run is not active")
-        val stamp = pageClock(text, now) ?: return Outcome(null, "website update clock missing or over five minutes old")
+            return rejected("website reports this run is not active")
+        val stamp = pageClock(text, now)
+            ?: return rejected("website update clock missing or over five minutes old")
         // The website can report non-halt stations (BEI/SME on 20689). Accept only
         // points in a separately validated, in-order map with credible leg distances.
         val map = mapRoute?.takeIf { RouteBetween.withVerifiedHalts(it, route) != null }
@@ -466,8 +571,7 @@ object OrgWebsiteStatus {
         for ((cardIndex, part) in cardParts(html).withIndex()) {
             val headingMarkup = headingText.find(part)?.groupValues?.get(1).orEmpty()
             val headingPlain = plainText(headingMarkup)
-            val code = stationCode.find(headingPlain)?.groupValues?.get(1)
-                ?.uppercase(Locale.ROOT) ?: continue
+            val code = stationCodeFromCardHeading(headingPlain, route) ?: continue
             // Green is source-marked past, blue is highlighted, and white is upcoming.
             // None of those styles independently proves that the train moved.
             val className = cardClass.find(part)?.groupValues?.get(1).orEmpty()
@@ -676,9 +780,11 @@ object OrgWebsiteStatus {
         val qualification = excluded.lastOrNull { it.first > lastAcceptedCard }?.second
         val omitted = if (excluded.isEmpty()) "" else
             "; ${excluded.size} source-coloured past card(s) omitted from Actual (timetable echo or unmapped station)"
-        if (anchorCode == null) return Outcome(null, "no past-marked, schedule-paired website station minute for this run" +
-            if (laterThanPage > 0) "; $laterThanPage claimed event(s) later than the page update clock rejected" else "",
-            qualification, siteCards.toList(), siteClocks.toMap(), stamp)
+        if (anchorCode == null) return Outcome(null,
+            "no past-marked, schedule-paired website station minute for this run" +
+                if (laterThanPage > 0) "; $laterThanPage claimed event(s) later than the page update clock rejected" else "",
+            qualification, siteCards.toList(), siteClocks.toMap(), stamp, null,
+            endpoints, parsedCardContainers)
         // The owner's 20689 diary shows the last green card's BDVT departure
         // changing 13:47→13:48→13:51→13:52 as the page clock advanced. It is
         // NOT a settled historic departure until another station has been reached.
@@ -698,6 +804,7 @@ object OrgWebsiteStatus {
             "${rows.size} website-published past station rows; " +
                 (if (laterThanPage > 0) "$laterThanPage claimed event(s) later than the page update clock rejected; " else "") +
                 "origin day inferred from timetable, not stated by site; clocks are site claims, not independently verified observations" + omitted,
-            qualification, siteCards.toList(), siteClocks.toMap(), stamp)
+            qualification, siteCards.toList(), siteClocks.toMap(), stamp, null,
+            endpoints, parsedCardContainers)
     }
 }

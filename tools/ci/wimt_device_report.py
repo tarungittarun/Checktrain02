@@ -38,7 +38,10 @@ def verdict(instrumentation: str, diary: str, process_rc: int) -> dict:
     detached_rows = token(r"\bdetachedSiteClaims=(\d+)")
     site_claim_kind = token(r"\bsiteClaimKind=([A-Z_]+)")
     site_route = token(r"\bsiteRoute=([A-Z0-9>]+)")
+    site_page_endpoints = token(r"\bsitePageEndpoints=([A-Za-z0-9>]+)")
+    site_page_labels = token(r"\bsitePageLabels=([^\s]+)")
     selected_route = token(r"\bselectedRoute=([A-Z0-9>]+)")
+    site_card_containers = token(r"\bsiteCardContainers=(\d+)")
     live_identity_route_match = token(r"\bliveIdentityRouteMatch=(true|false)") == "true"
     claim_time_basis = token(r"\bsiteClaimTimeBasis=([A-Za-z_;]+)")
     claim_at_raw = token(r"\bsiteClaimAt=(\d{1,16})\b")
@@ -121,7 +124,9 @@ def verdict(instrumentation: str, diary: str, process_rc: int) -> dict:
                              "claim clock aligned to fresh page publication" if detached_site_claim else
                              "inferred_from_selected_timetable; site does not publish run date"),
             "runIdentity": identity or "unknown",
-            "siteRoute": site_route, "selectedRoute": selected_route,
+            "siteRoute": site_route, "sitePageEndpoints": site_page_endpoints,
+            "sitePageLabels": site_page_labels, "selectedRoute": selected_route,
+            "siteCardContainers": int(site_card_containers) if site_card_containers else None,
             "liveIdentityRouteMatch": live_identity_route_match,
             "siteClaimStation": site_claim.group(1) if site_claim else "unknown",
             "siteClaimKind": site_claim_kind or "unknown",
@@ -148,10 +153,17 @@ def self_test() -> None:
             "11-05 [EVIDENCE] source=whereismytrain.org.in (website) train=16227 "
             "originDay=20769 transport=NETWORK_ANSWER bytes=108395 sha256_16=0123456789abcdef "
             "parsed=SITE_COMPARISON runIdentity=INFERRED primaryActuals=0 primaryMarker=none "
-            "siteRows=10 detachedSiteClaims=0 siteClaim=RRB:1217 pagePublishedAt=" + str(published) +
+            "siteRows=10 detachedSiteClaims=0 siteClaim=RRB:1217 "
+            "sitePageEndpoints=MYS>TLGP sitePageLabels=Mysuru_Junction>Talguppa "
+            "selectedRoute=MYS>TLGP siteCardContainers=30 "
+            "pagePublishedAt=" + str(published) +
             " checkedAt=" + str(checked) + "\n")
     result = verdict("OK (1 test)", good, 0)
     assert result["accepted"]
+    assert result["sitePageEndpoints"] == "MYS>TLGP"
+    assert result["sitePageLabels"] == "Mysuru_Junction>Talguppa"
+    assert result["selectedRoute"] == "MYS>TLGP"
+    assert result["siteCardContainers"] == 30
     assert result["originRunDateIst"] == "2026-11-12"
     assert result["siteClaimTimeIst"] == "2026-11-12T20:17:00+05:30"
     assert result["siteClaimAgeSecondsAtCheck"] == 2_910

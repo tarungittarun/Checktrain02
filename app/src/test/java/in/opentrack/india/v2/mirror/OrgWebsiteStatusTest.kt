@@ -126,6 +126,55 @@ class OrgWebsiteStatusTest {
             route = route).orgDistanceProbe!!.contains("km segment"))
     }
 
+    @Test fun `visible station names populate only exact selected-route endpoint and card matches`() {
+        val namedRoute = route.copy(srcName = "Mysuru Junction", dstName = "Talguppa",
+            stops = route.stops.map { stop ->
+                when (stop.code) {
+                    "ARU" -> stop.copy(name = "Arasalu")
+                    "ANF" -> stop.copy(name = "Anandapuram")
+                    else -> stop
+                }
+            })
+        val namedPage = page.replace("Source: MYS", "Source: Mysuru Junction")
+            .replace("Destination: TLGP", "Destination: Talguppa")
+            .replace("Station (ARU)", "Arasalu")
+            .replace("Station (ANF)", "Anandapuram")
+        val outcome = OrgWebsiteStatus.parse(namedPage, "16227", day, now, namedRoute)
+        val report = outcome.report ?: error(outcome.reason)
+        assertEquals("MYS", outcome.pageEndpoints?.fromCode)
+        assertEquals("TLGP", outcome.pageEndpoints?.toCode)
+        assertEquals("Mysuru Junction", outcome.pageEndpoints?.fromLabel)
+        assertEquals("Talguppa", outcome.pageEndpoints?.toLabel)
+        assertEquals(2, outcome.parsedCardContainers)
+        assertEquals("ARU", report.anchorCode)
+        assertEquals("Arasalu", report.siteCards.first().stationName)
+        assertEquals(2, report.siteClocks.size)
+
+        val parsed = PublicPageChecks.parse(PublicPageChecks.ORG, namedPage, "16227", day,
+            now, route = namedRoute)
+        assertTrue(parsed.orgContentParsed)
+        assertEquals("MYS", parsed.orgPageEndpoints?.fromCode)
+        assertEquals("TLGP", parsed.orgPageEndpoints?.toCode)
+        assertEquals("MYS", parsed.orgSelectedRouteFromCode)
+        assertEquals("TLGP", parsed.orgSelectedRouteToCode)
+        assertEquals(2, parsed.orgParsedCardContainers)
+        val receipt = `in`.opentrack.india.ui.SourceEvidenceReceipt.publicPage(
+            PublicPageChecks.ORG, "16227", day, parsed)
+        assertTrue(receipt.contains("sitePageEndpoints=MYS>TLGP"))
+        assertTrue(receipt.contains("sitePageLabels=Mysuru_Junction>Talguppa"))
+        assertTrue(receipt.contains("selectedRoute=MYS>TLGP"))
+        assertTrue(receipt.contains("siteCardContainers=2"))
+
+        val unknownEndpoint = OrgWebsiteStatus.parse(namedPage.replace(
+            "Destination: Talguppa", "Destination: Other Terminal"),
+            "16227", day, now, namedRoute)
+        assertNull("an unrelated endpoint name must not be guessed from a prefix",
+            unknownEndpoint.report)
+        assertNull(unknownEndpoint.pageEndpoints?.toCode)
+        assertEquals("Other Terminal", unknownEndpoint.pageEndpoints?.toLabel)
+        assertEquals(2, unknownEndpoint.parsedCardContainers)
+    }
+
     @Test fun `website request is single and identifies as this app, not Chrome`() {
         assertEquals(0, PublicPageChecks.retriesFor(PublicPageChecks.ORG))
         assertEquals(0, PublicPageChecks.retriesFor(PublicPageChecks.RAIL_YATRI))

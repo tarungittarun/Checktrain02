@@ -33,7 +33,17 @@ object SourceEvidenceReceipt {
             ?: detached?.event?.kind?.name ?: "none"
         val siteRoute = detached?.let { it.websiteFromCode + ">" + it.websiteToCode } ?: "none"
         val selectedRoute = detached?.let { it.selectedRouteFromCode + ">" + it.selectedRouteToCode }
-            ?: "none"
+            ?: result.orgSelectedRouteFromCode?.let { from -> result.orgSelectedRouteToCode
+                ?.let { to -> from + ">" + to } } ?: "none"
+        val pageEndpoints = result.orgPageEndpoints?.let {
+            "${it.fromCode ?: "unknown"}>${it.toCode ?: "unknown"}"
+        } ?: "unknown"
+        fun labelToken(value: String?): String = value?.replace(
+            Regex("[^\\p{L}\\p{N}]+"), "_")?.trim('_')?.take(48)?.ifBlank { "unknown" }
+            ?: "unknown"
+        val pageEndpointLabels = result.orgPageEndpoints?.let {
+            "${labelToken(it.fromLabel)}>${labelToken(it.toLabel)}"
+        } ?: "unknown"
         val siteClaimAt = detached?.event?.let {
             RailTime.railMinuteToEpochMillis(detached.originDay, it.minute)
         }
@@ -45,7 +55,9 @@ object SourceEvidenceReceipt {
             "siteCards=${result.orgSiteCards.size} siteDisplayStops=${result.orgSiteClocks.size} " +
             "siteClaimStation=${result.orgReport?.anchorCode ?: detached?.event?.stationCode ?: "unknown"} " +
             "siteClaim=$siteClaim siteClaimKind=$siteClaimKind " +
-            "siteRoute=$siteRoute selectedRoute=$selectedRoute " +
+            "siteRoute=$siteRoute sitePageEndpoints=$pageEndpoints " +
+            "sitePageLabels=$pageEndpointLabels selectedRoute=$selectedRoute " +
+            "siteCardContainers=${result.orgParsedCardContainers} " +
             "liveIdentityRouteMatch=${detached != null} siteClaimTimeBasis=" +
             "${if (detached != null) "page_clock_aligned;selected_origin_day_unverified" else "selected_origin_timetable"} " +
             "siteClaimAt=${siteClaimAt ?: "unknown"} " +

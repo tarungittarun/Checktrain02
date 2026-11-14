@@ -53,6 +53,12 @@ object PublicPageChecks {
         val orgSitePageClockHasSeconds: Boolean = false,
         /** Route-matched website comparison clocks, never used as event or position evidence. */
         val orgSiteClocks: Map<String, OrgWebsiteStatus.SiteClocks> = emptyMap(),
+        /** Bounded website endpoints and selected timetable endpoints for failure diagnosis. */
+        val orgPageEndpoints: OrgWebsiteStatus.PageEndpoints? = null,
+        val orgSelectedRouteFromCode: String? = null,
+        val orgSelectedRouteToCode: String? = null,
+        /** Structural card containers found before station/timetable qualification. */
+        val orgParsedCardContainers: Int = 0,
     )
 
     /** Explain a missing destination in a returned website timeline without treating its
@@ -155,7 +161,8 @@ object PublicPageChecks {
                     orgQualificationNote = null, orgDetachedPageClaim = null,
                     orgDistanceProbe = "cached HTTP page; no same-page distance accepted",
                     orgSiteCards = emptyList(), orgSitePageUpdatedAt = null,
-                    orgSitePageClockHasSeconds = false, orgSiteClocks = emptyMap())
+                    orgSitePageClockHasSeconds = false, orgSiteClocks = emptyMap(),
+                    orgPageEndpoints = null, orgParsedCardContainers = 0)
                 else answer
             }
         }
@@ -305,6 +312,10 @@ object PublicPageChecks {
             orgSitePageClockHasSeconds = name == ORG && updated?.let {
                 Regex("\\d{1,2}:\\d{2}:\\d{2}").containsMatchIn(it)
             } == true,
-            orgSiteClocks = org?.siteClocks.orEmpty())
+            orgSiteClocks = org?.siteClocks.orEmpty(),
+            orgPageEndpoints = org?.pageEndpoints,
+            orgSelectedRouteFromCode = route?.srcCode?.uppercase(Locale.ROOT),
+            orgSelectedRouteToCode = route?.dstCode?.uppercase(Locale.ROOT),
+            orgParsedCardContainers = org?.parsedCardContainers ?: 0)
     }
 }

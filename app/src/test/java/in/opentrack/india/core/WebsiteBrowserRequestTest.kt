@@ -34,6 +34,10 @@ class WebsiteBrowserRequestTest {
             </body></html>""".trimIndent()
 
         assertTrue(hasPopulatedTrainDocument(renderedDom, "16227"))
+        val namedEndpoints = renderedDom.replace("Source: MYS", "Source: Mysuru Junction")
+            .replace("Destination: TLGP", "Destination: Talguppa")
+        assertTrue("visible station names, not only short codes, indicate a hydrated document",
+            hasPopulatedTrainDocument(namedEndpoints, "16227"))
     }
 
     @Test fun oneWebsiteNavigationGetsARealBoundedLoadAndDomHydrationWindow() {
@@ -60,8 +64,20 @@ class WebsiteBrowserRequestTest {
             <div>ARRIVAL 04:20 AM</div></div>
             </body></html>""".trimIndent()
 
+        val clockOutsideCard = partial.replace(
+            "<p>Journey Timeline: ARRIVAL 04:20 AM</p>",
+            "<div class=\"flex-grow rounded-lg\"><h3>Arsikere (ASK)</h3></div>" +
+                "<p>Journey Timeline: ARRIVAL 04:20 AM</p>")
+        val scriptOnlyCard = partial.replace("</body>",
+            "<script><!-- Station Details Card --><div class='flex-grow rounded-lg'>" +
+                "<h3>Arsikere (ASK)</h3><div>ARRIVAL 04:20 AM</div></div></script></body>")
+
         assertFalse(hasPopulatedTrainDocument(partial, "16227"))
         assertFalse(hasPopulatedTrainDocument(scriptOnlyIdentity, "16227"))
+        assertFalse("a page clock elsewhere cannot make an empty card ready",
+            hasPopulatedTrainDocument(clockOutsideCard, "16227"))
+        assertFalse("card-like script text is not a visible timetable",
+            hasPopulatedTrainDocument(scriptOnlyCard, "16227"))
         assertFalse(hasPopulatedTrainDocument(partial, "12627"))
     }
 }
