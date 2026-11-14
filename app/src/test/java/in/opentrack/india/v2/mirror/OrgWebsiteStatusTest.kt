@@ -342,6 +342,10 @@ class OrgWebsiteStatusTest {
             .replace("<!-- Station Details Card -->", "")
             .replace("<!-- Arrival -->", "")
             .replace("<!-- Departure -->", "")
+            // The captured source has a dangling comment opener between cards. This
+            // test models a rendered DOM with comments removed, not that raw malformed source.
+            .replace("<!--\n", "\n")
+            .replace("flex-grow p-3 mb-3 rounded-lg ml-4 shadow-sm", "station-timeline-item")
             .replace("""<h3 class="font-medium text-sm text-gray-800">""",
                 """<h3 class="font-medium text-sm text-gray-800"><span>""")
             .replace("</h3>", "</span></h3>")
@@ -353,6 +357,19 @@ class OrgWebsiteStatusTest {
         assertEquals(2, report.siteCards.size)
         assertEquals(1813, report.siteClocks["ANF"]?.arrivalMin)
         assertEquals(1869, report.siteClocks["SRF"]?.arrivalMin)
+    }
+
+    @Test fun `HTML space entities do not hide visible endpoint labels or site cards`() {
+        val entityPage = page.replace("Source: MYS", "Source:&nbsp;MYS")
+            .replace("Destination: TLGP", "Destination:&#160;TLGP")
+            .replace("05:50 AM", "05:50&nbsp;AM")
+        val outcome = OrgWebsiteStatus.parse(entityPage, "16227", day, now, route)
+        val report = outcome.report ?: error(outcome.reason)
+        assertEquals("MYS", outcome.pageEndpoints?.fromCode)
+        assertEquals("TLGP", outcome.pageEndpoints?.toCode)
+        assertEquals(2, report.siteCards.size)
+        assertEquals("ARU", report.anchorCode)
+        assertEquals(1790, report.siteClocks["ARU"]?.arrivalMin)
     }
 
     @Test fun `website marks past card but future first clock is still a prediction`() {

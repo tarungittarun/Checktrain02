@@ -55,9 +55,11 @@ internal object WebsiteCardMarkup {
     private val stationCardMarker = Regex("(?is)^<!--\\s*Station Details Card\\s*-->$")
     private val stationHeading = Regex("(?is)<h3\\b[^>]*>(.*?)</h3>")
     private val cardClock = Regex("(?is)\\b(?:ARRIVAL|DEPARTURE)\\b.{0,900}?\\b\\d{1,2}:\\d{2}\\s*(?:AM|PM)\\b")
+    private val htmlSpaceEntity = Regex("&(?:nbsp;|#160;|#x0*a0;)", RegexOption.IGNORE_CASE)
     private val scriptOrStyle = Regex("(?is)<(?:script|style)\\b[^>]*>.*?</(?:script|style)\\s*>")
 
-    /** HTML after scripts, styles and comments are masked, with same-length offsets retained. */
+    /** HTML after scripts, styles and comments are masked and HTML-space entities normalized
+     * without changing offsets. */
     internal data class VisiblePageMarkup(
         val html: String,
         val stationCardMarkerOffsets: List<Int>,
@@ -83,20 +85,55 @@ internal object WebsiteCardMarkup {
             visible.append(" ".repeat(comment.length))
             cursor = end
         }
-        return VisiblePageMarkup(visible.toString(), markers)
+        val normalized = htmlSpaceEntity.replace(visible.toString()) {
+            " ".repeat(it.value.length)
+        }
+        return VisiblePageMarkup(normalized, markers)
     }
 
-    /** Root offsets for source-marked cards, plus DOM-class roots when markers are missing. */
+    /** Roots for marked cards and rendered DOM variants whose CSS classes/comments changed. */
     internal fun stationCardSectionStarts(document: VisiblePageMarkup): List<Int> {
-        val classRoots = stationCardRoot.findAll(document.html).map { it.range.first }.toList()
+        val html = document.html
+        val classRoots = stationCardRoot.findAll(html).map { it.range.first }.toList()
         val markerRoots = document.stationCardMarkerOffsets.mapNotNull { marker ->
             val nextMarker = document.stationCardMarkerOffsets.firstOrNull { it > marker }
-                ?: document.html.length
+                ?: html.length
             classRoots.firstOrNull { it >= marker && it < nextMarker }
-                ?: divOpenTag.find(document.html, marker)
+                ?: divOpenTag.find(html, marker)
                     ?.takeIf { it.range.first < nextMarker }?.range?.first
         }
-        return (markerRoots + classRoots).distinct().sorted()
+        val semanticRoots = semanticStationCardSectionStarts(html)
+        return (markerRoots + classRoots + semanticRoots).distinct().sorted()
+    }
+
+    /** A station heading and its own labelled clock are a safe structural fallback when
+     * a hydrated DOM omits source comments or changes Tailwind class names. Search only bounded,
+     * balanced div ancestors and choose the nearest one containing exactly one station heading. */
+    private fun semanticStationCardSectionStarts(html: String): List<Int> {
+        val headings = stationHeading.findAll(html).take(100).toList()
+        if (headings.isEmpty()) return emptyList()
+        val openings = divOpenTag.findAll(html).take(10_000)
+            .map { it.range.first }.toList()
+        return headings.mapNotNull { heading ->
+            var low = 0
+            var high = openings.size
+            while (low < high) {
+                val middle = (low + high) ushr 1
+                if (openings[middle] < heading.range.first) low = middle + 1 else high = middle
+            }
+            val lastBeforeHeading = low - 1
+            if (lastBeforeHeading < 0) return@mapNotNull null
+            val earliest = (lastBeforeHeading - 96).coerceAtLeast(0)
+            for (index in lastBeforeHeading downTo earliest) {
+                val start = openings[index]
+                val section = divSectionAt(html, start) ?: continue
+                if (heading.range.last >= start + section.length) continue
+                if (stationHeading.findAll(section).take(2).count() != 1) continue
+                if (!cardClock.containsMatchIn(section)) continue
+                return@mapNotNull start
+            }
+            null
+        }
     }
 
     /** Extract the station card's own balanced div subtree, not neighboring page clocks. */

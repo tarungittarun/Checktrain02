@@ -42,6 +42,15 @@ class WebsiteBrowserRequestTest {
             "class=\"site-card-layout\"")
         assertTrue("the source card boundary survives a CSS restyle",
             hasPopulatedTrainDocument(restyledCard, "16227"))
+        val classlessRenderedDom = renderedDom
+            .replace("<!-- Station Details Card -->", "")
+            .replace("class=\"flex-grow p-3 rounded-lg bg-green-50 opacity-90\"",
+                "class=\"station-timeline-item\"")
+        assertTrue("a hydrated station card remains discoverable without source comments or known CSS classes",
+            hasPopulatedTrainDocument(classlessRenderedDom, "16227"))
+        val entityClock = classlessRenderedDom.replace("04:20 AM", "04:20&nbsp;AM")
+        assertTrue("HTML non-breaking spaces between a clock and meridiem remain readable",
+            hasPopulatedTrainDocument(entityClock, "16227"))
         val namedEndpoints = renderedDom.replace("Source: MYS", "Source: Mysuru Junction")
             .replace("Destination: TLGP", "Destination: Talguppa")
         assertTrue("visible station names, not only short codes, indicate a hydrated document",

@@ -65,20 +65,22 @@ class TravellerAcceptanceTest {
     }
 
     /** Radio selection can redraw a frame after the click callback returns. Do not save
-     * screenshot proof until the exact option is checked and every competitor is unchecked. */
-    private fun tapRadioAndWait(label: String, competingOptions: List<String>,
+     * screenshot proof until the exact option is checked and every competitor is visibly unchecked. */
+    private fun tapRadioAndWait(label: String, competingOptions: List<String>, container: String,
                                 timeoutMs: Long = E2E.LOCAL_MS): Boolean {
         val selector = By.clazz("android.widget.RadioButton").text(label)
         val radio = E2E.ui.wait(Until.findObject(selector), timeoutMs) ?: return false
+        if (!visibleInScroll(radio, container)) return false
         if (!radio.isChecked) {
             runCatching { radio.click() }.getOrElse { return false }
         }
         fun isExclusiveSelection(): Boolean {
-            if (E2E.ui.findObject(selector)?.isChecked != true) return false
+            val selected = E2E.ui.findObject(selector) ?: return false
+            if (!selected.isChecked || !visibleInScroll(selected, container)) return false
             return competingOptions.all { other ->
                 val peer = E2E.ui.findObject(
                     By.clazz("android.widget.RadioButton").text(other))
-                peer != null && !peer.isChecked
+                peer != null && visibleInScroll(peer, container) && !peer.isChecked
             }
         }
         val deadline = System.currentTimeMillis() + timeoutMs
@@ -569,16 +571,23 @@ class TravellerAcceptanceTest {
         assertTrue("Could not scroll to the end of the distance limitation note",
             E2E.swipeIn("alertDialogScroll", up = true))
         E2E.shotRequired("alert-distance-source-note")
-        assertTrue("Alert style choices cannot be brought back into view",
-            revealTextContains("Vibration · one pattern", "alertDialogScroll", up = false))
-        assertTrue("Vibration preference cannot be selected",
+        // Scrolling the full caveat can clip the first feedback row out of the
+        // accessibility tree. Return to the top so the selected radio and both
+        // unchecked competitors are simultaneously visible in the proof frame.
+        assertTrue("Notification competitor cannot be brought back into view",
+            revealTextContains("Notification · one alert", "alertDialogScroll", up = false))
+        for (style in listOf("Vibration · one pattern", "Ring until I stop it"))
+            assertTrue("Alert style competitor is not fully visible: $style",
+                revealTextContains(style, "alertDialogScroll", up = false))
+        assertTrue("Vibration preference cannot be selected with all competitors visible",
             tapRadioAndWait("Vibration · one pattern", listOf(
-                "Notification · one alert", "Ring until I stop it")))
+                "Notification · one alert", "Ring until I stop it"), "alertDialogScroll"))
         E2E.shotRequired("alert-feedback-selected")
         assertTrue("Five-minute low-work interval cannot be brought into view",
             revealTextContains("5 minutes · lower background work", "alertDialogScroll"))
         assertTrue("Five-minute low-work interval cannot be selected",
-            tapRadioAndWait("5 minutes · lower background work", listOf("1 minute", "2 minutes")))
+            tapRadioAndWait("5 minutes · lower background work", listOf("1 minute", "2 minutes"),
+                "alertDialogScroll"))
         E2E.shotRequired("alert-interval-selected")
         assertTrue("Set alert action is missing before save", tapTextContains("Set alert"))
         allowPermissionIfPrompted(firstPromptWaitMs = 8_000L)
