@@ -566,9 +566,9 @@ jobs:
           set -o pipefail
           bash tools/ci/run_apk_acceptance.sh 2>&1 | tee acceptance-evidence/session.log
       - name: Export original Alerts emulator captures for sandbox review
-        # The official artifact is always uploaded below. This GitHub-comment transport is opt-in
-        # because it expands to many bounded API comments; use it only when artifact blobs cannot be fetched.
-        if: always() && matrix.group == 'alerts' && contains(github.event.head_commit.message, '[export-alert-evidence]')
+        # The official artifact is always uploaded below. The bounded GitHub-comment transport is
+        # enabled for manual review runs or an explicitly marked commit when artifact blobs cannot be fetched.
+        if: always() && matrix.group == 'alerts' && (github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[export-alert-evidence]'))
         env:
           GH_TOKEN: ${{ github.token }}
           PROFILE: ${{ matrix.profile }}
