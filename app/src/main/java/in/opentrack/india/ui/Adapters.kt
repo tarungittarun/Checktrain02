@@ -404,8 +404,10 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             else -> R.color.text3
         }))
         val siteComparison = WebsiteGapUi.caption(s, websiteComparisonTimes[s.code], websiteComparisonSaved)
-        holder.websitePastComparison.text = siteComparison.orEmpty()
-        holder.websitePastComparison.visibility = if (siteComparison == null) View.GONE else View.VISIBLE
+        val siteComparisonBrief = WebsiteGapUi.briefCaption(
+            s, websiteComparisonTimes[s.code], websiteComparisonSaved)
+        holder.websitePastComparison.text = siteComparisonBrief.orEmpty()
+        holder.websitePastComparison.visibility = if (siteComparisonBrief == null) View.GONE else View.VISIBLE
         holder.websitePastComparison.contentDescription = siteComparison?.let {
             val cardKind = if (websiteComparisonTimes[s.code]?.forecast == true)
                 "Website upcoming forecast" else "Website card claim"
@@ -548,8 +550,7 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         val captionMinute = (s.showDep ?: s.showArr).takeIf {
             (expandedCode == null || batteryMode) && marker != null &&
                 (s.source == TrackModel.MinuteSource.REPORTED && !marker.website ||
-                 s.source == TrackModel.MinuteSource.SITE_REPORTED && marker.website) &&
-                (batteryMode || !marker.website)
+                 s.source == TrackModel.MinuteSource.SITE_REPORTED && marker.website)
         }
         holder.eventCaption.visibility = if (captionMinute == null) View.GONE else View.VISIBLE
         holder.eventCaption.text = captionMinute?.let { minute ->
