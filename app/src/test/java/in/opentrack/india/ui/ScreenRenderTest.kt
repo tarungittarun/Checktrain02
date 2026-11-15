@@ -142,7 +142,7 @@ class ScreenRenderTest {
             })
             val choices = listOf(
                 Triple("At destination · Talguppa", "Fresh route-matched station report only · no timetable ETA", "◎"),
-                Triple("At a preceding station…", "Choose a halt between Mysuru and Talguppa", "↗"),
+                Triple("At any upcoming station…", "Choose any later stop on this train's timetable", "↗"),
                 Triple("Within 5 km", "Phone location · straight-line distance to Talguppa", "⌖"),
                 Triple("Within 2 km", "Phone location · straight-line distance to Talguppa", "⌖"),
                 Triple("Within 10 km", "Phone location · straight-line distance to Talguppa", "⌖"),
