@@ -167,6 +167,12 @@ class Prefs(context: Context) {
                 value.takeIf { it in setOf(1, 2, 5) } ?: fallback).apply()
         }
 
+    var defaultAlertLeadSeconds: Int
+        get() = sp.getInt(KEY_ALERT_LEAD_SECONDS, 120)
+            .coerceIn(0, `in`.opentrack.india.alarm.JourneyAlarmSchedule.MAX_LEAD_SECONDS)
+        set(value) = sp.edit().putInt(KEY_ALERT_LEAD_SECONDS,
+            value.coerceIn(0, `in`.opentrack.india.alarm.JourneyAlarmSchedule.MAX_LEAD_SECONDS)).apply()
+
     var defaultAlertDistanceKm: Int
         get() = sp.getInt(KEY_ALERT_DISTANCE, 5).takeIf { it in setOf(2, 5, 10) } ?: 5
         set(value) = sp.edit().putInt(KEY_ALERT_DISTANCE,
@@ -216,6 +222,7 @@ class Prefs(context: Context) {
         private const val KEY_ALERT_TRIGGER = "defaultAlertTrigger"
         private const val KEY_ALERT_FEEDBACK = "defaultAlertFeedback"
         private const val KEY_ALERT_INTERVAL = "defaultAlertInterval"
+        private const val KEY_ALERT_LEAD_SECONDS = "defaultAlertLeadSeconds"
         private const val KEY_ALERT_DISTANCE = "defaultAlertDistance"
         private const val KEY_RECENT = "recent"
         private const val KEY_CROWD = "crowdReports"

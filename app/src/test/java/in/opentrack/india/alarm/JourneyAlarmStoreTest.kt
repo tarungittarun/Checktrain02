@@ -78,6 +78,67 @@ class JourneyAlarmStoreTest {
         assertEquals("every terminal alert remains in history", 3, JourneyAlarmStore.readAll(context).size)
     }
 
+    @Test fun leadScheduleSourceAndCheckWarningStateSurviveStoreRecreation() {
+        val configured = config().copy(leadSeconds = 137, scheduledMinute = 755,
+            journeyEndMinute = 1_500)
+        val id = JourneyAlarmStore.arm(context, configured)
+        JourneyAlarmStore.update(context, id, AlertState.ARMED, "NTES checked · waiting",
+            checkedAtMillis = 1_793_000_000_100L, lastSourceLabel = "NTES running status",
+            checkFailed = true)
+
+        val restored = JourneyAlarmStore.find(context, id)!!
+        assertEquals(configured, restored.config)
+        assertEquals("NTES running status", restored.lastSourceLabel)
+        assertTrue(restored.checkFailed)
+        assertEquals(1_793_000_000_100L, restored.lastCheckedAtMillis)
+        assertTrue(JourneyAlarmStore.updateArmed(context, id, configured,
+            "Recovered · waiting", checkFailed = false))
+        assertTrue(!JourneyAlarmStore.find(context, id)!!.checkFailed)
+    }
+
+    @Test fun dueTimeUsesTheSelectedTimetableMinuteAndConfiguredSeconds() {
+        val scheduled = config().copy(scheduledMinute = 755, leadSeconds = 137)
+        assertEquals(`in`.opentrack.india.core.RailTime.railMinuteToEpochMillis(
+            scheduled.originEpochDay, 755) - 137_000L,
+            JourneyAlarmSchedule.dueAtMillis(scheduled))
+    }
+
+    @Test fun aStalePollCannotResurrectACancelledOrReconfiguredAlert() {
+        val configured = config()
+        val id = JourneyAlarmStore.arm(context, configured)
+        JourneyAlarmStore.dismiss(context, id)
+        assertTrue(!JourneyAlarmStore.updateArmed(context, id, configured,
+            "late source response", checkFailed = true))
+        assertEquals(AlertState.DISMISSED, JourneyAlarmStore.find(context, id)!!.state)
+
+        val secondId = JourneyAlarmStore.arm(context, configured)
+        val changed = configured.copy(leadSeconds = 300)
+        assertTrue(JourneyAlarmStore.replaceConfig(context, secondId, changed))
+        assertTrue(!JourneyAlarmStore.updateArmed(context, secondId, configured,
+            "stale settings response"))
+        assertEquals(changed, JourneyAlarmStore.find(context, secondId)!!.config)
+    }
+
+    @Test fun expiryUsesTheSelectedDestinationRatherThanTheTrainTerminal() {
+        val selectedEnd = config().copy(scheduledMinute = 755, journeyEndMinute = 820)
+        assertEquals(`in`.opentrack.india.core.RailTime.railMinuteToEpochMillis(
+            selectedEnd.originEpochDay, 820) + JourneyAlarmSchedule.RUN_END_GRACE_MILLIS,
+            JourneyAlarmSchedule.expiryAtMillis(selectedEnd))
+    }
+
+    @Test fun aSourceAndTimerRaceCanOnlyTransitionAnAlertOnce() {
+        val config = config()
+        val id = JourneyAlarmStore.arm(context, config)
+        assertTrue(JourneyAlarmStore.transitionFromArmed(context, id, config,
+            AlertState.FIRED, "Source report", evidenceAtMillis = 1_793_000_000_500L,
+            lastSourceLabel = "NTES running status", evidenceSourceLabel = "NTES running status"))
+        assertTrue(!JourneyAlarmStore.transitionFromArmed(context, id, config,
+            AlertState.FIRED, "Scheduled reminder", evidenceAtMillis = 1_793_000_000_600L))
+        val saved = JourneyAlarmStore.find(context, id)!!
+        assertEquals("Source report", saved.status)
+        assertEquals("NTES running status", saved.evidenceSourceLabel)
+    }
+
     @Test fun legacySingleAlertIsMigratedWithItsStateAndStatus() {
         val originalConfig = config(trigger = AlertTrigger.PREVIOUS_STOP_REPORT)
         JourneyAlarmStore.arm(context, originalConfig)

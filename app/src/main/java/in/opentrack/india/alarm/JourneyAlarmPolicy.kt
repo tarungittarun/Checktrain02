@@ -56,7 +56,8 @@ object JourneyAlarmPolicy {
     }
 
     fun stationEvent(config: JourneyAlarmConfig, route: TrainRoute,
-                     answer: PositionEngine.Answer, nowMillis: Long): Decision {
+                     answer: PositionEngine.Answer, nowMillis: Long,
+                     sourceDisplayName: String? = null): Decision {
         if (config.trigger == AlertTrigger.PHONE_DISTANCE)
             return Decision.Waiting("Waiting for phone location near ${config.toName}")
         if (!routeMatches(config, route))
@@ -124,8 +125,9 @@ object JourneyAlarmPolicy {
                 "Waiting for a new station event after the alert was set")
 
         val event = if (fields.actualDepartureMin != null) "departure" else "arrival"
-        val source = sourceLabel(position.provenance)
-        val evidence = "$source reports $event at ${target.name} " +
+        val source = sourceDisplayName?.takeIf { it.isNotBlank() }
+            ?: sourceLabel(position.provenance)
+        val evidence = "$source reports $event at ${target.name} "
             "${RailTime.formatRailMinute(minute)} · ${SourceFreshness.label(eventAt, nowMillis)}"
         if (target.seq == config.triggerSeq) return Decision.Fire(
             title = if (config.trigger == AlertTrigger.PREVIOUS_STOP_REPORT)

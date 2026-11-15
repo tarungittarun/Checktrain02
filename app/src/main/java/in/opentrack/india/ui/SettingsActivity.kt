@@ -102,7 +102,7 @@ class SettingsActivity : AppCompatActivity() {
         val feedback = listOf(AlertFeedback.NOTIFICATION, AlertFeedback.VIBRATION,
             AlertFeedback.RING_UNTIL_STOPPED)
         spinner(binding.defaultAlertFeedback,
-            listOf("Notification · one alert", "Vibration · one pattern", "Ring until stopped"),
+            listOf("Ping · one sound", "Vibrate · one pattern", "Alarm ring · stop anytime"),
             feedback.indexOf(prefs.defaultAlertFeedback)) { prefs.defaultAlertFeedback = feedback[it] }
         val intervals = listOf(1, 2, 5)
         spinner(binding.defaultAlertInterval,

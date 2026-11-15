@@ -22,6 +22,8 @@ import java.io.File
  */
 interface LiveProvider {
     val kind: SourceKind
+    /** Exact provider identity; SourceKind may intentionally be shared by multiple feeds. */
+    val sourceName: String get() = kind.label
     /** Blocking; called on an IO dispatcher. Must return null rather than throw. */
     fun fetch(trainNo: String, route: TrainRoute, journeyEpochDay: Long): LiveSnapshot?
 
@@ -116,6 +118,7 @@ class ErailProvider(
 ) : LiveProvider {
 
     override val kind = SourceKind.PROVIDER
+    override val sourceName = "eRail running-status feed"
 
     @Volatile
     private var note: String? = null
@@ -201,6 +204,7 @@ class NtesProvider(
 ) : LiveProvider {
 
     override val kind = SourceKind.PROVIDER_NTES
+    override val sourceName = "NTES running status"
 
     @Volatile
     private var note: String? = null
@@ -724,6 +728,8 @@ class ProviderChain(private val providers: List<LiveProvider>) {
         val notes: List<String> = emptyList(),
         /** Static-only dated NTES schedule, even if no observed minute passed the actuals gate. */
         val scheduleRoute: TrainRoute? = null,
+        /** Exact provider identity; several providers can share the coarse SourceKind enum. */
+        val sourceName: String? = null,
     )
 
     fun fetch(trainNo: String, route: TrainRoute, journeyEpochDay: Long): Outcome {
@@ -749,7 +755,8 @@ class ProviderChain(private val providers: List<LiveProvider>) {
                 }
                 if (why != null && why.isNotBlank()) notes += "${p.kind.label}: $why"
             }
-            if (snap != null) return Outcome(snap, snap.sourceKind, tried, notes, scheduleRoute)
+            if (snap != null) return Outcome(snap, snap.sourceKind, tried, notes, scheduleRoute,
+                sourceName = p.sourceName)
         }
         return Outcome(null, SourceKind.NONE, tried, notes, scheduleRoute)
     }

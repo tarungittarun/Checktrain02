@@ -46,6 +46,7 @@ import `in`.opentrack.india.alarm.AlertTrigger
 import `in`.opentrack.india.alarm.JourneyAlarmConfig
 import `in`.opentrack.india.alarm.JourneyAlarmNotifications
 import `in`.opentrack.india.alarm.JourneyAlarmPolicy
+import `in`.opentrack.india.alarm.JourneyAlarmSchedule
 import `in`.opentrack.india.alarm.JourneyAlarmRouteSelection
 import `in`.opentrack.india.alarm.JourneyAlarmService
 import `in`.opentrack.india.alarm.JourneyAlarmStore
@@ -564,7 +565,7 @@ class TrainActivity : AppCompatActivity() {
 
     private fun alertTriggerSummary(config: JourneyAlarmConfig): String = when (config.trigger) {
         AlertTrigger.DESTINATION_REPORT ->
-            "At destination · ${RowText.of(config.toName)} (live report)"
+            "At station · ${RowText.of(config.toName)} (source report or timetable reminder)"
         AlertTrigger.PREVIOUS_STOP_REPORT ->
             "At preceding station · ${RowText.of(config.triggerName)} (live report)"
         AlertTrigger.PHONE_DISTANCE ->
@@ -574,13 +575,17 @@ class TrainActivity : AppCompatActivity() {
     private fun currentJourneyAlerts(): List<`in`.opentrack.india.alarm.JourneyAlarmSnapshot> {
         val train = intent.getStringExtra(EXTRA_TRAIN_NO).orEmpty()
         val from = intent.getStringExtra(EXTRA_FROM).orEmpty()
-        val to = intent.getStringExtra(EXTRA_TO).orEmpty()
+        val pageTo = intent.getStringExtra(EXTRA_TO).orEmpty()
         val day = intent.getLongExtra(EXTRA_ORIGIN_EPOCH_DAY, RailTime.todayEpochDay())
+        val route = lastUi?.route
         return JourneyAlarmStore.readAll(this).filter { snapshot ->
             val c = snapshot.config
-            c.trainNo == train && c.fromCode.equals(from, true) && c.toCode.equals(to, true) &&
-                c.originEpochDay == day && (snapshot.state == AlertState.ARMED ||
-                snapshot.state == AlertState.RINGING)
+            val routeMatches = route?.let {
+                JourneyAlarmRouteSelection.matches(it, c.trainNo, c.fromCode, c.toCode)
+            } ?: c.toCode.equals(pageTo, true)
+            c.trainNo.equals(train, true) && c.fromCode.equals(from, true) &&
+                c.originEpochDay == day && routeMatches &&
+                (snapshot.state == AlertState.ARMED || snapshot.state == AlertState.RINGING)
         }
     }
 
@@ -720,7 +725,7 @@ class TrainActivity : AppCompatActivity() {
     }
 
     private fun showAlertTriggerChoices(route: TrainRoute, from: StopRow, to: StopRow) {
-        val intermediate = route.stops.filter { it.seq > from.seq && it.seq < to.seq }
+        val upcoming = route.stops.filter { it.seq > from.seq }
         val prefs = `in`.opentrack.india.data.Prefs(this)
         val defaultDistance = prefs.defaultAlertDistanceKm
         val choices = mutableListOf<AlertTriggerChoice>()
@@ -733,13 +738,13 @@ class TrainActivity : AppCompatActivity() {
             showAlertPreferences(alarmConfig(route, from, to,
                 AlertTrigger.DESTINATION_REPORT, to, 0))
         }
-        if (intermediate.isNotEmpty()) choices += AlertTriggerChoice(
-            title = "At a preceding station…",
-            description = "Choose a halt between ${RowText.of(from.name)} and ${RowText.of(to.name)}",
+        if (upcoming.isNotEmpty()) choices += AlertTriggerChoice(
+            title = "At any upcoming station…",
+            description = "Choose any later stop on this train's timetable",
             icon = "↗",
             isDefault = prefs.defaultAlertTrigger == AlertTrigger.PREVIOUS_STOP_REPORT,
         ) {
-            showPrecedingStationChoices(route, from, to, intermediate)
+            showUpcomingStationChoices(route, from, to, upcoming)
         }
         val distances = listOf(defaultDistance) + listOf(2, 5, 10)
             .filterNot { it == defaultDistance }
@@ -755,12 +760,10 @@ class TrainActivity : AppCompatActivity() {
                     AlertTrigger.PHONE_DISTANCE, to, distance))
             }
         }
-        // The Settings default is highlighted and sorted first, but every journey can
-        // still pick another trigger without changing the global preference.
         val ordered = choices.sortedByDescending { it.isDefault }
         val chrome = createAlertDialogChrome(
             title = "Arrival alert · train ${route.trainNo}",
-            subtitle = "Choose a trigger. Review the source and options before setting an alert.",
+            subtitle = "Choose a station, then choose a reminder lead and alert style.",
             eyebrow = "TRIGGER",
             heightDp = 218 + ordered.size * 82,
         )
@@ -769,24 +772,28 @@ class TrainActivity : AppCompatActivity() {
         showAlertDialog(chrome)
     }
 
-    private fun showPrecedingStationChoices(route: TrainRoute, from: StopRow, to: StopRow,
-                                            stops: List<StopRow>) {
+    private fun showUpcomingStationChoices(route: TrainRoute, from: StopRow, currentTo: StopRow,
+                                          stops: List<StopRow>) {
         val chrome = createAlertDialogChrome(
-            title = "Choose a preceding station",
-            subtitle = "Select a route halt between ${RowText.of(from.name)} and ${RowText.of(to.name)}.",
-            eyebrow = "LIVE REPORT TRIGGER",
+            title = "Choose an upcoming station",
+            subtitle = "Any stop after ${RowText.of(from.name)} on this train's route, including stops beyond the selected destination.",
+            eyebrow = "STATIONS ON THIS TIMETABLE",
             heightDp = 218 + minOf(stops.size, 8) * 76,
         )
-        addAlertSection(chrome.body, "STATIONS ON THIS ROUTE")
+        addAlertSection(chrome.body, "SELECT THE STATION FOR THIS ALERT")
         stops.forEachIndexed { index, stop ->
+            val scheduled = stop.arrivalMin ?: stop.departureMin
+            val time = scheduled?.let { " · timetable ${RailTime.formatRailMinute(it)}" }
+                ?: " · timetable time unavailable"
+            val label = if (stop.code.equals(currentTo.code, true)) " · selected destination" else ""
             addAlertTriggerOption(chrome, AlertTriggerChoice(
-                title = "${RowText.of(stop.name)} (${stop.code})",
-                description = "Route station ${index + 1} of ${stops.size} · fresh report only",
+                title = "${RowText.of(stop.name)} (${stop.code})$label",
+                description = "Stop ${index + 1} of ${stops.size}$time · not a live ETA",
                 icon = (index + 1).toString(),
                 isDefault = false,
                 onSelected = {
-                    showAlertPreferences(alarmConfig(route, from, to,
-                        AlertTrigger.PREVIOUS_STOP_REPORT, stop, 0))
+                    showAlertPreferences(alarmConfig(route, from, stop,
+                        AlertTrigger.DESTINATION_REPORT, stop, 0))
                 },
             ))
         }
@@ -883,6 +890,10 @@ class TrainActivity : AppCompatActivity() {
         intervalMinutes = `in`.opentrack.india.data.Prefs(this).defaultAlertIntervalMinutes,
         originEpochDay = intent.getLongExtra(EXTRA_ORIGIN_EPOCH_DAY, RailTime.todayEpochDay()),
         baselineSeq = 0, baselineEventMinute = null, createdAtMillis = System.currentTimeMillis(),
+        leadSeconds = `in`.opentrack.india.data.Prefs(this).defaultAlertLeadSeconds,
+        scheduledMinute = if (trigger == AlertTrigger.PHONE_DISTANCE) null
+            else triggerStop.arrivalMin ?: triggerStop.departureMin,
+        journeyEndMinute = to.arrivalMin ?: to.departureMin,
     )
 
     private fun showAlertPreferences(config: JourneyAlarmConfig) {
@@ -928,13 +939,67 @@ class TrainActivity : AppCompatActivity() {
             orientation = android.widget.RadioGroup.VERTICAL
         }
         val feedbackIds = listOf(
-            AlertFeedback.NOTIFICATION to radio(feedbackGroup, "Notification · one alert"),
-            AlertFeedback.VIBRATION to radio(feedbackGroup, "Vibration · one pattern"),
-            AlertFeedback.RING_UNTIL_STOPPED to radio(feedbackGroup, "Ring until I stop it"),
+            AlertFeedback.NOTIFICATION to radio(feedbackGroup, "Ping · one sound"),
+            AlertFeedback.VIBRATION to radio(feedbackGroup, "Vibrate · one pattern"),
+            AlertFeedback.RING_UNTIL_STOPPED to radio(feedbackGroup, "Alarm ring · stop anytime"),
         )
         feedbackGroup.check(feedbackIds.firstOrNull { it.first == config.feedback }?.second
             ?: feedbackIds.first().second)
         body.addView(feedbackGroup)
+
+        val leadPresets = listOf(30, 60, 120, 300, 600)
+        var leadSpinner: android.widget.Spinner? = null
+        var customLead: android.widget.EditText? = null
+        if (config.trigger != AlertTrigger.PHONE_DISTANCE) {
+            section("Lead time · before published timetable time")
+            val leadControl = android.widget.Spinner(this).apply {
+                contentDescription = "Alert lead time in seconds"
+                setBackgroundResource(R.drawable.bg_inset)
+                minimumHeight = alertDp(48)
+                adapter = object : ArrayAdapter<String>(this@TrainActivity,
+                    R.layout.item_sort_selected, listOf(
+                        "30 seconds", "1 minute · 60 seconds", "2 minutes · 120 seconds",
+                        "5 minutes · 300 seconds", "10 minutes · 600 seconds", "Custom seconds…",
+                    )) {
+                    init { setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
+                    override fun getView(position: Int, convertView: View?, parent: android.view.ViewGroup): View =
+                        super.getView(position, convertView, parent).also { BatteryMode.paint(it) }
+                    override fun getDropDownView(position: Int, convertView: View?, parent: android.view.ViewGroup): View =
+                        super.getDropDownView(position, convertView, parent).also { BatteryMode.paint(it) }
+                }
+            }
+            leadSpinner = leadControl
+            body.addView(leadControl, android.widget.LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            val leadInput = android.widget.EditText(this).apply {
+                hint = "Custom lead · seconds"
+                contentDescription = "Custom lead time in seconds"
+                inputType = android.text.InputType.TYPE_CLASS_NUMBER
+                setSingleLine(true)
+                setPadding(alertDp(12), alertDp(8), alertDp(12), alertDp(8))
+                setBackgroundResource(R.drawable.bg_inset)
+                visibility = View.GONE
+            }
+            customLead = leadInput
+            body.addView(leadInput, android.widget.LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = alertDp(6)
+            })
+            val presetIndex = leadPresets.indexOf(config.leadSeconds)
+            if (presetIndex >= 0) leadControl.setSelection(presetIndex, false) else {
+                leadControl.setSelection(leadPresets.size, false)
+                leadInput.setText(config.leadSeconds.coerceIn(0,
+                    `in`.opentrack.india.alarm.JourneyAlarmSchedule.MAX_LEAD_SECONDS).toString())
+                leadInput.visibility = View.VISIBLE
+            }
+            leadControl.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(parent: android.widget.AdapterView<*>?, item: View?,
+                                            position: Int, id: Long) {
+                    leadInput.visibility = if (position == leadPresets.size) View.VISIBLE else View.GONE
+                }
+                override fun onNothingSelected(parent: android.widget.AdapterView<*>?) = Unit
+            }
+        }
 
         section("Check interval")
         val intervalGroup = android.widget.RadioGroup(this).apply {
@@ -951,10 +1016,11 @@ class TrainActivity : AppCompatActivity() {
 
         val note = TextView(this).apply {
             text = buildString {
-                append("Station alerts use fresh, route-matched NTES/erail source-reported times, not independently verified. Timetables, the whereismytrain.org.in website, and whereismytrain.in feed/cache clocks do not trigger them. The separate Google WIMT app is not used. ")
+                append("Station alerts accept fresh, route-matched NTES/erail source-reported actual times only; a report is not independently verified. If no qualifying report arrives first, the selected lead fires from the published timetable clock, not a live ETA or forecast. The alert/history labels which source actually triggered it. ")
+                append("The whereismytrain.org.in page, whereismytrain.in feed/cache clocks, and the separate Google WIMT app are not alert sources. ")
                 if (config.trigger == AlertTrigger.PHONE_DISTANCE)
                     append("Distance uses phone location, a movement heuristic, and straight-line distance—not train GPS. A fresh fix within 250 m accuracy is required; approximate-only location may keep it waiting. ")
-                append("An ongoing notification is required. Android, network, location, muted-channel, force-stop, and reboot limits can delay or stop monitoring. DND or device sound settings may mute feedback.")
+                append("Successful checks stay silent. A source-check failure raises one quiet warning until recovery. An ongoing notification is required; Android, network, location, muted-channel, force-stop, and reboot limits can delay or stop monitoring.")
             }
             textSize = 12f
             setTextColor(getColor(R.color.text2))
@@ -976,8 +1042,24 @@ class TrainActivity : AppCompatActivity() {
             val interval = intervalIds.firstOrNull {
                 it.second == intervalGroup.checkedRadioButtonId
             }?.first ?: 5
+            val leadSeconds: Int? = if (config.trigger == AlertTrigger.PHONE_DISTANCE) {
+                config.leadSeconds
+            } else {
+                val position = leadSpinner?.selectedItemPosition ?: 0
+                if (position == leadPresets.size) {
+                    val parsed = customLead?.text?.toString()?.trim()?.toIntOrNull()
+                    if (parsed == null || parsed !in 0..
+                        `in`.opentrack.india.alarm.JourneyAlarmSchedule.MAX_LEAD_SECONDS) {
+                        customLead?.error = "Enter 0–${`in`.opentrack.india.alarm.JourneyAlarmSchedule.MAX_LEAD_SECONDS} seconds"
+                        customLead?.requestFocus()
+                        null
+                    } else parsed
+                } else leadPresets.getOrNull(position) ?: config.leadSeconds
+            }
+            if (leadSeconds == null) return@setOnClickListener
             val selected = config.copy(feedback = selectedFeedback,
-                intervalMinutes = interval, createdAtMillis = System.currentTimeMillis())
+                intervalMinutes = interval, leadSeconds = leadSeconds,
+                createdAtMillis = System.currentTimeMillis())
             chrome.dialog.dismiss()
             requestNotificationAccess {
                 if (!alertChannelAvailable(selectedFeedback)) {
@@ -1028,6 +1110,28 @@ class TrainActivity : AppCompatActivity() {
                     return@launch
                 }
 
+                val selectedMinute = if (config.trigger == AlertTrigger.PHONE_DISTANCE) null
+                    else monitorTrigger.arrivalMin ?: monitorTrigger.departureMin
+                if (config.trigger != AlertTrigger.PHONE_DISTANCE && selectedMinute == null) {
+                    AlertDialog.Builder(this@TrainActivity)
+                        .setTitle("No published time for this station")
+                        .setMessage("The selected stop has no timetable arrival or departure minute. No reminder was set; no time has been invented.")
+                        .setPositiveButton("Close", null).show().also(::paintBatteryDialog)
+                    return@launch
+                }
+                val verifiedConfig = armedConfig.copy(
+                    scheduledMinute = selectedMinute,
+                    journeyEndMinute = monitorTo.arrivalMin ?: monitorTo.departureMin,
+                )
+                val dueAt = JourneyAlarmSchedule.dueAtMillis(verifiedConfig)
+                if (dueAt != null && dueAt <= System.currentTimeMillis()) {
+                    AlertDialog.Builder(this@TrainActivity)
+                        .setTitle("Selected lead time has passed")
+                        .setMessage("The published timetable time for ${config.triggerName} is too close or has passed for this lead. Choose a later station or a shorter lead; no immediate, misleading alert was created.")
+                        .setPositiveButton("Close", null).show().also(::paintBatteryDialog)
+                    return@launch
+                }
+
                 var baseline = JourneyAlarmPolicy.Baseline()
                 if (config.trigger != AlertTrigger.PHONE_DISTANCE) {
                     val current = runCatching {
@@ -1035,7 +1139,7 @@ class TrainActivity : AppCompatActivity() {
                             config.originEpochDay, allowOverride = false, includeLocation = false)
                     }.getOrNull()
                     if (current != null)
-                        baseline = JourneyAlarmPolicy.baseline(armedConfig, current.route, current.answer)
+                        baseline = JourneyAlarmPolicy.baseline(verifiedConfig, current.route, current.answer)
                     if (baseline.seq >= config.triggerSeq) {
                         val eventMinute = baseline.eventMinute
                         val detail = if (eventMinute != null)
@@ -1048,7 +1152,7 @@ class TrainActivity : AppCompatActivity() {
                         return@launch
                     }
                 }
-                val ready = armedConfig.copy(baselineSeq = baseline.seq,
+                val ready = verifiedConfig.copy(baselineSeq = baseline.seq,
                     baselineEventMinute = baseline.eventMinute)
                 JourneyAlarmService.start(this@TrainActivity, ready)
                 Toast.makeText(this@TrainActivity,

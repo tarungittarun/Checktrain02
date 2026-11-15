@@ -31,9 +31,9 @@ internal object JourneyAlarmNotifications {
             MONITOR_CHANNEL, "Arrival alert monitoring", NotificationManager.IMPORTANCE_LOW,
         ).apply { setSound(null, null); enableVibration(false); setShowBadge(false) })
         manager.createNotificationChannel(NotificationChannel(
-            NOTIFICATION_CHANNEL, "Arrival alert · notification", NotificationManager.IMPORTANCE_DEFAULT,
+            NOTIFICATION_CHANNEL, "Arrival alert · ping", NotificationManager.IMPORTANCE_DEFAULT,
         ).apply {
-            description = "One notification sound when a selected train event is reported"
+            description = "One ping sound when the selected station reminder fires"
             setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION),
                 AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION).build())
             enableVibration(false)
@@ -125,6 +125,25 @@ internal object JourneyAlarmNotifications {
             }
         }
         NotificationManagerCompat.from(context).notify(snapshot.id, builder.build())
+    }
+
+    /** One quiet warning per consecutive failure streak; successful checks never alert. */
+    fun checkWarning(context: Context, snapshot: JourneyAlarmSnapshot, detail: String) {
+        val config = snapshot.config
+        val message = detail.take(500)
+        val notification = NotificationCompat.Builder(context, MISSED_CHANNEL)
+            .setSmallIcon(R.drawable.ic_notification_train)
+            .setContentTitle("Arrival alert check issue · train ${config.trainNo}")
+            .setContentText(message)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(
+                "$message\nThe alert remains armed. TrackTrain will retry at its configured interval."))
+            .setContentIntent(openAlerts(context))
+            .setCategory(NotificationCompat.CATEGORY_STATUS)
+            .setAutoCancel(true)
+            .setOnlyAlertOnce(true)
+            .setShowWhen(false)
+            .build()
+        NotificationManagerCompat.from(context).notify(snapshot.id, notification)
     }
 
     fun cancelAlert(context: Context, id: Int) {

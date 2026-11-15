@@ -52,9 +52,13 @@ class RailRepository private constructor(
         val notes: List<String> = emptyList(),
         /** Current request carried a separately validated official static schedule. */
         val officialScheduleVerified: Boolean = false,
+        /** Exact upstream provider identity; SourceKind alone is intentionally coarser. */
+        val sourceName: String? = null,
     ) {
         val provenance: SourceKind get() = answer.position.provenance
     }
+
+    data class SourceProbe(val live: Live?, val failure: String?)
 
     suspend fun search(fromText: String, toText: String, epochDay: Long, minuteOfDay: Int) =
         withContext(Dispatchers.IO) {
@@ -123,8 +127,17 @@ class RailRepository private constructor(
             val minute = ((RailTime.istEpochDay(now) - day) * 1440 +
                 RailTime.istMinuteOfDay(now)).toInt()
             val answer = PositionEngine.locate(PositionEngine.Request(route, checked, minute, now))
-            Live(route, answer, listOf("erail=manual-hit"), day)
+            Live(route, answer, listOf("erail=manual-hit"), day,
+                sourceName = provider.sourceName)
         }
+
+    /** Independent erail probe outcome for alerts: a null answer is surfaced, never treated as success. */
+    suspend fun probeErailStatus(trainNo: String, route: TrainRoute, day: Long): SourceProbe {
+        val result = probeErail(trainNo, route, day)
+        return if (result != null) SourceProbe(result, null)
+        else SourceProbe(null,
+            "erail did not return a fresh, dated, route-matched report with observed stop times")
+    }
 
     /** The previous dated official SCHEDULE can paint before any network request, including a train
      * absent from the bundled database. It has no observed minutes and cannot locate a train. */
@@ -237,7 +250,8 @@ class RailRepository private constructor(
             )
         )
         Live(effectiveRoute, answer, outcome.tried, originEpochDay, outcome.notes,
-            officialScheduleVerified = scheduleRoute != null)
+            officialScheduleVerified = scheduleRoute != null,
+            sourceName = outcome.sourceName)
     }
 
     fun hasLocationPermission(): Boolean =

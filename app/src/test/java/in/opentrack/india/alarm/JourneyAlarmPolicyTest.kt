@@ -100,6 +100,16 @@ class JourneyAlarmPolicyTest {
         assertEquals(now(665), fire.evidenceAtMillis)
     }
 
+    @Test fun explicitProviderIdentityIsKeptEvenWhenSourcesShareAProvenanceKind() {
+        val decision = JourneyAlarmPolicy.stationEvent(config(), route,
+            answer(source = SourceKind.PROVIDER, actualDeparture = 664), now(670),
+            sourceDisplayName = "Independent eRail probe")
+
+        assertTrue(decision is JourneyAlarmPolicy.Decision.Fire)
+        assertTrue((decision as JourneyAlarmPolicy.Decision.Fire).detail
+            .contains("Independent eRail probe reports departure at Kengeri"))
+    }
+
     @Test fun eventAtOrBeforeTheSetMinuteDoesNotTrigger() {
         val c = config(createdMinute = 665)
         val decision = JourneyAlarmPolicy.stationEvent(c, route,

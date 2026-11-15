@@ -34,7 +34,15 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
-        android:text="Manage every active train alert and review completed, missed, stopped or cancelled alerts. Station triggers use fresh route-matched source reports; phone-distance triggers use this phone's location. Website clocks and timetable echoes never trigger an alert." />
+        android:text="Manage alert defaults, active reminders, changes, cancellations and history. Timetable reminders are labeled separately from source-reported events." />
+
+    <Button
+        android:id="@+id/options"
+        style="@style/BtnGhost"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="Alert defaults" />
 
     <ScrollView
         android:id="@+id/alertsScroll"

@@ -2,6 +2,7 @@ package `in`.opentrack.india.alarm
 
 import android.content.Context
 import android.content.SharedPreferences
+import `in`.opentrack.india.core.RailTime
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -33,6 +34,12 @@ data class JourneyAlarmConfig(
     val baselineSeq: Int,
     val baselineEventMinute: Int?,
     val createdAtMillis: Long,
+    /** User-selected lead before the published timetable clock; never presented as a live ETA. */
+    val leadSeconds: Int = 120,
+    /** Station's published arrival (or departure fallback) minute on the run's rail-time axis. */
+    val scheduledMinute: Int? = null,
+    /** Selected alert destination's published time, used as a safety cutoff for lingering monitors. */
+    val journeyEndMinute: Int? = null,
 )
 
 data class JourneyAlarmSnapshot(
@@ -43,7 +50,34 @@ data class JourneyAlarmSnapshot(
     val evidenceAtMillis: Long,
     /** Stable local ID used to scope updates, cancellation, and notifications. */
     val id: Int = 0,
+    /** Last source that actually returned an accepted report for this run, if any. */
+    val lastSourceLabel: String? = null,
+    /** Source evidence for the terminal event; null for a timetable-only reminder. */
+    val evidenceSourceLabel: String? = null,
+    /** A warning has already been shown for the current consecutive source-check failure. */
+    val checkFailed: Boolean = false,
 )
+
+/** Lead timer and conservative end-of-run cutoff shared by the service and UI. */
+object JourneyAlarmSchedule {
+    const val MAX_LEAD_SECONDS = 7_200
+    const val RUN_END_GRACE_MILLIS = 90 * 60_000L
+
+    fun dueAtMillis(config: JourneyAlarmConfig): Long? {
+        if (config.trigger == AlertTrigger.PHONE_DISTANCE) return null
+        val minute = config.scheduledMinute ?: return null
+        return RailTime.railMinuteToEpochMillis(config.originEpochDay, minute) -
+            config.leadSeconds * 1_000L
+    }
+
+    fun expiryAtMillis(config: JourneyAlarmConfig): Long {
+        val minute = config.journeyEndMinute ?: config.scheduledMinute
+        return if (minute != null)
+            RailTime.railMinuteToEpochMillis(config.originEpochDay, minute) + RUN_END_GRACE_MILLIS
+        else RailTime.railMinuteToEpochMillis(config.originEpochDay + 2L, 0) +
+            RUN_END_GRACE_MILLIS
+    }
+}
 
 /**
  * Device-local multi-alert store. Active alerts and a bounded terminal history share one compact
@@ -81,14 +115,24 @@ object JourneyAlarmStore {
         require(config.trainNo.isNotBlank() && config.fromCode.isNotBlank() && config.toCode.isNotBlank())
         require(config.triggerCode.isNotBlank() && config.triggerSeq > 0 && config.toSeq > 0)
         require(config.originEpochDay > 0L && config.createdAtMillis > 0L && config.baselineSeq >= 0)
-        require(config.intervalMinutes in 1..5)
-        require(config.trigger != AlertTrigger.PHONE_DISTANCE || config.distanceKm in setOf(2, 5, 10))
+        validateConfig(config)
         val items = loadLocked(context)
         val id = allocateId(context, items)
         items += JourneyAlarmSnapshot(config, AlertState.ARMED, "Starting background monitor",
             0L, 0L, id)
         saveLocked(context, items, nextId = if (id == Int.MAX_VALUE) FIRST_ID else id + 1)
         id
+    }
+
+    private fun validateConfig(config: JourneyAlarmConfig) {
+        require(config.trainNo.isNotBlank() && config.fromCode.isNotBlank() && config.toCode.isNotBlank())
+        require(config.triggerCode.isNotBlank() && config.triggerSeq > 0 && config.toSeq > 0)
+        require(config.originEpochDay > 0L && config.createdAtMillis > 0L && config.baselineSeq >= 0)
+        require(config.intervalMinutes in 1..5)
+        require(config.leadSeconds in 0..JourneyAlarmSchedule.MAX_LEAD_SECONDS)
+        require(config.scheduledMinute == null || config.scheduledMinute in 0..4_320)
+        require(config.journeyEndMinute == null || config.journeyEndMinute in 0..4_320)
+        require(config.trigger != AlertTrigger.PHONE_DISTANCE || config.distanceKm in setOf(2, 5, 10))
     }
 
     fun update(
@@ -98,6 +142,9 @@ object JourneyAlarmStore {
         status: String,
         checkedAtMillis: Long = System.currentTimeMillis(),
         evidenceAtMillis: Long? = null,
+        lastSourceLabel: String? = null,
+        evidenceSourceLabel: String? = null,
+        checkFailed: Boolean? = null,
     ) = synchronized(lock) {
         val items = loadLocked(context)
         val index = items.indexOfFirst { it.id == id }
@@ -108,9 +155,83 @@ object JourneyAlarmStore {
             status = status.take(500),
             lastCheckedAtMillis = checkedAtMillis,
             evidenceAtMillis = evidenceAtMillis ?: previous.evidenceAtMillis,
+            lastSourceLabel = lastSourceLabel ?: previous.lastSourceLabel,
+            evidenceSourceLabel = evidenceSourceLabel ?: previous.evidenceSourceLabel,
+            checkFailed = checkFailed ?: previous.checkFailed,
         )
         saveLocked(context, items)
     }
+
+    /** A stale poll must not resurrect a cancelled or reconfigured alert as ARMED. */
+    fun updateArmed(
+        context: Context,
+        id: Int,
+        expectedConfig: JourneyAlarmConfig,
+        status: String,
+        checkedAtMillis: Long = System.currentTimeMillis(),
+        lastSourceLabel: String? = null,
+        checkFailed: Boolean = false,
+    ): Boolean = synchronized(lock) {
+        val items = loadLocked(context)
+        val index = items.indexOfFirst { it.id == id }
+        if (index < 0) return@synchronized false
+        val previous = items[index]
+        if (previous.state != AlertState.ARMED || previous.config != expectedConfig)
+            return@synchronized false
+        items[index] = previous.copy(
+            status = status.take(500),
+            lastCheckedAtMillis = checkedAtMillis,
+            lastSourceLabel = lastSourceLabel ?: previous.lastSourceLabel,
+            checkFailed = checkFailed,
+        )
+        saveLocked(context, items)
+        true
+    }
+
+    /** Compare-and-transition prevents a source result racing the scheduled timer into double alerts. */
+    fun transitionFromArmed(
+        context: Context,
+        id: Int,
+        expectedConfig: JourneyAlarmConfig,
+        state: AlertState,
+        status: String,
+        checkedAtMillis: Long = System.currentTimeMillis(),
+        evidenceAtMillis: Long? = null,
+        lastSourceLabel: String? = null,
+        evidenceSourceLabel: String? = null,
+    ): Boolean = synchronized(lock) {
+        val items = loadLocked(context)
+        val index = items.indexOfFirst { it.id == id }
+        if (index < 0) return@synchronized false
+        val previous = items[index]
+        if (previous.state != AlertState.ARMED || previous.config != expectedConfig)
+            return@synchronized false
+        items[index] = previous.copy(
+            state = state,
+            status = status.take(500),
+            lastCheckedAtMillis = checkedAtMillis,
+            evidenceAtMillis = evidenceAtMillis ?: previous.evidenceAtMillis,
+            lastSourceLabel = lastSourceLabel ?: previous.lastSourceLabel,
+            evidenceSourceLabel = evidenceSourceLabel,
+            checkFailed = false,
+        )
+        saveLocked(context, items)
+        true
+    }
+
+    /** Replace the editable settings for one armed alert without touching other alerts. */
+    fun replaceConfig(context: Context, id: Int, config: JourneyAlarmConfig): Boolean =
+        synchronized(lock) {
+            validateConfig(config)
+            val items = loadLocked(context)
+            val index = items.indexOfFirst { it.id == id }
+            if (index < 0 || items[index].state != AlertState.ARMED) return@synchronized false
+            items[index] = items[index].copy(config = config,
+                status = "Settings updated · restarting monitor",
+                lastCheckedAtMillis = 0L, lastSourceLabel = null, checkFailed = false)
+            saveLocked(context, items)
+            true
+        }
 
     /** Compatibility overload for old callers/tests; scoped to the most recent saved alert. */
     fun update(context: Context, state: AlertState, status: String,
@@ -121,7 +242,7 @@ object JourneyAlarmStore {
 
     /** User cancellation becomes a visible history entry instead of disappearing. */
     fun dismiss(context: Context, id: Int, reason: String = "Cancelled by you") =
-        update(context, id, AlertState.DISMISSED, reason)
+        update(context, id, AlertState.DISMISSED, reason, checkFailed = false)
 
     /** Remove a just-created record only when starting its foreground service failed. */
     fun remove(context: Context, id: Int) = synchronized(lock) {
@@ -136,7 +257,7 @@ object JourneyAlarmStore {
         val items = loadLocked(context).map { snapshot ->
             if (snapshot.state == AlertState.ARMED || snapshot.state == AlertState.RINGING)
                 snapshot.copy(state = AlertState.DISMISSED, status = reason.take(500),
-                    lastCheckedAtMillis = System.currentTimeMillis())
+                    lastCheckedAtMillis = System.currentTimeMillis(), checkFailed = false)
             else snapshot
         }
         saveLocked(context, items)
@@ -222,6 +343,9 @@ object JourneyAlarmStore {
         .put("status", snapshot.status)
         .put("checkedAt", snapshot.lastCheckedAtMillis)
         .put("evidenceAt", snapshot.evidenceAtMillis)
+        .put("lastSource", snapshot.lastSourceLabel ?: JSONObject.NULL)
+        .put("evidenceSource", snapshot.evidenceSourceLabel ?: JSONObject.NULL)
+        .put("checkFailed", snapshot.checkFailed)
 
     private fun decodeSnapshot(o: JSONObject): JourneyAlarmSnapshot {
         val config = decodeConfig(o.getJSONObject("config").toString())
@@ -229,7 +353,10 @@ object JourneyAlarmStore {
             AlertState.valueOf(o.getString("state")),
             o.optString("status", "Waiting for a qualifying report"),
             o.optLong("checkedAt", 0L), o.optLong("evidenceAt", 0L),
-            o.getInt("id").also { require(it >= FIRST_ID) })
+            o.getInt("id").also { require(it >= FIRST_ID) },
+            lastSourceLabel = o.optString("lastSource").takeIf { it.isNotBlank() && it != "null" },
+            evidenceSourceLabel = o.optString("evidenceSource").takeIf { it.isNotBlank() && it != "null" },
+            checkFailed = o.optBoolean("checkFailed", false))
     }
 
     private fun encodeConfig(c: JourneyAlarmConfig): JSONObject = JSONObject()
@@ -242,6 +369,9 @@ object JourneyAlarmStore {
         .put("originEpochDay", c.originEpochDay).put("baselineSeq", c.baselineSeq)
         .put("baselineEventMinute", c.baselineEventMinute ?: JSONObject.NULL)
         .put("createdAtMillis", c.createdAtMillis)
+        .put("leadSeconds", c.leadSeconds)
+        .put("scheduledMinute", c.scheduledMinute ?: JSONObject.NULL)
+        .put("journeyEndMinute", c.journeyEndMinute ?: JSONObject.NULL)
 
     private fun decodeConfig(raw: String): JourneyAlarmConfig {
         val o = JSONObject(raw)
@@ -258,12 +388,11 @@ object JourneyAlarmStore {
             baselineEventMinute = if (o.isNull("baselineEventMinute")) null
                 else o.optInt("baselineEventMinute", -1).takeIf { it >= 0 },
             createdAtMillis = o.getLong("createdAtMillis"),
-        ).also { c ->
-            require(c.trainNo.isNotBlank() && c.fromCode.isNotBlank() && c.toCode.isNotBlank())
-            require(c.triggerCode.isNotBlank() && c.triggerSeq > 0 && c.toSeq > 0)
-            require(c.originEpochDay > 0L && c.createdAtMillis > 0L && c.baselineSeq >= 0)
-            require(c.intervalMinutes in 1..5)
-            require(c.trigger != AlertTrigger.PHONE_DISTANCE || c.distanceKm in setOf(2, 5, 10))
-        }
+            leadSeconds = o.optInt("leadSeconds", 120).coerceIn(0, JourneyAlarmSchedule.MAX_LEAD_SECONDS),
+            scheduledMinute = if (o.isNull("scheduledMinute")) null
+                else o.optInt("scheduledMinute", -1).takeIf { it in 0..4_320 },
+            journeyEndMinute = if (o.isNull("journeyEndMinute")) null
+                else o.optInt("journeyEndMinute", -1).takeIf { it in 0..4_320 },
+        ).also(::validateConfig)
     }
 }
