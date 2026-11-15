@@ -161,6 +161,32 @@ class TrackModelTest {
     }
 
     @Test
+    fun aRouteListWithoutTimetableTimesNamesTheHaltsButDoesNotClaimTheirTimesOrDistance() {
+        val expanded = TrainRoute(
+            trainNo = "20689", trainName = "TEST EXPRESS", srcCode = "SRC", srcName = "SRC",
+            dstCode = "DST", dstName = "DST", totalKm = 0, totalMin = null, runDays = null,
+            returnNo = null,
+            stops = listOf(
+                StopRow(1, "SRC", "SRC", null, null, null, null, 360, 0, 0, true),
+                StopRow(2, "MID", "Middle", null, null, null, null, null, 0, -1, true),
+                StopRow(3, "X", "Crossing", null, null, null, null, null, 0, -1, true),
+                StopRow(4, "DST", "DST", null, null, null, 700, null, 0, 0, true),
+            ),
+            segments = emptyList(),
+        )
+        val m = model(route = expanded,
+            pos = pos(1, 2, StopStatus.DEPARTED, kind = SourceKind.OFFLINE_SCHEDULE),
+            now = 500, board = 1, alight = 4)
+
+        assertTrue(m.progressLabel.contains("halt order shown"))
+        assertTrue(m.progressLabel.contains("times and distances unknown"))
+        assertEquals("Middle", m.rows[1].name)
+        assertEquals(null, m.rows[1].schedArr)
+        assertEquals(null, m.rows[1].schedDep)
+        assertEquals(-1, m.rows[1].kmFromOrigin)
+    }
+
+    @Test
     fun aRunFinishedHoursAgoIsNotToldAsLeavingItsTerminus() {
         // 20652 at the owner's 15:14 paste: scheduled into SBC at 12:00; at 15:14 the screen said
         // "Should have left Bangalore City Jn by now" - the >90-minute rule compared RAIL MINUTES

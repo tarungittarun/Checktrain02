@@ -245,7 +245,9 @@ object TrackModel {
                 progressPct = if (dep != null && arr != null && arr > dep) {
                     (((nowRailMinute - dep) * 100) / (arr - dep)).coerceIn(0, 100)
                 } else 0
-                progressLabel = "endpoint times only · per-stop halts unavailable on this device"
+                progressLabel = if (route.stops.size > 2)
+                    "endpoint times only · halt order shown; intermediate times and distances unknown"
+                else "endpoint times only · per-stop halts unavailable on this device"
             } else {
                 // Without credible distances the honest denominator is stops travelled, and it must say so.
                 val done = passedCount(stops)

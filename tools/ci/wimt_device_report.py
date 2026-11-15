@@ -43,6 +43,8 @@ def verdict(instrumentation: str, diary: str, process_rc: int) -> dict:
     selected_route = token(r"\bselectedRoute=([A-Z0-9>]+)")
     selected_route_stops_raw = token(r"\bselectedRouteStops=(unknown|\d+)")
     site_parser_state = token(r"\bsiteParserState=([A-Z_]+)")
+    route_extent_state = token(r"\brouteExtentState=([A-Z_]+)")
+    route_extent_halts_raw = token(r"\brouteExtentHalts=(unknown|\d+)")
     site_card_containers = token(r"\bsiteCardContainers=(\d+)")
     site_date_matched = token(r"\bsiteDateMatched=(true|false)") == "true"
     site_date_state = token(r"\bsiteDateState=(ABSENT|MATCH|MISMATCH|INVALID_OR_AMBIGUOUS|CACHED)") or "UNKNOWN"
@@ -161,6 +163,9 @@ def verdict(instrumentation: str, diary: str, process_rc: int) -> dict:
             "selectedRouteStopCount": int(selected_route_stops_raw)
                 if selected_route_stops_raw not in (None, "unknown") else None,
             "siteParserState": site_parser_state or "UNKNOWN",
+            "routeExtentState": route_extent_state or "UNKNOWN",
+            "routeExtentHaltCount": int(route_extent_halts_raw)
+                if route_extent_halts_raw not in (None, "unknown") else None,
             "siteCardContainers": int(site_card_containers) if site_card_containers else None,
             "siteDateMatched": site_date_matched, "siteDateState": site_date_state,
             "sitePageRunDate": site_page_run_date or "unknown",
@@ -194,6 +199,7 @@ def self_test() -> None:
             "siteRows=10 detachedSiteClaims=0 siteClaim=RRB:1217 siteClaimKind=ARRIVAL "
             "siteRoute=MYS>TLGP sitePageEndpoints=MYS>TLGP sitePageLabels=Mysuru_Junction>Talguppa "
             "selectedRoute=MYS>TLGP selectedRouteStops=4 siteParserState=SITE_REPORT "
+            "routeExtentState=DISPLAYED routeExtentHalts=27 "
             "siteCardContainers=30 siteDateMatched=true siteDateState=MATCH "
             "sitePageRunDate=2026-11-12 siteShape=chars:108395~truncated:false~roots:10~cards:10~heads:h1_train_status "
             "siteClaimTimeBasis=selected_origin_date_verified "
@@ -206,6 +212,8 @@ def self_test() -> None:
     assert result["selectedRoute"] == "MYS>TLGP"
     assert result["selectedRouteStopCount"] == 4
     assert result["siteParserState"] == "SITE_REPORT"
+    assert result["routeExtentState"] == "DISPLAYED"
+    assert result["routeExtentHaltCount"] == 27
     assert result["siteCardContainers"] == 30
     assert result["originRunDateIst"] == "2026-11-12"
     assert result["siteClaimTimeIst"] == "2026-11-12T20:17:00+05:30"

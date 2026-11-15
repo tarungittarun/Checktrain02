@@ -284,6 +284,9 @@ class LiveViewModel(
     private var extentAt = 0L
     private var extentAttemptAt = 0L
     private var extentJob: Job? = null
+    /** Bounded route-page result for same-request evidence; never contains raw response text. */
+    private var extentState = "NOT_ATTEMPTED"
+    private var extentFetchedHaltCount: Int? = null
     private var mirrorSourceLines: Map<String, Map<String, String>> = emptyMap()
     /** Per-witness STRUCTURED minutes (code -> act arr/dep) - what the table's Act/Est columns carry. */
     private var mirrorStops: Map<String, List<RunningStatusMirror.Stop>> = emptyMap()
@@ -499,7 +502,9 @@ class LiveViewModel(
                 else resolved
                 Diary.get()?.log("EVIDENCE") {
                     SourceEvidenceReceipt.publicPage(name, trainNo, originEpochDay,
-                        publicChecks[name] ?: resolved)
+                        publicChecks[name] ?: resolved,
+                        routeExtentState = extentState,
+                        routeExtentHaltCount = extentFetchedHaltCount)
                 }
                 if (paused == null) manualProbeMs[name] = System.currentTimeMillis() - started
                 else manualProbeMs.remove(name)
@@ -1584,19 +1589,32 @@ class LiveViewModel(
         val nowWall = System.currentTimeMillis()
         if (!force && nowWall - extentAttemptAt < 600_000) return null
         extentAttemptAt = nowWall
+        extentState = "RUNNING"
+        extentFetchedHaltCount = extentRoute?.stops?.size
+        if (extentRoute != null) extentState = "IN_MEMORY_ROUTE"
         val job = viewModelScope.launch {
-            val repo = repo() ?: return@launch
+            val repo = repo() ?: run {
+                extentState = "REPOSITORY_UNAVAILABLE"
+                return@launch
+            }
             if (extentRoute == null && !loadExtentCache()) {
+                extentState = "FETCHING_ROUTE_PAGE"
                 val got = withContext(Dispatchers.IO) { ErailRouteMirror.fetchOrWhy(trainNo) }
+                extentFetchedHaltCount = got.halts.size
                 if (got.halts.isEmpty()) {
+                    extentState = "ROUTE_PAGE_EMPTY_OR_UNREADABLE"
                     Diary.get()?.log("ROUTE") { "full route not available: ${got.why}" }
                     return@launch
                 }
                 val base = _ui.value?.route
                     ?: runCatching { repo.queries.route(trainNo) }.getOrNull()
-                    ?: return@launch
+                    ?: run {
+                        extentState = "BASE_ROUTE_UNAVAILABLE"
+                        return@launch
+                    }
                 val merged = mergeRouteExtents(base, got.halts)
                 if (merged == null) {
+                    extentState = "ROUTE_LIST_MISMATCH"
                     Diary.get()?.log("ROUTE") {
                         "erail's halt list does not contain the device route in order - keeping the device table"
                     }
@@ -1604,18 +1622,31 @@ class LiveViewModel(
                 }
                 extentRoute = merged
                 extentAt = System.currentTimeMillis()
+                extentState = "ROUTE_MERGED"
                 saveExtentCache(got.halts)
             }
-            val u = _ui.value ?: return@launch
+            val u = _ui.value ?: run {
+                extentState = "UI_ROUTE_UNAVAILABLE"
+                return@launch
+            }
             // A late, partial erail halt list must not overwrite a validated official schedule,
             // including a schedule-only response with no actual minutes yet.
-            if (officialStaticKnown || u.answer.position.provenance == SourceKind.PROVIDER_NTES) return@launch
-            val grown = extentRoute ?: return@launch
-            _ui.postValue(buildUi(grown, u.answer, u.tried).copy(relayOk = u.relayOk))
+            if (officialStaticKnown || u.answer.position.provenance == SourceKind.PROVIDER_NTES) {
+                extentState = "OFFICIAL_SCHEDULE_PRESERVED"
+                return@launch
+            }
+            val grown = extentRoute ?: run {
+                extentState = "ROUTE_UNAVAILABLE"
+                return@launch
+            }
+            // This coroutine is on viewModelScope's main dispatcher. Publish synchronously so
+            // a selected website probe joining this job cannot observe the old two-stop scaffold.
+            _ui.value = buildUi(grown, u.answer, u.tried).copy(relayOk = u.relayOk)
+            extentState = "DISPLAYED"
             Diary.get()?.log("ROUTE") {
                 "full route on screen: ${grown.stops.size} halts " +
                     "${grown.srcCode}->${grown.dstCode} (device timetable carries " +
-                    "${u.route.stops.size}; the rest render an em-dash schedule until a timetable names their minutes)"
+                    "${u.route.stops.size}; added halts render with unknown schedule times and distances)"
             }
         }
         extentJob = job
@@ -1644,6 +1675,8 @@ class LiveViewModel(
         val merged = mergeRouteExtents(base, halts) ?: return false
         extentRoute = merged
         extentAt = at
+        extentFetchedHaltCount = halts.size
+        extentState = "CACHE_MERGED"
         return true
     }
 

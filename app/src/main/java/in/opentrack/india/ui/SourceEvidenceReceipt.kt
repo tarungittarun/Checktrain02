@@ -7,7 +7,8 @@ import `in`.opentrack.india.v2.mirror.PublicPageChecks
  * No body, URL query, cookie or device identity is written to the diary. */
 object SourceEvidenceReceipt {
     fun publicPage(source: String, train: String, originDay: Long,
-        result: PublicPageChecks.Result): String {
+        result: PublicPageChecks.Result, routeExtentState: String? = null,
+        routeExtentHaltCount: Int? = null): String {
         val transport = when {
             result.fromHttpCache -> "CACHED_BODY"
             result.responseDigest != null -> "NETWORK_ANSWER"
@@ -62,6 +63,11 @@ object SourceEvidenceReceipt {
             else -> "none"
         }
         val shape = result.orgPageShapeReceipt?.take(1800)?.ifBlank { "none" } ?: "none"
+        val routeExtent = if (source == PublicPageChecks.ORG) {
+            val state = routeExtentState?.takeIf { it.matches(Regex("[A-Z_]{1,40}")) }
+                ?: "NOT_RECORDED"
+            " routeExtentState=$state routeExtentHalts=${routeExtentHaltCount ?: "unknown"}"
+        } else ""
         return "source=$source train=$train originDay=$originDay " +
             "transport=$transport bytes=${result.responseBytes} sha256_16=${result.responseDigest ?: "none"} " +
             "parsed=$parsed orgContentParsed=${result.orgContentParsed} runIdentity=$identity " +
@@ -81,7 +87,7 @@ object SourceEvidenceReceipt {
             "siteClaimAt=${siteClaimAt ?: "unknown"} " +
             "pagePublishedAt=${result.orgReport?.pageUpdatedAt ?: detached?.pageUpdatedAt ?: result.orgSitePageUpdatedAt ?: "unknown"} " +
             "pageClockHasSeconds=${result.orgSitePageClockHasSeconds || detached?.pageClockHasSeconds == true} " +
-            "checkedAt=${result.checkedAt}"
+            "checkedAt=${result.checkedAt}$routeExtent"
     }
 
     fun official(train: String, originDay: Long, receipt: OfficialRequestReceipt,

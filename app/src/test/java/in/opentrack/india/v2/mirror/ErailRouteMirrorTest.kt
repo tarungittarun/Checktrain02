@@ -77,10 +77,10 @@ class ErailRouteMirrorTest {
 
     @Test
     fun liveIdentityEndpointScaffoldGrowsFromExactOrderedRouteWithoutInventingTimes() {
-        val scaffold = TrainRoute("T", "T", "A", "Origin", "D", "Destination",
+        val scaffold = TrainRoute("T", "T", "A", "A", "D", "D",
             0, null, null, null, listOf(
-                StopRow(1, "A", "Origin", null, null, null, null, 600, 0, 0, true),
-                StopRow(2, "D", "Destination", null, null, null, 720, null, 0, 0, true),
+                StopRow(1, "A", "A", null, null, null, null, 600, 0, 0, true),
+                StopRow(2, "D", "D", null, null, null, 720, null, 0, 0, true),
             ), emptyList())
         val halts = listOf(
             ErailRouteMirror.Halt("Origin", "A"),
