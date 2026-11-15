@@ -44,6 +44,10 @@ class SourceIndicatorTest {
             SourceIndicator.of("confirmtkt", "none", "11 rows; 0 confirmed actuals").tone)
         assertEquals(SourceIndicator.Tone.PENDING,
             SourceIndicator.of(PublicPageChecks.ORG, "none", "checking on first load").tone)
+        assertEquals("a selected website with no response must remain visibly pending",
+            SourceIndicator.Tone.PENDING,
+            SourceIndicator.of(PublicPageChecks.ORG, "none",
+                "select to check; no unsolicited website request").tone)
     }
 
     @Test fun secondsAndFailureReasonsAreSeparateFromDataFreshness() {

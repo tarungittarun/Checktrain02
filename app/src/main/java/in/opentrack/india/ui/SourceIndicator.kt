@@ -28,7 +28,8 @@ object SourceIndicator {
         state == "comparison" -> Indicator(Tone.CANDIDATE, "comparison only · not ACTUAL")
         state == "last-known" -> Indicator(Tone.OLD, "saved · not new")
         detail.contains("not answered yet") || detail.contains("checking on first load") ||
-            detail.contains("manual check available") -> Indicator(Tone.PENDING, "checking…")
+            detail.contains("manual check available") || detail.contains("select to check", true) ->
+            Indicator(Tone.PENDING, "checking…")
         detail.contains("HTTP 403") -> Indicator(Tone.UNAVAILABLE, "site blocks request")
         detail.contains("Request failed", true) || detail.contains("timed out", true) ->
             Indicator(Tone.UNAVAILABLE, "connection failed")
