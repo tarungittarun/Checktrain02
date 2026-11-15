@@ -513,8 +513,10 @@ class TravellerAcceptanceTest {
             assertTrue("Upcoming-station alert style is not selectable: $style",
                 E2E.ui.wait(Until.hasObject(By.text(style)), E2E.LOCAL_MS))
         for (interval in listOf("1 minute", "2 minutes", "5 minutes"))
-            assertTrue("Upcoming-station interval is not selectable: $interval",
-                E2E.ui.wait(Until.hasObject(By.textContains(interval)), E2E.LOCAL_MS))
+            assertTrue("Upcoming-station interval is not reachable in its options scroll: $interval",
+                revealTextContains(interval, "alertDialogScroll"))
+        assertTrue("Alert style choices cannot be brought back into view",
+            revealTextContains("Alert style", "alertDialogScroll", up = false))
         assertTrue("Upcoming-station style is not visible in its options scroll",
             revealTextContains("Ping · one sound", "alertDialogScroll"))
         E2E.shotRequired("alert-upcoming-station-options")
