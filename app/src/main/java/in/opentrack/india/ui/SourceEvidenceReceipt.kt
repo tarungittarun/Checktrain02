@@ -47,7 +47,7 @@ object SourceEvidenceReceipt {
             "${it.fromCode ?: "unknown"}>${it.toCode ?: "unknown"}"
         } ?: "unknown"
         fun labelToken(value: String?): String = value?.replace(
-            Regex("[^\\p{L}\\p{N}]+"), "_")?.trim('_')?.take(48)?.ifBlank { "unknown" }
+            Regex("[^\\p{L}\\p{N}]+"), "_")?.trim('_')?.take(20)?.ifBlank { "unknown" }
             ?: "unknown"
         val pageEndpointLabels = result.orgPageEndpoints?.let {
             "${labelToken(it.fromLabel)}>${labelToken(it.toLabel)}"
@@ -62,11 +62,14 @@ object SourceEvidenceReceipt {
             result.orgReport != null -> "selected_origin_date_unverified"
             else -> "none"
         }
-        val shape = result.orgPageShapeReceipt?.take(1800)?.ifBlank { "none" } ?: "none"
+        // Diary.sanitize bounds a single log line at 1000 characters. Keep all
+        // acceptance/recovery fields before a compact, diagnostic-only shape;
+        // the full DOM summary must not cut off checkedAt or route extent evidence.
+        val shape = compactPageShape(result.orgPageShapeReceipt)
         val routeExtent = if (source == PublicPageChecks.ORG) {
             val state = routeExtentState?.takeIf { it.matches(Regex("[A-Z_]{1,40}")) }
                 ?: "NOT_RECORDED"
-            " routeExtentState=$state routeExtentHalts=${routeExtentHaltCount ?: "unknown"}"
+            "routeExtentState=$state routeExtentHalts=${routeExtentHaltCount ?: "unknown"}"
         } else ""
         return "source=$source train=$train originDay=$originDay " +
             "transport=$transport bytes=${result.responseBytes} sha256_16=${result.responseDigest ?: "none"} " +
@@ -78,16 +81,28 @@ object SourceEvidenceReceipt {
             "siteClaim=$siteClaim siteClaimKind=$siteClaimKind " +
             "siteRoute=$siteRoute sitePageEndpoints=$pageEndpoints " +
             "sitePageLabels=$pageEndpointLabels selectedRoute=$selectedRoute " +
-            "selectedRouteStops=${result.orgSelectedRouteStopCount ?: "unknown"} " +
-            "siteParserState=${result.orgParserState} " +
-            "siteCardContainers=${result.orgParsedCardContainers} siteDateMatched=${result.orgRunDateMatched} " +
-            "siteDateState=${result.orgRunDateState} sitePageRunDate=${result.orgPageRunDate ?: "unknown"} " +
-            "siteShape=$shape liveIdentityRouteMatch=${detached != null} " +
-            "siteClaimTimeBasis=$claimTimeBasis " +
+            "selectedRouteStops=${result.orgSelectedRouteStopCount ?: "unknown"} $routeExtent " +
+            "siteParserState=${result.orgParserState} siteCardContainers=${result.orgParsedCardContainers} " +
+            "siteDateMatched=${result.orgRunDateMatched} siteDateState=${result.orgRunDateState} " +
+            "sitePageRunDate=${result.orgPageRunDate ?: "unknown"} " +
+            "liveIdentityRouteMatch=${detached != null} siteClaimTimeBasis=$claimTimeBasis " +
             "siteClaimAt=${siteClaimAt ?: "unknown"} " +
             "pagePublishedAt=${result.orgReport?.pageUpdatedAt ?: detached?.pageUpdatedAt ?: result.orgSitePageUpdatedAt ?: "unknown"} " +
             "pageClockHasSeconds=${result.orgSitePageClockHasSeconds || detached?.pageClockHasSeconds == true} " +
-            "checkedAt=${result.checkedAt}$routeExtent"
+            "checkedAt=${result.checkedAt} siteShape=$shape"
+    }
+
+    private fun compactPageShape(raw: String?): String {
+        val value = raw?.takeIf { it.isNotBlank() } ?: return "none"
+        fun part(name: String): String? = value.split('~')
+            .firstOrNull { it.startsWith("$name:") }?.substringAfter(':')
+        return listOf(
+            "chars:${part("chars") ?: "unknown"}",
+            "roots:${part("roots") ?: "unknown"}",
+            "cards:${part("cards") ?: "unknown"}",
+            "heads:${part("heads")?.take(8) ?: "none"}",
+            "labels:${part("labels")?.take(12) ?: "none"}",
+        ).joinToString("~")
     }
 
     fun official(train: String, originDay: Long, receipt: OfficialRequestReceipt,

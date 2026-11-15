@@ -139,7 +139,12 @@ class PublicPageChecksTest {
             rejected.orgRunDateMatched)
         assertEquals("2026-10-15", rejected.orgPageRunDate)
         assertEquals("MISMATCH", rejected.orgRunDateState)
+        assertTrue(rejected.pageAnswered)
+        assertFalse(rejected.orgContentParsed)
         assertNull(rejected.orgReport)
+        assertEquals(listOf("SRF"), rejected.orgSiteCards.map { it.code })
+        assertTrue(rejected.orgSiteClocks.isEmpty())
+        assertTrue(rejected.detail.contains("comparison only"))
     }
 
     @Test fun `identity-matched website on a conflicting timetable stays detached comparison data`() {

@@ -1465,6 +1465,10 @@ class TrainActivity : AppCompatActivity() {
         val latestWebsiteCardSummary = if (WebsiteReportDisplay.selected(ui.activeSource))
             ui.orgWebsiteReport?.let { report -> WebsiteReportDisplay.latestSiteCardSummary(
                 report, ui.route, ui.selectedLoadReceiptMillis ?: System.currentTimeMillis()) }
+                ?: if (ui.orgWebsiteDetachedClaim == null)
+                    WebsiteReportDisplay.displayOnlyCardsBrief(ui.orgWebsiteCards,
+                        ui.orgWebsitePageRunDate, ui.orgWebsiteRunDateMatched)
+                else null
             else null
         val latestWebsiteCardBrief = if (WebsiteReportDisplay.selected(ui.activeSource))
             ui.orgWebsiteReport?.let { WebsiteReportDisplay.latestSiteCardBrief(it, ui.route) }

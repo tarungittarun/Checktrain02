@@ -331,6 +331,38 @@ object WebsiteReportDisplay {
         }
     }
 
+    /** Short visible summary for literal website cards that did not pass the selected-run
+     * gate. Clock text stays page-local; no date, event, or route position is inferred. */
+    fun displayOnlyCardsBrief(
+        cards: List<OrgWebsiteStatus.SiteCardClaim>,
+        pageRunDate: String?,
+        runDateMatched: Boolean,
+    ): String? {
+        if (cards.isEmpty()) return null
+        val card = cards.last()
+        val name = card.stationName?.let { RowText.of(it) } ?: card.code
+        val mark = when (card.mark) {
+            OrgWebsiteStatus.SiteCardMark.PAST -> "site-marked past"
+            OrgWebsiteStatus.SiteCardMark.HIGHLIGHTED -> "site-highlighted"
+            OrgWebsiteStatus.SiteCardMark.UPCOMING -> "site-marked upcoming"
+        }
+        val clocks = listOfNotNull(
+            card.arrival?.let { "arr ${siteClock(it)}" },
+            card.departure?.let { "dep ${siteClock(it)}" },
+        ).joinToString(" · ").ifBlank { "no readable card clock" }
+        val dateBasis = when {
+            runDateMatched && pageRunDate != null ->
+                "Visible page date $pageRunDate matches the selected run."
+            pageRunDate != null ->
+                "Visible page date $pageRunDate does not match the selected run."
+            else -> "No matching explicit page run-date label; selected origin day is unverified."
+        }
+        return "The .org.in page returned ${cards.size} visible route card(s); last listed " +
+            "$name (${card.code}) · $mark · $clocks. $dateBasis " +
+            "These are page-display claims only, not a dated train event or current position; " +
+            "open Source details for all cards."
+    }
+
     /** Full card-level copy for Source details: duplicates, site status/platform badges,
      * both site clocks and their grey site schedules, with no event/position promotion. */
     fun allSiteCardsSummary(report: OrgWebsiteStatus.Report?): String? = report?.let {

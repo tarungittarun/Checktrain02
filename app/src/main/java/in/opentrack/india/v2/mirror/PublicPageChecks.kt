@@ -366,6 +366,10 @@ object PublicPageChecks {
         val parsedOrg = if (name == ORG && route != null && !wrong)
             OrgWebsiteStatus.parse(body, number, originDay, now, route, mapRoute,
                 expectedIdentity) else null
+        // A visible route/date conflict can still expose the site's literal cards under
+        // Source details, but never align them to this run or attach them to timetable rows.
+        val runDateMismatchCards = if (name == ORG && wrong && route != null)
+            OrgWebsiteStatus.displayOnlyCardsForMatchedRoute(body, route) else emptyList()
         // A route-matched page may still be shown as a comparison when its run date is
         // absent. Do not silently turn an inferred timetable day into verified provenance.
         val org = parsedOrg?.let { parsed -> parsed.copy(
@@ -373,6 +377,11 @@ object PublicPageChecks {
                 else parsed.report,
             detachedPageClaim = parsed.detachedPageClaim?.copy(
                 runDateMatched = runDateMatchesSelected))
+        }
+        val displayOnlySiteCards = when {
+            org?.detachedPageClaim != null -> org.detachedPageClaim.siteCards
+            org?.siteCards?.isNotEmpty() == true -> org.siteCards
+            else -> runDateMismatchCards
         }
         val orgParserState = when {
             name != ORG -> "NOT_ORG"
@@ -405,6 +414,9 @@ object PublicPageChecks {
             org?.detachedPageClaim != null ->
                 " · site route matches live identity but conflicts with selected timetable; " +
                     "detached cards are diagnostic only and do not qualify this selected run"
+            !orgContentParsed && displayOnlySiteCards.isNotEmpty() ->
+                " · visible route cards are retained for comparison only; the selected date/run gate " +
+                    "did not qualify a site event or current position"
             !orgContentParsed ->
                 " · returned body did not produce a fresh route-matched station-card clock; " +
                     "HTTP success or partial text is not accepted as populated selected-run data"
@@ -440,7 +452,7 @@ object PublicPageChecks {
             orgQualificationNote = org?.qualificationNote, lines = lines,
             pageUpdateLabel = if (name == ORG) updated else null,
             orgDistanceProbe = distanceNote,
-            orgSiteCards = org?.siteCards.orEmpty(),
+            orgSiteCards = displayOnlySiteCards,
             orgDetachedPageClaim = org?.detachedPageClaim,
             orgSitePageUpdatedAt = org?.report?.pageUpdatedAt ?: org?.pageUpdatedAt
                 ?: org?.detachedPageClaim?.pageUpdatedAt,

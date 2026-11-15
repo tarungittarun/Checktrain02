@@ -219,6 +219,63 @@ object OrgWebsiteStatus {
     /** Bounded structural diagnostic; never returns card text or raw website markup. */
     internal fun diagnosticCardCount(html: String): Int = cardParts(html).size
 
+    /** Preserve literal source cards for comparison when the route is known but its run/date
+     * gate fails. These clocks are intentionally unaligned to a selected run and never make a
+     * Report, actual row, page position, or event timestamp. */
+    internal fun displayOnlyCards(body: String, route: TrainRoute): List<SiteCardClaim> {
+        val routeCodes = route.stops.map { it.code.uppercase(Locale.ROOT) }.toSet()
+        fun rawTime(section: String): SiteCardTime? {
+            val clocks = clock.findAll(section.take(650)).take(2).map { it.value.trim() }.toList()
+            val firstText = clocks.firstOrNull() ?: return null
+            val first = minute(firstText) ?: return null
+            val scheduleText = clocks.getOrNull(1)
+            return SiteCardTime(first, scheduleText?.let(::minute), firstText, scheduleText, false)
+        }
+        return cardParts(body).take(80).mapIndexedNotNull { cardIndex, part ->
+            val heading = plainText(headingText.find(part)?.groupValues?.get(1).orEmpty())
+            val code = stationCodeFromCardHeading(heading, route) ?: return@mapIndexedNotNull null
+            if (code.uppercase(Locale.ROOT) !in routeCodes) return@mapIndexedNotNull null
+            val className = cardClassName(part)
+            val mark = when {
+                className.contains("bg-green-50") && className.contains("opacity-90") -> SiteCardMark.PAST
+                className.contains("bg-blue-50") -> SiteCardMark.HIGHLIGHTED
+                else -> SiteCardMark.UPCOMING
+            }
+            val (arrivalSection, departureSection) = cardSections(part)
+            val arrival = rawTime(arrivalSection)
+            val departure = rawTime(departureSection)
+            val headerEnd = arrivalLabel.find(part)?.range?.first ?: part.length
+            val badges = spanTag.findAll(part.substring(0, headerEnd))
+                .map { plainText(it.groupValues[1]) }.filter { it.isNotBlank() }.toList()
+            val platform = badges.firstOrNull { platformBadge.containsMatchIn(it) }?.let {
+                platformValue.find(it)?.groupValues?.get(1)
+            }
+            val status = badges.firstOrNull { !it.contains("PF", ignoreCase = true) }
+            val stationName = heading.removeSuffix(" ($code)").trim().takeIf { it.isNotBlank() }
+            val scheduleEcho = listOfNotNull(arrival, departure).any {
+                it.pageScheduleMinute != null && it.minute == it.pageScheduleMinute
+            }
+            SiteCardClaim(code, mark, arrival, departure,
+                qualificationNote = if (scheduleEcho)
+                    "A displayed clock equals the page timetable; it is not a distinct train event."
+                else null,
+                stationName = stationName, platform = platform, statusText = status,
+                cardIndex = cardIndex)
+        }
+    }
+
+    /** Only retain comparison cards from a page that explicitly matches the selected route. */
+    internal fun displayOnlyCardsForMatchedRoute(body: String, route: TrainRoute): List<SiteCardClaim> {
+        val visible = WebsiteCardMarkup.visiblePageMarkup(body).html
+            .replace(Regex("(?s)<[^>]*>"), " ")
+            .replace(Regex("\\s+"), " ")
+        val endpoints = routeEndpointsFromVisibleText(visible,
+            setOf(route.srcCode, route.dstCode), routeStationNames(route))
+        if (endpoints.fromCode?.equals(route.srcCode, true) != true ||
+            endpoints.toCode?.equals(route.dstCode, true) != true) return emptyList()
+        return displayOnlyCards(body, route)
+    }
+
     /** Bounded redacted DOM structure for a fresh answer with missing/parsed cards.
      * No HTML, station names, clocks, URL, or response excerpt is returned. */
     internal fun pageStructureReceipt(html: String): String {
@@ -534,8 +591,12 @@ object OrgWebsiteStatus {
             setOf(route.srcCode, route.dstCode, expectedIdentity?.fromCode.orEmpty(),
                 expectedIdentity?.toCode.orEmpty()), routeStationNames(route))
         val parsedCardContainers = diagnosticCardCount(body)
-        fun rejected(reason: String): Outcome = Outcome(null, reason, null, emptyList(),
-            emptyMap(), null, null, endpoints, parsedCardContainers)
+        fun rejected(reason: String, retainDisplayCards: Boolean = false): Outcome {
+            val cards = if (retainDisplayCards) displayOnlyCards(body, route) else emptyList()
+            val pageAt = if (retainDisplayCards) pageClock(text, now) else null
+            return Outcome(null, reason, null, cards, emptyMap(), pageAt, null,
+                endpoints, parsedCardContainers)
+        }
         val websiteFrom = endpoints.fromCode
         val websiteTo = endpoints.toCode
         val routeMatchesPage = websiteFrom?.equals(route.srcCode, true) == true &&
@@ -566,21 +627,23 @@ object OrgWebsiteStatus {
                 "no selected-run claim admitted")
         }
         if (!RailTime.runsOn(route.runDays, RailTime.istWeekdayOfEpochDay(originDay)))
-            return rejected("selected train does not run on this origin day")
+            return rejected("selected train does not run on this origin day", retainDisplayCards = true)
         // This site has no date selector. Only a route-matched page may be associated
         // with the active selected timetable run; a detached page is never given that
         // run identity or mapped to its schedule.
         val originDep = route.stops.first().departureMin
-            ?: return rejected("origin departure timetable missing")
+            ?: return rejected("origin departure timetable missing", retainDisplayCards = true)
         val railNow = ((RailTime.istEpochDay(now) - originDay) * 1440 + RailTime.istMinuteOfDay(now)).toInt()
         val elapsed = railNow - originDep
         if (elapsed !in 0..minOf(1439, (route.totalMin ?: 1440) + 240))
-            return rejected("site has no day selector; selected origin run is not unambiguously active")
+            return rejected("site has no day selector; selected origin run is not unambiguously active",
+                retainDisplayCards = true)
         if (Regex("(?i)\\b(?:not running today|yet to start|has not started|cancelled|diverted)\\b")
                 .containsMatchIn(header))
-            return rejected("website reports this run is not active")
+            return rejected("website reports this run is not active", retainDisplayCards = true)
         val stamp = pageClock(text, now)
-            ?: return rejected("website update clock missing or over five minutes old")
+            ?: return rejected("website update clock missing or over five minutes old",
+                retainDisplayCards = true)
         // The website can report non-halt stations (BEI/SME on 20689). Accept only
         // points in a separately validated, in-order map with credible leg distances.
         val map = mapRoute?.takeIf { RouteBetween.withVerifiedHalts(it, route) != null }

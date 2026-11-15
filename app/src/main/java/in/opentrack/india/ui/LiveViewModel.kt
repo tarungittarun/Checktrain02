@@ -478,7 +478,7 @@ class LiveViewModel(
                 // failed request separately, so fallback selection cannot call it new.
                 val previousWebsite = publicChecks[name]
                 val previousReport = previousWebsite?.orgReport
-                val retainPreviousWebsite = name == PublicPageChecks.ORG && !resolved.orgContentParsed &&
+                val retainPreviousWebsite = name == PublicPageChecks.ORG && !resolved.pageAnswered &&
                     (previousReport != null || previousWebsite?.orgSiteCards?.isNotEmpty() == true ||
                         previousWebsite?.orgDetachedPageClaim != null)
                 publicChecks[name] = if (retainPreviousWebsite) resolved.copy(
@@ -2409,8 +2409,7 @@ class LiveViewModel(
             },
             selectedLoadReceiptMillis = when {
                 selected in PublicPageChecks.names -> publicChecks[selected]
-                    ?.takeIf { if (selected == PublicPageChecks.ORG) it.orgContentParsed
-                        else it.pageAnswered }?.checkedAt
+                    ?.takeIf { it.pageAnswered }?.checkedAt
                 selected == "NTES (official)" &&
                     lastOfficialRequest?.kind == OfficialRequestReceipt.Kind.ANSWERED_WITH_ACTUALS ->
                     lastFetchAt.takeIf { it > 0 }

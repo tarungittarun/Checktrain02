@@ -162,6 +162,22 @@ class WebsiteReportDisplayTest {
         assertFalse(summary.contains("NTES actuals")) // remains an explicit display-only page
     }
 
+    @Test fun cardsRejectedByRunDateOrWindowRemainVisibleOnlyAsPageDisplayClaims() {
+        val cards = listOf(OrgWebsiteStatus.SiteCardClaim(
+            code = "ARU", mark = OrgWebsiteStatus.SiteCardMark.PAST,
+            arrival = OrgWebsiteStatus.SiteCardTime(350, 343, "05:50 AM", "05:43 AM"),
+            departure = null, stationName = "Arakkonam"))
+
+        val undated = WebsiteReportDisplay.displayOnlyCardsBrief(cards, null, false)!!
+        assertTrue(undated.contains("Arakkonam (ARU)"))
+        assertTrue(undated.contains("05:50"))
+        assertTrue(undated.contains("selected origin day is unverified"))
+        assertTrue(undated.contains("not a dated train event or current position"))
+        val mismatch = WebsiteReportDisplay.displayOnlyCardsBrief(cards, "2026-10-15", false)!!
+        assertTrue(mismatch.contains("does not match the selected run"))
+        assertFalse(mismatch.contains("date matched"))
+    }
+
     @Test fun staleWebsiteBadgeRetainsInferredRunWarningAndAvoidsAssumingArrival() {
         assertTrue(WebsiteReportDisplay.STALE_BADGE.contains("stale"))
         assertTrue(WebsiteReportDisplay.STALE_BADGE.contains("run inferred"))

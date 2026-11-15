@@ -941,6 +941,30 @@ class OrgWebsiteStatusTest {
             "16227", day, now, route).report)
     }
 
+    @Test fun `inactive selected run preserves literal cards without assigning them to that run`() {
+        val earlyNow = `in`.opentrack.india.core.RailTime.railMinuteToEpochMillis(day, 339)
+        val earlyPage = page.replace("06:06:19 AM", "05:39:00 AM")
+        val outcome = OrgWebsiteStatus.parse(earlyPage, "16227", day, earlyNow, route)
+
+        assertNull(outcome.report)
+        assertTrue(outcome.reason.contains("not unambiguously active"))
+        assertEquals(2, outcome.siteCards.size)
+        assertTrue(outcome.siteClocks.isEmpty())
+        assertEquals("ARU", outcome.siteCards.first().code)
+        assertEquals("05:50 AM", outcome.siteCards.first().arrival?.printedText)
+        assertEquals("05:43 AM", outcome.siteCards.first().arrival?.pageScheduleText)
+        assertEquals(earlyNow, outcome.pageUpdatedAt)
+
+        val result = PublicPageChecks.parse(PublicPageChecks.ORG, earlyPage,
+            "16227", day, earlyNow, route = route)
+        assertTrue(result.pageAnswered)
+        assertFalse(result.orgContentParsed)
+        assertNull(result.orgReport)
+        assertEquals("RUN_WINDOW_UNVERIFIED", result.orgParserState)
+        assertEquals(2, result.orgSiteCards.size)
+        assertTrue(result.detail.contains("comparison only"))
+    }
+
     @Test fun `wrong endpoints stale clock and a different origin run cannot anchor`() {
         assertNull(OrgWebsiteStatus.parse(page.replace("Source: MYS", "Source: SBC"),
             "16227", day, now, route).report)

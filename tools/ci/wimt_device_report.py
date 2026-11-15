@@ -131,7 +131,15 @@ def verdict(instrumentation: str, diary: str, process_rc: int) -> dict:
               "SITE_ROUTE_MISMATCH_NOT_ACCEPTED" if site_answered and detached_site_claim else
               "SITE_RUN_DATE_MISMATCH" if site_answered and site_page_run_date not in (None, "unknown") and
                   run_date is not None and site_page_run_date != run_date else
-              "SITE_RUN_DATE_UNVERIFIED" if site_answered and rows is not None and int(rows) > 0 and not site_date_matched else
+              "SITE_RUN_DATE_AND_WINDOW_UNVERIFIED" if site_answered and
+                  site_date_state in {"ABSENT", "INVALID_OR_AMBIGUOUS"} and
+                  site_parser_state == "RUN_WINDOW_UNVERIFIED" else
+              "SITE_RUN_WINDOW_UNVERIFIED" if site_answered and
+                  site_parser_state == "RUN_WINDOW_UNVERIFIED" else
+              "SITE_RUN_DATE_UNVERIFIED" if site_answered and rows is not None and int(rows) > 0 and
+                  not site_date_matched else
+              "SITE_RUN_DATE_UNVERIFIED" if site_answered and site_route == selected_route and
+                  site_date_state in {"ABSENT", "INVALID_OR_AMBIGUOUS"} else
               "PASS_DATED_ROUTE_MATCHED_SITE_EVENT" if accepted else
               "SITE_REPLY_OR_SOURCE_QUALIFICATION_MISSING" if site_answered else
               "NO_WEBSITE_NETWORK_ANSWER")
@@ -231,6 +239,17 @@ def self_test() -> None:
     undated_result = verdict("OK (1 test)", undated, 0)
     assert not undated_result["accepted"]
     assert undated_result["verdict"] == "SITE_RUN_DATE_UNVERIFIED"
+    inactive_window = (good.replace("runIdentity=DATE_ROUTE_MATCHED", "runIdentity=INFERRED")
+        .replace("siteRows=10 detachedSiteClaims=0", "siteRows=0 detachedSiteClaims=0")
+        .replace("siteClaim=RRB:1217 siteClaimKind=ARRIVAL", "siteClaim=none siteClaimKind=none")
+        .replace("siteParserState=SITE_REPORT", "siteParserState=RUN_WINDOW_UNVERIFIED")
+        .replace("siteDateMatched=true", "siteDateMatched=false")
+        .replace("siteDateState=MATCH", "siteDateState=ABSENT")
+        .replace("sitePageRunDate=2026-11-12", "sitePageRunDate=unknown")
+        .replace("siteClaimTimeBasis=selected_origin_date_verified", "siteClaimTimeBasis=none"))
+    inactive_result = verdict("OK (1 test)", inactive_window, 0)
+    assert not inactive_result["accepted"]
+    assert inactive_result["verdict"] == "SITE_RUN_DATE_AND_WINDOW_UNVERIFIED"
     mismatched_date = good.replace("sitePageRunDate=2026-11-12", "sitePageRunDate=2026-11-13") \
         .replace("siteDateState=MATCH", "siteDateState=MISMATCH")
     mismatched_result = verdict("OK (1 test)", mismatched_date, 0)

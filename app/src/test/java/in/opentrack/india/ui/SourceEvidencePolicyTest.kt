@@ -93,4 +93,55 @@ class SourceEvidencePolicyTest {
             2, "SRF", 342, 1_792_369_020_000L)
         assertTrue(ntesFailed.contains("primaryActuals=0 lastEvent=none"))
     }
+
+    @Test fun longDomShapeCannotTruncateRouteAndFreshnessEvidence() {
+        val pageAt = 1_792_369_260_000L
+        val result = PublicPageChecks.Result("site answered", 1_792_369_300_000L, true,
+            orgReport = OrgWebsiteStatus.Report(emptyMap(), "MYS", true, 1_180, pageAt,
+                originInferred = false),
+            orgContentParsed = true,
+            responseBytes = 118_284, responseDigest = "0123456789abcdef",
+            orgSitePageUpdatedAt = pageAt, orgSitePageClockHasSeconds = true,
+            orgPageEndpoints = OrgWebsiteStatus.PageEndpoints("MYS", "TLGP",
+                "Mysuru Junction", "Talguppa"),
+            orgSelectedRouteFromCode = "MYS", orgSelectedRouteToCode = "TLGP",
+            orgSelectedRouteStopCount = 29, orgParserState = "SITE_REPORT",
+            orgParsedCardContainers = 29, orgRunDateMatched = true,
+            orgPageRunDate = "2026-11-12", orgRunDateState = "MATCH",
+            orgPageShapeReceipt = "chars:120000~truncated:true~tags:div:546~roots:26~cards:26~" +
+                "heads:h1_text|h3_station_MYS|h3_station_NHY~labels:ARRIVAL:clock|DEPARTURE:clock~" +
+                "classes:bg-green-50".repeat(80))
+
+        val receipt = SourceEvidenceReceipt.publicPage(PublicPageChecks.ORG, "16227", 20_772L,
+            result, routeExtentState = "DISPLAYED", routeExtentHaltCount = 29)
+        assertTrue(receipt.length < 950)
+        assertTrue("full diary prefix must remain below Diary.MAX_LINE",
+            receipt.length + "11-05 12:34:56.789 [EVIDENCE] ".length < 1000)
+        assertTrue(receipt.contains("selectedRouteStops=29 routeExtentState=DISPLAYED routeExtentHalts=29"))
+        assertTrue(receipt.contains("siteParserState=SITE_REPORT"))
+        assertTrue(receipt.contains("siteDateMatched=true siteDateState=MATCH sitePageRunDate=2026-11-12"))
+        assertTrue(receipt.contains("pagePublishedAt=$pageAt"))
+        assertTrue(receipt.contains("checkedAt=${result.checkedAt}"))
+        assertTrue(receipt.contains("siteShape=chars:120000~roots:26~cards:26"))
+
+        val rejectedPage = result.copy(
+            orgReport = null, orgContentParsed = false,
+            orgSiteCards = List(29) { OrgWebsiteStatus.SiteCardClaim("ARU",
+                OrgWebsiteStatus.SiteCardMark.PAST, null, null) },
+            orgPageEndpoints = OrgWebsiteStatus.PageEndpoints("MYS", "TLGP",
+                "Mysuru Long Origin Station Name 12345678901234567890",
+                "Talguppa Long Destination Station Name 12345678901234567890"),
+            orgParserState = "PAGE_CLOCK_INVALID_OR_STALE",
+            orgRunDateMatched = false, orgPageRunDate = null,
+            orgRunDateState = "INVALID_OR_AMBIGUOUS")
+        val rejectedReceipt = SourceEvidenceReceipt.publicPage(PublicPageChecks.ORG,
+            "16227", 20_772L, rejectedPage,
+            routeExtentState = "ROUTE_LIST_MISMATCH", routeExtentHaltCount = 29)
+        assertTrue("long labels and the longest rejection states must retain the full line",
+            rejectedReceipt.length + "11-05 12:34:56.789 [EVIDENCE] ".length < 1000)
+        assertTrue(rejectedReceipt.contains("routeExtentState=ROUTE_LIST_MISMATCH routeExtentHalts=29"))
+        assertTrue(rejectedReceipt.contains("siteParserState=PAGE_CLOCK_INVALID_OR_STALE"))
+        assertTrue(rejectedReceipt.contains("siteDateState=INVALID_OR_AMBIGUOUS"))
+        assertTrue(rejectedReceipt.contains("checkedAt=${result.checkedAt}"))
+    }
 }
