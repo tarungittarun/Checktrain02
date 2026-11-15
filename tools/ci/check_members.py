@@ -150,8 +150,14 @@ addView await childCount contentEncoding countDown disconnect filterIndexed getI
 R_NESTED = {"drawable", "layout", "id", "string", "color", "dimen", "style", "plurals", "xml", "anim",
             "array", "integer", "bool", "raw", "mipmap", "font"}
 
+def blank_raw_strings(src: str) -> str:
+    """Blank Kotlin triple-quoted strings before line-based scans, preserving source line numbers."""
+    return re.sub(r'""".*?"""', lambda match: "".join(
+        "\n" if char == "\n" else " " for char in match.group(0)), src, flags=re.S)
+
+
 def strip_noise(line: str) -> str:
-    """Blank out string literals and line comments so prose cannot satisfy or trip the scan."""
+    """Blank out ordinary string literals and line comments so prose cannot satisfy or trip the scan."""
     out, i, n = [], 0, len(line)
     while i < n:
         c = line[i]
@@ -170,6 +176,7 @@ def strip_noise(line: str) -> str:
 
 
 def declared(text: str) -> set[str]:
+    text = blank_raw_strings(text)
     out: set[str] = set()
     for rx in (DECL, PARAM, LOCAL, NAMED_ARG):
         for m in rx.finditer(text):
@@ -188,7 +195,7 @@ def resource_names() -> set[str]:
 
 def usages(path: Path, known: set[str]) -> list[str]:
     problems: list[str] = []
-    src = path.read_text()
+    src = blank_raw_strings(path.read_text())
     locals_ = set(LOCAL.findall(src)) | LOCAL_RECEIVERS
     for line_no, line in enumerate(src.splitlines(), 1):
         code = strip_noise(line)
@@ -254,7 +261,7 @@ def backing_field(files) -> list[str]:
     # pass; newlines are preserved so the number reported is the number in the file.
     problems: list[str] = []
     for f in files:
-        src = f.read_text()
+        src = blank_raw_strings(f.read_text())
         masked, i = [], 0
         while i < len(src):
             start = src.find("/*", i)
@@ -279,7 +286,8 @@ def backing_field(files) -> list[str]:
 
 
 def _clean(src: str) -> str:
-    """Same line breaks, strings and comments blanked, so brace counting cannot be fooled by a `{"`."""
+    """Blank literals and comments while preserving line numbers for structural scans."""
+    src = blank_raw_strings(src)
     return "\n".join(strip_noise(line) for line in src.splitlines())
 
 

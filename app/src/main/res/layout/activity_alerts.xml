@@ -34,7 +34,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
-        android:text="Manage alert defaults, active reminders, changes, cancellations and history. Timetable reminders are labeled separately from source-reported events." />
+        android:text="Defaults · active monitors · history. Timetable reminders and source reports are labeled separately." />
 
     <Button
         android:id="@+id/options"

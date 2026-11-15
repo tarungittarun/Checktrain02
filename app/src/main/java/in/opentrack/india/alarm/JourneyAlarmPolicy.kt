@@ -19,6 +19,20 @@ object JourneyAlarmPolicy {
 
     data class Baseline(val seq: Int = 0, val eventMinute: Int? = null)
 
+    /** A later-stop result is terminal only after every available source has been checked. */
+    data class SourceDecision(val sourceLabel: String, val decision: Decision)
+
+    /**
+     * Return the first source that can end an alert. A qualifying Fire wins immediately in
+     * source order; a single source's Missed verdict is held until all sources were reachable,
+     * so a second source can still report the selected station event.
+     */
+    fun firstTerminalSource(results: List<SourceDecision>, allSourcesChecked: Boolean): SourceDecision? =
+        results.firstOrNull { it.decision is Decision.Fire }
+            ?: if (allSourcesChecked) results.firstOrNull {
+                it.decision is Decision.Missed
+            } else null
+
     data class PhoneFix(
         val latitude: Double,
         val longitude: Double,
@@ -57,7 +71,8 @@ object JourneyAlarmPolicy {
 
     fun stationEvent(config: JourneyAlarmConfig, route: TrainRoute,
                      answer: PositionEngine.Answer, nowMillis: Long,
-                     sourceDisplayName: String? = null): Decision {
+                     sourceDisplayName: String? = null,
+                     allowOnScheduleActual: Boolean = false): Decision {
         if (config.trigger == AlertTrigger.PHONE_DISTANCE)
             return Decision.Waiting("Waiting for phone location near ${config.toName}")
         if (!routeMatches(config, route))
@@ -100,7 +115,11 @@ object JourneyAlarmPolicy {
                 "No actual arrival or departure time at ${target.name}")
         val scheduled = if (fields.actualDepartureMin != null) target.departureMin
             else target.arrivalMin
-        if (position.provenance == SourceKind.PROVIDER && scheduled != null && minute == scheduled)
+        // Generic erail replies that exactly echo the timetable may not be actuals. The direct
+        // .in alert caller can opt in only after its parser has required actual-labelled fields,
+        // echoed run date and both route endpoints, plus a fresh source-update stamp.
+        if (position.provenance == SourceKind.PROVIDER && !allowOnScheduleActual &&
+            scheduled != null && minute == scheduled)
             return waitOrMiss(anchor, anchorAt, anchorEventFresh, config,
                 "The erail time at ${target.name} matches the timetable; it may be a schedule echo")
 

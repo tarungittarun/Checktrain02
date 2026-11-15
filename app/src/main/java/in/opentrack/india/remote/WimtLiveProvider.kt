@@ -51,6 +51,17 @@ object WimtLiveProvider {
             stamp <= nowMillis && nowMillis - stamp <= FRESH_UPDATE_MAX_AGE_MS
         } == true
 
+    /** Strict alert gate: an HTTP/JSON reply alone is never a selected-run live source. */
+    fun alertQualificationFailure(result: WimtResult, nowMillis: Long): String? {
+        if (result.snapshot == null) return "WIMT .in did not return a usable live report: " +
+            result.detail.take(140)
+        if (result.runDateMatched != true || result.routeMatched != true)
+            return "WIMT .in did not echo a matching run date and both route endpoints"
+        if (!hasFreshSourceUpdate(result, nowMillis))
+            return "WIMT .in source update stamp is missing, future, or stale"
+        return null
+    }
+
     /** Return a local-only wait when the source stamp is slightly ahead; do not call it fresh early. */
     fun freshStampRecheckDelayMillis(result: WimtResult, nowMillis: Long): Long? {
         val stamp = result.snapshot?.feedStampMillis ?: return null

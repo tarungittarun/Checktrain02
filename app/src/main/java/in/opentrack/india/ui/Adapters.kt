@@ -327,9 +327,9 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             if (s.showKm) append(" · ").append(s.kmFromOrigin).append(" km")
             if (s.isBoarding) append(" · ").append(ctx.getString(R.string.tag_board))
             else if (s.isAlighting) append(" · ").append(ctx.getString(R.string.tag_alight))
-            s.platform?.takeIf { it.isNotBlank() }?.let {
-                append(if (s.source == TrackModel.MinuteSource.SITE_REPORTED) " · site pf "
-                    else " · feed pf ").append(it)
+            s.platform?.takeIf { it.isNotBlank() &&
+                s.source != TrackModel.MinuteSource.SITE_REPORTED }?.let {
+                append(" · feed pf ").append(it)
             }
         }
         // Normal mode keeps its existing leg cue. Battery mode must not paint
@@ -548,7 +548,8 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         val captionMinute = (s.showDep ?: s.showArr).takeIf {
             (expandedCode == null || batteryMode) && marker != null &&
                 (s.source == TrackModel.MinuteSource.REPORTED && !marker.website ||
-                 s.source == TrackModel.MinuteSource.SITE_REPORTED && marker.website)
+                 s.source == TrackModel.MinuteSource.SITE_REPORTED && marker.website) &&
+                (batteryMode || !marker.website)
         }
         holder.eventCaption.visibility = if (captionMinute == null) View.GONE else View.VISIBLE
         holder.eventCaption.text = captionMinute?.let { minute ->

@@ -1,5 +1,6 @@
 package `in`.opentrack.india.v2.mirror
 
+import `in`.opentrack.india.core.Diary
 import `in`.opentrack.india.core.Http
 import `in`.opentrack.india.core.RailTime
 import `in`.opentrack.india.core.WebsiteCardMarkup
@@ -228,33 +229,40 @@ object PublicPageChecks {
         responseClock: () -> Long = { now }, get: (String) -> Http.Result): Result {
         val url = url(name, number, originDay, now)
             ?: return Result("Run outside the available 0–2 day query window; no request made.", now, false)
-        return when (val reply = get(url)) {
-            is Http.Result.Failed -> Result("Request failed: ${reply.kind} · ${reply.message.take(90)}; no position.",
-                responseClock(), false)
-            is Http.Result.Ok -> {
-                // The production adapter records response time; deterministic transport tests
-                // default to the injected request clock so historical fixtures do not depend on
-                // the date the CI runner happens to execute them.
-                val checked = responseClock()
-                val bytes = reply.body.toByteArray(Charsets.UTF_8)
-                val digest = MessageDigest.getInstance("SHA-256").digest(bytes).take(8)
-                    .joinToString("") { "%02x".format(it) }
-                val answer = parse(name, reply.body, number, originDay, checked, source, destination,
-                    knownCodes, route, mapRoute, expectedIdentity).copy(responseBytes = bytes.size,
-                        responseDigest = digest, fromHttpCache = reply.fromCache)
-                if (reply.fromCache) answer.copy(
-                    detail = "Cached HTTP body (${reply.ageMillis / 60_000} min old); " +
-                        answer.detail + " No fresh observation.", pageAnswered = false,
-                    stationClaim = null, orgReport = null, orgContentParsed = false,
-                    orgQualificationNote = null, orgDetachedPageClaim = null,
-                    orgDistanceProbe = "cached HTTP page; no same-page distance accepted",
-                    orgSiteCards = emptyList(), orgSitePageUpdatedAt = null,
-                    orgSitePageClockHasSeconds = false, orgSiteClocks = emptyMap(),
-                    orgPageEndpoints = null, orgParsedCardContainers = 0,
-                    orgRunDateMatched = false, orgPageRunDate = null, orgRunDateState = "CACHED",
-                    orgParserState = "CACHED_BODY")
-                else answer
-            }
+        val reply = get(url)
+        return parseReply(name, reply, number, originDay, source, destination, knownCodes,
+            route, mapRoute, expectedIdentity, responseClock())
+    }
+
+    /** Parse a completed transport reply after route/identity context is ready; never refetch the page. */
+    internal fun parseReply(name: String, reply: Http.Result, number: String, originDay: Long,
+        source: String? = null, destination: String? = null,
+        knownCodes: Set<String> = emptySet(), route: TrainRoute? = null,
+        mapRoute: TrainRoute? = null, expectedIdentity: TrainIdentity? = null,
+        responseAtMillis: Long): Result = when (reply) {
+        is Http.Result.Failed -> Result(
+            "Request failed: ${reply.kind} · ${reply.message.take(90)}; no position.",
+            responseAtMillis, false)
+        is Http.Result.Ok -> {
+            val bytes = reply.body.toByteArray(Charsets.UTF_8)
+            val digest = MessageDigest.getInstance("SHA-256").digest(bytes).take(8)
+                .joinToString("") { "%02x".format(it) }
+            val answer = parse(name, reply.body, number, originDay, responseAtMillis,
+                source, destination, knownCodes, route, mapRoute, expectedIdentity)
+                .copy(responseBytes = bytes.size, responseDigest = digest,
+                    fromHttpCache = reply.fromCache)
+            if (reply.fromCache) answer.copy(
+                detail = "Cached HTTP body (${reply.ageMillis / 60_000} min old); " +
+                    answer.detail + " No fresh observation.", pageAnswered = false,
+                stationClaim = null, orgReport = null, orgContentParsed = false,
+                orgQualificationNote = null, orgDetachedPageClaim = null,
+                orgDistanceProbe = "cached HTTP page; no same-page distance accepted",
+                orgSiteCards = emptyList(), orgSitePageUpdatedAt = null,
+                orgSitePageClockHasSeconds = false, orgSiteClocks = emptyMap(),
+                orgPageEndpoints = null, orgParsedCardContainers = 0,
+                orgRunDateMatched = false, orgPageRunDate = null, orgRunDateState = "CACHED",
+                orgParserState = "CACHED_BODY")
+            else answer
         }
     }
 
@@ -314,13 +322,17 @@ object PublicPageChecks {
     private fun page(name: String, body: String, number: String, originDay: Long, now: Long,
                      knownCodes: Set<String>, route: TrainRoute?, mapRoute: TrainRoute?,
                      expectedIdentity: TrainIdentity?): Result {
+        val parseStartedNanos = System.nanoTime()
         // Only the visible DOM may identify the train, run date, or station data. Mask
         // script/style/comment content first: SEO JSON is not a rendered source answer.
-        val visibleMarkup = WebsiteCardMarkup.visiblePageMarkup(body).html
-        val visible = RunningStatusMirror.stripTags(visibleMarkup)
-            .replace("&nbsp;", " ", ignoreCase = true)
-            .replace("&#160;", " ", ignoreCase = true)
-            .replace(Regex("\\s+"), " ").trim().take(120_000)
+        val visibleDocument = WebsiteCardMarkup.visiblePageMarkup(body)
+        val visibleMarkup = visibleDocument.html
+        val visible = (if (name == ORG) OrgWebsiteStatus.visibleText(visibleDocument)
+            else RunningStatusMirror.stripTags(visibleMarkup)
+                .replace("&nbsp;", " ", ignoreCase = true)
+                .replace("&#160;", " ", ignoreCase = true)
+                .replace(Regex("\\s+"), " ").trim()).take(120_000)
+        val visibleReadyNanos = System.nanoTime()
         val title = if (name == IXIGO) "ixigo" else "whereismytrain.org.in"
         if (!Regex("(?i)\\b${Regex.escape(number)}\\b").containsMatchIn(visible))
             return Result("$title: returned visible page did not identify train $number; no position.",
@@ -363,13 +375,17 @@ object PublicPageChecks {
         }
         val returned = selected?.let { "page-selected $it" } ?: "page does not identify a selected origin date"
         val wrong = selected != null && !runDateMatchesSelected
+        val orgPageDocument = if (name == ORG && route != null)
+            OrgWebsiteStatus.prepareDocument(visibleDocument, visible) else null
+        val cardTreeReadyNanos = System.nanoTime()
         val parsedOrg = if (name == ORG && route != null && !wrong)
-            OrgWebsiteStatus.parse(body, number, originDay, now, route, mapRoute,
+            OrgWebsiteStatus.parse(orgPageDocument!!, number, originDay, now, route, mapRoute,
                 expectedIdentity) else null
         // A visible route/date conflict can still expose the site's literal cards under
         // Source details, but never align them to this run or attach them to timetable rows.
         val runDateMismatchCards = if (name == ORG && wrong && route != null)
-            OrgWebsiteStatus.displayOnlyCardsForMatchedRoute(body, route) else emptyList()
+            OrgWebsiteStatus.displayOnlyCardsForMatchedRoute(orgPageDocument!!, route)
+            else emptyList()
         // A route-matched page may still be shown as a comparison when its run date is
         // absent. Do not silently turn an inferred timetable day into verified provenance.
         val org = parsedOrg?.let { parsed -> parsed.copy(
@@ -422,8 +438,10 @@ object PublicPageChecks {
                     "HTTP success or partial text is not accepted as populated selected-run data"
             else -> ""
         }
+        val sourceParseReadyNanos = System.nanoTime()
         val distanceProbe = if (name == ORG && route != null && org?.detachedPageClaim == null)
-            OrgWebsiteDistanceProbe.inspect(body, org?.report, route, mapRoute) else null
+            OrgWebsiteDistanceProbe.inspectVisibleText(visible, org?.report, route, mapRoute) else null
+        val distanceProbeReadyNanos = System.nanoTime()
         val distanceNote = distanceProbe?.let { finding ->
             finding.candidate?.let { p ->
                 "site printed ${p.remainingKm} km to ${p.nextCode} after ${p.fromCode}; " +
@@ -437,6 +455,19 @@ object PublicPageChecks {
             org?.report != null && selected == null ->
                 "site has no date selector; mapped to the active selected run by timetable"
             else -> returned
+        }
+        if (name == ORG) {
+            val beforeResultNanos = System.nanoTime()
+            fun ms(from: Long, to: Long) = (to - from).coerceAtLeast(0L) / 1_000_000L
+            Diary.get()?.log("ORG_PARSE") {
+                "visible=${ms(parseStartedNanos, visibleReadyNanos)}ms " +
+                    "cardTree=${ms(visibleReadyNanos, cardTreeReadyNanos)}ms " +
+                    "qualification=${ms(cardTreeReadyNanos, sourceParseReadyNanos)}ms " +
+                    "distance=${ms(sourceParseReadyNanos, distanceProbeReadyNanos)}ms " +
+                    "result=${ms(distanceProbeReadyNanos, beforeResultNanos)}ms " +
+                    "total=${ms(parseStartedNanos, beforeResultNanos)}ms " +
+                    "cards=${orgPageDocument?.cards?.size ?: 0} rows=${org?.report?.rows?.size ?: 0}"
+            }
         }
         return Result("$title: train $number · $runLabel (requested origin $date) · $status" +
             (updated?.let { " · page update label $it" } ?: "") +

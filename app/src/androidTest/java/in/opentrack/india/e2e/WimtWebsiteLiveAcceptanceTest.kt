@@ -6,6 +6,7 @@ import androidx.test.uiautomator.Until
 import `in`.opentrack.india.core.WebsiteBrowserRequest
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -79,6 +80,13 @@ class WimtWebsiteLiveAcceptanceTest {
             assertTrue("the .in web cache is a distinct provider, not a picker choice",
                 E2E.ui.findObject(By.textContains("WIMT web cache · experimental")) == null)
             E2E.shotWimt("wimt-source-picker-open")
+            val deviceTiming = AtomicReference<String?>(null)
+            WebsiteBrowserRequest.timingObserverForTest = { timing ->
+                deviceTiming.set(timing)
+                // This is the actual device-side document duration, separate from the website's
+                // printed update-age and the full screen-selection-to-render duration.
+                println("WIMT_DEVICE_FETCH_TIMING=$timing")
+            }
             val navigationEntered = CountDownLatch(1)
             val allowNavigation = CountDownLatch(1)
             // Hold the one genuine WebView navigation off the UI thread. This makes the
@@ -127,11 +135,11 @@ class WimtWebsiteLiveAcceptanceTest {
                 WebsiteBrowserRequest.beforeDocumentNavigationForTest = null
             }
             // One deliberate selected-source request; no background retry in the test.
-            // The selected website call can wait for the current route/identity snapshot,
-            // then spend up to 40 seconds loading and hydrating its one WebView document.
-            // Keep this one-request gate above that combined budget; a 45-second timeout
-            // previously ended the test while the website GET had answered but before its
-            // selected-source evidence was published to the UI.
+            // The WebView navigation now overlaps route/identity work. Its one-document
+            // deadline is 40 seconds total (including the bounded DOM-readiness wait); parsing
+            // and UI publication follow with the best context ready at response time. Keep this
+            // one-request gate above that deadline and publication work; a 45-second test cap
+            // previously ended after the page answered but before selected-source evidence appeared.
             val until = System.currentTimeMillis() + 120_000L
             var accepted = false
             var warning = ""
@@ -139,6 +147,7 @@ class WimtWebsiteLiveAcceptanceTest {
             var badge = ""
             var eventFreshness = ""
             var claimSummary = ""
+            var provenanceDescription = ""
             var detachedDescription = ""
             var selectedWebsite = false
             var detachedClaim = false
@@ -148,25 +157,34 @@ class WimtWebsiteLiveAcceptanceTest {
                 warning = E2E.text("connectionAlert", 250)
                 eventFreshness = E2E.text("age", 250)
                 claimSummary = E2E.text("sourceSummary", 250)
+                provenanceDescription = E2E.find("provenance", 250)?.contentDescription?.toString().orEmpty()
                 detachedDescription = E2E.find("headline", 250)?.contentDescription?.toString().orEmpty()
                 selectedWebsite = E2E.find("sourceSpinner", 250)?.contentDescription?.toString()
                     ?.contains("Selected Where Is My Train · website") == true
-                val reported = selectedWebsite && headline.startsWith("Last website-published claim ·") &&
-                    badge.contains("date matched", true) &&
-                    eventFreshness.contains("page date matched", true) &&
-                    claimSummary.contains("visible page date matches selected run", true) &&
-                    claimSummary.contains("website claim, not a verified actual", true)
+                val hasSiteEventTime = Regex("""[0-9]{1,2}:[0-9]{2}""").containsMatchIn(headline)
+                val conciseSummary = !claimSummary.contains('\n') &&
+                    !claimSummary.contains(".org.in page returned", true)
+                val reported = selectedWebsite && headline.contains(" · site ", true) &&
+                    hasSiteEventTime && badge.contains("date matched", true) &&
+                    !badge.contains("run inferred", true) &&
+                    eventFreshness.startsWith("Page age ", true) && conciseSummary &&
+                    claimSummary.contains("Position unknown", true) &&
+                    claimSummary.contains("website claim only", true) &&
+                    provenanceDescription.contains("visible page date matches the selected origin run", true) &&
+                    provenanceDescription.contains("Page updated", true) &&
+                    provenanceDescription.contains("not independent verification", true)
                 detachedClaim = headline.startsWith("Website claims ") &&
                     badge.contains("Detached site claim", true) &&
-                    claimSummary.contains("matches live identity from") &&
-                    claimSummary.contains("selected timetable") &&
-                    claimSummary.contains("page schedule") &&
-                    claimSummary.contains("Page updated") &&
-                    claimSummary.contains("app response received") &&
-                    claimSummary.contains("not attached to timetable rows") &&
+                    claimSummary.contains("route mismatch", true) &&
+                    claimSummary.contains("not attached", true) &&
+                    detachedDescription.contains("matches live identity from") &&
+                    detachedDescription.contains("selected timetable") &&
+                    detachedDescription.contains("page schedule") &&
+                    detachedDescription.contains("Page updated") &&
+                    detachedDescription.contains("app response received") &&
+                    detachedDescription.contains("not attached to timetable rows") &&
                     detachedDescription.contains("not a timetable actual") &&
-                    (eventFreshness.contains("Website claim time") ||
-                        eventFreshness.contains("not verified"))
+                    eventFreshness.contains("unverified", true)
                 if (reported) { accepted = true; break }
                 if (detachedClaim) break // Preserve the visible mismatch; never relax selected-run acceptance.
                 if (warning.contains("HTTP 403") || warning.contains("blocks request", true) ||
@@ -174,12 +192,17 @@ class WimtWebsiteLiveAcceptanceTest {
                 Thread.sleep(250)
             }
             E2E.shotWimt("wimt-after-selected-source")
+            val measuredTiming = deviceTiming.get()
+            println("WIMT_DEVICE_FETCH_TIMING_CAPTURED=${measuredTiming ?: "missing"}")
+            assertTrue("the selected WebView attempt did not report gate wait and device-side duration",
+                measuredTiming?.let { it.contains("gateWait=") && it.contains("total=") } == true)
             assertTrue("explicit website picker choice did not become the selected source; " +
                 "spinner='${E2E.find("sourceSpinner", 250)?.contentDescription}' " +
                 "warning='$warning'", selectedWebsite)
             assertTrue("No source-qualified .org.in website claim in the installed app; " +
                 "headline='$headline' badge='$badge' eventFreshness='$eventFreshness' " +
-                "summary='$claimSummary' description='$detachedDescription' warning='$warning'. " +
+                "summary='$claimSummary' description='$detachedDescription' warning='$warning' " +
+                "deviceTiming='$measuredTiming'. " +
                 "A route-conflicting detached claim is diagnostic only and cannot satisfy selected-run acceptance. " +
                 "HTTP 200 alone, NTES fallback and the .in web cache do not pass.", accepted)
             assertTrue("time-sheet not reachable", E2E.reveal("routeHeadActual", "scroller"))
@@ -189,6 +212,8 @@ class WimtWebsiteLiveAcceptanceTest {
             assertTrue("route-matched site report has no painted source-attributed times",
                 siteCells.any { it.contentDescription.orEmpty().startsWith("Website displayed") })
         } finally {
+            WebsiteBrowserRequest.beforeDocumentNavigationForTest = null
+            WebsiteBrowserRequest.timingObserverForTest = null
             // Preserve the original assertion (especially the observed 403) even if
             // this optional last shot fails. Before/after captures are mandatory.
             runCatching { E2E.shotWimt("wimt-final-even-on-failure") }

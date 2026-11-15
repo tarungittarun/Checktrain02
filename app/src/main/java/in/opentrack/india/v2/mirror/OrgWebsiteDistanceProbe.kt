@@ -20,10 +20,15 @@ object OrgWebsiteDistanceProbe {
                 mapRoute: TrainRoute?): Finding {
         if (report == null) return Finding(null, "no run-linked past-card report; no distance admitted")
         // SEO scripts can mention a completely different train, destination or route.
-        val visible = body.replace(Regex("(?is)<script\\b[^>]*>.*?</script>"), " ")
-            .replace(Regex("(?is)<style\\b[^>]*>.*?</style>"), " ")
+        val visible = `in`.opentrack.india.core.WebsiteCardMarkup.visiblePageMarkup(body).html
             .replace(Regex("(?s)<[^>]*>"), " ").replace(Regex("\\s+"), " ")
             .take(120_000)
+        return inspectVisibleText(visible, report, route, mapRoute)
+    }
+
+    internal fun inspectVisibleText(visible: String, report: OrgWebsiteStatus.Report?,
+        route: TrainRoute, mapRoute: TrainRoute?): Finding {
+        if (report == null) return Finding(null, "no run-linked past-card report; no distance admitted")
         val matches = distance.findAll(visible).toList()
         if (matches.isEmpty()) return Finding(null,
             "no explicit km-to-next-station label in the visible website reply")

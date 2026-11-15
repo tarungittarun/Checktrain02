@@ -520,13 +520,33 @@ class TravellerAcceptanceTest {
         E2E.shotRequired("alert-upcoming-station-options")
         assertTrue("Upcoming-station interval cannot be brought into view",
             revealTextContains("5 minutes · lower background work", "alertDialogScroll"))
-        assertTrue("Station-alert source note is not visible for the chosen station",
-            revealTextContains("Station alerts accept fresh, route-matched", "alertDialogScroll"))
-        val upcomingEvidenceNote = textContains("Station alerts accept fresh, route-matched", 500)
+        assertTrue("Upcoming-station lead-time control is missing",
+            revealTextContains("Lead time · before the published timetable time", "alertDialogScroll"))
+        val leadSpinner = E2E.ui.wait(Until.findObject(By.desc("Alert lead time in seconds")), E2E.LOCAL_MS)
+        assertTrue("Lead-time selector is not fully visible",
+            visibleInScroll(leadSpinner, "alertDialogScroll"))
+        assertTrue("Custom lead preset did not open",
+            E2E.fingerTap(leadSpinner) && tapTextContains("Custom seconds…"))
+        val customLead = E2E.ui.wait(Until.findObject(By.desc("Custom lead time in seconds")), E2E.LOCAL_MS)
+        assertTrue("Custom lead seconds field did not appear in the setup scroll",
+            visibleInScroll(customLead, "alertDialogScroll"))
+        E2E.setTextIn(customLead!!, "90")
+        assertEquals("Custom lead value was not kept in seconds", "90", customLead.text)
+        E2E.ui.pressBack()
+        E2E.shotRequired("alert-upcoming-station-custom-lead")
+        assertTrue("Concise source note is missing for the chosen station",
+            textContains("Fresh station report first · timetable reminder if none qualifies").isNotBlank())
+        assertTrue("Source caveat disclosure is not visible",
+            revealTextContains("Source and reliability details", "alertDialogScroll"))
+        assertTrue("Could not expand the source caveat",
+            tapTextContains("Source and reliability details"))
+        assertTrue("Expanded station source caveat is not visible",
+            revealTextContains("Station checks use fresh, route-matched", "alertDialogScroll"))
+        val upcomingEvidenceNote = textContains("Station checks use fresh, route-matched", 500)
         assertTrue("Upcoming-station source caveat is incomplete: '$upcomingEvidenceNote'",
             upcomingEvidenceNote.contains("whereismytrain.org.in") &&
                 upcomingEvidenceNote.contains("not independently verified"))
-        assertTrue("Could not scroll to the end of the upcoming-station caveat",
+        assertTrue("Could not scroll to the end of the expanded station caveat",
             E2E.swipeIn("alertDialogScroll", up = true))
         E2E.shotRequired("alert-upcoming-station-source-note")
         assertTrue("Cancel after station selection did not close setup", tapTextContains("Cancel"))
@@ -549,13 +569,19 @@ class TravellerAcceptanceTest {
                 E2E.ui.wait(Until.hasObject(By.textContains(interval)), E2E.LOCAL_MS))
         assertTrue("Set alert action is absent", textContains("Set alert").isNotBlank())
         assertTrue("Setup dialog has no Cancel action", textContains("Cancel").isNotBlank())
-        assertTrue("Station alert live-evidence note is not visible in the options scroll",
-            revealTextContains("Station alerts accept fresh, route-matched", "alertDialogScroll"))
-        val evidenceNote = textContains("Station alerts accept fresh, route-matched", 500)
+        assertTrue("Concise station-alert note is missing",
+            textContains("Fresh station report first · timetable reminder if none qualifies").isNotBlank())
+        assertTrue("Station-alert source disclosure is not visible",
+            revealTextContains("Source and reliability details", "alertDialogScroll"))
+        assertTrue("Could not expand the destination source caveat",
+            tapTextContains("Source and reliability details"))
+        assertTrue("Expanded station source caveat is not visible in the options scroll",
+            revealTextContains("Station checks use fresh, route-matched", "alertDialogScroll"))
+        val evidenceNote = textContains("Station checks use fresh, route-matched", 500)
         assertTrue("Station alert live-evidence limits were not visible in setup: '$evidenceNote'",
             evidenceNote.contains("whereismytrain.org.in") &&
                 evidenceNote.contains("not independently verified"))
-        assertTrue("Could not scroll to the end of the destination source caveat",
+        assertTrue("Could not scroll to the end of the expanded destination source caveat",
             E2E.swipeIn("alertDialogScroll", up = true))
         E2E.shotRequired("alert-destination-source-note")
         assertTrue("Cancel did not close alert setup", tapTextContains("Cancel"))
@@ -571,7 +597,13 @@ class TravellerAcceptanceTest {
         assertTrue("Distance-trigger style is not visible in its options scroll",
             revealTextContains("Ping · one sound", "alertDialogScroll"))
         E2E.shotRequired("alert-distance-options-top")
-        assertTrue("Distance limitations are not reachable by scrolling the options",
+        assertTrue("Concise phone-distance note is missing",
+            textContains("Fresh phone location · straight-line radius · not train GPS.").isNotBlank())
+        assertTrue("Distance source disclosure is not visible",
+            revealTextContains("Source and reliability details", "alertDialogScroll"))
+        assertTrue("Could not expand distance reliability details",
+            tapTextContains("Source and reliability details"))
+        assertTrue("Distance limitations are not reachable by scrolling the expanded details",
             revealTextContains("Distance uses phone location", "alertDialogScroll"))
         val distanceEvidenceNote = textContains("Distance uses phone location", 1_000)
         assertTrue("Distance alert limits were not explained for the selected trigger: '$distanceEvidenceNote'",
@@ -626,16 +658,43 @@ class TravellerAcceptanceTest {
         assertTrue("Active alert history does not identify its trigger",
             E2E.ui.wait(Until.hasObject(By.textContains("Within 2 km")), E2E.LOCAL_MS))
         assertTrue("Active alert history lost the selected feedback",
-            E2E.ui.wait(Until.hasObject(By.textContains("Vibrate · one pattern")), E2E.LOCAL_MS))
+            E2E.ui.wait(Until.hasObject(By.textContains("Vibrate")), E2E.LOCAL_MS))
         assertTrue("Active alert header is not visible in the management scroll",
             revealTextContains("ACTIVE ALERTS", "alertsScroll", up = false))
         assertTrue("Active alert trigger is not visible in the management scroll",
             revealTextContains("Within 2 km", "alertsScroll"))
         assertTrue("Active alert feedback is not visible in the management scroll",
-            revealTextContains("Vibrate · one pattern", "alertsScroll"))
+            revealTextContains("Vibrate", "alertsScroll"))
         assertTrue("Active alert interval is not visible in the management scroll",
-            revealTextContains("check every 5 minutes", "alertsScroll"))
+            revealTextContains("every 5m", "alertsScroll"))
         E2E.shotRequired("alert-active-management")
+        assertTrue("The master Alerts manager has no default-options action",
+            visibleResource("options"))
+        assertTrue("Default alert options could not be opened from the master manager",
+            E2E.tap("options"))
+        for (option in listOf("Default trigger", "Alert style",
+                "Lead time · before the published timetable time", "Check frequency"))
+            assertTrue("Master alert defaults are missing '$option'",
+                E2E.ui.wait(Until.hasObject(By.text(option)), E2E.LOCAL_MS))
+        E2E.shotRequired("alert-master-default-options")
+        assertTrue("Default alert options have no Cancel action", tapTextContains("Cancel"))
+        assertTrue("Closing defaults did not return to active alert management",
+            E2E.ui.wait(Until.hasObject(By.textContains("ACTIVE ALERTS")), E2E.LOCAL_MS))
+        assertTrue("Modify alert is not visible for the armed alert",
+            revealTextContains("Modify alert", "alertsScroll"))
+        assertTrue("Modify alert could not be opened from the manager",
+            tapTextContains("Modify alert"))
+        assertTrue("The active alert editor did not identify the train",
+            E2E.ui.wait(Until.hasObject(By.textContains("Modify alert · train")), E2E.LOCAL_MS))
+        assertTrue("The active alert editor has no phone-distance radius selector",
+            E2E.ui.wait(Until.findObject(By.desc("Phone-distance radius")), E2E.LOCAL_MS) != null)
+        E2E.shotRequired("alert-active-edit-options")
+        val radius = E2E.ui.findObject(By.desc("Phone-distance radius"))
+        assertTrue("Could not open the active alert's editable radius",
+            E2E.fingerTap(radius) && tapTextContains("5 km"))
+        assertTrue("Could not save the active alert edit", tapTextContains("Save changes"))
+        assertTrue("Saving a manager edit did not update the active alert",
+            E2E.ui.wait(Until.hasObject(By.textContains("Within 5 km")), E2E.LOCAL_MS))
         assertTrue("An armed alert's cancel action is not visible in the management scroll",
             revealTextContains("Cancel alert", "alertsScroll"))
         E2E.shotRequired("alert-active-cancel-action")

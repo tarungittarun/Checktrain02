@@ -14,11 +14,13 @@ import `in`.opentrack.india.remote.ErailProvider
 import `in`.opentrack.india.remote.ProviderChain
 import `in`.opentrack.india.remote.OfficialScheduleCache
 import `in`.opentrack.india.remote.SnapshotStore
+import `in`.opentrack.india.remote.WimtLiveProvider
 import `in`.opentrack.india.sensor.SensorPositioner
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import `in`.opentrack.india.model.StationHit
 import `in`.opentrack.india.model.TrainSummary
+import kotlinx.coroutines.CancellationException
 
 /**
  * The only object the UI talks to. It exists to enforce three invariants that are easy to break when
@@ -138,6 +140,41 @@ class RailRepository private constructor(
         else SourceProbe(null,
             "erail did not return a fresh, dated, route-matched report with observed stop times")
     }
+
+    /**
+     * Alert-only .in source probe. Unlike the comparison page/cache, this can be used only when
+     * the feed explicitly echoes BOTH the selected run date and route endpoints and carries a
+     * fresh upstream stamp. The stamp is still not treated as a station-event time.
+     */
+    suspend fun probeWimtStatus(trainNo: String, route: TrainRoute, day: Long): SourceProbe =
+        withContext(Dispatchers.IO) {
+            val requestedAt = System.currentTimeMillis()
+            val result = try {
+                WimtLiveProvider.fetch(trainNo, route, day, requestedAt)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                return@withContext SourceProbe(null,
+                    "WIMT .in request failed (${failure.javaClass.simpleName})")
+            }
+            val checkedAt = System.currentTimeMillis()
+            WimtLiveProvider.alertQualificationFailure(result, checkedAt)?.let { reason ->
+                return@withContext SourceProbe(null, reason)
+            }
+            val snapshot = result.snapshot ?: return@withContext SourceProbe(null,
+                "WIMT .in did not return a usable live report")
+            val nowRailMinute = ((RailTime.istEpochDay(checkedAt) - day) *
+                RailTime.MINUTES_PER_DAY + RailTime.istMinuteOfDay(checkedAt)).toInt()
+            val answer = PositionEngine.locate(PositionEngine.Request(
+                route = route,
+                snapshot = snapshot,
+                nowRailMinute = nowRailMinute,
+                nowMillis = checkedAt,
+            ))
+            SourceProbe(Live(route, answer, listOf("WIMT=.in-hit"), day,
+                notes = listOf("WIMT .in source-reported clocks; update stamp is not event time"),
+                sourceName = WimtLiveProvider.SOURCE_NAME), null)
+        }
 
     /** The previous dated official SCHEDULE can paint before any network request, including a train
      * absent from the bundled database. It has no observed minutes and cannot locate a train. */

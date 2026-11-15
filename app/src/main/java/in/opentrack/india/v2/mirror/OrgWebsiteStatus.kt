@@ -193,10 +193,31 @@ object OrgWebsiteStatus {
     private val arrivalLabel = Regex("(?i)\\bARRIVAL\\b")
     private val departureLabel = Regex("(?i)\\bDEPARTURE\\b")
 
+    internal data class PageDocument(
+        val markup: WebsiteCardMarkup.VisiblePageMarkup,
+        val text: String,
+        val cards: List<String>,
+    )
+
+    /** The visible source text used for endpoint, run-window, and page-clock checks. */
+    internal fun visibleText(document: WebsiteCardMarkup.VisiblePageMarkup): String =
+        document.html.replace(Regex("(?s)<[^>]*>"), " ")
+            .replace("&nbsp;", " ", ignoreCase = true)
+            .replace("&#160;", " ", ignoreCase = true)
+            .replace(Regex("\\s+"), " ").trim()
+
+    /** Build the card tree once and share it between qualification, comparison, and diagnostics. */
+    internal fun prepareDocument(
+        document: WebsiteCardMarkup.VisiblePageMarkup,
+        text: String = visibleText(document),
+    ): PageDocument = PageDocument(document, text, cardParts(document))
+
     /** Parse only actual rendered station-card subtrees. Comments and script text are
      * masked first, so source-looking markup hidden in either cannot become a card. */
-    private fun cardParts(html: String): List<String> {
-        val document = WebsiteCardMarkup.visiblePageMarkup(html)
+    private fun cardParts(html: String): List<String> =
+        cardParts(WebsiteCardMarkup.visiblePageMarkup(html))
+
+    private fun cardParts(document: WebsiteCardMarkup.VisiblePageMarkup): List<String> {
         val starts = WebsiteCardMarkup.stationCardSectionStarts(document)
         return starts.mapIndexedNotNull { index, start ->
             val limit = starts.getOrNull(index + 1) ?: document.html.length
@@ -218,11 +239,15 @@ object OrgWebsiteStatus {
 
     /** Bounded structural diagnostic; never returns card text or raw website markup. */
     internal fun diagnosticCardCount(html: String): Int = cardParts(html).size
+    internal fun diagnosticCardCount(document: PageDocument): Int = document.cards.size
 
     /** Preserve literal source cards for comparison when the route is known but its run/date
      * gate fails. These clocks are intentionally unaligned to a selected run and never make a
      * Report, actual row, page position, or event timestamp. */
-    internal fun displayOnlyCards(body: String, route: TrainRoute): List<SiteCardClaim> {
+    internal fun displayOnlyCards(body: String, route: TrainRoute): List<SiteCardClaim> =
+        displayOnlyCards(prepareDocument(WebsiteCardMarkup.visiblePageMarkup(body)), route)
+
+    internal fun displayOnlyCards(document: PageDocument, route: TrainRoute): List<SiteCardClaim> {
         val routeCodes = route.stops.map { it.code.uppercase(Locale.ROOT) }.toSet()
         fun rawTime(section: String): SiteCardTime? {
             val clocks = clock.findAll(section.take(650)).take(2).map { it.value.trim() }.toList()
@@ -231,7 +256,7 @@ object OrgWebsiteStatus {
             val scheduleText = clocks.getOrNull(1)
             return SiteCardTime(first, scheduleText?.let(::minute), firstText, scheduleText, false)
         }
-        return cardParts(body).take(80).mapIndexedNotNull { cardIndex, part ->
+        return document.cards.take(80).mapIndexedNotNull { cardIndex, part ->
             val heading = plainText(headingText.find(part)?.groupValues?.get(1).orEmpty())
             val code = stationCodeFromCardHeading(heading, route) ?: return@mapIndexedNotNull null
             if (code.uppercase(Locale.ROOT) !in routeCodes) return@mapIndexedNotNull null
@@ -265,15 +290,18 @@ object OrgWebsiteStatus {
     }
 
     /** Only retain comparison cards from a page that explicitly matches the selected route. */
-    internal fun displayOnlyCardsForMatchedRoute(body: String, route: TrainRoute): List<SiteCardClaim> {
-        val visible = WebsiteCardMarkup.visiblePageMarkup(body).html
-            .replace(Regex("(?s)<[^>]*>"), " ")
-            .replace(Regex("\\s+"), " ")
-        val endpoints = routeEndpointsFromVisibleText(visible,
+    internal fun displayOnlyCardsForMatchedRoute(body: String, route: TrainRoute): List<SiteCardClaim> =
+        displayOnlyCardsForMatchedRoute(
+            prepareDocument(WebsiteCardMarkup.visiblePageMarkup(body)), route)
+
+    internal fun displayOnlyCardsForMatchedRoute(
+        document: PageDocument, route: TrainRoute,
+    ): List<SiteCardClaim> {
+        val endpoints = routeEndpointsFromVisibleText(document.text,
             setOf(route.srcCode, route.dstCode), routeStationNames(route))
         if (endpoints.fromCode?.equals(route.srcCode, true) != true ||
             endpoints.toCode?.equals(route.dstCode, true) != true) return emptyList()
-        return displayOnlyCards(body, route)
+        return displayOnlyCards(document, route)
     }
 
     /** Bounded redacted DOM structure for a fresh answer with missing/parsed cards.
@@ -484,7 +512,7 @@ object OrgWebsiteStatus {
 
     /** Only create a detached comparison when the website's own route matches the independently
      * fetched live identity. The selected timetable remains untouched when that route differs. */
-    private fun detachedPageClaim(html: String, body: String, number: String,
+    private fun detachedPageClaim(document: PageDocument, number: String,
         originDay: Long, now: Long, route: TrainRoute, expectedIdentity: TrainIdentity?): DetachedPageClaim? {
         val identity = expectedIdentity?.takeIf {
             it.number == number && it.provenance.kind == IdentitySourceKind.LIVE_IDENTITY &&
@@ -492,12 +520,7 @@ object OrgWebsiteStatus {
         } ?: return null
         if (route.trainNo != number || route.stops.size < 3) return null
 
-        val visibleHtml = WebsiteCardMarkup.visiblePageMarkup(html).html
-        val visibleBody = WebsiteCardMarkup.visiblePageMarkup(body).html
-        val visibleText = visibleHtml.replace(Regex("(?s)<[^>]*>"), " ")
-            .replace("&nbsp;", " ", ignoreCase = true)
-            .replace("&#160;", " ", ignoreCase = true)
-            .replace(Regex("\\s+"), " ").trim()
+        val visibleText = document.text
         val header = visibleText.substringBefore("Journey Timeline", visibleText).take(1500)
         if (!Regex("(?i)\\b${Regex.escape(number)}\\b").containsMatchIn(header) ||
             Regex("(?i)\\b(?:not running today|yet to start|has not started|cancelled|diverted)\\b")
@@ -510,11 +533,11 @@ object OrgWebsiteStatus {
         if (!websiteFrom.equals(identity.fromCode, true) ||
             !websiteTo.equals(identity.toCode, true) ||
             websiteFrom.equals(route.srcCode, true) && websiteTo.equals(route.dstCode, true)) return null
-        val publishedAt = pageClock(visibleBody, now) ?: return null
-        val hasSeconds = updated.find(visibleBody)?.groupValues?.get(1)?.let {
+        val publishedAt = pageClock(visibleText, now) ?: return null
+        val hasSeconds = updated.find(visibleText)?.groupValues?.get(1)?.let {
             Regex("\\d{1,2}:\\d{2}:\\d{2}").containsMatchIn(it)
         } == true
-        val cards = cardParts(html).mapIndexedNotNull { index, part ->
+        val cards = document.cards.mapIndexedNotNull { index, part ->
             val headingMarkup = headingText.find(part)?.groupValues?.get(1).orEmpty()
             val headingPlain = plainText(headingMarkup)
             val code = stationCodeFromCardHeading(headingPlain, route)
@@ -576,23 +599,33 @@ object OrgWebsiteStatus {
               mapRoute: TrainRoute? = null, expectedIdentity: TrainIdentity? = null): Outcome {
         if (route.trainNo != number || route.stops.size < 3)
             return Outcome(null, "selected train/route unavailable")
+        val markup = WebsiteCardMarkup.visiblePageMarkup(body)
+        return parse(prepareDocument(markup), number, originDay, now, route, mapRoute,
+            expectedIdentity)
+    }
+
+    /** Reuse one visible-page parse and one structural card pass across all qualification paths. */
+    internal fun parse(document: PageDocument, number: String, originDay: Long, now: Long,
+              route: TrainRoute, mapRoute: TrainRoute? = null,
+              expectedIdentity: TrainIdentity? = null): Outcome {
+        if (route.trainNo != number || route.stops.size < 3)
+            return Outcome(null, "selected train/route unavailable")
         // Route-matched report rows below need an unambiguous active selected run.
         // A route-conflicting page is handled separately as a detached source claim;
         // using this timetable's run-day/clock to suppress that page would imply a
         // timetable match we have already disproved.
         // Reject script content before reading identity or rows. Never find a different
         // train/run hidden in SEO JSON and mistake it for the visible page.
-        val html = WebsiteCardMarkup.visiblePageMarkup(body).html
-        val text = html.replace(Regex("(?s)<[^>]*>"), " ").replace(Regex("\\s+"), " ")
+        val text = document.text
         val header = text.substringBefore("Journey Timeline", text).take(1500)
         if (!Regex("(?i)\\b${Regex.escape(number)}\\b").containsMatchIn(text))
             return Outcome(null, "website page does not identify train $number")
         val endpoints = routeEndpointsFromVisibleText(text,
             setOf(route.srcCode, route.dstCode, expectedIdentity?.fromCode.orEmpty(),
                 expectedIdentity?.toCode.orEmpty()), routeStationNames(route))
-        val parsedCardContainers = diagnosticCardCount(body)
+        val parsedCardContainers = diagnosticCardCount(document)
         fun rejected(reason: String, retainDisplayCards: Boolean = false): Outcome {
-            val cards = if (retainDisplayCards) displayOnlyCards(body, route) else emptyList()
+            val cards = if (retainDisplayCards) displayOnlyCards(document, route) else emptyList()
             val pageAt = if (retainDisplayCards) pageClock(text, now) else null
             return Outcome(null, reason, null, cards, emptyMap(), pageAt, null,
                 endpoints, parsedCardContainers)
@@ -602,7 +635,7 @@ object OrgWebsiteStatus {
         val routeMatchesPage = websiteFrom?.equals(route.srcCode, true) == true &&
             websiteTo?.equals(route.dstCode, true) == true
         if (!routeMatchesPage) {
-            val detached = detachedPageClaim(body, body, number, originDay, now, route,
+            val detached = detachedPageClaim(document, number, originDay, now, route,
                 expectedIdentity)
             if (detached != null) {
                 val routeLabel = "${detached.selectedRouteFromCode}→${detached.selectedRouteToCode}"
@@ -672,7 +705,7 @@ object OrgWebsiteStatus {
         var lastAcceptedCard = -1
         var latestSiteCardIndex = -1
         var latestSiteCard: SiteCardClaim? = null
-        for ((cardIndex, part) in cardParts(body).withIndex()) {
+        for ((cardIndex, part) in document.cards.withIndex()) {
             val headingMarkup = headingText.find(part)?.groupValues?.get(1).orEmpty()
             val headingPlain = plainText(headingMarkup)
             val code = stationCodeFromCardHeading(headingPlain, route) ?: continue
@@ -899,7 +932,7 @@ object OrgWebsiteStatus {
         }
         val report = Report(rows, anchorCode, anchorDep, eventMinute, stamp,
             true, intermediate, provisional,
-            updated.find(body)?.groupValues?.get(1)?.let {
+            updated.find(text)?.groupValues?.get(1)?.let {
                 Regex("\\d{1,2}:\\d{2}:\\d{2}").containsMatchIn(it)
             } == true, siteClocks, latestCardClaim, siteCards)
         return Outcome(report,

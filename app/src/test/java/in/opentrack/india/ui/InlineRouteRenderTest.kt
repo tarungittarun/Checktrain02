@@ -39,6 +39,7 @@ class InlineRouteRenderTest {
                 "SRF" to `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.SiteClocks(1869, 1871, true)))
         adapter.websiteCardTimes = WebsiteReportDisplay.displayedClocks(site, day,
             listOf("ANF", "SRF"), pageAt + 10_000L)
+        adapter.websiteComparisonTimes = emptyMap()
         adapter.haltMarker = TableMarker.Halt("ANF", "Last mapped website arrival", true)
         adapter.submitList(listOf(anf, srf))
         val at = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
@@ -50,13 +51,17 @@ class InlineRouteRenderTest {
         assertTrue(at.liveDep.contentDescription.contains("not a current position"))
         assertEquals(View.GONE, at.status.visibility)
         assertEquals(View.VISIBLE, at.trainMarker.visibility)
+        assertEquals("selected website claim is already in the WEBSITE clock cells",
+            View.GONE, at.eventCaption.visibility)
+        assertEquals("selected website rows have no duplicate card paragraph",
+            View.GONE, at.websitePastComparison.visibility)
         val next = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
         adapter.onBindViewHolder(next, 1)
-        assertEquals("~07:09", next.liveArr.text.toString())
-        assertEquals("~07:11", next.liveDep.text.toString())
-        assertTrue(next.liveArr.contentDescription.contains("Website forecast arrival 07:09"))
-        assertTrue(next.liveDep.contentDescription.contains("Website forecast departure 07:11"))
-        assertTrue(next.liveDep.contentDescription.contains("not a current position"))
+        assertEquals("—", next.liveArr.text.toString())
+        assertEquals("—", next.liveDep.text.toString())
+        assertFalse("future website estimates stay in Source details, not route cells",
+            next.liveArr.contentDescription.contains("Website forecast"))
+        assertFalse(next.liveDep.contentDescription.contains("Website forecast"))
         assertEquals(View.GONE, next.trainMarker.visibility)
     }
 
@@ -81,7 +86,8 @@ class InlineRouteRenderTest {
             schedArr = 1910, schedDep = null, kmFromOrigin = 510)
         val adapter = StopAdapter().apply {
             websiteCardTimes = clocks
-            websiteComparisonTimes = clocks
+            websiteComparisonTimes = emptyMap()
+            haltMarker = TableMarker.Halt("SRF", "Last site arrival", true)
             submitList(listOf(srf, tlgp))
         }
         val holder = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
@@ -90,8 +96,10 @@ class InlineRouteRenderTest {
         assertEquals("~07:11", holder.liveDep.text.toString())
         assertTrue(holder.liveArr.contentDescription.contains("Website displayed arrival"))
         assertTrue(holder.liveDep.contentDescription.contains("printed after the page update label"))
-        assertTrue(holder.websitePastComparison.text.toString().contains("Website claim"))
-        assertTrue(holder.websitePastComparison.contentDescription.contains("Not an NTES actual"))
+        assertEquals(View.GONE, holder.eventCaption.visibility)
+        assertEquals(View.GONE, holder.websitePastComparison.visibility)
+        assertEquals("selected website clocks appear once in their labelled cells",
+            "", holder.websitePastComparison.text.toString())
         assertEquals("clock-only website content cannot move the train marker",
             View.GONE, holder.trainMarker.visibility)
         assertEquals("clock-only website content does not create an event row",
@@ -219,7 +227,10 @@ class InlineRouteRenderTest {
                 actualArrivalMin = 1517, actualDepartureMin = 1520),
                 "ASK" to `in`.opentrack.india.model.LiveStopFields(actualArrivalMin = 1538)),
             "ASK", false, 1538, pageAt, siteClocks = mapOf(
-                "TTR" to `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.SiteClocks(1517, 1520, false),
+                "TTR" to `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.SiteClocks(
+                    1517, 1520, false, arrivalScheduleMin = 1518, departureScheduleMin = 1524,
+                    stationName = "Tiptur", platform = "3", statusText = "5m Early",
+                    mark = `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.SiteCardMark.PAST),
                 "ASK" to `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.SiteClocks(1538, null, false),
                 "RRB" to `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.SiteClocks(1612, 1615, true)))
         adapter.websiteComparisonTimes = WebsiteReportDisplay.displayedClocks(site, day,
@@ -236,6 +247,8 @@ class InlineRouteRenderTest {
         assertEquals("—", past.liveDep.text.toString())
         assertEquals("Website claim · arr 01:17 · dep 01:20 · day2",
             past.websitePastComparison.text.toString())
+        assertFalse(past.websitePastComparison.text.toString().contains("schedule"))
+        assertFalse(past.websitePastComparison.text.toString().contains("status"))
         assertEquals(View.VISIBLE, past.websitePastComparison.visibility)
         assertTrue(past.websitePastComparison.contentDescription.contains("Not an NTES actual"))
         assertEquals(View.GONE, past.trainMarker.visibility)
@@ -253,13 +266,8 @@ class InlineRouteRenderTest {
         adapter.savedOfficialClocks = emptySet()
         val future = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
         adapter.onBindViewHolder(future, 2)
-        assertEquals(View.VISIBLE, future.websitePastComparison.visibility)
-        assertTrue(future.websitePastComparison.text.toString()
-            .startsWith("Website forecast · arr 02:52 · dep 02:55"))
-        assertTrue(future.websitePastComparison.contentDescription
-            .contains("Website upcoming forecast"))
-        assertTrue(future.websitePastComparison.contentDescription
-            .contains("Not an NTES actual or current position"))
+        assertEquals("future website estimates are omitted from the route table",
+            View.GONE, future.websitePastComparison.visibility)
         assertEquals(null, WebsiteGapUi.caption(rrb,
             `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.SiteClocks(1612, 1615, false)))
         adapter.websiteComparisonTimes = emptyMap() // switching away clears the comparison
@@ -294,16 +302,16 @@ class InlineRouteRenderTest {
         adapter.onBindViewHolder(sbcHolder, 0)
         assertEquals("22:58", sbcHolder.liveArr.text.toString())
         assertEquals("—", sbcHolder.liveDep.text.toString())
-        assertEquals("Last site arrival · 22:58", sbcHolder.eventCaption.text.toString())
+        assertEquals("selected website clock already appears in the labelled cell",
+            View.GONE, sbcHolder.eventCaption.visibility)
         assertEquals(View.VISIBLE, sbcHolder.trainMarker.visibility)
         for (index in 1..2) {
             val next = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
             adapter.onBindViewHolder(next, index)
-            val expected = if (index == 1) "~23:16" to "~23:21" else "~23:21" to "~23:28"
-            assertEquals(expected.first, next.liveArr.text.toString())
-            assertEquals(expected.second, next.liveDep.text.toString())
-            assertTrue(next.liveArr.contentDescription.contains("Website forecast arrival"))
-            assertTrue(next.liveDep.contentDescription.contains("Website forecast departure"))
+            assertEquals("—", next.liveArr.text.toString())
+            assertEquals("—", next.liveDep.text.toString())
+            assertFalse(next.liveArr.contentDescription.contains("Website forecast"))
+            assertFalse(next.liveDep.contentDescription.contains("Website forecast"))
             assertEquals(View.GONE, next.trainMarker.visibility)
         }
     }

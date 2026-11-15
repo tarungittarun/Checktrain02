@@ -14,6 +14,7 @@ import `in`.opentrack.india.core.Diary
 import `in`.opentrack.india.core.RailTime
 import `in`.opentrack.india.data.RailRepository
 import `in`.opentrack.india.model.SourceKind
+import `in`.opentrack.india.model.TrainRoute
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -47,9 +48,11 @@ class JourneyAlarmService : Service() {
         val reports: List<RailRepository.Live>,
         val failures: List<String>,
         val checkedAtMillis: Long,
+        val route: TrainRoute? = null,
     )
     private data class TimedSourceBatch(val atMillis: Long, val batch: SourceBatch)
     private data class TimedErailProbe(val atMillis: Long, val probe: RailRepository.SourceProbe)
+    private data class TimedWimtProbe(val atMillis: Long, val probe: RailRepository.SourceProbe)
     private data class CheckResult(
         val decision: JourneyAlarmPolicy.Decision,
         val sourceLabel: String? = null,
@@ -60,6 +63,8 @@ class JourneyAlarmService : Service() {
     private val sourceCache = ConcurrentHashMap<String, TimedSourceBatch>()
     private val erailLocks = ConcurrentHashMap<String, Mutex>()
     private val erailCache = ConcurrentHashMap<String, TimedErailProbe>()
+    private val wimtLocks = ConcurrentHashMap<String, Mutex>()
+    private val wimtCache = ConcurrentHashMap<String, TimedWimtProbe>()
 
     override fun onCreate() {
         super.onCreate()
@@ -301,10 +306,11 @@ class JourneyAlarmService : Service() {
         val failures = batch.failures.toMutableList()
         val received = mutableListOf<String>()
         val details = mutableListOf<String>()
+        val deferredTerminals = mutableListOf<JourneyAlarmPolicy.SourceDecision>()
         var ntesReport: RailRepository.Live? = null
 
-        // Evaluate the first accepted report immediately. If it qualifies, the user is notified
-        // without waiting for a slower secondary request. If it does not, probe the other source.
+        // Check the first source immediately; Fire is returned without waiting for slower sources.
+        // A Missed verdict is deferred: another available source may still report the selected stop.
         for (live in batch.reports) {
             val label = live.sourceName ?: JourneyAlarmPolicy.sourceLabel(live.provenance)
             received += label
@@ -313,11 +319,11 @@ class JourneyAlarmService : Service() {
                 sourceDisplayName = label)
             when (decision) {
                 is JourneyAlarmPolicy.Decision.Fire -> return CheckResult(
-                    decision, sourceLabel = label, receivedSources = label,
+                    decision, sourceLabel = label,
+                    receivedSources = received.distinct().joinToString(" + "),
                     failures = failures.distinct())
-                is JourneyAlarmPolicy.Decision.Missed -> return CheckResult(
-                    decision, sourceLabel = label, receivedSources = label,
-                    failures = failures.distinct())
+                is JourneyAlarmPolicy.Decision.Missed ->
+                    deferredTerminals += JourneyAlarmPolicy.SourceDecision(label, decision)
                 is JourneyAlarmPolicy.Decision.Waiting -> details += "$label: ${decision.detail}"
             }
             if (live.provenance == SourceKind.PROVIDER_NTES) ntesReport = live
@@ -335,13 +341,47 @@ class JourneyAlarmService : Service() {
                         decision, sourceLabel = label,
                         receivedSources = received.distinct().joinToString(" + "),
                         failures = failures.distinct())
-                    is JourneyAlarmPolicy.Decision.Missed -> return CheckResult(
-                        decision, sourceLabel = label,
-                        receivedSources = received.distinct().joinToString(" + "),
-                        failures = failures.distinct())
+                    is JourneyAlarmPolicy.Decision.Missed ->
+                        deferredTerminals += JourneyAlarmPolicy.SourceDecision(label, decision)
                     is JourneyAlarmPolicy.Decision.Waiting -> details += "$label: ${decision.detail}"
                 }
             } ?: independent.failure?.let(failures::add)
+        }
+
+        // The direct .in feed is a distinct live source from the .org.in page/cache and Google's
+        // WIMT app. Accept it only when it explicitly echoes the selected run date, both endpoints,
+        // and a fresh upstream stamp. It is checked last so faster NTES/eRail triggers are not held up.
+        val route = batch.route ?: batch.reports.firstOrNull()?.route ?: ntesReport?.route
+        if (route != null) {
+            val wimt = sharedWimtProbe(repo, config, route)
+            wimt.live?.let { live ->
+                val label = live.sourceName ?: "WIMT .in live-status feed"
+                received += label
+                when (val decision = JourneyAlarmPolicy.stationEvent(
+                    config, live.route, live.answer, System.currentTimeMillis(),
+                    sourceDisplayName = label,
+                    allowOnScheduleActual = true)) {
+                    is JourneyAlarmPolicy.Decision.Fire -> return CheckResult(
+                        decision, sourceLabel = label,
+                        receivedSources = received.distinct().joinToString(" + "),
+                        failures = failures.distinct())
+                    is JourneyAlarmPolicy.Decision.Missed ->
+                        deferredTerminals += JourneyAlarmPolicy.SourceDecision(label, decision)
+                    is JourneyAlarmPolicy.Decision.Waiting -> details += "$label: ${decision.detail}"
+                }
+            } ?: wimt.failure?.let(failures::add)
+        } else {
+            failures += "No route was available for the WIMT .in alert check"
+        }
+
+        val terminal = JourneyAlarmPolicy.firstTerminalSource(
+            deferredTerminals, allSourcesChecked = failures.isEmpty())
+        if (terminal != null) return CheckResult(
+            terminal.decision, sourceLabel = terminal.sourceLabel,
+            receivedSources = received.distinct().joinToString(" + "),
+            failures = failures.distinct())
+        if (deferredTerminals.isNotEmpty() && failures.isNotEmpty()) {
+            details += "A source reports the selected station was passed, but another source check failed; keeping the alert armed."
         }
 
         val sourceNames = received.distinct()
@@ -400,6 +440,31 @@ class JourneyAlarmService : Service() {
         }
     }
 
+    private suspend fun sharedWimtProbe(repo: RailRepository, config: JourneyAlarmConfig,
+                                        route: TrainRoute): RailRepository.SourceProbe {
+        val key = sourceKey(config)
+        val now = System.currentTimeMillis()
+        wimtCache[key]?.takeIf { now - it.atMillis in 0..SOURCE_CACHE_MILLIS }
+            ?.let { return it.probe }
+        val mutex = wimtMutex(key)
+        return mutex.withLock {
+            val lockedNow = System.currentTimeMillis()
+            wimtCache[key]?.takeIf { lockedNow - it.atMillis in 0..SOURCE_CACHE_MILLIS }
+                ?.let { return@withLock it.probe }
+            val probe = try {
+                repo.probeWimtStatus(config.trainNo, route, config.originEpochDay)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                RailRepository.SourceProbe(null,
+                    "WIMT .in source check failed (${failure.javaClass.simpleName})")
+            }
+            wimtCache[key] = TimedWimtProbe(System.currentTimeMillis(), probe)
+            trimWimtCache()
+            probe
+        }
+    }
+
     private fun sourceKey(config: JourneyAlarmConfig) =
         "${config.trainNo.uppercase()}|${config.fromCode.uppercase()}|" +
             "${config.toCode.uppercase()}|${config.originEpochDay}"
@@ -410,6 +475,10 @@ class JourneyAlarmService : Service() {
 
     private fun erailMutex(key: String): Mutex = erailLocks[key] ?: synchronized(erailLocks) {
         erailLocks[key] ?: Mutex().also { erailLocks[key] = it }
+    }
+
+    private fun wimtMutex(key: String): Mutex = wimtLocks[key] ?: synchronized(wimtLocks) {
+        wimtLocks[key] ?: Mutex().also { wimtLocks[key] = it }
     }
 
     private fun trimSourceCache() {
@@ -424,6 +493,13 @@ class JourneyAlarmService : Service() {
         erailCache.entries.sortedBy { it.value.atMillis }
             .take(erailCache.size - SOURCE_CACHE_LIMIT)
             .forEach { erailCache.remove(it.key, it.value) }
+    }
+
+    private fun trimWimtCache() {
+        if (wimtCache.size <= SOURCE_CACHE_LIMIT) return
+        wimtCache.entries.sortedBy { it.value.atMillis }
+            .take(wimtCache.size - SOURCE_CACHE_LIMIT)
+            .forEach { wimtCache.remove(it.key, it.value) }
     }
 
     private suspend fun fetchSourceBatch(repo: RailRepository,
@@ -445,7 +521,8 @@ class JourneyAlarmService : Service() {
         }
         if (live == null) {
             if (failures.isEmpty()) failures += "No route-checked NTES/erail report was received"
-            return@withContext SourceBatch(emptyList(), failures.distinct(), System.currentTimeMillis())
+            return@withContext SourceBatch(emptyList(), failures.distinct(),
+                System.currentTimeMillis(), route)
         }
         failures += live.notes.filter { it.isNotBlank() }
         val selectedProviderHit = live.tried.any {
@@ -456,7 +533,7 @@ class JourneyAlarmService : Service() {
         val candidate = if (selectedProviderHit && liveProviderKind) listOf(live) else emptyList()
         if (candidate.isEmpty() && failures.isEmpty())
             failures += "No fresh live report was returned by NTES or erail"
-        SourceBatch(candidate, failures.distinct(), System.currentTimeMillis())
+        SourceBatch(candidate, failures.distinct(), System.currentTimeMillis(), live.route)
     }
 
     private suspend fun checkPhoneDistance(repo: RailRepository,

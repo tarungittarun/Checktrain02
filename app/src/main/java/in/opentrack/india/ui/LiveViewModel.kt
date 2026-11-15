@@ -124,7 +124,7 @@ class LiveViewModel(
 
     /** The live identity for [trainNo], once one reaches the device; null until then (and stays null on failure). */
     private var liveIdentity: ErailLiveIdentity? = null
-    /** Manual website checks wait for the in-flight route/identity reads before they bind page claims. */
+    /** Website navigation overlaps route work; claims bind only to the best selected-run context ready at parse time. */
     private var liveIdentityJob: Job? = null
     private var confirmScheduleJob: Job? = null
 
@@ -409,34 +409,72 @@ class LiveViewModel(
             val started = System.currentTimeMillis()
             val job = viewModelScope.launch {
                 if (select) _mirrorState.value = "Checking $name…"
-                if (name == PublicPageChecks.ORG) {
-                    // A site GET can take several seconds. Do not bind its response to the
-                    // half-painted offline route while NTES/ConfirmTkt or the independent
-                    // live identity is still resolving; otherwise an actual matching page
-                    // becomes an unqualified "wrong route" report from a stale snapshot.
-                    if (awaitRunContext) liveRefreshJob?.takeIf { it.isActive }?.join()
-                    liveIdentityJob?.takeIf { it.isActive }?.join()
-                    confirmScheduleJob?.takeIf { it.isActive }?.join()
-                    // A live-only train first renders an honest two-endpoint scaffold. Join
-                    // only the route-page work already scheduled by refresh; do not add a
-                    // second network request from this source probe. This adds station
-                    // codes/order only, never schedule times.
-                    if (_ui.value?.route?.let { it.trainNo == trainNo && it.stops.size < 3 } == true)
-                        extentJob?.takeIf { it.isActive }?.join()
-                }
-                val route = _ui.value?.route ?: return@launch
-                // Snapshot the map alongside this request. If a full static route
-                // arrives while the HTTP call is in flight, the first reply cannot
-                // contain its intermediate points; recheck once after publishing it.
-                val mapAtRequest = _ui.value?.staticRoute ?: geoRoute ?: confirmStaticRoute
                 val pacing = if (name == PublicPageChecks.ORG) WebsiteRequestPacing(app) else null
                 val paused = pacing?.paused(System.currentTimeMillis())
                 if (paused != null) Diary.get()?.log("SOURCE", "website not asked: ${paused.detail}")
-                val result = paused ?: withContext(Dispatchers.IO) {
-                    if (name == PublicPageChecks.ORG) {
-                        // The selected website now gets an actual browser-engine document
-                        // navigation, not a Java GET disguised with a browser User-Agent.
-                        // Keep the SAME source/parser and refusal/pacing qualification.
+
+                // The selected website does not need NTES, eRail, or a second timetable
+                // request to begin its one browser navigation. Start the document fetch as
+                // soon as a screen route exists, then bind the returned DOM to the best
+                // selected-run route/identity already available when parsing starts.
+                val routeAtStart = _ui.value?.route ?: return@launch
+                val pageUrl = if (name == PublicPageChecks.ORG && paused == null)
+                    PublicPageChecks.url(name, trainNo, originEpochDay, System.currentTimeMillis())
+                else null
+                val fetchStartedAt = System.currentTimeMillis()
+                val earlyWebsiteRequest = pageUrl?.let { url ->
+                    async(Dispatchers.IO) {
+                        val reply = WebsiteBrowserRequest.document(app, url)
+                        reply to System.currentTimeMillis()
+                    }
+                }
+
+                val contextWaitStartedAt = System.currentTimeMillis()
+                if (name == PublicPageChecks.ORG) {
+                    val routeNeedsCompletion = !routeAtStart.trainNo.equals(trainNo, true) ||
+                        routeAtStart.stops.size < 3
+                    // Only wait for route-building work when the selected screen still has
+                    // a two-stop scaffold. The browser navigation is already in flight, so
+                    // useful route/identity work overlaps the network wait instead of preceding it.
+                    if (routeNeedsCompletion) {
+                        if (awaitRunContext) liveRefreshJob?.takeIf { it.isActive }?.join()
+                        liveIdentityJob?.takeIf { it.isActive }?.join()
+                        confirmScheduleJob?.takeIf { it.isActive }?.join()
+                        if (_ui.value?.route?.let {
+                                it.trainNo.equals(trainNo, true) && it.stops.size < 3
+                            } == true) extentJob?.takeIf { it.isActive }?.join()
+                    }
+                }
+                val contextReadyAt = System.currentTimeMillis()
+                val route = _ui.value?.route?.takeIf {
+                    it.trainNo.equals(trainNo, true) && it.stops.size >= 3
+                } ?: routeAtStart.takeIf { it.trainNo.equals(trainNo, true) }
+                    ?: return@launch
+                // Use route/map context available after the overlapping page load. If either
+                // arrives only after publication, the existing one-recheck path handles it.
+                val mapAtRequest = _ui.value?.staticRoute ?: geoRoute ?: confirmStaticRoute
+                var responseReceiptAt: Long? = null
+                var parseStartedAt: Long? = null
+                var parseCompletedAt: Long? = null
+                val result = when {
+                    paused != null -> paused
+                    name == PublicPageChecks.ORG && earlyWebsiteRequest != null -> {
+                        val (reply, receivedAt) = earlyWebsiteRequest.await()
+                        responseReceiptAt = receivedAt
+                        parseStartedAt = System.currentTimeMillis()
+                        val parsed = withContext(Dispatchers.Default) {
+                            PublicPageChecks.parseReply(name, reply, trainNo, originEpochDay,
+                                route.srcCode, route.dstCode,
+                                route.stops.map { it.code.uppercase() }.toSet(), route, mapAtRequest,
+                                expectedIdentity = liveIdentity?.identity,
+                                responseAtMillis = receivedAt)
+                        }
+                        parseCompletedAt = System.currentTimeMillis()
+                        parsed
+                    }
+                    name == PublicPageChecks.ORG -> withContext(Dispatchers.IO) {
+                        // Invalid/out-of-window URL: the shared fetch path returns a no-request
+                        // result. A valid selected website already has its one browser request in flight.
                         PublicPageChecks.fetch(name, trainNo, originEpochDay,
                             System.currentTimeMillis(), route.srcCode, route.dstCode,
                             route.stops.map { it.code.uppercase() }.toSet(), route, mapAtRequest,
@@ -444,13 +482,15 @@ class LiveViewModel(
                             responseClock = { System.currentTimeMillis() }) { url ->
                             WebsiteBrowserRequest.document(app, url)
                         }
-                    } else {
+                    }
+                    else -> withContext(Dispatchers.IO) {
                         PublicPageChecks.fetch(Http(app), name, trainNo, originEpochDay,
                             System.currentTimeMillis(), route.srcCode, route.dstCode,
                             route.stops.map { it.code.uppercase() }.toSet(), route, mapAtRequest)
                     }
                 }
-                if (paused == null) pacing?.observe(result, System.currentTimeMillis())
+                val fetchCompletedAt = System.currentTimeMillis()
+                if (paused == null) pacing?.observe(result, fetchCompletedAt)
                 if (_ui.value == null) return@launch
                 if (latestProbeOrder[name] != order) {
                     Diary.get()?.log("SOURCE", "ignoring older $name reply after a newer probe started")
@@ -526,7 +566,35 @@ class LiveViewModel(
                             "showing independently answered NTES instead; website remains manual Refresh preference")
                     }
                 }
+                val publishStartedAt = System.currentTimeMillis()
                 _ui.value?.let { u -> _ui.value = buildUi(u.route, lastAnswer ?: u.answer, u.tried) }
+                val publishedAt = System.currentTimeMillis()
+                if (name == PublicPageChecks.ORG && paused == null) {
+                    fun ms(from: Long, to: Long) = (to - from).coerceAtLeast(0L)
+                    val receiptAt = responseReceiptAt
+                    val parseAt = parseStartedAt
+                    val parsedAt = parseCompletedAt
+                    val pageRequestTime = receiptAt?.let { "${ms(fetchStartedAt, it)}ms" }
+                        ?: "not-started"
+                    val replyWait = if (receiptAt != null && parseAt != null)
+                        "${ms(receiptAt, parseAt)}ms" else "n/a"
+                    val parseTime = if (parseAt != null && parsedAt != null)
+                        "${ms(parseAt, parsedAt)}ms" else "not-run"
+                    val responseToPublish = receiptAt?.let { "${ms(it, publishedAt)}ms" } ?: "n/a"
+                    Diary.get()?.log("ORG_PIPELINE") {
+                        "preRequest=${ms(started, fetchStartedAt)}ms " +
+                            "contextWait=${ms(contextWaitStartedAt, contextReadyAt)}ms " +
+                            "pageRequest=$pageRequestTime " +
+                            "replyWaitForContext=$replyWait " +
+                            "parse=$parseTime " +
+                            "postParseBeforePublish=${ms(fetchCompletedAt, publishStartedAt)}ms " +
+                            "buildUi=${ms(publishStartedAt, publishedAt)}ms " +
+                            "responseToPublish=$responseToPublish " +
+                            "total=${ms(started, publishedAt)}ms " +
+                            "parser=${resolved.orgParserState} cards=${resolved.orgSiteCards.size} " +
+                            "rows=${resolved.orgReport?.rows?.size ?: 0}"
+                    }
+                }
                 if (select) _mirrorState.value = resolved.detail
                 Diary.get()?.log("SOURCE", "$name: ${resolved.detail}")
                 if (name == PublicPageChecks.ORG && resolved.orgContentParsed &&

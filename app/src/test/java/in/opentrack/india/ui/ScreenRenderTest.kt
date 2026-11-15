@@ -647,11 +647,10 @@ Render.save("02-track-live", shot.bitmap)
             val shot = Render.render(R.layout.activity_train, widthDp = 393f,
                 heightDp = 760f, textScale = 1.15f) { root ->
                 root.findViewById<TextView>(R.id.provenance).text =
-                    "WEBSITE · past-card report · run inferred"
-                root.findViewById<TextView>(R.id.age).text =
-                    "Site arrival · event 2 min ago · page age 20s at check"
+                    "Website claim · run inferred"
+                root.findViewById<TextView>(R.id.age).text = "Page age 20s at check"
                 root.findViewById<TextView>(R.id.headline).text =
-                    "Last qualifying website event · Tarikere 20:35"
+                    "Tarikere Jn · site arrival · 20:35"
                 root.findViewById<TextView>(R.id.delay).text = "+159m late · 10:07"
                 root.findViewById<TextView>(R.id.next).text =
                     "Tarikere Jn\nTimetable 07:47 · past clock"
@@ -662,7 +661,7 @@ Render.save("02-track-live", shot.bitmap)
                 if (!expanded) {
                     root.findViewById<View>(R.id.heroDetailsScroll).visibility = View.GONE
                     root.findViewById<TextView>(R.id.compactReport).apply {
-                        text = "Latest website card · Bhadravati 20:49 / 20:50"
+                        text = "Bhadravati · site arrival · 20:49"
                         visibility = View.VISIBLE
                     }
                 }
@@ -696,7 +695,7 @@ Render.save("02-track-live", shot.bitmap)
             Render.text(root, R.id.age, "No reported event time")
             Render.text(root, R.id.headline, "No qualifying past-stop report")
             root.findViewById<TextView>(R.id.sourceSummary).apply {
-                text = "No YPR site arrival · last listed TK (comparison). Position unknown."
+                text = "No YPR site arrival · last listed TK · run/position unknown."
                 visibility = View.VISIBLE
             }
             root.findViewById<View>(R.id.note).visibility = View.GONE
@@ -811,6 +810,12 @@ Render.save("02-track-live", shot.bitmap)
         val shot = Render.render(R.layout.activity_train) { root -> Render.track(root, site, p, 432) }
         val row = shot.root.findViewById<RecyclerView>(R.id.stops).getChildAt(1)
         assertNotNull("website row did not render", row)
+        for (id in intArrayOf(R.id.stopEventCaption, R.id.stopMeta,
+            R.id.websitePastComparison, R.id.stopStatus)) {
+            assertEquals("station annotation ${row.findViewById<TextView>(id).resources.getResourceEntryName(id)} " +
+                "must stay one concise line; full evidence belongs in Source details",
+                1, row.findViewById<TextView>(id).maxLines)
+        }
         val arr = text(row, R.id.liveArr)
         val dep = text(row, R.id.liveDep)
         assertEquals("05:55", arr)
@@ -823,8 +828,8 @@ Render.save("02-track-live", shot.bitmap)
         assertTrue("arrival columns do not line up on a real row: ${plannedY[1]} vs ${reportedY[1]}",
             kotlin.math.abs(plannedY[1] - reportedY[1]) <=
                 (6 * shot.context.resources.displayMetrics.density).toInt())
-        assertTrue("website platform was mislabelled: ${text(row, R.id.stopMeta)}",
-            text(row, R.id.stopMeta).contains("site pf 2"))
+        assertFalse("platform badges stay in Source details rather than every station row",
+            text(row, R.id.stopMeta).contains("pf"))
         assertTrue("website row lost its last-stop state: ${text(row, R.id.stopStatus)}",
             text(row, R.id.stopStatus).contains("Departed"))
         assertFalse("source-specific prose belongs in the top card, not every row",

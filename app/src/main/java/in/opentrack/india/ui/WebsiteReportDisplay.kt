@@ -10,10 +10,10 @@ import java.util.Locale
  * It is not an independently run-verified NTES actual, and a page clock is not
  * a train event. Only [OrgWebsiteStatus.parse]'s guarded cells may be painted. */
 object WebsiteReportDisplay {
-    const val STALE_BADGE = "WEBSITE · mapped event · stale · run inferred"
+    const val STALE_BADGE = "Website claim · stale · run inferred"
 
     fun staleBadge(report: OrgWebsiteStatus.Report): String = if (report.originInferred)
-        STALE_BADGE else "WEBSITE · site claim · stale · page date matched"
+        STALE_BADGE else "Website claim · stale · date matched"
 
     /** Event type for the website's last qualifying past card. A card with only a
      * departure is not an arrival; page-update time never chooses this label. */
@@ -46,16 +46,30 @@ object WebsiteReportDisplay {
         else -> SiteEventKind.EVENT
     }
 
+    /** One-line first glance; provenance and position uncertainty stay explicit but brief. */
+    fun firstGlanceHeadline(report: OrgWebsiteStatus.Report, place: String): String {
+        val summary = eventKind(report).summaryLabel
+        val event = summary.substring(0, 1).lowercase(Locale.ROOT) + summary.substring(1)
+        val location = RowText.of(place).ifBlank { report.anchorCode }
+        return "$location · $event · ${RailTime.formatRailMinute(report.eventMinute)}"
+    }
+
+    fun firstGlanceBadge(report: OrgWebsiteStatus.Report): String =
+        if (report.originInferred) "Website claim · run inferred"
+        else "Website claim · date matched"
+
+    fun firstGlanceCaution(@Suppress("UNUSED_PARAMETER") report: OrgWebsiteStatus.Report): String =
+        "Position unknown · website claim only"
+
     fun usable(state: String?, contentParsed: Boolean, report: OrgWebsiteStatus.Report?,
                siteClocks: Map<String, OrgWebsiteStatus.SiteClocks> = emptyMap()): Boolean =
         state == "comparison" && contentParsed &&
             (report?.rows?.isNotEmpty() == true || siteClocks.isNotEmpty())
 
-    /** Website cards occupy a separate comparison column: white predictions are prefixed
-     * with '~' and never enter Report.rows or the marker. A colored card can print a departure
-     * just after its own update label (minute precision); once that minute has passed on the
-     * device, retain it here as a tilde-qualified website clock, not a source event. Keep clocks
-     * still in the future off the route arrows. Fail closed if the site's anchor is not on-route. */
+    /** Route columns show only past, source-coloured website clocks. White-card forecasts and
+     * future estimates stay available in Source details but do not clutter the timetable view.
+     * A colored card can print a departure just after its own update label; once device time
+     * passes it, retain it here as a tilde-qualified website clock, not a source event. */
     fun displayedClocks(report: OrgWebsiteStatus.Report?, originDay: Long,
         haltCodes: List<String>, now: Long): Map<String, OrgWebsiteStatus.SiteClocks> {
         if (report == null) return emptyMap()
@@ -68,10 +82,9 @@ object WebsiteReportDisplay {
         fun afterPage(minute: Int?): Boolean = minute?.let {
             RailTime.railMinuteToEpochMillis(originDay, it) > report.pageUpdatedAt
         } == true
-        // White-card forecasts remain visible in the WEBSITE column with a ~ prefix
-        // from the adapter. They never enter Report.rows or the train marker. A later
-        // source-coloured duplicate may be arrival-only, so merge its station clocks
-        // while preserving the exact per-card records separately.
+        // Forecast cards remain available in Source details, not the route column.
+        // A later source-coloured duplicate may be arrival-only, so merge its station
+        // clocks while preserving the exact per-card records separately.
         val latestClaim = report.latestSiteCard
         val displayedClaims = report.siteClocks.toMutableMap()
         if (latestClaim != null) {
@@ -102,16 +115,18 @@ object WebsiteReportDisplay {
             )
         }
         return displayedClaims.mapNotNull { (code, clocks) ->
+            // Future website estimates are deliberately kept out of the route at first glance.
+            // They remain inspectable in Source details with their original forecast labels.
+            if (clocks.forecast) return@mapNotNull null
             val index = haltCodes.indexOfFirst { it.equals(code, ignoreCase = true) }
             val isLatestClaim = latestClaim?.code?.equals(code, ignoreCase = true) == true
-            if (index !in haltCodes.indices || (index > lastIndex && !clocks.forecast && !isLatestClaim))
+            if (index !in haltCodes.indices || (index > lastIndex && !isLatestClaim))
                 return@mapNotNull null
-            // A white forecast remains visibly forecasted. For colored cards, device time
-            // prevents a future clock from occupying an arrow, but the page-update label does
-            // not erase a clock the site actually printed after that label. Such a value stays
-            // in this website-only column with '~'; it never enters Report.rows or the marker.
-            val arrival = if (clocks.forecast) clocks.arrivalMin else past(clocks.arrivalMin)
-            val departureRaw = if (clocks.forecast) clocks.departureMin else past(clocks.departureMin)
+            // Device time prevents a future clock from occupying an arrow, but the page-update
+            // label does not erase a clock the site actually printed after that label. Such a
+            // value stays in this website-only column with '~'; it never enters Report.rows or the marker.
+            val arrival = past(clocks.arrivalMin)
+            val departureRaw = past(clocks.departureMin)
             val departure = departureRaw?.takeIf { dep ->
                 (arrival ?: report.rows[code]?.actualArrivalMin)?.let { dep >= it } ?: true
             }
@@ -143,9 +158,10 @@ object WebsiteReportDisplay {
             RailTime.railMinuteToEpochMillis(originDay, it) > pageUpdatedAt
         } == true
         return siteClocks.mapNotNull { (code, clocks) ->
-            if (haltCodes.none { it.equals(code, true) }) return@mapNotNull null
-            val arrival = if (clocks.forecast) clocks.arrivalMin else past(clocks.arrivalMin)
-            val departureRaw = if (clocks.forecast) clocks.departureMin else past(clocks.departureMin)
+            if (clocks.forecast || haltCodes.none { it.equals(code, true) })
+                return@mapNotNull null
+            val arrival = past(clocks.arrivalMin)
+            val departureRaw = past(clocks.departureMin)
             val arrivalForOrder = arrival ?: clocks.arrivalMin
             val departure = departureRaw?.takeIf { dep ->
                 arrivalForOrder == null || dep >= arrivalForOrder

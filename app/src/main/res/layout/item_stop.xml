@@ -80,21 +80,23 @@
                  Uses this row's already reported stop minute, never a page-update clock. -->
             <TextView android:id="@+id/stopEventCaption" style="@style/TextMicro"
                 android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:layout_marginTop="3dp" android:maxLines="3"
+                android:layout_marginTop="3dp" android:maxLines="1"
                 android:textSize="10sp" android:ellipsize="end"
                 android:textColor="@color/text2" android:visibility="gone" />
             <TextView android:id="@+id/stopMeta" style="@style/TextMicro"
                 android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:layout_marginTop="3dp" android:maxLines="5" />
-            <!-- Other source's past-card clock is a labelled comparison below
-                 the station, never a substituted NTES actual in the right column. -->
+                android:layout_marginTop="3dp" android:maxLines="1"
+                android:ellipsize="end" />
+            <!-- Any supplemental comparison is a short clock line; full provenance stays in Source details. -->
             <TextView android:id="@+id/websitePastComparison" style="@style/TextMicro"
                 android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:layout_marginTop="3dp" android:textSize="11sp"
+                android:maxLines="1" android:ellipsize="end"
                 android:textColor="@color/warn" android:visibility="gone" />
             <TextView android:id="@+id/stopStatus" style="@style/TextMeta"
                 android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:layout_marginTop="4dp" android:maxLines="5" />
+                android:layout_marginTop="4dp" android:maxLines="1"
+                android:ellipsize="end" />
             <TextView android:id="@+id/stopReport" style="@style/TextMicro"
                 android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:layout_marginTop="4dp" android:textColor="@color/warn"

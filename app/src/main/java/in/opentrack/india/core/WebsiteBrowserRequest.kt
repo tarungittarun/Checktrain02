@@ -41,8 +41,8 @@ private const val MAX_WEBSITE_HTML = 1_000_000
 /** A single honest WebView navigation gets a bounded chance to load and hydrate its own DOM. */
 internal object WebsiteBrowserRequestTiming {
     const val DOCUMENT_TIMEOUT_MS = 40_000L
-    // This site fills its station cards client-side; budget for the measured slow
-    // WebView path without ever treating an unhydrated shell as station data.
+    // Bounded extra wait after the first visible page commit for client-rendered station cards.
+    // This is a timeout budget, not a measured fetch duration; the overall document cap is 40 s.
     const val DOM_READINESS_WAIT_MS = 18_000L
     const val DOM_READINESS_POLL_MS = 250L
 }
@@ -102,22 +102,30 @@ internal object WebsiteCardMarkup {
                 ?: containerOpenTag.find(html, marker)
                     ?.takeIf { it.range.first < nextMarker }?.range?.first
         }
-        val semanticRoots = semanticStationCardSectionStarts(html)
-        val candidates = (markerRoots + classRoots + semanticRoots).distinct().mapNotNull { start ->
-            val section = containerSectionAt(html, start) ?: return@mapNotNull null
-            val headings = stationHeading.findAll(section).take(2).toList()
-            if (headings.size != 1 || !cardClock.containsMatchIn(section)) return@mapNotNull null
-            val priority = when {
-                start in markerRoots -> 0
-                start in classRoots -> 1
-                else -> 2
+        fun resolve(starts: List<Int>): List<Int> {
+            val candidates = starts.distinct().mapNotNull { start ->
+                val section = containerSectionAt(html, start) ?: return@mapNotNull null
+                val headings = stationHeading.findAll(section).take(2).toList()
+                if (headings.size != 1 || !cardClock.containsMatchIn(section)) return@mapNotNull null
+                val priority = when {
+                    start in markerRoots -> 0
+                    start in classRoots -> 1
+                    else -> 2
+                }
+                RootCandidate(start, start + headings[0].range.first, section.length, priority)
             }
-            RootCandidate(start, start + headings[0].range.first, section.length, priority)
+            return candidates.groupBy { it.headingStart }.values.mapNotNull { roots ->
+                roots.minWithOrNull(compareBy<RootCandidate> { it.priority }
+                    .thenByDescending { it.length })?.start
+            }.sorted()
         }
-        return candidates.groupBy { it.headingStart }.values.mapNotNull { roots ->
-            roots.minWithOrNull(compareBy<RootCandidate> { it.priority }
-                .thenByDescending { it.length })?.start
-        }.sorted()
+        val primaryRoots = (markerRoots + classRoots).distinct()
+        val primary = resolve(primaryRoots)
+        // The live page supplies one styled root per station card. Once those roots
+        // cover the structural candidates, avoid the much costlier broad semantic
+        // ancestor search across every heading in the full DOM.
+        if (classRoots.size >= 3 && primary.size == primaryRoots.size) return primary
+        return resolve(primaryRoots + semanticStationCardSectionStarts(html))
     }
 
     private data class RootCandidate(val start: Int, val headingStart: Int,
@@ -240,13 +248,19 @@ object WebsiteBrowserRequest {
     private val allowed = Regex("https://whereismytrain\\.org\\.in/\\?trainNo=[0-9]{5}")
     /** Instrumentation-only barrier, run off the UI thread before any WebView network navigation. */
     @Volatile internal var beforeDocumentNavigationForTest: (() -> Unit)? = null
+    /** Bounded timing fields only; no page body, URL query, cookie, or refusal identifier. */
+    @Volatile internal var timingObserverForTest: ((String) -> Unit)? = null
 
     fun document(context: Context, url: String): Http.Result {
         if (!allowed.matches(url)) return Http.Result.Failed(Http.Result.Kind.HTTP, "invalid website URL")
         if (Looper.myLooper() == Looper.getMainLooper())
             return Http.Result.Failed(Http.Result.Kind.HTTP, "browser document must run off the UI thread")
+        val requestCallAt = SystemClock.elapsedRealtime()
         synchronized(gate) {
+            val gateAcquiredAt = SystemClock.elapsedRealtime()
+            val gateWait = (gateAcquiredAt - requestCallAt).coerceAtLeast(0L)
             beforeDocumentNavigationForTest?.invoke()
+            val requestStartedAt = SystemClock.elapsedRealtime()
             val pending = Pending(context.applicationContext, url)
             if (!main.post { pending.start() })
                 return Http.Result.Failed(Http.Result.Kind.HTTP, "browser looper unavailable")
@@ -257,11 +271,16 @@ object WebsiteBrowserRequest {
                 else Http.Result.Failed(Http.Result.Kind.TIMEOUT, "browser document timed out")
             // Only the main-frame navigation is counted: normal browser resource GETs may also occur.
             // Never log body, URL query, cookies, challenge tokens or raw CDN request IDs.
-            if (pending.navigated) Diary.get()?.log("HTTP") {
-                "GET whereismytrain.org.in try#1 -> " + when (answer) {
-                    is Http.Result.Ok -> "answered ${answer.body.length}B (WebView document)"
-                    is Http.Result.Failed -> "${answer.kind} ${answer.message} (WebView document)"
+            if (pending.navigated) {
+                val total = SystemClock.elapsedRealtime() - requestStartedAt
+                val timing = pending.timingSummary(total, gateWait)
+                Diary.get()?.log("HTTP") {
+                    "GET whereismytrain.org.in try#1 $timing -> " + when (answer) {
+                        is Http.Result.Ok -> "answered ${answer.body.length}B (WebView document)"
+                        is Http.Result.Failed -> "${answer.kind} ${answer.message} (WebView document)"
+                    }
                 }
+                runCatching { timingObserverForTest?.invoke(timing) }
             }
             return answer
         }
@@ -274,10 +293,35 @@ object WebsiteBrowserRequest {
         @Volatile var result: Http.Result = Http.Result.Failed(Http.Result.Kind.EMPTY, "no document")
             private set
         private var view: WebView? = null // main looper only
-        private var readinessStartedAt = 0L // main looper only
+        @Volatile private var readinessStartedElapsed = 0L
         private val expectedTrain = url.substringAfter("trainNo=")
+        @Volatile private var navigationStartedElapsed = 0L
+        @Volatile private var pageCommitVisibleElapsed = 0L
+        @Volatile private var pageFinishedElapsed = 0L
+        @Volatile private var completedElapsed = 0L
+        @Volatile private var readinessPollCount = 0
         @Volatile var navigated: Boolean = false
             private set
+
+        fun timingSummary(totalElapsed: Long, gateWaitElapsed: Long): String {
+            val navigation = navigationStartedElapsed
+            val committed = pageCommitVisibleElapsed
+            val pageFinished = pageFinishedElapsed
+            val completed = completedElapsed.takeIf { it > 0L }
+                ?: SystemClock.elapsedRealtime()
+            val pageLoad = if (navigation > 0L && pageFinished >= navigation)
+                pageFinished - navigation else null
+            val readinessStart = readinessStartedElapsed
+            val domWait = if (readinessStart > 0L && completed >= readinessStart)
+                completed - readinessStart else null
+            return "gateWait=${gateWaitElapsed}ms total=${totalElapsed}ms " +
+                (pageLoad?.let { "page=${it}ms " } ?: "") +
+                (domWait?.let {
+                    if (committed > 0L) "DOM-ready-from-commit=${it}ms "
+                    else "DOM-ready-from-page-finish=${it}ms "
+                } ?: "") +
+                "DOM-polls=$readinessPollCount"
+        }
 
         fun abort() {
             if (finished.compareAndSet(false, true)) main.post { close() }
@@ -294,32 +338,117 @@ object WebsiteBrowserRequest {
         private fun finish(value: Http.Result) {
             if (!finished.compareAndSet(false, true)) return
             result = value
+            completedElapsed = SystemClock.elapsedRealtime()
             done.countDown()
             // Do not destroy the engine from inside one of its own navigation callbacks.
             main.post { close() }
         }
 
+        /**
+         * Cheap readiness sentinel: inspect card-sized ancestor text first; serialize the large
+         * document only after a station heading and its own labelled clock appear together.
+         */
+        private fun populatedDocumentScript(): String = """
+            (function(){
+              var root=document.documentElement;
+              if(!root)return '';
+              function normalize(value){return (value||'').replace(/\s+/g,' ').trim().toUpperCase();}
+              var text=normalize(root.innerText||root.textContent||'');
+              var identity=text.indexOf('${expectedTrain}')>=0;
+              var header=text.indexOf('LAST UPDATED:')>=0&&text.indexOf('SOURCE:')>=0&&
+                text.indexOf('DESTINATION:')>=0;
+              function hasClock(value){
+                for(var j=1;j+2<value.length;j++){
+                  if(value.charCodeAt(j)===58&&value.charCodeAt(j-1)>=48&&value.charCodeAt(j-1)<=57&&
+                     value.charCodeAt(j+1)>=48&&value.charCodeAt(j+1)<=57&&
+                     value.charCodeAt(j+2)>=48&&value.charCodeAt(j+2)<=57){
+                    var suffix=value.substring(j+3,j+12).trim();
+                    if(suffix.indexOf('AM')===0||suffix.indexOf('PM')===0)return true;
+                  }
+                }
+                return false;
+              }
+              var headings=root.querySelectorAll('h2,h3,h4,h5,h6');
+              var populated=false;
+              for(var i=0;i<headings.length&&!populated;i++){
+                if(!normalize(headings[i].innerText||headings[i].textContent||''))continue;
+                var candidate=headings[i].parentElement;
+                for(var depth=0;candidate&&candidate!==root&&depth<32;depth++,candidate=candidate.parentElement){
+                  var tag=candidate.tagName;
+                  if(tag!=='DIV'&&tag!=='SECTION'&&tag!=='ARTICLE'&&tag!=='LI'&&tag!=='TR')continue;
+                  var nested=candidate.querySelectorAll('h2,h3,h4,h5,h6');
+                  if(nested.length>1)break;
+                  if(nested.length!==1)continue;
+                  var body=normalize(candidate.innerText||candidate.textContent||'');
+                  if((body.indexOf('ARRIVAL')>=0||body.indexOf('DEPARTURE')>=0)&&hasClock(body)){
+                    populated=true;break;
+                  }
+                }
+              }
+              if(!identity||!header||!populated)return '';
+              var html=root.outerHTML||'';
+              return html.length<=${MAX_WEBSITE_HTML}?html:'';
+            })()
+        """.trimIndent()
+
         private fun captureRenderedDocument() {
             if (finished.get()) return
             val browser = view ?: return
-            browser.evaluateJavascript("(function(){var h=document.documentElement&&document.documentElement.outerHTML||'';" +
-                "return h.length<=${MAX_WEBSITE_HTML}?h:'';})()") { encoded ->
-                if (finished.get()) return@evaluateJavascript
-                val html = decodeJavascriptStringResult(encoded)
-                val elapsed = SystemClock.elapsedRealtime() - readinessStartedAt
-                val populated = hasPopulatedTrainDocument(html, expectedTrain)
-                when {
-                    populated -> finish(Http.Result.Ok(html, fromCache = false, ageMillis = 0))
-                    elapsed >= WebsiteBrowserRequestTiming.DOM_READINESS_WAIT_MS && html.isNotBlank() ->
-                        // Preserve a real 200 document for explicit parser diagnostics; the
-                        // source layer will reject it unless station cards/clocks really parse.
-                        finish(Http.Result.Ok(html, fromCache = false, ageMillis = 0))
-                    elapsed >= WebsiteBrowserRequestTiming.DOM_READINESS_WAIT_MS ->
-                        finish(Http.Result.Failed(Http.Result.Kind.EMPTY,
-                            "browser document empty or oversized"))
-                    else -> main.postDelayed({ captureRenderedDocument() },
-                        WebsiteBrowserRequestTiming.DOM_READINESS_POLL_MS)
+            readinessPollCount += 1
+            try {
+                browser.evaluateJavascript(populatedDocumentScript()) { encoded ->
+                    if (finished.get()) return@evaluateJavascript
+                    val html = decodeJavascriptStringResult(encoded)
+                    val elapsed = SystemClock.elapsedRealtime() - readinessStartedElapsed
+                    when {
+                        html.isNotBlank() && hasPopulatedTrainDocument(html, expectedTrain) ->
+                            finish(Http.Result.Ok(html, fromCache = false, ageMillis = 0))
+                        elapsed >= WebsiteBrowserRequestTiming.DOM_READINESS_WAIT_MS && html.isNotBlank() ->
+                            // Preserve a real 200 document for parser diagnostics if the quick
+                            // sentinel and Kotlin's stricter structural parser disagree.
+                            finish(Http.Result.Ok(html, fromCache = false, ageMillis = 0))
+                        elapsed >= WebsiteBrowserRequestTiming.DOM_READINESS_WAIT_MS ->
+                            captureDiagnosticDocument(browser)
+                        else -> main.postDelayed({ captureRenderedDocument() },
+                            WebsiteBrowserRequestTiming.DOM_READINESS_POLL_MS)
+                    }
                 }
+            } catch (error: Exception) {
+                finish(Http.Result.Failed(Http.Result.Kind.HTTP,
+                    "browser DOM read failed (${error.javaClass.simpleName})"))
+            }
+        }
+
+        /** Capture once at the bounded deadline so an incomplete HTTP-200 body stays diagnosable. */
+        private fun captureDiagnosticDocument(browser: WebView) {
+            if (finished.get()) return
+            try {
+                browser.evaluateJavascript("(function(){var h=document.documentElement&&document.documentElement.outerHTML||'';" +
+                    "return h.length<=${MAX_WEBSITE_HTML}?h:'';})()") { encoded ->
+                    if (finished.get()) return@evaluateJavascript
+                    val html = decodeJavascriptStringResult(encoded)
+                    if (html.isNotBlank()) finish(Http.Result.Ok(html, fromCache = false, ageMillis = 0))
+                    else finish(Http.Result.Failed(Http.Result.Kind.EMPTY,
+                        "browser document empty or oversized"))
+                }
+            } catch (error: Exception) {
+                finish(Http.Result.Failed(Http.Result.Kind.HTTP,
+                    "browser DOM read failed (${error.javaClass.simpleName})"))
+            }
+        }
+
+        private fun startReadinessPolling(pageUrl: String, fromCommit: Boolean) {
+            if (finished.get()) return
+            if (pageUrl != url) {
+                finish(Http.Result.Failed(Http.Result.Kind.HTTP,
+                    "website document URL changed; no train data"))
+                return
+            }
+            if (captureStarted.compareAndSet(false, true)) {
+                val started = SystemClock.elapsedRealtime()
+                readinessStartedElapsed = started
+                if (fromCommit) pageCommitVisibleElapsed = started
+                captureRenderedDocument()
             }
         }
 
@@ -379,23 +508,22 @@ object WebsiteBrowserRequest {
                             "browser network error ${error.errorCode}"))
                     }
 
+                    override fun onPageCommitVisible(v: WebView, pageUrl: String) {
+                        // Start inspecting the same visible document at first commit rather
+                        // than waiting for unrelated late page resources to finish loading.
+                        startReadinessPolling(pageUrl, fromCommit = true)
+                    }
+
                     override fun onPageFinished(v: WebView, pageUrl: String) {
                         if (finished.get()) return
-                        if (pageUrl != url) {
-                            finish(Http.Result.Failed(Http.Result.Kind.HTTP,
-                                "website document URL changed; no train data"))
-                            return
-                        }
-                        // The document may finish before client rendering/hydration has
-                        // populated its visible timetable. Poll this same DOM briefly, without
-                        // issuing another request; incomplete 200 markup remains diagnosable.
-                        if (captureStarted.compareAndSet(false, true)) {
-                            readinessStartedAt = SystemClock.elapsedRealtime()
-                            captureRenderedDocument()
-                        }
+                        pageFinishedElapsed = SystemClock.elapsedRealtime()
+                        // Some WebView versions do not send onPageCommitVisible; this is also
+                        // the fallback. The atomic gate prevents duplicate DOM polling.
+                        startReadinessPolling(pageUrl, fromCommit = false)
                     }
                 }
                 navigated = true
+                navigationStartedElapsed = SystemClock.elapsedRealtime()
                 browser.loadUrl(url)
             } catch (error: Exception) {
                 finish(Http.Result.Failed(Http.Result.Kind.HTTP,

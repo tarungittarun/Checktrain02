@@ -30,6 +30,7 @@ class JourneyAlarmOptionsEditor(
     private val initialLeadSeconds: Int,
     initialIntervalMinutes: Int,
     note: String,
+    details: String? = null,
     private val includeLeadTime: Boolean = true,
 ) {
     val view = LinearLayout(context).apply {
@@ -70,8 +71,8 @@ class JourneyAlarmOptionsEditor(
             leadSpinner = leadControl
             view.addView(leadControl, matchWrap())
             val leadInput = EditText(context).apply {
-                hint = "Custom lead · seconds"
-                contentDescription = "Custom lead time in seconds"
+                hint = "Custom lead · 0–${JourneyAlarmSchedule.MAX_LEAD_SECONDS} seconds"
+                contentDescription = "Custom lead time in seconds, up to ${JourneyAlarmSchedule.MAX_LEAD_SECONDS}"
                 inputType = InputType.TYPE_CLASS_NUMBER
                 setSingleLine(true)
                 setTextSize(15f)
@@ -113,11 +114,40 @@ class JourneyAlarmOptionsEditor(
         TextView(context).apply {
             text = note
             textSize = 12f
+            maxLines = 3
             setTextColor(context.getColor(R.color.text2))
-            setLineSpacing(dp(2).toFloat(), 1f)
-            setPadding(dp(12), dp(12), dp(12), dp(12))
+            setPadding(dp(12), dp(10), dp(12), dp(10))
             setBackgroundResource(R.drawable.bg_summary_card)
         }.also { view.addView(it, matchWrap(top = 6)) }
+        details?.takeIf { it.isNotBlank() }?.let { fullDetails ->
+            val detail = TextView(context).apply {
+                text = fullDetails
+                textSize = 12f
+                setTextColor(context.getColor(R.color.text2))
+                setLineSpacing(dp(2).toFloat(), 1f)
+                setPadding(dp(12), dp(8), dp(12), dp(8))
+                setBackgroundResource(R.drawable.bg_summary_card)
+                visibility = View.GONE
+            }
+            val disclosure = TextView(context).apply {
+                text = "Source and reliability details ▾"
+                textSize = 13f
+                minHeight = dp(44)
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                setTextColor(context.getColor(R.color.accent))
+                contentDescription = "Show alert source and reliability details"
+                setOnClickListener {
+                    val show = detail.visibility != View.VISIBLE
+                    detail.visibility = if (show) View.VISIBLE else View.GONE
+                    text = if (show) "Hide source and reliability details ▴"
+                        else "Source and reliability details ▾"
+                    contentDescription = if (show) "Hide alert source and reliability details"
+                        else "Show alert source and reliability details"
+                }
+            }
+            view.addView(disclosure, matchWrap(top = 2))
+            view.addView(detail, matchWrap(top = 2))
+        }
         BatteryMode.paint(view)
     }
 

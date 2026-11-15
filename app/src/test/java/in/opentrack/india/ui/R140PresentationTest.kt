@@ -48,8 +48,12 @@ class R140PresentationTest {
     @Test fun routineWebsiteParagraphDisappearsButExceptionalWarningsRemain() {
         assertEquals(null, SummaryNoteUi.visible("Past website card clocks shown; " +
             "upcoming site estimates are not arrivals. Run day inferred."))
+        assertEquals(null, SummaryNoteUi.visible("Past website-published claims shown; upcoming site estimates are not arrivals. " +
+            "Run date inferred from timetable; site claims are not independently verified actuals or current GPS."))
         assertEquals(null, SummaryNoteUi.visible("Website past-card times shown in the station table; " +
             "origin run inferred from the timetable. Last site report is not a current GPS position."))
+        assertEquals(null, SummaryNoteUi.visible("WIMT stop clocks are source-reported; its update stamp is not an event time or GPS movement."))
+        assertEquals(null, SummaryNoteUi.visible("WIMT reports a station field but no dated source stop clocks; position unknown."))
         assertEquals("Website request failed. Previous report retained.",
             SummaryNoteUi.visible("Website request failed. Previous report retained."))
     }

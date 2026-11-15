@@ -18,40 +18,15 @@ internal object WebsiteGapUi {
         if (arr == null && dep == null) return null
         val day = RouteClockUi.departureDay(dep, arr)
         return buildString {
-            append(when {
-                site.forecast -> "Website forecast${if (saved) " (saved)" else ""} · "
-                saved -> "Website claim (saved) · "
-                else -> "Website claim · "
-            })
-            if (arr != null) append("arr ")
+            append(if (site.forecast) "Website forecast" else "Website claim")
+            if (saved) append(" (saved)")
+            if (arr != null) append(" · arr ")
                 .append(if (site.arrivalAfterPageUpdate) "~" else "")
                 .append(RailTime.formatRailMinuteBare(arr))
-            if (dep != null) {
-                if (arr != null) append(" · ")
-                append("dep ").append(if (site.departureAfterPageUpdate) "~" else "")
-                    .append(RailTime.formatRailMinuteBare(dep))
-            }
+            if (dep != null) append(" · dep ")
+                .append(if (site.departureAfterPageUpdate) "~" else "")
+                .append(RailTime.formatRailMinuteBare(dep))
             if (day != null) append(" · ").append(day)
-            site.arrivalScheduleMin?.let {
-                append(" · page arr schedule ").append(RailTime.formatRailMinuteBare(it))
-            }
-            site.departureScheduleMin?.let {
-                append(" · page dep schedule ").append(RailTime.formatRailMinuteBare(it))
-            }
-            site.platform?.let { append(" · website PF ").append(it) }
-            site.statusText?.let { append(" · website status ‘").append(it).append("’") }
-            site.mark?.let { mark ->
-                append(" · website card ").append(when (mark) {
-                    OrgWebsiteStatus.SiteCardMark.PAST -> "green/past-marked"
-                    OrgWebsiteStatus.SiteCardMark.HIGHLIGHTED -> "blue/highlighted"
-                    OrgWebsiteStatus.SiteCardMark.UPCOMING -> "white/upcoming"
-                })
-            }
-            if (site.latestCardArrivalOnly && site.departureMin != null)
-                append(" · newest duplicate card showed arrival only; earlier same-code card showed departure ")
-                    .append(RailTime.formatRailMinuteBare(site.departureMin))
-            if (site.arrivalAfterPageUpdate || site.departureAfterPageUpdate)
-                append(" · ~ clock is later than the page update; website display only, not a source event")
         }
     }
 }

@@ -904,7 +904,9 @@ class TrainActivity : AppCompatActivity() {
         }
         val chrome = createAlertDialogChrome(
             title = "Alert options",
-            subtitle = "$triggerDetail · choose feedback and check interval",
+            subtitle = if (config.trigger == AlertTrigger.PHONE_DISTANCE)
+                "$triggerDetail · choose style and check interval"
+            else "$triggerDetail · choose lead, style and check interval",
             eyebrow = "NOTIFICATION SETUP",
             heightDp = 700,
         )
@@ -951,7 +953,7 @@ class TrainActivity : AppCompatActivity() {
         var leadSpinner: android.widget.Spinner? = null
         var customLead: android.widget.EditText? = null
         if (config.trigger != AlertTrigger.PHONE_DISTANCE) {
-            section("Lead time · before published timetable time")
+            section("Lead time · before the published timetable time")
             val leadControl = android.widget.Spinner(this).apply {
                 contentDescription = "Alert lead time in seconds"
                 setBackgroundResource(R.drawable.bg_inset)
@@ -1015,22 +1017,60 @@ class TrainActivity : AppCompatActivity() {
         body.addView(intervalGroup)
 
         val note = TextView(this).apply {
-            text = buildString {
-                append("Station alerts accept fresh, route-matched NTES/erail source-reported actual times only; a report is not independently verified. If no qualifying report arrives first, the selected lead fires from the published timetable clock, not a live ETA or forecast. The alert/history labels which source actually triggered it. ")
-                append("The whereismytrain.org.in page, whereismytrain.in feed/cache clocks, and the separate Google WIMT app are not alert sources. ")
-                if (config.trigger == AlertTrigger.PHONE_DISTANCE)
-                    append("Distance uses phone location, a movement heuristic, and straight-line distance—not train GPS. A fresh fix within 250 m accuracy is required; approximate-only location may keep it waiting. ")
-                append("Successful checks stay silent. A source-check failure raises one quiet warning until recovery. An ongoing notification is required; Android, network, location, muted-channel, force-stop, and reboot limits can delay or stop monitoring.")
-            }
+            text = if (config.trigger == AlertTrigger.PHONE_DISTANCE)
+                "Fresh phone location · straight-line radius · not train GPS."
+            else "Fresh station report first · timetable reminder if none qualifies."
             textSize = 12f
+            maxLines = 2
+            ellipsize = android.text.TextUtils.TruncateAt.END
             setTextColor(getColor(R.color.text2))
-            setLineSpacing(alertDp(2).toFloat(), 1f)
-            setPadding(alertDp(12), alertDp(12), alertDp(12), alertDp(12))
+            setPadding(alertDp(12), alertDp(10), alertDp(12), alertDp(10))
             setBackgroundResource(R.drawable.bg_summary_card)
         }
         body.addView(note, android.widget.LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             topMargin = alertDp(8)
+            bottomMargin = alertDp(2)
+        })
+        val fullDetails = buildString {
+            append("Station checks use fresh, route-matched NTES/erail reports and the direct .in /cache/live_status feed. ")
+            append("The .in feed counts only when it echoes this run date and both route endpoints with a fresh source-update stamp; the stamp is not event time. ")
+            append("These are source reports, not independently verified. If no report qualifies first, the selected lead uses the published timetable time—not a live ETA or forecast. ")
+            append("The whereismytrain.org.in page, its web cache, and Google's WIMT app are not polled for alerts. Successful checks stay silent; a failed check raises one warning until recovery. ")
+            if (config.trigger == AlertTrigger.PHONE_DISTANCE)
+                append("Distance uses phone location, a fresh fix within 250 m accuracy, movement heuristic and straight-line distance—not train GPS. ")
+            append("An ongoing notification is required. Android, network, location, muted-channel, force-stop and reboot limits can delay or stop monitoring.")
+        }
+        val detail = TextView(this).apply {
+            text = fullDetails
+            textSize = 12f
+            setTextColor(getColor(R.color.text2))
+            setLineSpacing(alertDp(2).toFloat(), 1f)
+            setPadding(alertDp(12), alertDp(10), alertDp(12), alertDp(10))
+            setBackgroundResource(R.drawable.bg_summary_card)
+            visibility = View.GONE
+        }
+        val disclosure = TextView(this).apply {
+            text = "Source and reliability details ▾"
+            textSize = 13f
+            minHeight = alertDp(44)
+            gravity = Gravity.CENTER_VERTICAL
+            setTextColor(getColor(R.color.accent))
+            contentDescription = "Show alert source and reliability details"
+            setOnClickListener {
+                val show = detail.visibility != View.VISIBLE
+                detail.visibility = if (show) View.VISIBLE else View.GONE
+                text = if (show) "Hide source and reliability details ▴"
+                    else "Source and reliability details ▾"
+                contentDescription = if (show) "Hide alert source and reliability details"
+                    else "Show alert source and reliability details"
+            }
+        }
+        body.addView(disclosure, android.widget.LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        body.addView(detail, android.widget.LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = alertDp(2)
             bottomMargin = alertDp(8)
         })
         chrome.primary.text = "Set alert"
@@ -1134,12 +1174,13 @@ class TrainActivity : AppCompatActivity() {
 
                 var baseline = JourneyAlarmPolicy.Baseline()
                 if (config.trigger != AlertTrigger.PHONE_DISTANCE) {
-                    val current = runCatching {
-                        repo?.live(config.trainNo, config.fromCode, config.toCode,
-                            config.originEpochDay, allowOverride = false, includeLocation = false)
-                    }.getOrNull()
-                    if (current != null)
-                        baseline = JourneyAlarmPolicy.baseline(verifiedConfig, current.route, current.answer)
+                    // Use only the screen's already-received answer here. A duplicate provider
+                    // ladder delayed arming and repeated network work; the independent foreground
+                    // monitor performs its own fresh source checks after it starts.
+                    lastUi?.let { current ->
+                        baseline = JourneyAlarmPolicy.baseline(
+                            verifiedConfig, current.route, current.answer)
+                    }
                     if (baseline.seq >= config.triggerSeq) {
                         val eventMinute = baseline.eventMinute
                         val detail = if (eventMinute != null)
@@ -1545,48 +1586,35 @@ class TrainActivity : AppCompatActivity() {
         val wimtLiveRows = ui.sourceLines[TrackingSources.WIMT].orEmpty()
         val wimtLiveEvidence = ui.wimtLiveEvidence
         val wimtLiveSummary = when {
-            wimtLiveEvidence == null -> "WIMT .in live-status feed has not been checked yet."
+            wimtLiveEvidence == null -> "WIMT .in not checked · timetable shown."
             wimtLiveEvidence.runDateMatched != true || wimtLiveEvidence.routeMatched != true ->
-                "WIMT .in response is not confirmed for this run and both route endpoints; timetable shown. " +
-                    (wimtLiveEvidence.detail.take(220))
+                "WIMT .in run/route not confirmed · timetable shown."
             wimtLiveEvidence.actualStopCount > 0 ->
-                "WIMT .in: ${wimtLiveEvidence.actualStopCount} source-reported stop row(s); " +
+                "${wimtLiveEvidence.actualStopCount} WIMT .in stop time(s) · " +
                     (when {
-                        wimtLiveEvidence.freshSourceUpdate -> "upstream update stamp is fresh"
-                        wimtLiveEvidence.sourceUpdateAheadByMillis != null ->
-                            "upstream update stamp is ahead; not counted fresh yet"
+                        wimtLiveEvidence.freshSourceUpdate -> "source stamp fresh"
+                        wimtLiveEvidence.sourceUpdateAheadByMillis != null -> "source stamp ahead"
                         else -> "last-known source report"
-                    }) +
-                    ". Update stamp is not an event time. Not GPS or independent train verification."
+                    }) + " · stamp is not event time."
             wimtLiveEvidence.currentStationCode != null ->
-                "WIMT current-station field says ${wimtLiveEvidence.currentStationCode}; " +
-                    "no qualifying dated stop clocks, so current position is unknown."
-            else -> "WIMT .in returned no qualifying dated stop clocks; timetable shown."
+                "WIMT .in field ${wimtLiveEvidence.currentStationCode} · no dated stop time."
+            else -> "No dated WIMT .in stop times · timetable shown."
         }
-        // Keep web-cache claims separate from the ACTUAL table. Its own data summary
-        // appears only when that experimental source is deliberately selected. A
-        // newer colored website card is also shown even if its clocks fail the event gate.
-        val latestWebsiteCardSummary = if (WebsiteReportDisplay.selected(ui.activeSource))
-            ui.orgWebsiteReport?.let { report -> WebsiteReportDisplay.latestSiteCardSummary(
-                report, ui.route, ui.selectedLoadReceiptMillis ?: System.currentTimeMillis()) }
-                ?: if (ui.orgWebsiteDetachedClaim == null)
-                    WebsiteReportDisplay.displayOnlyCardsBrief(ui.orgWebsiteCards,
-                        ui.orgWebsitePageRunDate, ui.orgWebsiteRunDateMatched)
-                else null
-            else null
-        val latestWebsiteCardBrief = if (WebsiteReportDisplay.selected(ui.activeSource))
-            ui.orgWebsiteReport?.let { WebsiteReportDisplay.latestSiteCardBrief(it, ui.route) }
-            else null
-        val detachedWebsiteSummary = if (WebsiteReportDisplay.selected(ui.activeSource))
+        // Keep website comparison clocks in source details unless the traveller
+        // selected NTES, where a short separate-source caption can be useful.
+        val selectedWebsite = WebsiteReportDisplay.selected(ui.activeSource)
+        val detachedWebsiteSummary = if (selectedWebsite)
             ui.orgWebsiteDetachedClaim?.let { WebsiteReportDisplay.detachedClaimSummary(it,
                 ui.selectedLoadReceiptMillis) } else null
-        sourceSummaryWanted = (
-            ui.websiteGap != null || ui.alternateSourceHint != null ||
-                publicCheck != null && ui.orgWebsiteReport == null ||
+        sourceSummaryWanted = if (selectedWebsite) {
+            ui.orgWebsiteReport != null || ui.orgWebsiteDetachedClaim != null ||
+                ui.orgWebsiteCards.isNotEmpty() ||
+                ui.sourceStates[ui.activeSource]?.first == "pending" ||
+                ui.sourceStates[ui.activeSource]?.first == "failed"
+        } else ui.websiteGap != null || ui.alternateSourceHint != null ||
+            publicCheck != null && ui.orgWebsiteReport == null ||
             ui.activeSource == TrackingSources.WIMT ||
-            ui.activeSource == `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE || mirrorWithoutTimes ||
-            ui.orgWebsiteCards.isNotEmpty() || latestWebsiteCardSummary != null
-        )
+            ui.activeSource == `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE || mirrorWithoutTimes
         binding.sourceSummary.visibility = if (heroExpanded && sourceSummaryWanted) View.VISIBLE else View.GONE
         val selectedStatus = ui.activeSource?.let { ui.sourceStates[it] }
         val selectedReason = ui.activeSource?.let { name ->
@@ -1606,22 +1634,39 @@ class TrainActivity : AppCompatActivity() {
         binding.sourceSummary.setOnClickListener(if (canSwitchAlternate)
             View.OnClickListener { alternateSourceTarget?.let(vm::setActiveSource) } else null)
         val sourceSummaryBase = when {
+            selectedWebsite && ui.orgWebsiteReport != null ->
+                WebsiteReportDisplay.firstGlanceCaution(ui.orgWebsiteReport)
+            selectedWebsite && detachedWebsiteSummary != null ->
+                "Route mismatch · site claim not attached · position unknown."
+            selectedWebsite && ui.orgWebsiteCards.isNotEmpty() ->
+                "Site cards are comparison only · run date unverified."
+            selectedWebsite && selectedPending -> "Checking website…"
+            selectedWebsite -> "No qualifying site event · timetable shown."
             ui.activeSource == TrackingSources.WIMT -> wimtLiveSummary
-            detachedWebsiteSummary != null -> detachedWebsiteSummary
             showingWimtRows ->
-                "WIMT web cache: ${wimtRows.size} source-reported web-cache time row(s), unverified, not railway ACTUAL. Open Source details."
-            ui.alternateSourceHint != null -> ui.alternateSourceHint
+                "WIMT web cache · ${wimtRows.size} time row(s), unverified."
+            ui.alternateSourceHint != null -> "Another source has a separate station report."
             ui.websiteGap != null -> WebsiteGapSummaryUi.concise(ui.websiteGap)
-            ui.wimtWebPoint != null -> "WIMT web-cache distance claim; not phone GPS."
+            ui.wimtWebPoint != null -> "WIMT web-cache distance claim · not GPS."
             selectedPending -> "Checking ${sourceName(ui.activeSource.orEmpty())}…"
-            else -> "$selectedReason$response. Timetable below."
+            else -> "$selectedReason$response · timetable below."
         }
-        binding.sourceSummary.text = listOfNotNull(sourceSummaryBase, latestWebsiteCardSummary)
-            .joinToString("\n")
+        binding.sourceSummary.text = sourceSummaryBase
         binding.sourceSummary.contentDescription = if (canSwitchAlternate)
             "${binding.sourceSummary.text}. Tap to switch to ${TrackingSources.label(alternateSourceTarget!!)}."
             else binding.sourceSummary.text
-        binding.headline.text = m.headline
+        val selectedSiteHeadline = ui.orgWebsiteReport?.takeIf { selectedWebsite }?.let { report ->
+            val stopName = report.intermediate?.name ?: ui.route.stops.firstOrNull {
+                it.code.equals(report.anchorCode, true)
+            }?.name ?: report.latestSiteCard?.stationName ?: report.anchorCode
+            WebsiteReportDisplay.firstGlanceHeadline(report, stopName)
+        }
+        binding.headline.text = selectedSiteHeadline ?: m.headline
+        binding.headline.contentDescription = if (selectedSiteHeadline != null) {
+            val report = ui.orgWebsiteReport!!
+            "$selectedSiteHeadline. ${WebsiteReportDisplay.firstGlanceBadge(report)}; " +
+                WebsiteReportDisplay.firstGlanceCaution(report) + "."
+        } else null
         binding.routeHeadActual.text = if (WebsiteReportDisplay.selected(ui.activeSource))
             "WEBSITE" else "ACTUAL"
         binding.heroEyebrow.text = when {
@@ -1777,8 +1822,8 @@ class TrainActivity : AppCompatActivity() {
                 it.code.equals(report.anchorCode, true) } }
             val place = org?.intermediate?.name ?: station?.name ?: org?.anchorCode
             binding.headline.text = when {
-                org != null -> "Last website-published claim · ${RowText.of(place ?: org.anchorCode)} " +
-                    "${RailTime.formatRailMinuteBare(org.eventMinute)}"
+                org != null -> WebsiteReportDisplay.firstGlanceHeadline(
+                    org, place ?: org.anchorCode)
                 detachedEvent != null -> "Website claims ${detachedEvent.kind.label} · " +
                     "${detachedPlace ?: detachedEvent.stationCode} · " +
                     RailTime.formatClock(detachedEventAt!!)
@@ -1808,8 +1853,7 @@ class TrainActivity : AppCompatActivity() {
                  else "The website run date is inferred from the timetable; this is a ") +
                 "website-published claim, not an independently verified actual, GPS, or current position."
             binding.provenance.text = when {
-                org != null -> if (org.originInferred)
-                    "Past site claim · run inferred" else "Past site claim · date matched"
+                org != null -> WebsiteReportDisplay.firstGlanceBadge(org)
                 detached != null -> "Detached site claim · route mismatch"
                 else -> "Comparison only"
             }
@@ -1919,20 +1963,17 @@ class TrainActivity : AppCompatActivity() {
         val siteNow = System.currentTimeMillis()
         val selectedWebsiteClocks = websiteClocksFor(ui, ui.model.rows.map { it.code }, siteNow)
         stopAdapter.websiteCardTimes = selectedWebsiteClocks
-        // Keep all .org.in card fields in a website-labelled caption. When NTES is
-        // selected this is a supplemental comparison only; when the site is selected
-        // it explains the separate WEBSITE clock column. Neither path writes Act cells.
-        val websiteCaptionReport = when (ui.activeSource) {
-            "NTES (official)" -> ui.orgWebsiteComparisonReport
-            `in`.opentrack.india.v2.mirror.PublicPageChecks.ORG -> ui.orgWebsiteReport
-            else -> null
+        // A separate .org.in comparison caption is only useful when NTES is selected.
+        // A selected website already owns the WEBSITE clock column; neither path writes ACTUAL cells.
+        val websiteCaptionReport = ui.orgWebsiteComparisonReport.takeIf {
+            ui.activeSource == "NTES (official)"
         }
-        stopAdapter.websiteComparisonTimes = when {
-            websiteCaptionReport != null -> WebsiteReportDisplay.displayedClocks(websiteCaptionReport,
-                vm.originDate, ui.model.rows.map { row -> row.code }, siteNow)
-            WebsiteReportDisplay.selected(ui.activeSource) -> selectedWebsiteClocks
-            else -> emptyMap()
-        }
+        // The selected website's clocks already occupy the right-hand WEBSITE column.
+        // Only show this extra caption when it is a genuinely separate NTES comparison.
+        stopAdapter.websiteComparisonTimes = websiteCaptionReport?.let {
+            WebsiteReportDisplay.displayedClocks(it, vm.originDate,
+                ui.model.rows.map { row -> row.code }, siteNow)
+        }.orEmpty()
         val websitePageAt = websiteCaptionReport?.pageUpdatedAt ?: ui.orgWebsitePageUpdatedAt
         stopAdapter.websiteComparisonSaved = websitePageAt?.let {
             siteNow - it > 300_000L
@@ -1986,12 +2027,9 @@ class TrainActivity : AppCompatActivity() {
             // leg, never simultaneously pinned to the station and the leg.
             stopAdapter.haltMarker = null
         }
-        binding.compactReport.text = listOfNotNull(binding.headline.text?.toString(),
-            latestWebsiteCardBrief).joinToString("\n")
-        binding.compactReport.contentDescription = listOfNotNull(
-            binding.headline.contentDescription?.toString() ?: binding.headline.text?.toString(),
-            latestWebsiteCardSummary,
-        ).joinToString(". ")
+        binding.compactReport.text = binding.headline.text?.toString().orEmpty()
+        binding.compactReport.contentDescription =
+            binding.headline.contentDescription?.toString() ?: binding.headline.text?.toString()
         applyHeroExpansion()
         stopAdapter.highlightCode = stopAdapter.haltMarker?.code ?: ui.anchorCode
         if (ui.reports.isNotEmpty()) {
@@ -2209,7 +2247,9 @@ class TrainActivity : AppCompatActivity() {
         if (WebsiteReportDisplay.selected(ui.activeSource)) {
             val siteClocks = websiteClocksFor(ui, rows.map { it.code }, now)
             stopAdapter.websiteCardTimes = siteClocks
-            stopAdapter.websiteComparisonTimes = siteClocks
+            // The selected site is already named by the WEBSITE column; do not repeat
+            // its clocks, schedule pair, badges, and status beneath each station.
+            stopAdapter.websiteComparisonTimes = emptyMap()
         }
         val lastStopMarker = if (WebsiteReportDisplay.selected(ui.activeSource) &&
             ui.orgWebsiteReport?.intermediate == null)
@@ -2292,16 +2332,13 @@ class TrainActivity : AppCompatActivity() {
                 val report = ui.orgWebsiteReport!!
                 val eventKind = WebsiteReportDisplay.eventKind(report)
                 val checkedAt = ui.selectedLoadReceiptMillis ?: now
-                val latestSiteSummary = WebsiteReportDisplay.latestSiteCardSummary(
-                    report, ui.route, checkedAt)
                 val pageAgeAtCheck = WebsiteReportDisplay.pageAgeAtCheck(report, checkedAt)
-                binding.age.text = "${eventKind.summaryLabel} · event $elapsed · page age $pageAgeAtCheck at check"
-                binding.age.contentDescription = "Website last mapped ${eventKind.noun} " +
-                    "${RailTime.formatRailMinute(report.eventMinute)}; event age $elapsed; " +
-                    "page updated ${WebsiteReportDisplay.pageUpdateClock(report)} IST, " +
+                binding.age.text = "Page age $pageAgeAtCheck at check"
+                binding.age.contentDescription = "Website ${eventKind.noun} claim " +
+                    "${RailTime.formatRailMinute(report.eventMinute)}; event age $elapsed. " +
+                    "Page updated ${WebsiteReportDisplay.pageUpdateClock(report)} IST, " +
                     "app response received ${RailTime.formatClockSeconds(checkedAt)} IST, " +
-                    "page age $pageAgeAtCheck at check. The page clock is not train movement." +
-                    (latestSiteSummary?.let { " $it" } ?: "")
+                    "page age $pageAgeAtCheck at check. Current position is unverified."
             }
             ui.activeSource == "NTES (official)" && timedHalt != null && elapsed != null -> {
                 val minute = (timedHalt.showDep ?: timedHalt.showArr)!!
@@ -2373,12 +2410,7 @@ class TrainActivity : AppCompatActivity() {
             binding.provenance.setTextColor(getColor(R.color.late))
         }
         if (batteryAtCreate) {
-            val latestSiteCard = if (WebsiteReportDisplay.selected(ui.activeSource))
-                WebsiteReportDisplay.latestSiteCardBatteryBrief(ui.orgWebsiteReport, ui.route,
-                    ui.selectedLoadReceiptMillis ?: now) else null
-            binding.batteryEvidence.text = listOfNotNull(
-                "${binding.provenance.text} · ${binding.age.text}", latestSiteCard,
-            ).joinToString(" · ")
+            binding.batteryEvidence.text = "${binding.provenance.text} · ${binding.age.text}"
             BatteryMode.paint(binding.provenance)
             BatteryMode.paint(binding.age)
             BatteryMode.paint(binding.delay)

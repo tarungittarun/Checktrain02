@@ -111,6 +111,44 @@ class WimtLiveProviderTest {
     }
 
     @Test
+    fun strictAlertQualificationRequiresExplicitRunRouteAndFreshSourceStamp() {
+        val datedAndRouted = WimtLiveProvider.parse(
+            sampleJson, "12089", route, 20766L, 1794243000000L)
+        val sourceStamp = datedAndRouted.snapshot?.feedStampMillis
+            ?: error("fixture source stamp missing")
+        assertNull(WimtLiveProvider.alertQualificationFailure(
+            datedAndRouted, sourceStamp + 1L))
+        assertTrue(WimtLiveProvider.alertQualificationFailure(
+            datedAndRouted, sourceStamp - 1L).orEmpty().contains("missing, future, or stale"))
+        assertTrue(WimtLiveProvider.alertQualificationFailure(
+            datedAndRouted, sourceStamp + WimtLiveProvider.FRESH_UPDATE_MAX_AGE_MS + 1L)
+            .orEmpty().contains("missing, future, or stale"))
+        val noStamp = datedAndRouted.copy(snapshot = datedAndRouted.snapshot!!.copy(
+            feedStampMillis = null))
+        assertTrue(WimtLiveProvider.alertQualificationFailure(noStamp, sourceStamp + 1L)
+            .orEmpty().contains("missing, future, or stale"))
+
+        val noDate = WimtLiveProvider.parse(
+            sampleJson.replace("\"start_date\": \"09-11-2026\",", ""),
+            "12089", route, 20766L, sourceStamp + 1L)
+        assertNotNull(noDate.snapshot)
+        assertNull(noDate.runDateMatched)
+        assertEquals(true, noDate.routeMatched)
+        assertTrue(WimtLiveProvider.alertQualificationFailure(noDate, sourceStamp + 1L)
+            .orEmpty().contains("run date and both route endpoints"))
+
+        val noEndpoints = WimtLiveProvider.parse(
+            sampleJson.replace("\"source_station\": \"SBC\",", "")
+                .replace("\"destination_station\": \"TLGP\",", ""),
+            "12089", route, 20766L, sourceStamp + 1L)
+        assertNotNull(noEndpoints.snapshot)
+        assertEquals(true, noEndpoints.runDateMatched)
+        assertNull(noEndpoints.routeMatched)
+        assertTrue(WimtLiveProvider.alertQualificationFailure(noEndpoints, sourceStamp + 1L)
+            .orEmpty().contains("run date and both route endpoints"))
+    }
+
+    @Test
     fun fetchFreshnessTextUsesTheResponseReceiptTime() {
         val parsed = WimtLiveProvider.parse(
             sampleJson, "12089", route, 20766L, 1794243000000L)

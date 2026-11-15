@@ -43,15 +43,15 @@ class WebsiteReportDisplayTest {
         val stops = listOf("MYS", "SBC", "MWM", "YPR", "TLGP")
         val visible = WebsiteReportDisplay.displayedClocks(screenshot, day, stops,
             stamp + 25_000L)
-        assertEquals(3, visible.size)
+        assertEquals("only the reached, colored site clock belongs in the route columns", 1, visible.size)
         assertEquals(1378, visible["SBC"]?.arrivalMin)
         assertNull(visible["SBC"]?.departureMin)
-        assertTrue(visible["MWM"]?.forecast == true)
-        assertTrue(visible["YPR"]?.forecast == true)
+        assertNull("white-card estimates stay out of first-glance route columns", visible["MWM"])
+        assertNull("white-card estimates stay out of first-glance route columns", visible["YPR"])
         val forecast = WebsiteReportDisplay.displayedClocks(screenshot, day, stops,
             stamp + 600_000L)["MWM"]
-        assertTrue("a website white-card forecast remains visible as a forecast", forecast?.forecast == true)
-        assertEquals(1396, forecast?.arrivalMin)
+        assertNull("forecast rows remain available in the source model, not the route view", forecast)
+        assertTrue(screenshot.siteClocks["MWM"]?.forecast == true)
         val pastButAfterPage = WebsiteReportDisplay.displayedClocks(screenshot, day, stops,
             stamp + 600_000L)["SBC"]
         assertEquals("once device time passes it, retain the clock the site printed",
@@ -89,15 +89,17 @@ class WebsiteReportDisplayTest {
             "SBC" to OrgWebsiteStatus.SiteClocks(740, 743, true)))
         val visible = WebsiteReportDisplay.displayedClocks(displayed, 20745L,
             route.stops.map { it.code }, displayed.pageUpdatedAt + 120_000L)
-        assertEquals(2, visible.size)
+        assertEquals("only the colored past site card is painted; forecasts are detail-only",
+            1, visible.size)
         assertEquals(686, visible["YPR"]?.arrivalMin)
         assertEquals("a page clock later than its update label stays visible as a qualified website claim",
             690, visible["YPR"]?.departureMin)
         assertTrue(visible["YPR"]?.departureAfterPageUpdate == true)
         assertNull("a displayed website departure is not added to its event ledger",
             displayed.rows["YPR"]?.actualDepartureMin)
-        assertTrue(visible["SBC"]?.forecast == true)
-        assertEquals(740, visible["SBC"]?.arrivalMin)
+        assertNull("future estimates do not clutter the route columns", visible["SBC"])
+        assertTrue("the selected source details still retain the literal forecast",
+            displayed.siteClocks["SBC"]?.forecast == true)
         assertNull("a white-card forecast never enters event rows", displayed.rows["SBC"])
     }
 
@@ -149,6 +151,23 @@ class WebsiteReportDisplayTest {
             WebsiteReportDisplay.eventKind(passage))
     }
 
+    @Test fun selectedWebsiteFirstGlanceKeepsOnlyTheClaimTimeAndRunQualification() {
+        val headline = WebsiteReportDisplay.firstGlanceHeadline(report, "Yesvantpur Jn")
+        assertEquals("Yesvantpur Jn · site arrival · 11:26", headline)
+        assertEquals("Website claim · run inferred",
+            WebsiteReportDisplay.firstGlanceBadge(report))
+        assertEquals("Website claim · date matched",
+            WebsiteReportDisplay.firstGlanceBadge(report.copy(originInferred = false)))
+        assertEquals("Position unknown · website claim only",
+            WebsiteReportDisplay.firstGlanceCaution(report))
+        listOf(headline, WebsiteReportDisplay.firstGlanceBadge(report),
+            WebsiteReportDisplay.firstGlanceCaution(report)).forEach { text ->
+            assertFalse(text.contains("NTES"))
+            assertFalse(text.contains("schedule", ignoreCase = true))
+            assertFalse(text.contains("Page updated"))
+        }
+    }
+
     @Test fun siteCardSummaryShowsExactVisibleRunDateWithoutPromotingSiteClocks() {
         val card = OrgWebsiteStatus.SiteCardClaim(
             code = "ARU", mark = OrgWebsiteStatus.SiteCardMark.PAST,
@@ -181,9 +200,9 @@ class WebsiteReportDisplayTest {
     @Test fun staleWebsiteBadgeRetainsInferredRunWarningAndAvoidsAssumingArrival() {
         assertTrue(WebsiteReportDisplay.STALE_BADGE.contains("stale"))
         assertTrue(WebsiteReportDisplay.STALE_BADGE.contains("run inferred"))
-        assertTrue(WebsiteReportDisplay.STALE_BADGE.contains("mapped event"))
+        assertFalse(WebsiteReportDisplay.STALE_BADGE.contains("mapped event"))
         assertFalse(WebsiteReportDisplay.STALE_BADGE.contains("GPS"))
-        assertEquals("WEBSITE · site claim · stale · page date matched",
+        assertEquals("Website claim · stale · date matched",
             WebsiteReportDisplay.staleBadge(report.copy(originInferred = false)))
     }
 

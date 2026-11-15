@@ -149,7 +149,7 @@ def self_test() -> None:
         r'openAlertChoices\("(alert-[A-Za-z0-9._-]+)"\)',
         TEST_SOURCE.read_text(encoding="utf-8"),
     )
-    assert len(tags) == 29 and len(helper_tags) == 4, (len(tags), helper_tags)
+    assert len(tags) == 32 and len(helper_tags) == 4, (len(tags), helper_tags)
     with tempfile.TemporaryDirectory(prefix="alert-evidence-self-test-") as temp:
         evidence = Path(temp)
         first = tags[0]

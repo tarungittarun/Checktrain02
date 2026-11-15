@@ -15,7 +15,7 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(3, len(plan.screenshot_tags("journey")))
         self.assertEqual(2, len(plan.screenshot_tags("trust")))
         self.assertEqual(3, len(plan.screenshot_tags("refresh")))
-        self.assertEqual(29, len(plan.screenshot_tags("alerts")))
+        self.assertEqual(32, len(plan.screenshot_tags("alerts")))
         self.assertIn("traveller-alert-triggers", plan.screenshot_tags("alerts"))
 
     def test_new_unassigned_method_rejects_plan(self):

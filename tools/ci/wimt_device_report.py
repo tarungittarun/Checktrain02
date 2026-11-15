@@ -22,7 +22,41 @@ def _ist_time(epoch_ms: int | None) -> str | None:
 
 
 def verdict(instrumentation: str, diary: str, process_rc: int) -> dict:
-    attempted = re.findall(r"\[HTTP\] GET whereismytrain\.org\.in try#\d+ -> ([^\r\n]+)", diary)
+    attempted = []
+    document_timings = []
+    def timing_fields(text: str) -> dict:
+        return {key: int(value) for key, value in re.findall(
+            r"\b(gateWait|total|page|DOM-ready-from-commit|DOM-ready-from-page-finish|DOM-polls)=(\d+)(?:ms)?\b",
+            text)}
+
+    def remember_document_timing(fields: dict) -> None:
+        if fields and fields not in document_timings:
+            document_timings.append(fields)
+
+    for line in diary.splitlines():
+        match = re.search(r"\[HTTP\] GET whereismytrain\.org\.in try#\d+(.*?) -> ([^\r\n]+)", line)
+        if not match:
+            continue
+        timing_text, outcome = match.group(1).strip(), match.group(2).strip()
+        attempted.append(outcome)
+        remember_document_timing(timing_fields(timing_text))
+    for line in instrumentation.splitlines():
+        match = re.search(r"\bWIMT_DEVICE_FETCH_TIMING=([^\r\n]+)", line)
+        if match:
+            remember_document_timing(timing_fields(match.group(1)))
+    pipeline_timings = []
+    pipeline_keys = {"preRequest", "contextWait", "pageRequest", "replyWaitForContext",
+                     "parse", "postParseBeforePublish", "buildUi", "responseToPublish", "total"}
+    for line in diary.splitlines():
+        match = re.search(r"\[ORG_PIPELINE\] ([^\r\n]+)", line)
+        if not match:
+            continue
+        timing = {}
+        for key, value in re.findall(r"\b([A-Za-z]+)=([^\s]+)", match.group(1)):
+            if key in pipeline_keys and re.fullmatch(r"\d+ms|n/a|not-started|not-run", value):
+                timing[key] = value
+        if timing:
+            pipeline_timings.append(timing)
     evidence = [line for line in diary.splitlines()
                 if "[EVIDENCE] source=whereismytrain.org.in (website)" in line]
     latest = evidence[-1] if evidence else ""
@@ -157,6 +191,8 @@ def verdict(instrumentation: str, diary: str, process_rc: int) -> dict:
         run_date_basis = "selected_origin_day_unverified; page has no matching explicit run date"
     return {"verdict": reason, "accepted": accepted, "instrumentationPassed": test_passed,
             "websiteGetCount": len(attempted) if attempted else None, "websiteAnswered": site_answered,
+            "documentFetchTimings": document_timings[-5:],
+            "pipelineTimings": pipeline_timings[-5:],
             "websiteRefused": refused, "wireReceiptAvailable": bool(attempted),
             "source": HOST, "sourceTransport": transport or "unknown",
             "acceptedMode": accepted_mode,
@@ -200,7 +236,11 @@ def self_test() -> None:
     published = int((dt.datetime(2026, 11, 12, 21, 5, tzinfo=IST) - EPOCH_UTC)
                     .total_seconds() * 1_000)
     checked = published + 30_000
-    good = ("11-05 [HTTP] GET whereismytrain.org.in try#1 -> answered 108395B\n"
+    good = ("11-05 [HTTP] GET whereismytrain.org.in try#1 gateWait=7ms total=18214ms "
+            "page=16602ms DOM-ready-from-commit=930ms DOM-polls=4 -> answered 108395B\n"
+            "11-05 [ORG_PIPELINE] preRequest=2ms contextWait=310ms pageRequest=18214ms "
+            "replyWaitForContext=0ms parse=21ms postParseBeforePublish=4ms buildUi=12ms "
+            "responseToPublish=40ms total=18391ms parser=SITE_REPORT cards=30 rows=10\n"
             "11-05 [EVIDENCE] source=whereismytrain.org.in (website) train=16227 "
             "originDay=20769 transport=NETWORK_ANSWER bytes=108395 sha256_16=0123456789abcdef "
             "parsed=SITE_COMPARISON runIdentity=DATE_ROUTE_MATCHED primaryActuals=0 primaryMarker=none "
@@ -213,8 +253,18 @@ def self_test() -> None:
             "siteClaimTimeBasis=selected_origin_date_verified "
             "pagePublishedAt=" + str(published) +
             " checkedAt=" + str(checked) + "\n")
-    result = verdict("OK (1 test)", good, 0)
+    browser_timing = "gateWait=7ms total=18214ms page=16602ms DOM-ready-from-commit=930ms DOM-polls=4"
+    result = verdict("OK (1 test)\nWIMT_DEVICE_FETCH_TIMING=" + browser_timing, good, 0)
     assert result["accepted"]
+    assert result["documentFetchTimings"] == [{
+        "gateWait": 7, "total": 18_214, "page": 16_602,
+        "DOM-ready-from-commit": 930, "DOM-polls": 4,
+    }]
+    assert result["pipelineTimings"] == [{
+        "preRequest": "2ms", "contextWait": "310ms", "pageRequest": "18214ms",
+        "replyWaitForContext": "0ms", "parse": "21ms", "postParseBeforePublish": "4ms",
+        "buildUi": "12ms", "responseToPublish": "40ms", "total": "18391ms",
+    }]
     assert result["sitePageEndpoints"] == "MYS>TLGP"
     assert result["sitePageLabels"] == "Mysuru_Junction>Talguppa"
     assert result["selectedRoute"] == "MYS>TLGP"

@@ -129,43 +129,42 @@ class AlertsActivity : AppCompatActivity() {
             config.trainName.takeIf { it.isNotBlank() }?.let { append(" · ").append(it) }
         }
         card.addView(text(train, 17f, R.color.text1, bold = true))
-        card.addView(text("${config.fromCode} → ${config.toCode} · run date ${date(config.originEpochDay)}",
+        card.addView(text("${config.fromCode} → ${config.toCode} · ${date(config.originEpochDay)}",
             13f, R.color.text2, top = 3))
         card.addView(text(triggerSummary(snapshot), 14f, R.color.text1, top = 10))
         if (config.trigger != AlertTrigger.PHONE_DISTANCE && config.scheduledMinute != null) {
-            card.addView(text("${config.leadSeconds} sec lead · timetable ${RailTime.formatRailMinute(config.scheduledMinute)} · not a live ETA",
+            card.addView(text("Lead ${config.leadSeconds}s · timetable ${RailTime.formatRailMinute(config.scheduledMinute)}",
                 13f, R.color.text2, top = 3))
         }
-        card.addView(text("${feedbackSummary(config.feedback)} · check every ${config.intervalMinutes} " +
-            if (config.intervalMinutes == 1) "minute" else "minutes", 13f, R.color.text2, top = 3))
+        card.addView(text("${feedbackSummary(config.feedback)} · every ${config.intervalMinutes}m",
+            13f, R.color.text2, top = 3))
         card.addView(text(stateSummary(snapshot), 14f, stateColor(snapshot.state), top = 9, bold = true))
-        if (snapshot.status.isNotBlank())
-            card.addView(text(snapshot.status, 13f,
-                if (snapshot.checkFailed) R.color.warn else R.color.text2, top = 3))
+        if (snapshot.status.isNotBlank()) {
+            val status = text(snapshot.status, 13f,
+                if (snapshot.checkFailed) R.color.warn else R.color.text2, top = 3).apply {
+                maxLines = 2
+                ellipsize = android.text.TextUtils.TruncateAt.END
+                contentDescription = snapshot.status
+            }
+            card.addView(status)
+        }
         snapshot.lastSourceLabel?.takeIf { it.isNotBlank() }?.let { source ->
-            val label = if (config.trigger == AlertTrigger.PHONE_DISTANCE)
-                "Last location check" else "Last accepted report"
+            val label = if (config.trigger == AlertTrigger.PHONE_DISTANCE) "Location" else "Sources"
             card.addView(text("$label · $source", 12f, R.color.text3, top = 4))
         }
         if (snapshot.lastCheckedAtMillis > 0L)
-            card.addView(text("Last check · ${RailTime.formatClockSeconds(snapshot.lastCheckedAtMillis)} IST",
+            card.addView(text("Checked · ${RailTime.formatClockSeconds(snapshot.lastCheckedAtMillis)} IST",
                 12f, R.color.text3, top = 5))
         if (snapshot.evidenceAtMillis > 0L) {
             val evidenceLabel = when {
-                config.trigger == AlertTrigger.PHONE_DISTANCE ->
-                    "Phone-location trigger evidence · not train GPS"
-                snapshot.evidenceSourceLabel != null ->
-                    "${snapshot.evidenceSourceLabel} trigger evidence · source-reported, not independently verified"
-                config.scheduledMinute != null ->
-                    "Timetable reminder · not a live ETA or a source-reported arrival"
-                else -> "Trigger evidence · not independently verified"
+                config.trigger == AlertTrigger.PHONE_DISTANCE -> "Phone location"
+                snapshot.evidenceSourceLabel != null -> snapshot.evidenceSourceLabel
+                config.scheduledMinute != null -> "Timetable reminder"
+                else -> "Trigger"
             }
             card.addView(text("$evidenceLabel · ${RailTime.formatClockSeconds(snapshot.evidenceAtMillis)} IST",
                 12f, R.color.text3, top = 2))
         }
-        if (snapshot.state == AlertState.ARMED) card.addView(text(
-            "Android and network limits can delay checks. Monitoring ends after the selected run window.",
-            12f, R.color.text3, top = 7))
         if (active) {
             val actions = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -207,16 +206,16 @@ class AlertsActivity : AppCompatActivity() {
     private fun triggerSummary(snapshot: JourneyAlarmSnapshot): String {
         val c = snapshot.config
         return when (c.trigger) {
-            AlertTrigger.DESTINATION_REPORT -> "At station · ${c.toName} · source report or timetable reminder"
-            AlertTrigger.PREVIOUS_STOP_REPORT -> "At preceding station · ${c.triggerName} · live source report"
-            AlertTrigger.PHONE_DISTANCE -> "Within ${c.distanceKm} km of ${c.toName} · phone location, straight-line distance"
+            AlertTrigger.DESTINATION_REPORT -> "Station · ${c.toName}"
+            AlertTrigger.PREVIOUS_STOP_REPORT -> "Station · ${c.triggerName}"
+            AlertTrigger.PHONE_DISTANCE -> "Within ${c.distanceKm} km · ${c.toName}"
         }
     }
 
     private fun feedbackSummary(feedback: AlertFeedback): String = when (feedback) {
-        AlertFeedback.NOTIFICATION -> "Ping · one sound"
-        AlertFeedback.VIBRATION -> "Vibrate · one pattern"
-        AlertFeedback.RING_UNTIL_STOPPED -> "Alarm ring · stop anytime"
+        AlertFeedback.NOTIFICATION -> "Ping"
+        AlertFeedback.VIBRATION -> "Vibrate"
+        AlertFeedback.RING_UNTIL_STOPPED -> "Ring · stop anytime"
     }
 
     private fun stateSummary(snapshot: JourneyAlarmSnapshot): String = when (snapshot.state) {
@@ -249,7 +248,8 @@ class AlertsActivity : AppCompatActivity() {
         val prefs = Prefs(this)
         val editor = JourneyAlarmOptionsEditor(this, prefs.defaultAlertFeedback,
             prefs.defaultAlertLeadSeconds, prefs.defaultAlertIntervalMinutes,
-            "These are starting choices for new alerts only. Every alert keeps its own saved options. A station lead is measured from the published timetable clock, not a live ETA; phone-distance alerts use the selected radius instead.")
+            "Starting choices for new alerts. Each alert keeps its own settings.",
+            details = "Station checks use fresh route-matched NTES, erail and the direct .in live-status feed. The .in source must match the run date and both route endpoints. Successful checks stay quiet; a failed check warns once until recovery. A station reminder uses the published timetable time, not a live ETA. .org.in pages and Google's WIMT app are not polled. Android background limits can delay checks.")
         val triggerOptions = listOf(AlertTrigger.DESTINATION_REPORT,
             AlertTrigger.PREVIOUS_STOP_REPORT, AlertTrigger.PHONE_DISTANCE)
         val distanceOptions = listOf(2, 5, 10)
@@ -336,8 +336,8 @@ class AlertsActivity : AppCompatActivity() {
     private fun showEditDialog(snapshot: JourneyAlarmSnapshot, route: TrainRoute?, stations: List<StopRow>) {
         val c = snapshot.config
         val editor = JourneyAlarmOptionsEditor(this, c.feedback, c.leadSeconds,
-            c.intervalMinutes,
-            "Only this alert will change. A station-triggered source result identifies the source; the timetable reminder is explicitly labeled and is not a live ETA.",
+            c.intervalMinutes, "Only this alert changes.",
+            details = "Station events must be fresh and match this train, run and stop; the notification names the first qualifying source. If no report qualifies, the selected lead uses the published timetable clock. Successful checks stay quiet; check failures warn once until recovery. Ringing can be stopped from this screen or its notification. Android background limits may delay monitoring.",
             includeLeadTime = c.trigger != AlertTrigger.PHONE_DISTANCE &&
                 (c.scheduledMinute != null || route != null))
         val root = LinearLayout(this).apply {
