@@ -75,6 +75,40 @@ class ErailRouteMirrorTest {
         assertNull("a route the page cannot span must be refused", merged)
     }
 
+    @Test
+    fun liveIdentityEndpointScaffoldGrowsFromExactOrderedRouteWithoutInventingTimes() {
+        val scaffold = TrainRoute("T", "T", "A", "Origin", "D", "Destination",
+            0, null, null, null, listOf(
+                StopRow(1, "A", "Origin", null, null, null, null, 600, 0, 0, true),
+                StopRow(2, "D", "Destination", null, null, null, 720, null, 0, 0, true),
+            ), emptyList())
+        val halts = listOf(
+            ErailRouteMirror.Halt("Origin", "A"),
+            ErailRouteMirror.Halt("Between One", "B"),
+            ErailRouteMirror.Halt("Between Two", "C"),
+            ErailRouteMirror.Halt("Destination", "D"),
+        )
+
+        val expanded = LiveViewModel.mergeRouteExtents(scaffold, halts)
+            ?: error("exact endpoint route should expand")
+        assertEquals(listOf("A", "B", "C", "D"), expanded.stops.map { it.code })
+        assertEquals(600, expanded.stops.first().departureMin)
+        assertEquals(720, expanded.stops.last().arrivalMin)
+        assertEquals("Between One", expanded.stops[1].name)
+        assertEquals("Between Two", expanded.stops[2].name)
+        assertTrue(expanded.stops.drop(1).dropLast(1).all {
+            it.arrivalMin == null && it.departureMin == null && it.schedKm == -1
+        })
+        assertTrue("route extension must not invent segment schedules", expanded.segments.isEmpty())
+
+        assertNull("a route with different endpoints must not be attached",
+            LiveViewModel.mergeRouteExtents(scaffold, halts.drop(1)))
+        assertNull("reversed service direction must not be attached",
+            LiveViewModel.mergeRouteExtents(scaffold, halts.reversed()))
+        assertNull("a real two-stop timetable is not an identity-only scaffold",
+            LiveViewModel.mergeRouteExtents(scaffold.copy(totalKm = 1), halts))
+    }
+
     // ---- fixtures --------------------------------------------------------------
 
     private fun merge(

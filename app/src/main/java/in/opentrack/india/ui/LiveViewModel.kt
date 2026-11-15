@@ -283,6 +283,7 @@ class LiveViewModel(
     private var extentRoute: TrainRoute? = null
     private var extentAt = 0L
     private var extentAttemptAt = 0L
+    private var extentJob: Job? = null
     private var mirrorSourceLines: Map<String, Map<String, String>> = emptyMap()
     /** Per-witness STRUCTURED minutes (code -> act arr/dep) - what the table's Act/Est columns carry. */
     private var mirrorStops: Map<String, List<RunningStatusMirror.Stop>> = emptyMap()
@@ -411,6 +412,12 @@ class LiveViewModel(
                     if (awaitRunContext) liveRefreshJob?.takeIf { it.isActive }?.join()
                     liveIdentityJob?.takeIf { it.isActive }?.join()
                     confirmScheduleJob?.takeIf { it.isActive }?.join()
+                    // A live-only train first renders an honest two-endpoint scaffold. Join
+                    // only the route-page work already scheduled by refresh; do not add a
+                    // second network request from this source probe. This adds station
+                    // codes/order only, never schedule times.
+                    if (_ui.value?.route?.let { it.trainNo == trainNo && it.stops.size < 3 } == true)
+                        extentJob?.takeIf { it.isActive }?.join()
                 }
                 val route = _ui.value?.route ?: return@launch
                 // Snapshot the map alongside this request. If a full static route
@@ -1279,8 +1286,8 @@ class LiveViewModel(
                     )
                     _error.value = null
                     maybeCrowd()
-                    surveySourcesOnce()
                     maybeRouteExtent()
+                    surveySourcesOnce()
                     return
                 }
                 // The train the list advertised may exist ONLY in the live source (the offline copy
@@ -1302,8 +1309,8 @@ class LiveViewModel(
                 _ui.value = buildUi(route, answer, emptyList(), listOf(fallbackNote(id, fromCode, toCode)))
                 _error.value = null
                 maybeCrowd()
-                surveySourcesOnce()
                 maybeRouteExtent()
+                surveySourcesOnce()
                 return
             }
             lastAnswer = live.answer
@@ -1315,7 +1322,6 @@ class LiveViewModel(
             maybeCrowd()
             if (!`in`.opentrack.india.data.Prefs(app).batteryMode &&
                 staticMapMatchesLiveIdentity(live.route)) maybeRailGeo(live.route)
-            surveySourcesOnce()
             if (live.answer.position.provenance != SourceKind.PROVIDER_NTES) {
                 // The first-load survey already asks independent status sources; later manual
                 // refreshes retain the usual throttle when the official request fails.
@@ -1326,6 +1332,7 @@ class LiveViewModel(
                     "Official NTES answered" else
                     "Official NTES answered; checking other sources in the background")
             }
+            surveySourcesOnce()
         }
     }
 
@@ -1572,11 +1579,12 @@ class LiveViewModel(
     }
 
     /** One route-page attempt per 10 minutes; the answer itself is cached for a day in prefs. */
-    private fun maybeRouteExtent(force: Boolean = false) {
+    private fun maybeRouteExtent(force: Boolean = false): Job? {
+        extentJob?.takeIf { it.isActive }?.let { return it }
         val nowWall = System.currentTimeMillis()
-        if (!force && nowWall - extentAttemptAt < 600_000) return
+        if (!force && nowWall - extentAttemptAt < 600_000) return null
         extentAttemptAt = nowWall
-        viewModelScope.launch {
+        val job = viewModelScope.launch {
             val repo = repo() ?: return@launch
             if (extentRoute == null && !loadExtentCache()) {
                 val got = withContext(Dispatchers.IO) { ErailRouteMirror.fetchOrWhy(trainNo) }
@@ -1610,6 +1618,8 @@ class LiveViewModel(
                     "${u.route.stops.size}; the rest render an em-dash schedule until a timetable names their minutes)"
             }
         }
+        extentJob = job
+        return job
     }
 
     /** Day-fresh route cache, same SWR discipline (and JSON house style) as the mirror's. */
@@ -1628,7 +1638,9 @@ class LiveViewModel(
             halts += ErailRouteMirror.Halt(h.optString("n"), h.optString("c"))
         }
         if (halts.size < 2) return false
-        val base = runCatching { repo()?.queries?.route(trainNo) }.getOrNull() ?: return false
+        val base = _ui.value?.route
+            ?: runCatching { repo()?.queries?.route(trainNo) }.getOrNull()
+            ?: return false
         val merged = mergeRouteExtents(base, halts) ?: return false
         extentRoute = merged
         extentAt = at
@@ -2674,6 +2686,46 @@ class LiveViewModel(
         internal fun mergeRouteExtents(base: TrainRoute, halts: List<ErailRouteMirror.Halt>): TrainRoute? {
             val baseCodes = base.stops.map { it.code.uppercase() }
             val pageCodes = halts.map { it.code.uppercase() }
+            // A live-only identity can supply origin/terminus times without a timetable
+            // route. Its synthetic route is recognizably endpoint-only (zero km, no
+            // segments or run schedule). Expand it only when the independent ordered
+            // route page names those exact endpoints in that order. Added halts carry
+            // names and order only; their schedule minutes and distances stay unknown.
+            val first = base.stops.firstOrNull()
+            val last = base.stops.lastOrNull()
+            val endpointScaffold = base.stops.size == 2 && first != null && last != null &&
+                base.segments.isEmpty() && base.totalKm == 0 && base.totalMin == null &&
+                base.runDays == null && first.seq == 1 && last.seq == 2 &&
+                first.code.equals(base.srcCode, true) && last.code.equals(base.dstCode, true) &&
+                first.name.equals(first.code, true) && last.name.equals(last.code, true) &&
+                base.srcName.equals(base.srcCode, true) && base.dstName.equals(base.dstCode, true) &&
+                first.arrivalMin == null && first.departureMin != null &&
+                last.arrivalMin != null && last.departureMin == null &&
+                first.schedKm == 0 && last.schedKm == 0
+            if (endpointScaffold) {
+                if (halts.size < 3 || pageCodes.first() != base.srcCode.uppercase() ||
+                    pageCodes.last() != base.dstCode.uppercase()) return null
+                val stops = halts.mapIndexed { index, halt ->
+                    val endpoint = when (index) {
+                        0 -> base.stops.first()
+                        halts.lastIndex -> base.stops.last()
+                        else -> null
+                    }
+                    if (endpoint != null) endpoint.copy(seq = index + 1,
+                        code = halt.code, name = halt.name, isHalt = true)
+                    else StopRow(
+                        seq = index + 1, code = halt.code, name = halt.name, state = null,
+                        lat = null, lon = null, arrivalMin = null, departureMin = null,
+                        journeyDay = 0, schedKm = -1, isHalt = true,
+                    )
+                }
+                return base.copy(
+                    stops = stops,
+                    srcCode = stops.first().code, srcName = stops.first().name,
+                    dstCode = stops.last().code, dstName = stops.last().name,
+                    segments = emptyList(),
+                )
+            }
             var at = -1
             loop@ for (off in 0..pageCodes.size - baseCodes.size) {
                 for (i in baseCodes.indices) {

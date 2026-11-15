@@ -93,6 +93,24 @@ class PublicPageChecksTest {
             orgResult.orgContentParsed)
     }
 
+    @Test fun `endpoint-only scaffold is reported as an incomplete route not an empty website answer`() {
+        val scaffold = orgRoute.copy(totalKm = 0, totalMin = null, runDays = null,
+            stops = listOf(orgRoute.stops.first(), orgRoute.stops.last()), segments = emptyList())
+        val result = PublicPageChecks.parse(PublicPageChecks.ORG, populatedOrgPage,
+            "16227", day, now, route = scaffold)
+
+        assertTrue("the network/page answer is distinct from route-qualified content", result.pageAnswered)
+        assertFalse(result.orgContentParsed)
+        assertNull(result.orgReport)
+        assertEquals(2, result.orgSelectedRouteStopCount)
+        assertEquals("SELECTED_ROUTE_UNAVAILABLE", result.orgParserState)
+        assertTrue(PublicPageChecks.websiteGap(result, "TLGP")!!
+            .contains("selected timetable route has 2 stop(s)"))
+        val receipt = `in`.opentrack.india.ui.SourceEvidenceReceipt.publicPage(
+            PublicPageChecks.ORG, "16227", day, result)
+        assertTrue(receipt.contains("selectedRouteStops=2 siteParserState=SELECTED_ROUTE_UNAVAILABLE"))
+    }
+
     @Test fun `visible website origin date accepts comma and ordinal formats but never guesses`() {
         val labels = listOf(
             "Run date: 14 October, 2026",

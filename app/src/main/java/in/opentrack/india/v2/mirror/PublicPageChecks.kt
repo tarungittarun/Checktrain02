@@ -59,6 +59,10 @@ object PublicPageChecks {
         val orgPageEndpoints: OrgWebsiteStatus.PageEndpoints? = null,
         val orgSelectedRouteFromCode: String? = null,
         val orgSelectedRouteToCode: String? = null,
+        /** Selected route size at the instant the single website reply was parsed. */
+        val orgSelectedRouteStopCount: Int? = null,
+        /** Stable parser outcome category; distinct from transport/page-answer status. */
+        val orgParserState: String = "NOT_RUN",
         /** Structural card containers found before station/timetable qualification. */
         val orgParsedCardContainers: Int = 0,
         /** True only when visible site text explicitly names the selected origin date. */
@@ -87,6 +91,34 @@ object PublicPageChecks {
                 "are comparison claims only; they are not attached to timetable rows, actuals, or position." +
                 event
         }
+        val parserNote = when (result.orgParserState) {
+            "SELECTED_ROUTE_UNAVAILABLE" -> {
+                val count = result.orgSelectedRouteStopCount
+                "The .org.in page answered, but the selected timetable route has " +
+                    (count?.let { "$it stop(s)" } ?: "too few stops") +
+                    "; no route-matched site rows were attached. Timetable shown."
+            }
+            "RUN_DATE_MISMATCH" ->
+                "The .org.in page's visible run date does not match the selected origin date; " +
+                    "its station cards were not attached to this run."
+            "ROUTE_ENDPOINT_MISMATCH" ->
+                "The .org.in page endpoints do not match the selected timetable; " +
+                    "its station cards were not attached to this route."
+            "RUN_DAY_MISMATCH" ->
+                "The selected train is not scheduled for this origin day; no site event was admitted."
+            "ORIGIN_SCHEDULE_MISSING" ->
+                "The selected timetable has no origin departure time; the website run window cannot be verified."
+            "RUN_WINDOW_UNVERIFIED" ->
+                "The website has no date selector and the selected origin run is not unambiguously active."
+            "SITE_RUN_INACTIVE" ->
+                "The website reports that this train run is not active; no station event was admitted."
+            "PAGE_CLOCK_INVALID_OR_STALE" ->
+                "The website update clock is missing, future, or too old to qualify a new stop claim."
+            "NO_QUALIFIED_SITE_EVENT" ->
+                "Site cards were parsed, but no past-marked, schedule-paired stop claim qualified for this run."
+            else -> null
+        }
+        if (parserNote != null) return parserNote
         if (!result.orgContentParsed) return null
         if (result.orgReport != null || result.lines.isEmpty() ||
             result.lines.keys.any { it.equals(destination, true) }) return null
@@ -219,7 +251,8 @@ object PublicPageChecks {
                     orgSiteCards = emptyList(), orgSitePageUpdatedAt = null,
                     orgSitePageClockHasSeconds = false, orgSiteClocks = emptyMap(),
                     orgPageEndpoints = null, orgParsedCardContainers = 0,
-                    orgRunDateMatched = false, orgPageRunDate = null, orgRunDateState = "CACHED")
+                    orgRunDateMatched = false, orgPageRunDate = null, orgRunDateState = "CACHED",
+                    orgParserState = "CACHED_BODY")
                 else answer
             }
         }
@@ -341,6 +374,25 @@ object PublicPageChecks {
             detachedPageClaim = parsed.detachedPageClaim?.copy(
                 runDateMatched = runDateMatchesSelected))
         }
+        val orgParserState = when {
+            name != ORG -> "NOT_ORG"
+            wrong -> "RUN_DATE_MISMATCH"
+            route == null -> "SELECTED_ROUTE_MISSING"
+            parsedOrg == null -> "NOT_RUN"
+            org?.detachedPageClaim != null -> "DETACHED_ROUTE_DIAGNOSTIC"
+            org?.report != null -> "SITE_REPORT"
+            parsedOrg.reason.startsWith("selected train/route unavailable") ->
+                "SELECTED_ROUTE_UNAVAILABLE"
+            parsedOrg.reason.startsWith("website endpoints") -> "ROUTE_ENDPOINT_MISMATCH"
+            parsedOrg.reason.contains("does not run on this origin day") -> "RUN_DAY_MISMATCH"
+            parsedOrg.reason.contains("origin departure timetable missing") ->
+                "ORIGIN_SCHEDULE_MISSING"
+            parsedOrg.reason.contains("not unambiguously active") -> "RUN_WINDOW_UNVERIFIED"
+            parsedOrg.reason.contains("reports this run is not active") -> "SITE_RUN_INACTIVE"
+            parsedOrg.reason.contains("update clock missing") -> "PAGE_CLOCK_INVALID_OR_STALE"
+            parsedOrg.reason.startsWith("no past-marked") -> "NO_QUALIFIED_SITE_EVENT"
+            else -> "UNQUALIFIED"
+        }
         // HTTP 200, a matching number somewhere in the markup, or a partial text
         // timeline is not selected-run data. Only a fresh, route-matched site page
         // can populate the selected timetable's website columns. A separate detached
@@ -399,6 +451,8 @@ object PublicPageChecks {
             orgPageEndpoints = org?.pageEndpoints,
             orgSelectedRouteFromCode = route?.srcCode?.uppercase(Locale.ROOT),
             orgSelectedRouteToCode = route?.dstCode?.uppercase(Locale.ROOT),
+            orgSelectedRouteStopCount = route?.stops?.size,
+            orgParserState = orgParserState,
             orgParsedCardContainers = org?.parsedCardContainers ?: 0,
             orgRunDateMatched = name == ORG && runDateMatchesSelected,
             orgPageRunDate = if (name == ORG) selectedDay?.let(::isoRunDate) else null,
