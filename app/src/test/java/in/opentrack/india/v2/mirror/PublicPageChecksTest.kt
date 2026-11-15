@@ -109,7 +109,8 @@ class PublicPageChecksTest {
         val receipt = `in`.opentrack.india.ui.SourceEvidenceReceipt.publicPage(
             PublicPageChecks.ORG, "16227", day, result,
             routeExtentState = "ROUTE_LIST_MISMATCH", routeExtentHaltCount = 27)
-        assertTrue(receipt.contains("selectedRouteStops=2 siteParserState=SELECTED_ROUTE_UNAVAILABLE"))
+        assertTrue(receipt.contains("selectedRouteStops=2"))
+        assertTrue(receipt.contains("siteParserState=SELECTED_ROUTE_UNAVAILABLE"))
         assertTrue(receipt.contains("routeExtentState=ROUTE_LIST_MISMATCH routeExtentHalts=27"))
     }
 

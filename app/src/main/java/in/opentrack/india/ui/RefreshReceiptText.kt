@@ -9,6 +9,7 @@ object RefreshReceiptText {
         official: OfficialRequestReceipt?, websiteAnswered: Boolean?,
         cachedBody: Boolean, change: RefreshEvidence.Change, switched: Boolean,
         websiteClocksChanged: Boolean = false,
+        websiteFallbackPending: Boolean = false,
     ): String {
         val context = if (switched) "showing $activeLabel · $age" else "keeping last data · $age"
         if (source == "NTES (official)") {
@@ -16,7 +17,8 @@ object RefreshReceiptText {
                 OfficialRequestReceipt.Kind.REQUEST_FAILED ->
                     "Checked $checked · NTES request failed" +
                         official.reason.takeIf { it.isNotBlank() }?.let { ": $it" }.orEmpty() +
-                        " · $context"
+                        " · $context" + (if (websiteFallbackPending)
+                            " · website comparison continues in the background" else "")
                 OfficialRequestReceipt.Kind.ANSWERED_UNUSABLE ->
                     "Checked $checked · NTES answered, no validated new stop · $context"
                 OfficialRequestReceipt.Kind.NOT_ASKED ->

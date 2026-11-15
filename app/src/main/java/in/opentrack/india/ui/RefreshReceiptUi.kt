@@ -18,6 +18,8 @@ object RefreshReceiptUi {
               detail: String, cached: Boolean): String {
         val result = when {
             cached -> "cached reply · no new event"
+            detail.contains("website comparison continues in the background", true) ->
+                "request failed · website comparison continues"
             detail.contains("failed", true) || detail.contains("no usable", true) -> "check failed · last report retained"
             detail.contains("no validated", true) -> "no validated stop"
             detail.contains("site clocks changed", true) -> "site times revised"

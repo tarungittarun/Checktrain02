@@ -129,6 +129,22 @@ class RefreshReceiptTextTest {
         assertFalse(receipt.contains("same last reported stop"))
     }
 
+    @Test fun completedOfficialReceiptNamesAWebsiteFallbackStillRunningInBackground() {
+        val receipt = RefreshReceiptText.format("NTES (official)", "NTES · official",
+            "NTES · official", "07:12:34", "last reported stop 8 min ago", null,
+            OfficialRequestReceipt(OfficialRequestReceipt.Kind.REQUEST_FAILED,
+                "The live feed did not answer within the time limit."),
+            null, false, unchanged, false, websiteFallbackPending = true)
+        assertTrue(receipt.startsWith("Checked 07:12:34 · NTES request failed"))
+        assertTrue(receipt.endsWith("website comparison continues in the background"))
+        assertFalse("a page response must not be claimed before the fallback has answered",
+            receipt.contains("Website answered"))
+        val accessible = RefreshReceiptUi.short("NTES · official", "07:12:34",
+            unchanged, receipt, false)
+        assertTrue(accessible.contains("website comparison continues"))
+        assertFalse(accessible.contains("Checking", true))
+    }
+
     @Test fun answeredWithoutActualsIsNotMislabelledNetworkFailure() {
         val outcome = OfficialRequestReceipt.from(listOf("PROVIDER_NTES=miss"),
             listOf("LIVE · running status: NTES answered but supplied no observed minute."))

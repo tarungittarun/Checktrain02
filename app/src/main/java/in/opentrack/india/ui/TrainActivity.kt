@@ -2335,6 +2335,7 @@ class TrainActivity : AppCompatActivity() {
             cachedResponse, change, switched,
             websiteClocksChanged = source == "website" &&
                 previousWebsiteClockKey != null && websiteClockKey(ui) != previousWebsiteClockKey,
+            websiteFallbackPending = vm.websiteFallbackPendingForUi(),
         )
         val receipt = RefreshReceiptUi.short(source, checked, change, detail, cachedResponse)
         Diary.get()?.log("REFRESH") { detail }

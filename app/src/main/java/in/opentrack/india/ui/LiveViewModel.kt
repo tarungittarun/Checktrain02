@@ -311,6 +311,8 @@ class LiveViewModel(
     private var manualWimtCheckedAt = 0L
     private var manualProbeJob: Job? = null
     private var wimtFreshnessRecheckJob: Job? = null
+    /** A nonselected website comparison must never hold the manual NTES receipt open. */
+    private var backgroundWebsiteFallbackJob: Job? = null
     private var manualProbeSource: String? = null
     private var sourceProbeOrder = 0L
     private val latestProbeOrder = mutableMapOf<String, Long>()
@@ -899,6 +901,30 @@ class LiveViewModel(
 
     private var liveRefreshJob: Job? = null
     private var lastAnswer: PositionEngine.Answer? = null
+
+    /** Used by the refresh receipt to distinguish a completed NTES request from its optional
+     * background website comparison. The latter must not keep the primary request spinner alive. */
+    fun websiteFallbackPendingForUi(): Boolean = backgroundWebsiteFallbackJob?.isActive == true
+
+    private fun observeWebsiteFallback(job: Job?, selectedAtRequest: String?) {
+        if (job == null) return
+        backgroundWebsiteFallbackJob = job
+        viewModelScope.launch {
+            try {
+                job?.join()
+                if (job?.isCancelled == true || mirrorActiveSource != selectedAtRequest) return@launch
+                val current = _ui.value ?: return@launch
+                val fallback = bestAvailableSource(current, TrackingSources.OFFICIAL)
+                if (fallback != null && fallback != selectedAtRequest) {
+                    mirrorActiveSource = fallback
+                    _ui.value = buildUi(current.route, lastAnswer ?: current.answer, current.tried)
+                        .copy(relayOk = current.relayOk)
+                }
+            } finally {
+                if (backgroundWebsiteFallbackJob === job) backgroundWebsiteFallbackJob = null
+            }
+        }
+    }
     private var started = false
     /** Emitted only after a fresh live answer, never after a cached/timetable repaint. */
     private val _liveReceipt = MutableLiveData<Long>()
@@ -1033,24 +1059,24 @@ class LiveViewModel(
             try {
                 val oldEvent = officialStopEvent()
                 refreshBody(previous) // selected official source always goes FIRST
+                var websiteComparison: Job? = null
                 if (manual && lastOfficialRequest?.kind == OfficialRequestReceipt.Kind.REQUEST_FAILED) {
-                    probeSource(PublicPageChecks.ORG, select = false)?.join()
-                    val u = _ui.value
-                    val fallback = u?.let { bestAvailableSource(it, "NTES (official)") }
-                    if (fallback != null && fallback != "NTES (official)") {
-                        mirrorActiveSource = fallback
-                        _ui.value?.let { latest ->
-                            _ui.value = buildUi(latest.route, lastAnswer ?: latest.answer, latest.tried)
-                                .copy(relayOk = latest.relayOk)
-                        }
-                    }
+                    // The requested NTES attempt is complete. A nonselected WebView comparison can
+                    // take 40 seconds; let its own evidence update the screen without holding the
+                    // traveller's completed-refresh receipt or spinner hostage.
+                    websiteComparison = probeSource(PublicPageChecks.ORG, select = false)
                 }
-                if (manual && !`in`.opentrack.india.data.Prefs(app).batteryMode &&
+                if (websiteComparison == null && manual &&
+                    !`in`.opentrack.india.data.Prefs(app).batteryMode &&
                     (mirrorActiveSource == null || mirrorActiveSource == "NTES (official)") &&
                     oldEvent != null && oldEvent == officialStopEvent() &&
                     (officialStopAgeMillis() ?: 0L) >= 300_000L) {
                     Diary.get()?.log("SOURCE", "official stop unchanged for 5+ min; checking website comparison, not switching source")
-                    probeSource(PublicPageChecks.ORG, select = false)?.join()
+                    websiteComparison = probeSource(PublicPageChecks.ORG, select = false)
+                }
+                websiteComparison?.let { job ->
+                    val selectedAtRequest = mirrorActiveSource
+                    observeWebsiteFallback(job, selectedAtRequest)
                 }
             } finally { _checking.value = false }
         }
