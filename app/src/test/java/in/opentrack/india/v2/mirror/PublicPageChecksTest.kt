@@ -93,6 +93,35 @@ class PublicPageChecksTest {
             orgResult.orgContentParsed)
     }
 
+    @Test fun `visible website origin date accepts comma and ordinal formats but never guesses`() {
+        val labels = listOf(
+            "Run date: 14 October, 2026",
+            "Run date: October 14, 2026",
+            "Journey date: 14th Oct, 2026",
+            "Selected date: Oct 14th, 2026",
+        )
+        for (label in labels) {
+            val labelled = populatedOrgPage.replace("<p>Source: MYS</p>",
+                "<p>$label</p><p>Source: MYS</p>")
+            val result = PublicPageChecks.parse(PublicPageChecks.ORG, labelled,
+                "16227", day, now, route = orgRoute)
+            assertTrue("explicit date should be parsed from '$label': ${result.detail}",
+                result.orgRunDateMatched)
+            assertEquals("2026-10-14", result.orgPageRunDate)
+            assertEquals("MATCH", result.orgRunDateState)
+        }
+
+        val wrongDate = populatedOrgPage.replace("<p>Source: MYS</p>",
+            "<p>Run date: October 15th, 2026</p><p>Source: MYS</p>")
+        val rejected = PublicPageChecks.parse(PublicPageChecks.ORG, wrongDate,
+            "16227", day, now, route = orgRoute)
+        assertFalse("an explicitly different origin day must stay unqualified",
+            rejected.orgRunDateMatched)
+        assertEquals("2026-10-15", rejected.orgPageRunDate)
+        assertEquals("MISMATCH", rejected.orgRunDateState)
+        assertNull(rejected.orgReport)
+    }
+
     @Test fun `identity-matched website on a conflicting timetable stays detached comparison data`() {
         // The selected SBC→SMET timetable is already well past its short run by the
         // page-update time. Its schedule cannot suppress a fresh, identity-matched page

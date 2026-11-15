@@ -85,6 +85,7 @@ def _verify_capture(folder: Path, name: str, require_http_403: bool,
     route = None
     run_date = None
     displayed_refusal = False
+    source_response_ui_state = None
     if name == SETTINGS:
         toggles = _nodes_for(app_nodes, "diagToggle")
         states = _nodes_for(app_nodes, "diagState")
@@ -135,6 +136,15 @@ def _verify_capture(folder: Path, name: str, require_http_403: bool,
             allowed_sources = (expected_source,)
         if not any(source in selected_source for source in allowed_sources):
             raise ValueError(f"wrong selected source in {name}: expected one of {allowed_sources!r}")
+        if name in (PENDING, AFTER):
+            summaries = [node.get("text", "").strip() for node in _nodes_for(app_nodes, "sourceSummary")
+                         if node.get("text", "").strip()]
+            checking = any(re.match(r"Checking\s+", text, re.IGNORECASE) for text in summaries)
+            source_response_ui_state = "PENDING" if checking else "TERMINAL"
+            if name == PENDING and not checking:
+                raise ValueError("pending capture does not visibly show the selected website still checking")
+            if name == AFTER and (not summaries or checking):
+                raise ValueError("after-source capture is missing a terminal website response state")
         if name == PICKER and not _has_visible_text(app_nodes, WEBSITE_LABEL):
             raise ValueError("source-picker capture does not show the website option")
         if name == AFTER:
@@ -145,6 +155,8 @@ def _verify_capture(folder: Path, name: str, require_http_403: bool,
                 raise ValueError("after-source hierarchy did not display HTTP 403/429")
 
     detail = {"pngBytes": png.stat().st_size, "appNodes": len(app_nodes)}
+    if source_response_ui_state is not None:
+        detail["sourceResponseUiState"] = source_response_ui_state
     if route is not None:
         detail.update({"trainNo": EXPECTED_TRAIN, "route": route,
                        "selectedOriginDate": run_date})
@@ -241,6 +253,10 @@ def _sample_hierarchy(name: str, refusal: bool = False) -> str:
         body = _node("trainNo", text=EXPECTED_TRAIN) + _node("routeLabel", text=route) + \
             _node("runDate", text="run of 12 Nov 2026") + \
             _node("sourceSpinner", content_desc=selected + ". Choose NTES or the website.")
+        if name == PENDING:
+            body += _node("sourceSummary", text="Checking Where Is My Train · website…")
+        elif name == AFTER:
+            body += _node("sourceSummary", text="No qualifying website event · response complete")
         if name == PICKER:
             body += _node("websiteOption", text="● " + WEBSITE_LABEL + " · no usable stop report")
         if refusal and name == AFTER:
@@ -260,6 +276,8 @@ if __name__ == "__main__":
                 "originRunDateIst": "2026-11-12"}))
             report = verify(Path(tmp))
             assert len(report["verifiedAppScreens"]) == len(NAMES)
+            assert report["verifiedAppScreens"][PENDING]["sourceResponseUiState"] == "PENDING"
+            assert report["verifiedAppScreens"][AFTER]["sourceResponseUiState"] == "TERMINAL"
             assert report["sameSelectedOriginDate"] is True
             assert report["selectedWebsiteRequired"] is True
             assert report["selectedWebsiteObserved"] is True
@@ -300,6 +318,22 @@ if __name__ == "__main__":
             except ValueError:
                 pass
             (screens / (PENDING + ".xml")).write_text(_sample_hierarchy(PENDING))
+            (screens / (PENDING + ".xml")).write_text(
+                _sample_hierarchy(PENDING).replace("Checking ", "No qualifying "))
+            try:
+                verify(Path(tmp))
+                raise AssertionError("an after-response hierarchy was accepted as a pending capture")
+            except ValueError:
+                pass
+            (screens / (PENDING + ".xml")).write_text(_sample_hierarchy(PENDING))
+            (screens / (AFTER + ".xml")).write_text(
+                _sample_hierarchy(AFTER).replace("No qualifying website event", "Checking website"))
+            try:
+                verify(Path(tmp))
+                raise AssertionError("a still-pending hierarchy was accepted as the after-response capture")
+            except ValueError:
+                pass
+            (screens / (AFTER + ".xml")).write_text(_sample_hierarchy(AFTER))
             (screens / (SEARCH_RESULTS + ".png")).unlink()
             partial = verify(Path(tmp), allow_unselected_website=True, allow_partial=True)
             assert partial["completeTraversal"] is False

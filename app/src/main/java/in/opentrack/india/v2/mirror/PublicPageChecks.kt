@@ -65,6 +65,8 @@ object PublicPageChecks {
         val orgRunDateMatched: Boolean = false,
         /** Canonical date parsed from the visible run-date label, if it was unambiguous. */
         val orgPageRunDate: String? = null,
+        /** Safe diagnostic state: ABSENT, MATCH, MISMATCH, INVALID_OR_AMBIGUOUS, or CACHED. */
+        val orgRunDateState: String = "ABSENT",
         /** Bounded/redacted live-DOM shape, never raw HTML or a body excerpt. */
         val orgPageShapeReceipt: String? = null,
     )
@@ -117,10 +119,17 @@ object PublicPageChecks {
             "Run\\s+date|Train\\s+date|Journey\\s+date|Date\\s+of\\s+journey)\\s*[:–—-]?\\s*" +
             "(\\d{4}[-/.]\\d{1,2}[-/.]\\d{1,2}|" +
             "\\d{1,2}[-/.]\\d{1,2}[-/.]\\d{4}|" +
-            "\\d{1,2}\\s+[A-Za-z]{3,9}[, ]+\\d{4}|" +
-            "[A-Za-z]{3,9}\\s+\\d{1,2},?\\s+\\d{4})")
+            "\\d{1,2}(?:st|nd|rd|th)?\\s+[A-Za-z]{3,9},?\\s+\\d{4}|" +
+            "[A-Za-z]{3,9}\\s+\\d{1,2}(?:st|nd|rd|th)?,?\\s+\\d{4})")
 
     private fun parseRunDateDay(value: String): Long? {
+        // Live status pages commonly mix British/US month order, punctuation and ordinal
+        // suffixes. Normalize only those presentation characters, then use strict date
+        // parsing; an impossible or ambiguous date remains unverified.
+        val normalized = value.trim()
+            .replace(Regex("(?i)(\\d{1,2})(?:st|nd|rd|th)\\b")) { it.groupValues[1] }
+            .replace(Regex(",\\s*"), " ")
+            .replace(Regex("\\s+"), " ")
         val formats = listOf("d-M-yyyy", "d/M/yyyy", "d.M.yyyy", "yyyy-M-d", "yyyy/M/d",
             "yyyy.M.d", "d MMM yyyy", "d MMMM yyyy", "MMM d yyyy", "MMMM d yyyy")
         return formats.firstNotNullOfOrNull { pattern ->
@@ -129,8 +138,8 @@ object PublicPageChecks {
                 timeZone = TimeZone.getTimeZone("UTC")
             }
             val position = ParsePosition(0)
-            val parsed = parser.parse(value.trim(), position)
-            if (parsed != null && position.index == value.trim().length)
+            val parsed = parser.parse(normalized, position)
+            if (parsed != null && position.index == normalized.length)
                 parsed.time / 86_400_000L else null
         }
     }
@@ -210,7 +219,7 @@ object PublicPageChecks {
                     orgSiteCards = emptyList(), orgSitePageUpdatedAt = null,
                     orgSitePageClockHasSeconds = false, orgSiteClocks = emptyMap(),
                     orgPageEndpoints = null, orgParsedCardContainers = 0,
-                    orgRunDateMatched = false, orgPageRunDate = null)
+                    orgRunDateMatched = false, orgPageRunDate = null, orgRunDateState = "CACHED")
                 else answer
             }
         }
@@ -292,6 +301,12 @@ object PublicPageChecks {
         val selected = runDate?.label
         val selectedDay = runDate?.day
         val runDateMatchesSelected = runDate != null && selectedDay == originDay
+        val runDateState = when {
+            runDate == null -> "ABSENT"
+            selectedDay == null -> "INVALID_OR_AMBIGUOUS"
+            runDateMatchesSelected -> "MATCH"
+            else -> "MISMATCH"
+        }
         val status = when {
             Regex("(?i)\\b(?:yet to start|hasn.t started)\\b").containsMatchIn(visible) -> "yet to start"
             Regex("(?i)\\b(?:reached destination|run complete)\\b").containsMatchIn(visible) -> "reached destination"
@@ -387,6 +402,7 @@ object PublicPageChecks {
             orgParsedCardContainers = org?.parsedCardContainers ?: 0,
             orgRunDateMatched = name == ORG && runDateMatchesSelected,
             orgPageRunDate = if (name == ORG) selectedDay?.let(::isoRunDate) else null,
+            orgRunDateState = if (name == ORG) runDateState else "ABSENT",
             // Shape diagnosis is expensive and useful only when the live DOM did not qualify.
             orgPageShapeReceipt = if (name == ORG && !orgContentParsed)
                 OrgWebsiteStatus.pageStructureReceipt(body) else null)

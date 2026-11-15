@@ -43,6 +43,7 @@ def verdict(instrumentation: str, diary: str, process_rc: int) -> dict:
     selected_route = token(r"\bselectedRoute=([A-Z0-9>]+)")
     site_card_containers = token(r"\bsiteCardContainers=(\d+)")
     site_date_matched = token(r"\bsiteDateMatched=(true|false)") == "true"
+    site_date_state = token(r"\bsiteDateState=(ABSENT|MATCH|MISMATCH|INVALID_OR_AMBIGUOUS|CACHED)") or "UNKNOWN"
     site_page_run_date = token(r"\bsitePageRunDate=(unknown|\d{4}-\d{2}-\d{2})")
     site_shape = token(r"\bsiteShape=([^\s]{1,1800})")
     live_identity_route_match = token(r"\bliveIdentityRouteMatch=(true|false)") == "true"
@@ -156,7 +157,8 @@ def verdict(instrumentation: str, diary: str, process_rc: int) -> dict:
             "siteRoute": site_route, "sitePageEndpoints": site_page_endpoints,
             "sitePageLabels": site_page_labels, "selectedRoute": selected_route,
             "siteCardContainers": int(site_card_containers) if site_card_containers else None,
-            "siteDateMatched": site_date_matched, "sitePageRunDate": site_page_run_date or "unknown",
+            "siteDateMatched": site_date_matched, "siteDateState": site_date_state,
+            "sitePageRunDate": site_page_run_date or "unknown",
             "siteShape": site_shape,
             "liveIdentityRouteMatch": live_identity_route_match,
             "siteClaimStation": site_claim.group(1) if site_claim else "unknown",
@@ -186,7 +188,7 @@ def self_test() -> None:
             "parsed=SITE_COMPARISON runIdentity=DATE_ROUTE_MATCHED primaryActuals=0 primaryMarker=none "
             "siteRows=10 detachedSiteClaims=0 siteClaim=RRB:1217 siteClaimKind=ARRIVAL "
             "siteRoute=MYS>TLGP sitePageEndpoints=MYS>TLGP sitePageLabels=Mysuru_Junction>Talguppa "
-            "selectedRoute=MYS>TLGP siteCardContainers=30 siteDateMatched=true "
+            "selectedRoute=MYS>TLGP siteCardContainers=30 siteDateMatched=true siteDateState=MATCH "
             "sitePageRunDate=2026-11-12 siteShape=chars:108395~truncated:false~roots:10~cards:10~heads:h1_train_status "
             "siteClaimTimeBasis=selected_origin_date_verified "
             "pagePublishedAt=" + str(published) +
@@ -202,18 +204,22 @@ def self_test() -> None:
     assert result["siteClaimAgeSecondsAtCheck"] == 2_910
     assert result["pageAgeSecondsAtCheck"] == 30
     assert result["siteDateMatched"] is True
+    assert result["siteDateState"] == "MATCH"
     assert result["sitePageRunDate"] == result["originRunDateIst"]
     assert result["siteShape"].startswith("chars:")
     undated = good.replace("runIdentity=DATE_ROUTE_MATCHED", "runIdentity=INFERRED") \
         .replace("siteDateMatched=true", "siteDateMatched=false") \
+        .replace("siteDateState=MATCH", "siteDateState=ABSENT") \
         .replace("sitePageRunDate=2026-11-12", "sitePageRunDate=unknown") \
         .replace("siteClaimTimeBasis=selected_origin_date_verified", "siteClaimTimeBasis=selected_origin_date_unverified")
     undated_result = verdict("OK (1 test)", undated, 0)
     assert not undated_result["accepted"]
     assert undated_result["verdict"] == "SITE_RUN_DATE_UNVERIFIED"
-    mismatched_date = good.replace("sitePageRunDate=2026-11-12", "sitePageRunDate=2026-11-13")
+    mismatched_date = good.replace("sitePageRunDate=2026-11-12", "sitePageRunDate=2026-11-13") \
+        .replace("siteDateState=MATCH", "siteDateState=MISMATCH")
     mismatched_result = verdict("OK (1 test)", mismatched_date, 0)
     assert not mismatched_result["accepted"]
+    assert mismatched_result["siteDateState"] == "MISMATCH"
     assert mismatched_result["verdict"] == "SITE_RUN_DATE_MISMATCH"
     assert not verdict("OK (1 test)", good.replace("siteRoute=MYS>TLGP", "siteRoute=SBC>SMET"), 0)["accepted"]
     assert not verdict("OK (1 test)", good.replace("siteRows=10", "siteRows=0"), 0)["accepted"]

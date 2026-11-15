@@ -3,6 +3,9 @@ package `in`.opentrack.india.e2e
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.Until
+import `in`.opentrack.india.core.WebsiteBrowserRequest
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -76,22 +79,53 @@ class WimtWebsiteLiveAcceptanceTest {
             assertTrue("the .in web cache is a distinct provider, not a picker choice",
                 E2E.ui.findObject(By.textContains("WIMT web cache · experimental")) == null)
             E2E.shotWimt("wimt-source-picker-open")
-            assertTrue("could not physically tap the website source option",
-                E2E.fingerTap(By.textContains("Where Is My Train · website")))
-            assertTrue("website option stayed open after the tap; no selection was consumed",
-                E2E.ui.wait(Until.gone(By.textContains("Where Is My Train · website")), E2E.LOCAL_MS))
-            val selectionDeadline = System.currentTimeMillis() + 5_000L
-            var selectedBeforeResponse = false
-            while (System.currentTimeMillis() < selectionDeadline) {
-                selectedBeforeResponse = E2E.find("sourceSpinner", 250)?.contentDescription?.toString()
-                    ?.contains("Selected Where Is My Train · website") == true
-                if (selectedBeforeResponse) break
-                Thread.sleep(100)
+            val navigationEntered = CountDownLatch(1)
+            val allowNavigation = CountDownLatch(1)
+            // Hold the one genuine WebView navigation off the UI thread. This makes the
+            // pending capture deterministic: the website is selected, but its request has
+            // not yet reached the network. The gate is always released before after-response
+            // acceptance begins, and it never fabricates or substitutes a website reply.
+            WebsiteBrowserRequest.beforeDocumentNavigationForTest = {
+                println("WIMT_DEVICE_PRE_NAVIGATION_BARRIER_ENTERED")
+                navigationEntered.countDown()
+                allowNavigation.await(90, TimeUnit.SECONDS)
             }
-            E2E.shotWimt("wimt-source-selected-pending")
-            assertTrue("website selection did not bind synchronously before the network response; " +
-                "spinner='${E2E.find("sourceSpinner", 250)?.contentDescription}'",
-                selectedBeforeResponse)
+            try {
+                assertTrue("could not physically tap the website source option",
+                    E2E.fingerTap(By.textContains("Where Is My Train · website")))
+                assertTrue("website option stayed open after the tap; no selection was consumed",
+                    E2E.ui.wait(Until.gone(By.textContains("Where Is My Train · website")), E2E.LOCAL_MS))
+                val selectionDeadline = System.currentTimeMillis() + 5_000L
+                var selectedBeforeResponse = false
+                while (System.currentTimeMillis() < selectionDeadline) {
+                    selectedBeforeResponse = E2E.find("sourceSpinner", 250)?.contentDescription?.toString()
+                        ?.contains("Selected Where Is My Train · website") == true
+                    if (selectedBeforeResponse) break
+                    Thread.sleep(100)
+                }
+                assertTrue("website selection did not bind synchronously; " +
+                    "spinner='${E2E.find("sourceSpinner", 250)?.contentDescription}'",
+                    selectedBeforeResponse)
+                assertTrue("selected website request did not reach the pre-navigation barrier",
+                    navigationEntered.await(E2E.NETWORK_MS + 20_000L, TimeUnit.MILLISECONDS))
+                var pendingSummary = ""
+                val pendingDeadline = System.currentTimeMillis() + 5_000L
+                while (System.currentTimeMillis() < pendingDeadline) {
+                    selectedBeforeResponse = E2E.find("sourceSpinner", 250)?.contentDescription?.toString()
+                        ?.contains("Selected Where Is My Train · website") == true
+                    pendingSummary = E2E.text("sourceSummary", 250)
+                    if (selectedBeforeResponse && pendingSummary.startsWith("Checking ", true)) break
+                    Thread.sleep(100)
+                }
+                E2E.shotWimt("wimt-source-selected-pending")
+                assertTrue("pending capture must show the website selected and its response not yet returned; " +
+                    "spinner='${E2E.find("sourceSpinner", 250)?.contentDescription}' summary='$pendingSummary'",
+                    selectedBeforeResponse && pendingSummary.startsWith("Checking ", true))
+                println("WIMT_DEVICE_PENDING_CAPTURE=pre-navigation response_pending=true")
+            } finally {
+                allowNavigation.countDown()
+                WebsiteBrowserRequest.beforeDocumentNavigationForTest = null
+            }
             // One deliberate selected-source request; no background retry in the test.
             // The selected website call can wait for the current route/identity snapshot,
             // then spend up to 40 seconds loading and hydrating its one WebView document.

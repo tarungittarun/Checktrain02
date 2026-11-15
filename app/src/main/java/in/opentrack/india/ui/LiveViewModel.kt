@@ -484,6 +484,7 @@ class LiveViewModel(
                     orgParsedCardContainers = previousWebsite?.orgParsedCardContainers ?: 0,
                     orgRunDateMatched = previousWebsite?.orgRunDateMatched == true,
                     orgPageRunDate = previousWebsite?.orgPageRunDate,
+                    orgRunDateState = previousWebsite?.orgRunDateState ?: resolved.orgRunDateState,
                     orgPageShapeReceipt = previousWebsite?.orgPageShapeReceipt,
                     orgQualificationNote = previousWebsite?.orgQualificationNote
                         ?: resolved.orgQualificationNote,

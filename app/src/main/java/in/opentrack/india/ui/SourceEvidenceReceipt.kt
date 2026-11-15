@@ -73,7 +73,7 @@ object SourceEvidenceReceipt {
             "siteRoute=$siteRoute sitePageEndpoints=$pageEndpoints " +
             "sitePageLabels=$pageEndpointLabels selectedRoute=$selectedRoute " +
             "siteCardContainers=${result.orgParsedCardContainers} siteDateMatched=${result.orgRunDateMatched} " +
-            "sitePageRunDate=${result.orgPageRunDate ?: "unknown"} " +
+            "siteDateState=${result.orgRunDateState} sitePageRunDate=${result.orgPageRunDate ?: "unknown"} " +
             "siteShape=$shape liveIdentityRouteMatch=${detached != null} " +
             "siteClaimTimeBasis=$claimTimeBasis " +
             "siteClaimAt=${siteClaimAt ?: "unknown"} " +

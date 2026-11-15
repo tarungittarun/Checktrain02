@@ -238,11 +238,15 @@ object WebsiteBrowserRequest {
     private val main = Handler(Looper.getMainLooper())
     private val gate = Any()
     private val allowed = Regex("https://whereismytrain\\.org\\.in/\\?trainNo=[0-9]{5}")
+    /** Instrumentation-only barrier, run off the UI thread before any WebView network navigation. */
+    @Volatile internal var beforeDocumentNavigationForTest: (() -> Unit)? = null
+
     fun document(context: Context, url: String): Http.Result {
         if (!allowed.matches(url)) return Http.Result.Failed(Http.Result.Kind.HTTP, "invalid website URL")
         if (Looper.myLooper() == Looper.getMainLooper())
             return Http.Result.Failed(Http.Result.Kind.HTTP, "browser document must run off the UI thread")
         synchronized(gate) {
+            beforeDocumentNavigationForTest?.invoke()
             val pending = Pending(context.applicationContext, url)
             if (!main.post { pending.start() })
                 return Http.Result.Failed(Http.Result.Kind.HTTP, "browser looper unavailable")
