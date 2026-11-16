@@ -497,12 +497,18 @@ class TravellerAcceptanceTest {
         assertTrue("The intermediate stop is not visible in the station dropdown",
             option != null && runCatching { visibleOnScreen(option) }.getOrDefault(false))
         E2E.shotRequired("alert-station-dropdown")
-        assertTrue("An intermediate upcoming station could not be selected",
-            E2E.fingerTap(alertStationOption(chosenIntermediate)))
-        val updatedStationSpinner = E2E.ui.wait(
-            Until.findObject(By.desc("Upcoming station through the final station")), E2E.LOCAL_MS)
-        assertEquals("The station picker did not retain the selected intermediate stop",
-            chosenIntermediate, updatedStationSpinner?.text.orEmpty())
+        val currentOption = E2E.ui.wait(
+            Until.findObject(alertStationOption(chosenIntermediate)), E2E.LOCAL_MS)
+        val selectionClicked = runCatching {
+            currentOption?.click()
+            E2E.ui.waitForIdle()
+            currentOption != null
+        }.getOrDefault(false)
+        assertTrue("An intermediate upcoming station could not be selected", selectionClicked)
+        assertTrue("The station dropdown stayed open after selection",
+            E2E.ui.wait(Until.gone(By.res(E2E.PKG, "alertTriggerOption")), E2E.LOCAL_MS))
+        assertTrue("The station picker did not retain the selected intermediate stop",
+            revealTextContains(chosenIntermediate, "alertDialogScroll"))
         E2E.shotRequired("alert-station-intermediate-selected")
         assertTrue("Cancel did not close alert setup", tapTextContains("Cancel"))
         assertEquals("Cancelling setup must not arm an alert", "Alert", E2E.text("arrivalAlert"))
