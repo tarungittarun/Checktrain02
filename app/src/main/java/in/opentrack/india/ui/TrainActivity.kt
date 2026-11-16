@@ -549,7 +549,6 @@ class TrainActivity : AppCompatActivity() {
             mirrorStatus = st
             mirrorBusy = st?.startsWith("Checking") == true || st?.startsWith("Already checking") == true
             renderChecking()
-            renderPendingSelectedWebsiteSummary()
             val useful = st != null && (st.startsWith("Checking") ||
                 st.startsWith("Already checking"))
             // The shared fetch banner is the sole visible busy sentence. Keep the
@@ -903,18 +902,11 @@ class TrainActivity : AppCompatActivity() {
             AlertTrigger.PREVIOUS_STOP_REPORT -> "At preceding station · ${RowText.of(config.triggerName)}"
             AlertTrigger.PHONE_DISTANCE -> "Within ${config.distanceKm} km · phone location"
         }
-        val sourceNote = if (config.trigger == AlertTrigger.PHONE_DISTANCE)
-            "Fresh phone location · straight-line radius · not train GPS."
-        else "Fresh station report first · timetable reminder if none qualifies."
-        val setupInstructions = if (config.trigger == AlertTrigger.PHONE_DISTANCE)
-            "$triggerDetail · choose style and check interval"
-        else "$triggerDetail · choose lead, style and check interval"
         val chrome = createAlertDialogChrome(
             title = "Alert options",
-            // Keep the short source contract in the fixed header. The options scroll
-            // moves independently; hiding this note below the fold made the fallback
-            // look like an unconditional timetable alarm.
-            subtitle = "$setupInstructions\n$sourceNote",
+            subtitle = if (config.trigger == AlertTrigger.PHONE_DISTANCE)
+                "$triggerDetail · choose style and check interval"
+            else "$triggerDetail · choose lead, style and check interval",
             eyebrow = "NOTIFICATION SETUP",
             heightDp = 700,
         )
@@ -1024,6 +1016,22 @@ class TrainActivity : AppCompatActivity() {
             ?: intervalIds.last().second)
         body.addView(intervalGroup)
 
+        val note = TextView(this).apply {
+            text = if (config.trigger == AlertTrigger.PHONE_DISTANCE)
+                "Fresh phone location · straight-line radius · not train GPS."
+            else "Fresh station report first · timetable reminder if none qualifies."
+            textSize = 12f
+            maxLines = 2
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            setTextColor(getColor(R.color.text2))
+            setPadding(alertDp(12), alertDp(10), alertDp(12), alertDp(10))
+            setBackgroundResource(R.drawable.bg_summary_card)
+        }
+        body.addView(note, android.widget.LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = alertDp(8)
+            bottomMargin = alertDp(2)
+        })
         val fullDetails = buildString {
             append("Station checks use fresh, route-matched NTES/erail reports and the direct .in /cache/live_status feed. ")
             append("The .in feed counts only when it echoes this run date and both route endpoints with a fresh source-update stamp; the stamp is not event time. ")
@@ -1364,41 +1372,10 @@ class TrainActivity : AppCompatActivity() {
             else "Fetching ${sourceName(activeSource)}…"
     }
 
-    private fun selectedWebsiteProbePending(ui: LiveViewModel.Ui?): Boolean {
-        if (!WebsiteReportDisplay.selected(ui?.activeSource) || !mirrorBusy) return false
-        val status = mirrorStatus ?: return false
-        val prefix = "Checking ${`in`.opentrack.india.v2.mirror.PublicPageChecks.ORG}"
-        val alreadyPrefix = "Already checking ${`in`.opentrack.india.v2.mirror.PublicPageChecks.ORG}"
-        return status.startsWith(prefix, ignoreCase = true) ||
-            status.startsWith(alreadyPrefix, ignoreCase = true)
-    }
-
-    private fun hasSelectedWebsiteEvidence(ui: LiveViewModel.Ui?): Boolean = ui?.let {
-        it.orgWebsiteReport != null || it.orgWebsiteDetachedClaim != null ||
-            it.orgWebsiteCards.isNotEmpty()
-    } == true
-
-    /** Keep the first-glance source line meaningful before the selected page answers. */
-    private fun renderPendingSelectedWebsiteSummary() {
-        val ui = lastUi ?: return
-        if (!selectedWebsiteProbePending(ui) || hasSelectedWebsiteEvidence(ui)) return
-        sourceSummaryWanted = true
-        binding.sourceSummary.isClickable = false
-        binding.sourceSummary.setOnClickListener(null)
-        binding.sourceSummary.text = "Checking website…"
-        binding.sourceSummary.contentDescription =
-            "Checking the selected website; its response has not returned."
-        binding.sourceSummary.visibility = if (heroExpanded) View.VISIBLE else View.GONE
-        scheduleSummaryFit()
-    }
-
     /** Keep progress visible only while a requested source is actually fetching. */
     private fun renderChecking() {
         val busy = chainBusy || mirrorBusy
-        val websiteSummaryIsProgress = selectedWebsiteProbePending(lastUi) &&
-            !hasSelectedWebsiteEvidence(lastUi)
-        val showInlineStatus = !batteryAtCreate && busy && lastUi != null &&
-            (!websiteSummaryIsProgress || chainBusy)
+        val showInlineStatus = !batteryAtCreate && busy && lastUi != null
         binding.fetchingStatus.visibility = if (showInlineStatus) View.VISIBLE else View.GONE
         if (showInlineStatus) {
             val message = checkingSourceLabel()
@@ -1626,14 +1603,12 @@ class TrainActivity : AppCompatActivity() {
         // Keep website comparison clocks in source details unless the traveller
         // selected NTES, where a short separate-source caption can be useful.
         val selectedWebsite = WebsiteReportDisplay.selected(ui.activeSource)
-        val checkingSelectedWebsite = selectedWebsiteProbePending(ui) &&
-            !hasSelectedWebsiteEvidence(ui)
         val detachedWebsiteSummary = if (selectedWebsite)
             ui.orgWebsiteDetachedClaim?.let { WebsiteReportDisplay.detachedClaimSummary(it,
                 ui.selectedLoadReceiptMillis) } else null
         sourceSummaryWanted = if (selectedWebsite) {
             ui.orgWebsiteReport != null || ui.orgWebsiteDetachedClaim != null ||
-                ui.orgWebsiteCards.isNotEmpty() || checkingSelectedWebsite ||
+                ui.orgWebsiteCards.isNotEmpty() ||
                 ui.sourceStates[ui.activeSource]?.first == "pending" ||
                 ui.sourceStates[ui.activeSource]?.first == "failed"
         } else ui.websiteGap != null || ui.alternateSourceHint != null ||
@@ -1665,7 +1640,7 @@ class TrainActivity : AppCompatActivity() {
                 "Route mismatch · site claim not attached · position unknown."
             selectedWebsite && ui.orgWebsiteCards.isNotEmpty() ->
                 "Site cards are comparison only · run date unverified."
-            selectedWebsite && (selectedPending || checkingSelectedWebsite) -> "Checking website…"
+            selectedWebsite && selectedPending -> "Checking website…"
             selectedWebsite -> "No qualifying site event · timetable shown."
             ui.activeSource == TrackingSources.WIMT -> wimtLiveSummary
             showingWimtRows ->

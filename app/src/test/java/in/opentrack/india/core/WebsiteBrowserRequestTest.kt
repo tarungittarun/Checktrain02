@@ -3,6 +3,7 @@ package `in`.opentrack.india.core
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -22,6 +23,25 @@ class WebsiteBrowserRequestTest {
         assertEquals("", decodeJavascriptStringResult("\"markup\" trailing"))
     }
 
+    @Test fun overlappingSameUrlRequestsJoinOneInFlightNavigation() {
+        val registry = InFlightRequestRegistry<String, String>()
+        val url = "https://whereismytrain.org.in/?trainNo=16227"
+        val first = registry.acquire(url)
+        val duplicate = registry.acquire(url)
+
+        assertTrue(first.owner)
+        assertFalse(duplicate.owner)
+        assertSame("a refresh overlapping the first-load survey must reuse its navigation",
+            first.result, duplicate.result)
+        first.result.complete("same rendered document")
+        assertEquals("same rendered document", duplicate.result.get())
+        registry.release(url, first)
+
+        val laterRefresh = registry.acquire(url)
+        assertTrue("a later deliberate refresh remains a fresh navigation", laterRefresh.owner)
+        registry.release(url, laterRefresh)
+    }
+
     @Test fun renderedStationCardIsTheReadinessSignalEvenWithoutHtmlComments() {
         val renderedDom = """<!doctype html><html><body>
             <h1>Train 16227 Running Status</h1>
@@ -35,6 +55,14 @@ class WebsiteBrowserRequestTest {
             </body></html>""".trimIndent()
 
         assertTrue(hasPopulatedTrainDocument(renderedDom, "16227"))
+        val spacedHeader = renderedDom.replace("Last Updated:", "Last Updated :")
+            .replace("Source:", "Source :").replace("Destination:", "Destination :")
+        assertTrue("header whitespace changes must not keep the WebView sentinel waiting",
+            hasPopulatedTrainDocument(spacedHeader, "16227"))
+        val headerless = renderedDom.replace("<p>Last Updated: 04:25:10 AM</p>", "")
+            .replace("<p>Source: MYS</p>", "").replace("<p>Destination: TLGP</p>", "")
+        assertFalse("a page shell without its source header is not ready yet",
+            hasPopulatedTrainDocument(headerless, "16227"))
         assertTrue("a visible route card can also be found without source comments",
             hasPopulatedTrainDocument(renderedDom.replace("<!-- Station Details Card -->", ""), "16227"))
         val restyledCard = renderedDom.replace(
@@ -51,6 +79,9 @@ class WebsiteBrowserRequestTest {
         val entityClock = classlessRenderedDom.replace("04:20 AM", "04:20&nbsp;AM")
         assertTrue("HTML non-breaking spaces between a clock and meridiem remain readable",
             hasPopulatedTrainDocument(entityClock, "16227"))
+        val secondsClock = classlessRenderedDom.replace("04:20 AM", "04:20:10 AM")
+        assertTrue("card clocks with seconds must use the same readiness grammar as the parser",
+            hasPopulatedTrainDocument(secondsClock, "16227"))
         val namedEndpoints = renderedDom.replace("Source: MYS", "Source: Mysuru Junction")
             .replace("Destination: TLGP", "Destination: Talguppa")
         assertTrue("visible station names, not only short codes, indicate a hydrated document",
@@ -81,8 +112,8 @@ class WebsiteBrowserRequestTest {
         assertTrue(WebsiteBrowserRequestTiming.DOCUMENT_TIMEOUT_MS >= 35_000L)
         assertTrue("browser wait must fit inside the source acceptance's 45-second window",
             WebsiteBrowserRequestTiming.DOCUMENT_TIMEOUT_MS < 45_000L)
-        assertTrue("client-side timetable cards need a useful hydration window",
-            WebsiteBrowserRequestTiming.DOM_READINESS_WAIT_MS >= 15_000L)
+        assertTrue("a missing readiness signal must not impose the old 18-second delay",
+            WebsiteBrowserRequestTiming.DOM_READINESS_WAIT_MS in 3_000L..8_000L)
         assertTrue(WebsiteBrowserRequestTiming.DOM_READINESS_WAIT_MS <
             WebsiteBrowserRequestTiming.DOCUMENT_TIMEOUT_MS)
         assertTrue(WebsiteBrowserRequestTiming.DOM_READINESS_POLL_MS in 100L..500L)

@@ -12,6 +12,7 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import org.json.JSONTokener
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -41,10 +42,33 @@ private const val MAX_WEBSITE_HTML = 1_000_000
 /** A single honest WebView navigation gets a bounded chance to load and hydrate its own DOM. */
 internal object WebsiteBrowserRequestTiming {
     const val DOCUMENT_TIMEOUT_MS = 40_000L
-    // Bounded extra wait after the first visible page commit for client-rendered station cards.
-    // This is a timeout budget, not a measured fetch duration; the overall document cap is 40 s.
-    const val DOM_READINESS_WAIT_MS = 18_000L
+    // A safety cap, not the expected latency: the DOM sentinel returns as soon as the selected
+    // train identity and a station card's own clock are rendered. Do not turn a sentinel miss
+    // into a long wait for a page whose content can still be shown diagnostically.
+    const val DOM_READINESS_WAIT_MS = 6_000L
     const val DOM_READINESS_POLL_MS = 250L
+}
+
+/** Concurrent callers for one URL share a single in-flight network/navigation result. */
+internal class InFlightRequestRegistry<K, V> {
+    data class Lease<V>(val result: CompletableFuture<V>, val owner: Boolean)
+
+    private val lock = Any()
+    private val inFlight = mutableMapOf<K, CompletableFuture<V>>()
+
+    fun acquire(key: K): Lease<V> = synchronized(lock) {
+        inFlight[key]?.let { return@synchronized Lease(it, owner = false) }
+        val result = CompletableFuture<V>()
+        inFlight[key] = result
+        Lease(result, owner = true)
+    }
+
+    fun release(key: K, lease: Lease<V>) {
+        if (!lease.owner) return
+        synchronized(lock) {
+            if (inFlight[key] === lease.result) inFlight.remove(key)
+        }
+    }
 }
 
 internal object WebsiteCardMarkup {
@@ -55,7 +79,7 @@ internal object WebsiteCardMarkup {
     private val containerTagName = Regex("(?is)^</?\\s*(div|section|article|li|tr)\\b")
     private val stationCardMarker = Regex("(?is)^<!--\\s*Station Details Card\\s*-->$")
     private val stationHeading = Regex("(?is)<h[2-6]\\b[^>]*>(.*?)</h[2-6]>")
-    private val cardClock = Regex("(?is)\\b(?:ARRIVAL|DEPARTURE)\\b.{0,900}?\\b\\d{1,2}:\\d{2}\\s*(?:AM|PM)\\b")
+    private val cardClock = Regex("(?is)\\b(?:ARRIVAL|DEPARTURE)\\b.{0,900}?\\b\\d{1,2}:\\d{2}(?::\\d{2})?\\s*(?:AM|PM)\\b")
     private val htmlSpaceEntity = Regex("&(?:nbsp;|#160;|#x0*a0;)", RegexOption.IGNORE_CASE)
     private val scriptOrStyle = Regex("(?is)<(?:script|style)\\b[^>]*>.*?</(?:script|style)\\s*>")
 
@@ -206,7 +230,12 @@ internal object WebsiteCardMarkup {
     }
 }
 
-/** Pure DOM-readiness check: do not confuse a page shell or a timetable echo with populated cards. */
+/**
+ * Cheap DOM-readiness check: the requested train, update/source/destination header, and at least
+ * one visible station card with its own labelled clock are present. Header labels only say the
+ * page is hydrated; selected-run date, route endpoints, event time, and source qualification are
+ * still validated independently by PublicPageChecks and OrgWebsiteStatus after capture.
+ */
 internal fun hasPopulatedTrainDocument(html: String, trainNo: String): Boolean {
     if (html.isBlank() || html.length > MAX_WEBSITE_HTML) return false
     val document = WebsiteCardMarkup.visiblePageMarkup(html)
@@ -244,7 +273,11 @@ internal fun hasPopulatedTrainDocument(html: String, trainNo: String): Boolean {
  */
 object WebsiteBrowserRequest {
     private val main = Handler(Looper.getMainLooper())
+    /** WebView supports one active navigation; same-URL callers join instead of queueing duplicates. */
     private val gate = Any()
+    private val inFlight = InFlightRequestRegistry<String, NavigationOutcome>()
+    private data class NavigationOutcome(val answer: Http.Result, val timing: String?,
+                                         val navigated: Boolean)
     private val allowed = Regex("https://whereismytrain\\.org\\.in/\\?trainNo=[0-9]{5}")
     /** Instrumentation-only barrier, run off the UI thread before any WebView network navigation. */
     @Volatile internal var beforeDocumentNavigationForTest: (() -> Unit)? = null
@@ -256,34 +289,85 @@ object WebsiteBrowserRequest {
         if (Looper.myLooper() == Looper.getMainLooper())
             return Http.Result.Failed(Http.Result.Kind.HTTP, "browser document must run off the UI thread")
         val requestCallAt = SystemClock.elapsedRealtime()
-        synchronized(gate) {
-            val gateAcquiredAt = SystemClock.elapsedRealtime()
-            val gateWait = (gateAcquiredAt - requestCallAt).coerceAtLeast(0L)
-            beforeDocumentNavigationForTest?.invoke()
-            val requestStartedAt = SystemClock.elapsedRealtime()
-            val pending = Pending(context.applicationContext, url)
-            if (!main.post { pending.start() })
-                return Http.Result.Failed(Http.Result.Kind.HTTP, "browser looper unavailable")
-            val completed = pending.done.await(
-                WebsiteBrowserRequestTiming.DOCUMENT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
-            if (!completed) pending.abort()
-            val answer = if (completed) pending.result
-                else Http.Result.Failed(Http.Result.Kind.TIMEOUT, "browser document timed out")
-            // Only the main-frame navigation is counted: normal browser resource GETs may also occur.
-            // Never log body, URL query, cookies, challenge tokens or raw CDN request IDs.
-            if (pending.navigated) {
-                val total = SystemClock.elapsedRealtime() - requestStartedAt
-                val timing = pending.timingSummary(total, gateWait)
-                Diary.get()?.log("HTTP") {
-                    "GET whereismytrain.org.in try#1 $timing -> " + when (answer) {
-                        is Http.Result.Ok -> "answered ${answer.body.length}B (WebView document)"
-                        is Http.Result.Failed -> "${answer.kind} ${answer.message} (WebView document)"
+        val lease = inFlight.acquire(url)
+        val outcome = if (lease.owner) {
+            try {
+                val generated = try {
+                    synchronized(gate) {
+                        navigateDocument(context.applicationContext, url, requestCallAt)
                     }
+                } catch (error: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    NavigationOutcome(Http.Result.Failed(Http.Result.Kind.TIMEOUT,
+                        "browser document interrupted"), null, false)
+                } catch (error: Exception) {
+                    NavigationOutcome(Http.Result.Failed(Http.Result.Kind.HTTP,
+                        "browser document failed (${error.javaClass.simpleName})"), null, false)
+                } catch (error: Throwable) {
+                    // Unblock same-URL callers even if a fatal error escapes the WebView owner.
+                    lease.result.complete(NavigationOutcome(
+                        Http.Result.Failed(Http.Result.Kind.HTTP, "browser document failed"), null, false))
+                    throw error
                 }
-                runCatching { timingObserverForTest?.invoke(timing) }
+                lease.result.complete(generated)
+                generated
+            } finally {
+                inFlight.release(url, lease)
             }
-            return answer
+        } else {
+            try {
+                lease.result.get()
+            } catch (error: InterruptedException) {
+                Thread.currentThread().interrupt()
+                return Http.Result.Failed(Http.Result.Kind.TIMEOUT, "browser document wait interrupted")
+            } catch (error: Exception) {
+                return Http.Result.Failed(Http.Result.Kind.HTTP, "browser document result unavailable")
+            }
         }
+        if (outcome.navigated) {
+            val timing = outcome.timing.orEmpty()
+            // One actual main-frame navigation is logged, even when several callers share it.
+            // Never log body, URL query, cookies, challenge tokens or raw CDN request IDs.
+            if (lease.owner) Diary.get()?.log("HTTP") {
+                "GET whereismytrain.org.in try#1 $timing -> " + when (val answer = outcome.answer) {
+                    is Http.Result.Ok -> "answered ${answer.body.length}B (WebView document)"
+                    is Http.Result.Failed -> "${answer.kind} ${answer.message} (WebView document)"
+                }
+            }
+            val observedTiming = timing + if (lease.owner) "" else " shared=true"
+            runCatching { timingObserverForTest?.invoke(observedTiming) }
+        }
+        return outcome.answer
+    }
+
+    /** Called under [gate]; identical requests are already coalesced by [inFlight]. */
+    private fun navigateDocument(context: Context, url: String,
+                                 requestCallAt: Long): NavigationOutcome {
+        val gateAcquiredAt = SystemClock.elapsedRealtime()
+        val gateWait = (gateAcquiredAt - requestCallAt).coerceAtLeast(0L)
+        beforeDocumentNavigationForTest?.invoke()
+        val requestStartedAt = SystemClock.elapsedRealtime()
+        val pending = Pending(context, url)
+        if (!main.post { pending.start() }) return NavigationOutcome(
+            Http.Result.Failed(Http.Result.Kind.HTTP, "browser looper unavailable"), null, false)
+        var interrupted = false
+        val completed = try {
+            pending.done.await(WebsiteBrowserRequestTiming.DOCUMENT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+        } catch (error: InterruptedException) {
+            interrupted = true
+            pending.abort()
+            Thread.currentThread().interrupt()
+            false
+        }
+        if (!completed && !interrupted) pending.abort()
+        val answer = when {
+            completed -> pending.result
+            interrupted -> Http.Result.Failed(Http.Result.Kind.TIMEOUT, "browser document interrupted")
+            else -> Http.Result.Failed(Http.Result.Kind.TIMEOUT, "browser document timed out")
+        }
+        val total = SystemClock.elapsedRealtime() - requestStartedAt
+        val timing = if (pending.navigated) pending.timingSummary(total, gateWait) else null
+        return NavigationOutcome(answer, timing, pending.navigated)
     }
 
     private class Pending(val context: Context, val url: String) {
@@ -346,34 +430,38 @@ object WebsiteBrowserRequest {
 
         /**
          * Cheap readiness sentinel: inspect card-sized ancestor text first; serialize the large
-         * document only after a station heading and its own labelled clock appear together.
+         * document once the requested train and a station heading with its own labelled clock
+         * are visible. Source/date/route qualification runs independently after capture.
          */
         private fun populatedDocumentScript(): String = """
             (function(){
               var root=document.documentElement;
               if(!root)return '';
               function normalize(value){return (value||'').replace(/\s+/g,' ').trim().toUpperCase();}
-              var text=normalize(root.innerText||root.textContent||'');
-              var identity=text.indexOf('${expectedTrain}')>=0;
-              var header=text.indexOf('LAST UPDATED:')>=0&&text.indexOf('SOURCE:')>=0&&
-                text.indexOf('DESTINATION:')>=0;
+              var pageBody=document.body;
+              var text=normalize((pageBody&&pageBody.innerText)||(pageBody&&pageBody.textContent)||
+                root.innerText||root.textContent||'');
+              var identity=/\b${expectedTrain}\b/.test(text);
+              var update=/\bLAST\s+UPDATED\s*:\s*\d{1,2}:\d{2}(?::\d{2})?\s*(?:AM|PM)\b/.test(text);
+              var sourceStart=/\bSOURCE\s*:\s*/.exec(text);
+              var destinationStart=/\bDESTINATION\s*:\s*/.exec(text);
+              function hasValue(start,nextLabel){
+                if(!start)return false;
+                var tail=text.substring(start.index+start[0].length);
+                var end=nextLabel.exec(tail);
+                return tail.substring(0,end?end.index:tail.length).trim().length>0;
+              }
+              var header=update&&hasValue(sourceStart,/\bDESTINATION\s*:/)&&
+                hasValue(destinationStart,/\b(?:LAST\s+UPDATED|JOURNEY\s+TIMELINE)\s*:/);
               function hasClock(value){
-                for(var j=1;j+2<value.length;j++){
-                  if(value.charCodeAt(j)===58&&value.charCodeAt(j-1)>=48&&value.charCodeAt(j-1)<=57&&
-                     value.charCodeAt(j+1)>=48&&value.charCodeAt(j+1)<=57&&
-                     value.charCodeAt(j+2)>=48&&value.charCodeAt(j+2)<=57){
-                    var suffix=value.substring(j+3,j+12).trim();
-                    if(suffix.indexOf('AM')===0||suffix.indexOf('PM')===0)return true;
-                  }
-                }
-                return false;
+                return /\b\d{1,2}:\d{2}(?::\d{2})?\s*(?:AM|PM)\b/.test(value);
               }
               var headings=root.querySelectorAll('h2,h3,h4,h5,h6');
               var populated=false;
               for(var i=0;i<headings.length&&!populated;i++){
                 if(!normalize(headings[i].innerText||headings[i].textContent||''))continue;
                 var candidate=headings[i].parentElement;
-                for(var depth=0;candidate&&candidate!==root&&depth<32;depth++,candidate=candidate.parentElement){
+                for(var depth=0;candidate&&candidate!==root&&depth<96;depth++,candidate=candidate.parentElement){
                   var tag=candidate.tagName;
                   if(tag!=='DIV'&&tag!=='SECTION'&&tag!=='ARTICLE'&&tag!=='LI'&&tag!=='TR')continue;
                   var nested=candidate.querySelectorAll('h2,h3,h4,h5,h6');

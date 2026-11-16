@@ -23,8 +23,8 @@
     <string name="tag_here">here now</string>
     <string name="tag_cancelled">cancelled here</string>
     <string name="tag_skipped">does not stop</string>
-    <string name="tag_board">board</string>
-    <string name="tag_alight">alight</string>
+    <string name="tag_board">you board</string>
+    <string name="tag_alight">you get off</string>
     <string name="tag_origin">starts here</string>
     <!-- What the bright column *is*. A minute in that column can be a report or a projection, and the
          colour alone is not an answer for everyone, so the column says which in a word. -->

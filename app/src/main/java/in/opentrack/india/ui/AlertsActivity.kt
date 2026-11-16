@@ -206,8 +206,8 @@ class AlertsActivity : AppCompatActivity() {
     private fun triggerSummary(snapshot: JourneyAlarmSnapshot): String {
         val c = snapshot.config
         return when (c.trigger) {
-            AlertTrigger.DESTINATION_REPORT -> "At destination · ${c.toName}"
-            AlertTrigger.PREVIOUS_STOP_REPORT -> "At preceding station · ${c.triggerName}"
+            AlertTrigger.DESTINATION_REPORT -> "Station · ${c.toName}"
+            AlertTrigger.PREVIOUS_STOP_REPORT -> "Station · ${c.triggerName}"
             AlertTrigger.PHONE_DISTANCE -> "Within ${c.distanceKm} km · ${c.toName}"
         }
     }
