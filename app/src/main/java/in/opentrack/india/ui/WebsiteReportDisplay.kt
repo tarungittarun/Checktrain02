@@ -154,14 +154,21 @@ object WebsiteReportDisplay {
         fun past(minute: Int?): Int? = minute?.takeIf {
             RailTime.railMinuteToEpochMillis(originDay, it) <= now
         }
+        fun future(minute: Int?): Int? = minute?.takeIf {
+            RailTime.railMinuteToEpochMillis(originDay, it) > now
+        }
         fun afterPage(minute: Int?): Boolean = minute?.let {
             RailTime.railMinuteToEpochMillis(originDay, it) > pageUpdatedAt
         } == true
         return siteClocks.mapNotNull { (code, clocks) ->
-            if (clocks.forecast || haltCodes.none { it.equals(code, true) })
-                return@mapNotNull null
-            val arrival = past(clocks.arrivalMin)
-            val departureRaw = past(clocks.departureMin)
+            if (haltCodes.none { it.equals(code, true) }) return@mapNotNull null
+            // A white/upcoming card is visible only while its clock is still ahead of
+            // the device clock. Keep it explicitly forecast-qualified; never turn it
+            // into a past event or use it to move the train marker.
+            val arrival = if (clocks.forecast) future(clocks.arrivalMin)
+                else past(clocks.arrivalMin)
+            val departureRaw = if (clocks.forecast) future(clocks.departureMin)
+                else past(clocks.departureMin)
             val arrivalForOrder = arrival ?: clocks.arrivalMin
             val departure = departureRaw?.takeIf { dep ->
                 arrivalForOrder == null || dep >= arrivalForOrder
