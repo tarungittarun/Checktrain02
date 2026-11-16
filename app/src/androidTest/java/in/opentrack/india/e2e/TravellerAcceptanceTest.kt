@@ -580,7 +580,7 @@ class TravellerAcceptanceTest {
                 E2E.ui.wait(Until.hasObject(By.text(style)), E2E.LOCAL_MS))
         for (interval in listOf("1 minute", "2 minutes", "5 minutes"))
             assertTrue("Alert interval is not selectable: $interval",
-                E2E.ui.wait(Until.hasObject(By.textContains(interval)), E2E.LOCAL_MS))
+                revealRadioContains(interval, "alertDialogScroll"))
         assertTrue("Set alert action is absent", textContains("Set alert").isNotBlank())
         assertTrue("Setup dialog has no Cancel action", textContains("Cancel").isNotBlank())
         assertTrue("Concise station-alert note is missing",

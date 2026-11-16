@@ -23,6 +23,7 @@ on:
       - 'app/src/main/java/in/opentrack/india/core/WebsiteBrowserRequest.kt'
       - 'app/src/main/java/in/opentrack/india/ui/LiveViewModel.kt'
       - 'app/src/main/java/in/opentrack/india/ui/TrainActivity.kt'
+      - 'app/src/main/java/in/opentrack/india/ui/Adapters.kt' # selected-source station rows are part of website acceptance
       - 'app/src/main/java/in/opentrack/india/ui/WebsiteReportDisplay.kt'
       - 'app/src/main/java/in/opentrack/india/ui/SourceEvidenceReceipt.kt'
       - 'app/src/test/java/in/opentrack/india/v2/mirror/PublicPageChecksTest.kt'

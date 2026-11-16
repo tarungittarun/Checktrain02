@@ -325,8 +325,6 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
                 if (saved.isNotEmpty()) append(" · NTES saved ").append(saved.joinToString("/"))
             }
             if (s.showKm) append(" · ").append(s.kmFromOrigin).append(" km")
-            if (s.isBoarding) append(" · ").append(ctx.getString(R.string.tag_board))
-            else if (s.isAlighting) append(" · ").append(ctx.getString(R.string.tag_alight))
             s.platform?.takeIf { it.isNotBlank() &&
                 s.source != TrackModel.MinuteSource.SITE_REPORTED }?.let {
                 // Keep the observed platform visible without crowding the narrow station column.
@@ -375,7 +373,7 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
         val siteCard = websiteCardTimes[s.code]
         val siteEventKind = WebsiteReportDisplay.eventKind(s.showArr, s.showDep)
         val stationClaim = reports[s.code]?.startsWith("RailYatri root claims") == true
-        holder.status.text = when {
+        val statusText = when {
             pendingDep != null && siteCard == null -> "Site dep ${RouteClockUi.clock(pendingDep)}? · unconfirmed"
             website && s.showDep != null && s.showArr == null ->
                 "Website arrival not validated · departure shown"
@@ -394,15 +392,23 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             s.source == TrackModel.MinuteSource.PROJECTED -> "Estimated · not reported"
             else -> "Scheduled"
         }
-        // Reported clocks have provenance in their content descriptions. Do not
-        // repeat unhelpful prose below every halt; preserve exceptional warnings.
-        holder.status.visibility = if (s.state == TrackModel.State.CANCELLED ||
+        val passengerTag = when {
+            s.isBoarding -> ctx.getString(R.string.tag_board)
+            s.isAlighting -> ctx.getString(R.string.tag_alight)
+            else -> null
+        }
+        val exceptionalStatus = s.state == TrackModel.State.CANCELLED ||
             s.state == TrackModel.State.SKIPPED || stationClaim ||
-            pendingDep != null && siteCard == null)
-            View.VISIBLE else View.GONE
-        holder.status.contentDescription = if (pendingDep != null)
+            pendingDep != null && siteCard == null
+        // Keep code/km/platform to one compact line. Put the full board/get-off label
+        // on its own line so it remains readable instead of being ellipsized at 360dp.
+        holder.status.text = if (exceptionalStatus) statusText else passengerTag ?: statusText
+        holder.status.visibility = if (exceptionalStatus || passengerTag != null) View.VISIBLE else View.GONE
+        val statusDescription = if (pendingDep != null)
             "Website suggests departure ${RouteClockUi.clock(pendingDep)}; unconfirmed, not an actual departure"
         else holder.status.text.toString()
+        holder.status.contentDescription = if (exceptionalStatus && passengerTag != null)
+            "$statusDescription. $passengerTag" else statusDescription
         holder.status.setTextColor(ctx.getColor(when {
             pendingDep != null -> R.color.warn
             stationClaim || website || verified -> R.color.live
