@@ -79,7 +79,7 @@ class JourneyAlarmOptionsEditor(
                         RailTime.formatRailMinute(it)
                     } ?: "time unavailable"
                     "${station.name} (${station.code}) · $time"
-                })
+                }, dropDownItemId = R.id.alertTriggerOption)
                 val selected = stationOptions.indexOfFirst {
                     it.code.equals(initialStationCode, ignoreCase = true)
                 }
@@ -300,13 +300,16 @@ class JourneyAlarmOptionsEditor(
         setBackgroundResource(R.drawable.bg_inset)
     }
 
-    private fun spinnerAdapter(values: List<String>): ArrayAdapter<String> =
+    private fun spinnerAdapter(values: List<String>, dropDownItemId: Int? = null): ArrayAdapter<String> =
         object : ArrayAdapter<String>(context, R.layout.item_sort_selected, values) {
             init { setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
             override fun getView(position: Int, convertView: View?, parent: android.view.ViewGroup): View =
                 super.getView(position, convertView, parent).also { BatteryMode.paint(it) }
             override fun getDropDownView(position: Int, convertView: View?, parent: android.view.ViewGroup): View =
-                super.getDropDownView(position, convertView, parent).also { BatteryMode.paint(it) }
+                super.getDropDownView(position, convertView, parent).also {
+                    dropDownItemId?.let { id -> it.id = id }
+                    BatteryMode.paint(it)
+                }
         }
 
     private fun repeatLabel(seconds: Int) = when {

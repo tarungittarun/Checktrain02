@@ -473,23 +473,33 @@ class TravellerAcceptanceTest {
             E2E.ui.findObject(By.desc("Phone-distance radius")) == null)
 
         assertTrue("Upcoming station picker did not open", E2E.fingerTap(stationSpinner))
-        var intermediate: androidx.test.uiautomator.UiObject2? = null
+        val stationOptionSelector = By.res(E2E.PKG, "alertTriggerOption")
+        var intermediateLabel: String? = null
         val stationDeadline = System.currentTimeMillis() + E2E.LOCAL_MS
-        while (System.currentTimeMillis() < stationDeadline && intermediate == null) {
-            intermediate = E2E.all(By.clazz("android.widget.TextView")).firstOrNull { node ->
-                val label = node.text.orEmpty()
-                stationOptionPattern.matches(label) && label != selectedStation
+        while (System.currentTimeMillis() < stationDeadline && intermediateLabel == null) {
+            intermediateLabel = E2E.all(stationOptionSelector).firstNotNullOfOrNull { node ->
+                val label = runCatching { node.text.orEmpty() }.getOrDefault("")
+                val visible = runCatching { visibleOnScreen(node) }.getOrDefault(false)
+                label.takeIf {
+                    visible && stationOptionPattern.matches(it) && it != selectedStation
+                }
             }
-            if (intermediate == null) Thread.sleep(75)
+            if (intermediateLabel == null) Thread.sleep(75)
         }
         assertTrue("The station picker did not expose a selectable intermediate stop: ${visibleTextNodes()}",
-            intermediate != null)
-        val intermediateLabel = intermediate!!.text.orEmpty()
+            intermediateLabel != null)
+        val chosenIntermediate = intermediateLabel.orEmpty()
+        val option = E2E.ui.wait(
+            Until.findObject(stationOptionSelector.text(chosenIntermediate)), E2E.LOCAL_MS)
+        assertTrue("The intermediate stop is not visible in the station dropdown",
+            option != null && runCatching { visibleOnScreen(option) }.getOrDefault(false))
         E2E.shotRequired("alert-station-dropdown")
         assertTrue("An intermediate upcoming station could not be selected",
-            E2E.fingerTap(intermediate))
-        assertTrue("The station picker did not retain the selected intermediate stop",
-            E2E.ui.wait(Until.hasObject(By.text(intermediateLabel)), E2E.LOCAL_MS))
+            E2E.fingerTap(stationOptionSelector.text(chosenIntermediate)))
+        val updatedStationSpinner = E2E.ui.wait(
+            Until.findObject(By.desc("Upcoming station through the final station")), E2E.LOCAL_MS)
+        assertEquals("The station picker did not retain the selected intermediate stop",
+            chosenIntermediate, updatedStationSpinner?.text.orEmpty())
         E2E.shotRequired("alert-station-intermediate-selected")
         assertTrue("Cancel did not close alert setup", tapTextContains("Cancel"))
         assertEquals("Cancelling setup must not arm an alert", "Alert", E2E.text("arrivalAlert"))
