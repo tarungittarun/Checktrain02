@@ -40,7 +40,7 @@ data class AlarmOutputPreferences(
 class JourneyAlarmOptionsEditor(
     private val context: Context,
     initialFeedback: AlertFeedback,
-    initialRepeatIntervalSeconds: Int,
+    private val initialRepeatIntervalSeconds: Int,
     initialIntervalMinutes: Int,
     note: String,
     details: String? = null,

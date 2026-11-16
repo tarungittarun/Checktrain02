@@ -135,6 +135,8 @@ recreate
 getJSONObject apply getIntExtra isInitialized toMap containsMatchIn indexOfChild
 # Alert dialogs, RecyclerView viewport assertions, Kotlin nullable helpers and sorted Map snapshots.
 setContentView setCancelable setCanceledOnTouchOutside canScrollVertically let toSortedMap
+# Alert UI uses AndroidX NotificationCompat.Builder, DialogInterface, RadioGroup and ViewGroup APIs.
+setSilent setOnDismissListener setOnCheckedChangeListener removeView
 # stale-while-revalidate mirror cache (2026-10-12): org.json reads + sorted-view walk + time format
 optLong optInt SimpleDateFormat format Date Locale US put sortedByDescending second
 isNullOrBlank containsKey isNullOrEmpty takeWhile toLongOrNull substringAfter asSequence toList filter
