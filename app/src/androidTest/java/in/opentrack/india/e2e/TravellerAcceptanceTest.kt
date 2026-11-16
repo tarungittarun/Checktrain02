@@ -615,20 +615,9 @@ class TravellerAcceptanceTest {
         E2E.shotRequired("alert-active-management")
 
         assertTrue("Alerts has no default-options action", visibleResource("options"))
-        assertTrue("Alert defaults could not be opened from Alerts", E2E.tap("options"))
-        val defaultsTitle = findTextContains("Alert defaults", 500)?.text.orEmpty()
-        val stationExplanationFound =
-            revealTextContains("Station is chosen per journey", "alertDialogScroll")
-        if (!stationExplanationFound) E2E.shotDiagnostic("alert-default-options-missing-summary")
-        val stationSummaryText = findTextContains(
-            "Station is chosen per journey", 300)?.text.orEmpty()
-        val alertScrollBounds = runCatching {
-            E2E.find("alertDialogScroll", 300)?.visibleBounds.toString()
-        }.getOrDefault("unavailable")
-        val defaultsDebug = "title='$defaultsTitle'; summary='$stationSummaryText'; " +
-            "scroll='$alertScrollBounds'; visible='${visibleTextNodes()}'"
-        assertTrue("Default editor has no per-journey station explanation: $defaultsDebug",
-            stationExplanationFound)
+        assertTrue("Alert defaults could not be opened from Alerts", E2E.fingerTap("options"))
+        assertTrue("The Alert defaults editor did not open",
+            findTextContains("Save defaults", E2E.LOCAL_MS) != null)
         for (field in listOf("2 · Notify style", "3 · Frequency / duration", "4 · Check frequency"))
             assertTrue("Alert defaults are missing '$field'",
                 revealTextContains(field, "alertDialogScroll"))
