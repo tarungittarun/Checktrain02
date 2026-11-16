@@ -319,6 +319,7 @@ class AlertsActivity : AppCompatActivity() {
             stationUnavailableSummary = "Station is chosen per journey from its upcoming stops.",
         )
         val scroll = ScrollView(this).apply {
+            id = R.id.alertDialogScroll
             isFillViewport = true
             addView(editor.view)
         }
@@ -375,7 +376,11 @@ class AlertsActivity : AppCompatActivity() {
             initialStationCode = currentStationCode,
             stationUnavailableSummary = stationHint,
         )
-        val scroll = ScrollView(this).apply { isFillViewport = true; addView(editor.view) }
+        val scroll = ScrollView(this).apply {
+            id = R.id.alertDialogScroll
+            isFillViewport = true
+            addView(editor.view)
+        }
         val dialog = AlertDialog.Builder(this)
             .setTitle("Modify alert · train ${c.trainNo}")
             .setView(scroll)

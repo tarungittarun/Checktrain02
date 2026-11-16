@@ -17,15 +17,15 @@ GROUPS = {
               "primaryControlsHaveLegibleTouchTargets"),
     "refresh": ("manualRefreshKeepsTicketAndShowsAnAnswer",
                 "batteryRefreshIsUnmistakableAndTicketSurvivesModeSwitch"),
-    "alerts": ("arrivalAlertSetupShowsTriggersPreferencesAndSaveCancel",),
+    "alerts": ("arrivalAlertSetupShowsFourFieldsAndLifecycleControls",),
 }
 CLASS = "in.opentrack.india.e2e.TravellerAcceptanceTest"
 SOURCE = Path(__file__).resolve().parents[2] / "app/src/androidTest/java/in/opentrack/india/e2e/TravellerAcceptanceTest.kt"
 TEST_METHOD = re.compile(r"@Test\s+fun\s+(\w+)\s*\(")
-# openAlertChoices(tag) delegates to E2E.shotRequired(tag); plain shot() and
+# openAlertSetup(tag) delegates to E2E.shotRequired(tag); plain shot() and
 # diagnostic-only captures deliberately cannot satisfy the mandatory evidence gate.
 REQUIRED_CAPTURE = re.compile(
-    r'(?:E2E\.shotRequired|openAlertChoices)\("([A-Za-z0-9._-]+)"\)'
+    r'(?:E2E\.shotRequired|openAlertSetup)\("([A-Za-z0-9._-]+)"\)'
 )
 
 

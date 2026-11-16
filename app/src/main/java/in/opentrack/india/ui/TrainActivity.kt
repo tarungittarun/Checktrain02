@@ -764,6 +764,7 @@ class TrainActivity : AppCompatActivity() {
             initialStationCode = config.toCode,
         )
         val scroll = android.widget.ScrollView(this).apply {
+            id = R.id.alertDialogScroll
             isFillViewport = true
             addView(editor.view)
         }

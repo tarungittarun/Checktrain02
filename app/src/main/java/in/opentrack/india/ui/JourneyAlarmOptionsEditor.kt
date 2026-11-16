@@ -49,6 +49,7 @@ class JourneyAlarmOptionsEditor(
     stationUnavailableSummary: String = "Choose an upcoming station from the train's route.",
 ) {
     val view = LinearLayout(context).apply {
+        id = R.id.alertDialogBody
         orientation = LinearLayout.VERTICAL
         setPadding(dp(4), dp(4), dp(4), dp(8))
     }
