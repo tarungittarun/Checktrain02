@@ -579,13 +579,13 @@ class TravellerAcceptanceTest {
         assertTrue("Source/reliability details could not be expanded",
             tapTextContains("Source and reliability details"))
         assertTrue("Routine usable-data checks are not explicitly quiet",
-            findTextContains("Successful checks stay silent", E2E.LOCAL_MS) != null)
+            revealTextContains("Successful checks stay silent", "alertDialogScroll"))
         assertTrue("Outage warning is not limited to a failed retry/source sequence",
-            findTextContains("all qualified source attempts fail to return usable data",
-                E2E.LOCAL_MS) != null)
+            revealTextContains("all qualified source attempts fail to return usable data",
+                "alertDialogScroll"))
         assertTrue("The outage warning is not described as a single silent notification",
-            findTextContains("one silent notification is sent for that outage",
-                E2E.LOCAL_MS) != null)
+            revealTextContains("one silent notification is sent for that outage",
+                "alertDialogScroll"))
         E2E.shotRequired("alert-source-warning-copy")
 
         assertTrue("Set alert action is missing", tapTextContains("Set alert"))
@@ -617,8 +617,7 @@ class TravellerAcceptanceTest {
         assertTrue("Alerts has no default-options action", visibleResource("options"))
         assertTrue("Alert defaults could not be opened from Alerts", E2E.tap("options"))
         assertTrue("Default editor has no per-journey station explanation",
-            E2E.ui.wait(Until.hasObject(By.textContains("Station is chosen per journey")),
-                E2E.LOCAL_MS))
+            revealTextContains("Station is chosen per journey", "alertDialogScroll"))
         for (field in listOf("2 · Notify style", "3 · Frequency / duration", "4 · Check frequency"))
             assertTrue("Alert defaults are missing '$field'",
                 revealTextContains(field, "alertDialogScroll"))
