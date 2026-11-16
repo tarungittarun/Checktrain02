@@ -124,6 +124,20 @@ class TravellerAcceptanceTest {
         return false
     }
 
+    /** Radio options below the fold are not accessibility nodes until scrolled into view.
+     * Scope this lookup to radio buttons so a similarly worded lead-time Spinner label
+     * cannot satisfy the check-interval assertion. */
+    private fun revealRadioContains(text: String, container: String, swipes: Int = 6,
+                                    up: Boolean = true): Boolean {
+        val selector = By.clazz("android.widget.RadioButton").textContains(text)
+        repeat(swipes + 1) { attempt ->
+            val node = E2E.ui.wait(Until.findObject(selector), 300)
+            if (visibleInScroll(node, container)) return true
+            if (attempt == swipes || !E2E.swipeIn(container, up = up)) return false
+        }
+        return false
+    }
+
     /** Scope station rows to the custom alert option view so an underlying route row cannot
      * satisfy the assertion while the reopened chooser itself is still clipped. */
     private fun revealAlertOption(text: String, swipes: Int = 6): Boolean {
@@ -514,9 +528,9 @@ class TravellerAcceptanceTest {
                 E2E.ui.wait(Until.hasObject(By.text(style)), E2E.LOCAL_MS))
         for (interval in listOf("1 minute", "2 minutes", "5 minutes"))
             assertTrue("Upcoming-station interval is not selectable: $interval",
-                E2E.ui.wait(Until.hasObject(By.textContains(interval)), E2E.LOCAL_MS))
+                revealRadioContains(interval, "alertDialogScroll"))
         assertTrue("Upcoming-station style is not visible in its options scroll",
-            revealTextContains("Ping · one sound", "alertDialogScroll"))
+            revealTextContains("Ping · one sound", "alertDialogScroll", up = false))
         E2E.shotRequired("alert-upcoming-station-options")
         assertTrue("Upcoming-station interval cannot be brought into view",
             revealTextContains("5 minutes · lower background work", "alertDialogScroll"))

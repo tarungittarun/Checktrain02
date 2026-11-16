@@ -1065,7 +1065,7 @@ class InlineRouteRenderTest {
         adapter.onMapUnavailable = { _ -> explanations++ }
         adapter.setProjectedLeg(RouteBetween.LegProjection("Yesvantpur", "Tumkur", 0f,
             "Yesvantpur", 144, "YPR", "TK", emptyList(), RouteBetween.MarkerKind.REPORTED_HALT))
-        adapter.haltMarker = TableMarker.Halt("YPR", "NTES YPR departure 23:42", true)
+        adapter.haltMarker = TableMarker.Halt("YPR", "NTES YPR departure 23:42", false)
         adapter.legAgeSeconds = 53 * 60L
         val from = TrackModel.Stop(1, "YPR", "Yesvantpur", 1420, 1422,
             1420, 1422, null, TrackModel.MinuteSource.REPORTED, null,

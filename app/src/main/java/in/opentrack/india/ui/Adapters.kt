@@ -329,7 +329,9 @@ class StopAdapter : ListAdapter<TrackModel.Stop, StopAdapter.Holder>(DIFF) {
             else if (s.isAlighting) append(" · ").append(ctx.getString(R.string.tag_alight))
             s.platform?.takeIf { it.isNotBlank() &&
                 s.source != TrackModel.MinuteSource.SITE_REPORTED }?.let {
-                append(" · feed pf ").append(it)
+                // Keep the observed platform visible without crowding the narrow station column.
+                // Its provider is already named by the selected-source badge/header.
+                append(" · PF").append(it)
             }
         }
         // Normal mode keeps its existing leg cue. Battery mode must not paint
