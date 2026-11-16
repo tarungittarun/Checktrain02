@@ -61,8 +61,13 @@ class WebsiteBrowserRequestTest {
             hasPopulatedTrainDocument(spacedHeader, "16227"))
         val headerless = renderedDom.replace("<p>Last Updated: 04:25:10 AM</p>", "")
             .replace("<p>Source: MYS</p>", "").replace("<p>Destination: TLGP</p>", "")
-        assertFalse("a page shell without its source header is not ready yet",
+        assertTrue("header/date fields are checked after capture, not used to delay card retrieval",
             hasPopulatedTrainDocument(headerless, "16227"))
+        val titleIdentity = renderedDom.replace("<body>",
+            "<head><title>Train 16227 Running Status</title></head><body>")
+            .replace("Train 16227 Running Status</h1>", "Running Status</h1>")
+        assertTrue("Android WebView innerText may omit the document title used for train identity",
+            hasPopulatedTrainDocument(titleIdentity, "16227"))
         assertTrue("a visible route card can also be found without source comments",
             hasPopulatedTrainDocument(renderedDom.replace("<!-- Station Details Card -->", ""), "16227"))
         val restyledCard = renderedDom.replace(
@@ -106,6 +111,16 @@ class WebsiteBrowserRequestTest {
             assertTrue("semantic card was not recognized: $card",
                 hasPopulatedTrainDocument(document, "16227"))
         }
+    }
+
+    @Test fun capturedWebsiteHtmlIsReadyWithoutWaitingForHeaderQualification() {
+        val html = javaClass.classLoader!!.getResourceAsStream(
+            "org-site/16227-2026-10-26-0701.html")!!.bufferedReader().use { it.readText() }
+
+        assertTrue("the captured .org.in station timeline should trip the early DOM signal",
+            hasPopulatedTrainDocument(html, "16227"))
+        assertFalse("the readiness signal must still require the requested train",
+            hasPopulatedTrainDocument(html, "12627"))
     }
 
     @Test fun oneWebsiteNavigationGetsARealBoundedLoadAndDomHydrationWindow() {

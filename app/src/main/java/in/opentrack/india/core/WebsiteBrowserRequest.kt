@@ -231,10 +231,10 @@ internal object WebsiteCardMarkup {
 }
 
 /**
- * Cheap DOM-readiness check: the requested train, update/source/destination header, and at least
- * one visible station card with its own labelled clock are present. Header labels only say the
- * page is hydrated; selected-run date, route endpoints, event time, and source qualification are
- * still validated independently by PublicPageChecks and OrgWebsiteStatus after capture.
+ * Fast capture-readiness check: the requested train is visible and at least one visible station
+ * card has its own labelled clock. Do not make navigation wait for page-header fields: source,
+ * destination, page clock, run date and event qualification are checked on the captured document
+ * by PublicPageChecks and OrgWebsiteStatus. This is a capture hint, never a live-data acceptance gate.
  */
 internal fun hasPopulatedTrainDocument(html: String, trainNo: String): Boolean {
     if (html.isBlank() || html.length > MAX_WEBSITE_HTML) return false
@@ -244,26 +244,15 @@ internal fun hasPopulatedTrainDocument(html: String, trainNo: String): Boolean {
         .replace("&nbsp;", " ", ignoreCase = true)
         .replace("&#160;", " ", ignoreCase = true)
         .replace(Regex("\\s+"), " ")
+    // The browser-side signal also checks document.title; the serialized markup includes it here.
     val identity = Regex("(?i)\\b${Regex.escape(trainNo)}\\b").containsMatchIn(visible)
-    val update = Regex("(?i)\\bLast\\s+Updated\\s*:\\s*\\d{1,2}:\\d{2}(?::\\d{2})?\\s*(?:AM|PM)")
-        .containsMatchIn(visible)
-    fun hasLabeledValue(label: String, nextLabel: String): Boolean {
-        val start = Regex("(?i)\\b${Regex.escape(label)}\\s*:\\s*").find(visible)
-            ?: return false
-        val rest = visible.substring(start.range.last + 1)
-        val end = Regex("(?i)\\b(?:${nextLabel}|Last\\s+Updated)\\s*:")
-            .find(rest)?.range?.first ?: rest.length
-        return rest.substring(0, end).trim().take(100).isNotEmpty()
-    }
-    val source = hasLabeledValue("Source", "Destination")
-    val destination = hasLabeledValue("Destination", "Journey\\s+Timeline")
     val starts = WebsiteCardMarkup.stationCardSectionStarts(document)
     val populatedCard = starts.indices.any { index ->
         val limit = starts.getOrNull(index + 1) ?: visibleHtml.length
         WebsiteCardMarkup.containerSectionAt(visibleHtml, starts[index], limit)
             ?.let { WebsiteCardMarkup.isPopulatedStationCard(it) } == true
     }
-    return identity && update && source && destination && populatedCard
+    return identity && populatedCard
 }
 
 /** The selected independent website's document navigation through Android's actual WebView engine.
@@ -439,20 +428,12 @@ object WebsiteBrowserRequest {
               if(!root)return '';
               function normalize(value){return (value||'').replace(/\s+/g,' ').trim().toUpperCase();}
               var pageBody=document.body;
-              var text=normalize((pageBody&&pageBody.innerText)||(pageBody&&pageBody.textContent)||
-                root.innerText||root.textContent||'');
+              // `innerText` can omit document.title and portions of an early-rendered body.
+              // This is only a capture hint; Kotlin validates the selected train, route, run
+              // window, page clock and station claims after the document has been captured.
+              var text=normalize(pageBody&&pageBody.innerText||'')+' '+
+                normalize(pageBody&&pageBody.textContent||'')+' '+normalize(document.title||'');
               var identity=/\b${expectedTrain}\b/.test(text);
-              var update=/\bLAST\s+UPDATED\s*:\s*\d{1,2}:\d{2}(?::\d{2})?\s*(?:AM|PM)\b/.test(text);
-              var sourceStart=/\bSOURCE\s*:\s*/.exec(text);
-              var destinationStart=/\bDESTINATION\s*:\s*/.exec(text);
-              function hasValue(start,nextLabel){
-                if(!start)return false;
-                var tail=text.substring(start.index+start[0].length);
-                var end=nextLabel.exec(tail);
-                return tail.substring(0,end?end.index:tail.length).trim().length>0;
-              }
-              var header=update&&hasValue(sourceStart,/\bDESTINATION\s*:/)&&
-                hasValue(destinationStart,/\b(?:LAST\s+UPDATED|JOURNEY\s+TIMELINE)\s*:/);
               function hasClock(value){
                 return /\b\d{1,2}:\d{2}(?::\d{2})?\s*(?:AM|PM)\b/.test(value);
               }
@@ -473,7 +454,7 @@ object WebsiteBrowserRequest {
                   }
                 }
               }
-              if(!identity||!header||!populated)return '';
+              if(!identity||!populated)return '';
               var html=root.outerHTML||'';
               return html.length<=${MAX_WEBSITE_HTML}?html:'';
             })()
