@@ -67,6 +67,9 @@ class TravellerAcceptanceTest {
         return true
     }
 
+    private fun alertStationOption(label: String): androidx.test.uiautomator.BySelector =
+        By.res(E2E.PKG, "alertTriggerOption").text(label)
+
     private fun selectSpinnerOption(description: String, label: String): Boolean {
         val spinner = E2E.ui.wait(Until.findObject(By.desc(description)), E2E.LOCAL_MS) ?: return false
         if (!E2E.fingerTap(spinner)) return false
@@ -490,12 +493,12 @@ class TravellerAcceptanceTest {
             intermediateLabel != null)
         val chosenIntermediate = intermediateLabel.orEmpty()
         val option = E2E.ui.wait(
-            Until.findObject(stationOptionSelector.text(chosenIntermediate)), E2E.LOCAL_MS)
+            Until.findObject(alertStationOption(chosenIntermediate)), E2E.LOCAL_MS)
         assertTrue("The intermediate stop is not visible in the station dropdown",
             option != null && runCatching { visibleOnScreen(option) }.getOrDefault(false))
         E2E.shotRequired("alert-station-dropdown")
         assertTrue("An intermediate upcoming station could not be selected",
-            E2E.fingerTap(stationOptionSelector.text(chosenIntermediate)))
+            E2E.fingerTap(alertStationOption(chosenIntermediate)))
         val updatedStationSpinner = E2E.ui.wait(
             Until.findObject(By.desc("Upcoming station through the final station")), E2E.LOCAL_MS)
         assertEquals("The station picker did not retain the selected intermediate stop",
