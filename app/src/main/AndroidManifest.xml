@@ -78,6 +78,7 @@
         <activity
             android:name=".ui.AlertsActivity"
             android:exported="false"
+            android:launchMode="singleTop"
             android:label="@string/alerts"
             android:parentActivityName=".ui.MainActivity" />
 

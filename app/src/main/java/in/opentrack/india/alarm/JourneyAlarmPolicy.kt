@@ -158,6 +158,36 @@ object JourneyAlarmPolicy {
         return Decision.Waiting("Last event: $evidence · waiting for ${config.triggerName}")
     }
 
+    /**
+     * A check is successful only when at least one independent live source returned a fresh,
+     * route-qualified actual-event report. A partial source outage is not an outage for the
+     * traveller if another source supplied usable data.
+     */
+    fun hasUsableSourceData(config: JourneyAlarmConfig, route: TrainRoute,
+                            answer: PositionEngine.Answer, nowMillis: Long,
+                            allowOnScheduleActual: Boolean = false): Boolean {
+        if (config.trigger == AlertTrigger.PHONE_DISTANCE || !routeMatches(config, route)) return false
+        val position = answer.position
+        if (position.provenance !in LIVE_EVENT_SOURCES || answer.unresolved || answer.held ||
+            position.ageSeconds > PositionEngine.STALE_MS / 1_000L ||
+            position.feedAgeSeconds?.let { it > SourceFreshness.STALE_AFTER_MS / 1_000L } == true ||
+            position.feedStampMillis?.let { it > nowMillis } == true) return false
+        val anchorCode = answer.anchorStopCode ?: return false
+        val anchor = route.stops.firstOrNull { it.code.equals(anchorCode, true) } ?: return false
+        val fields = fieldsAt(answer, anchor.code) ?: return false
+        val minute = fields.actualDepartureMin ?: fields.actualArrivalMin ?: return false
+        val scheduled = if (fields.actualDepartureMin != null) anchor.departureMin else anchor.arrivalMin
+        // Generic erail schedule echoes do not count as usable actual data. The WIMT caller may
+        // opt in only after its parser requires actual-labelled fields, run date, endpoints and stamp.
+        if (position.provenance == SourceKind.PROVIDER && !allowOnScheduleActual &&
+            scheduled != null && minute == scheduled) return false
+        val eventAt = RailTime.railMinuteToEpochMillis(config.originEpochDay, minute)
+        val age = SourceFreshness.ageMillis(eventAt, nowMillis) ?: return false
+        if (age > PositionEngine.STALE_MS) return false
+        if (position.feedStampMillis?.let { it < eventAt } == true) return false
+        return true
+    }
+
     fun distanceEvent(config: JourneyAlarmConfig, route: TrainRoute, fix: PhoneFix?,
                       nowMillis: Long): Decision {
         if (config.trigger != AlertTrigger.PHONE_DISTANCE)

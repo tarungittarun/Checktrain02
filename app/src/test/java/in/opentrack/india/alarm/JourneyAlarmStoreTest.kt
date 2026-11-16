@@ -163,6 +163,28 @@ class JourneyAlarmStoreTest {
         assertTrue("migration writes the new format", prefs.contains("alerts"))
     }
 
+    @Test fun repeatingAndOneShotAlertTimingSurvivesPersistenceAndSnoozeIsPerAlert() {
+        val onceConfig = config().copy(repeatIntervalSeconds = JourneyAlarmSchedule.REPEAT_ONCE)
+        val onceId = JourneyAlarmStore.arm(context, onceConfig)
+        assertTrue(JourneyAlarmStore.transitionFromArmed(context, onceId, onceConfig,
+            AlertState.ALERTING, "One ping sent", nextRepeatAtMillis = 0L))
+
+        val snoozedUntil = 1_793_000_120_000L
+        assertTrue(JourneyAlarmStore.updateActiveTiming(context, onceId, onceConfig,
+            AlertState.ALERTING, snoozedUntilMillis = snoozedUntil,
+            nextRepeatAtMillis = snoozedUntil))
+        val restored = JourneyAlarmStore.find(context, onceId)!!
+        assertEquals(AlertState.ALERTING, restored.state)
+        assertEquals(JourneyAlarmSchedule.REPEAT_ONCE, restored.config.repeatIntervalSeconds)
+        assertEquals(snoozedUntil, restored.snoozedUntilMillis)
+        assertEquals(snoozedUntil, restored.nextRepeatAtMillis)
+
+        val otherId = JourneyAlarmStore.arm(context, config(train = "54321"))
+        JourneyAlarmStore.dismiss(context, onceId, "Alert stopped by you")
+        assertEquals(AlertState.DISMISSED, JourneyAlarmStore.find(context, onceId)?.state)
+        assertEquals(AlertState.ARMED, JourneyAlarmStore.find(context, otherId)?.state)
+    }
+
     @Test fun terminalHistoryIsBoundedButActiveAlertsAreNeverPruned() {
         repeat(105) { index ->
             val id = JourneyAlarmStore.arm(context, config(createdAt = 1_793_000_000_000L + index))
@@ -170,7 +192,8 @@ class JourneyAlarmStoreTest {
                 evidenceAtMillis = 1_793_000_000_000L + index)
         }
         assertEquals(100, JourneyAlarmStore.readAll(context).count {
-            it.state != AlertState.ARMED && it.state != AlertState.RINGING
+            it.state != AlertState.ARMED && it.state != AlertState.ALERTING &&
+                it.state != AlertState.RINGING
         })
         val active = JourneyAlarmStore.arm(context, config(createdAt = 1_793_000_000_500L))
         assertEquals(101, JourneyAlarmStore.readAll(context).size)

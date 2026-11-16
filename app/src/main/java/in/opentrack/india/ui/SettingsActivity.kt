@@ -3,7 +3,8 @@ package `in`.opentrack.india.ui
 import `in`.opentrack.india.R
 import android.content.Intent
 import android.os.Bundle
-import android.widget.Toast
+import android.os.SystemClock
+import android.widget.FrameLayout
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import `in`.opentrack.india.core.Diary
@@ -13,7 +14,10 @@ import `in`.opentrack.india.data.Prefs
 import `in`.opentrack.india.alarm.AlertFeedback
 import `in`.opentrack.india.alarm.AlertTrigger
 import `in`.opentrack.india.databinding.ActivitySettingsBinding
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import `in`.opentrack.india.BuildConfig
 import `in`.opentrack.india.data.RefDb
 import `in`.opentrack.india.ui.TrackingSources
@@ -35,7 +39,12 @@ class SettingsActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivitySettingsBinding
     private lateinit var prefs: Prefs
+    private lateinit var actionFeedback: TransientActionFeedback
     private var stateFeedbackByAction = false
+    private var cacheClearInFlight = false
+    private var lastCacheClearTapAt = 0L
+    private var diagClearInFlight = false
+    private var lastDiagClearTapAt = 0L
 
     /**
      * "Save to file" hands the log to the system's document picker, which answers with a content URI. The
@@ -73,54 +82,34 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun setupAlertDefaults() {
-        fun spinner(spinner: android.widget.Spinner, labels: List<String>, selected: Int,
-                    onSelection: (Int) -> Unit) {
-            spinner.adapter = object : ArrayAdapter<String>(this,
-                android.R.layout.simple_spinner_item, labels) {
-                override fun getView(position: Int, convertView: View?,
-                                     parent: android.view.ViewGroup): View =
-                    super.getView(position, convertView, parent).also { BatteryMode.paint(it) }
-                override fun getDropDownView(position: Int, convertView: View?,
-                                             parent: android.view.ViewGroup): View =
-                    super.getDropDownView(position, convertView, parent).also { BatteryMode.paint(it) }
-            }.also { it.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
-            spinner.setSelection(selected.coerceIn(labels.indices), false)
-            spinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-                override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-                    if (position in labels.indices) onSelection(position)
-                }
-                override fun onNothingSelected(parent: AdapterView<*>?) = Unit
-            }
-        }
-        val triggers = listOf(AlertTrigger.DESTINATION_REPORT, AlertTrigger.PREVIOUS_STOP_REPORT,
-            AlertTrigger.PHONE_DISTANCE)
-        spinner(binding.defaultAlertTrigger,
-            listOf("Destination · live source report", "Preceding station · live source report",
-                "Phone distance · location"), triggers.indexOf(prefs.defaultAlertTrigger)) {
-            prefs.defaultAlertTrigger = triggers[it]
-        }
-        val feedback = listOf(AlertFeedback.NOTIFICATION, AlertFeedback.VIBRATION,
-            AlertFeedback.RING_UNTIL_STOPPED)
-        spinner(binding.defaultAlertFeedback,
-            listOf("Ping · one sound", "Vibrate · one pattern", "Alarm ring · stop anytime"),
-            feedback.indexOf(prefs.defaultAlertFeedback)) { prefs.defaultAlertFeedback = feedback[it] }
-        val intervals = listOf(1, 2, 5)
-        spinner(binding.defaultAlertInterval,
-            intervals.map { "$it ${if (it == 1) "minute" else "minutes"}" },
-            intervals.indexOf(prefs.defaultAlertIntervalMinutes)) {
-            prefs.defaultAlertIntervalMinutes = intervals[it]
-        }
-        val distances = listOf(2, 5, 10)
-        spinner(binding.defaultAlertDistance, distances.map { "$it km · straight-line" },
-            distances.indexOf(prefs.defaultAlertDistanceKm)) {
-            prefs.defaultAlertDistanceKm = distances[it]
+        val editor = JourneyAlarmOptionsEditor(
+            context = this,
+            initialFeedback = prefs.defaultAlertFeedback,
+            initialRepeatIntervalSeconds = prefs.defaultAlertRepeatIntervalSeconds,
+            initialIntervalMinutes = prefs.defaultAlertIntervalMinutes,
+            note = "Choose the upcoming station on each train's route when setting an alert.",
+            details = "Ping or vibration can happen once or repeat at the selected interval; ring continues until turned off. Source checks are silent when usable data is available. One silent warning is sent only after all qualified source attempts fail, and is cleared on recovery.",
+            stationUnavailableSummary = "Station is selected per journey from the upcoming-stop list.",
+        )
+        binding.alertDefaultsEditor.addView(editor.view)
+        binding.saveAlertDefaults.setOnClickListener {
+            val selected = editor.read() ?: return@setOnClickListener
+            prefs.defaultAlertFeedback = selected.feedback
+            prefs.defaultAlertRepeatIntervalSeconds = selected.repeatIntervalSeconds
+            prefs.defaultAlertIntervalMinutes = selected.intervalMinutes
+            actionFeedback.show("Alert defaults saved")
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivitySettingsBinding.inflate(layoutInflater)
-        setContentView(binding.root)
+        val screen = FrameLayout(this).apply {
+            addView(binding.root, FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+        }
+        setContentView(screen)
+        actionFeedback = TransientActionFeedback(this, screen)
         prefs = Prefs(this)
         val sources = TrackingSources.options
         binding.defaultTrackingSource.adapter = object : ArrayAdapter<String>(this,
@@ -203,15 +192,39 @@ class SettingsActivity : AppCompatActivity() {
             }
             prefs.overrideUrl = url
             prefs.columnHint = binding.columnHint.text.toString().trim()
-            Toast.makeText(applicationContext, "Saved", Toast.LENGTH_SHORT).show()
+            actionFeedback.show("Saved")
             finish()
         }
         binding.clear.setOnClickListener {
+            val tappedAt = SystemClock.elapsedRealtime()
+            if (cacheClearInFlight || (lastCacheClearTapAt > 0L &&
+                    tappedAt - lastCacheClearTapAt < ACTION_TAP_DEBOUNCE_MILLIS)) return@setOnClickListener
+            cacheClearInFlight = true
+            lastCacheClearTapAt = tappedAt
+            binding.clear.isEnabled = false
+            binding.clear.text = "Clearing…"
             lifecycleScope.launch {
-                (application as App).repository()?.clearCaches()
-                stateFeedbackByAction = true
-                binding.state.text = "Live cache cleared · saved timetable still available offline"
-                Toast.makeText(applicationContext, "Live cache cleared", Toast.LENGTH_SHORT).show()
+                try {
+                    val repo = (application as App).repository()
+                        ?: error("The rail repository is not ready yet")
+                    withContext(Dispatchers.IO) { repo.clearCaches() }
+                    stateFeedbackByAction = true
+                    binding.state.text = "Live cache cleared · saved timetable still available offline"
+                    actionFeedback.show("Live cache cleared · offline timetable kept")
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: Exception) {
+                    stateFeedbackByAction = true
+                    val detail = failure.javaClass.simpleName.take(80)
+                    binding.state.text = "Live cache could not be cleared · $detail"
+                    actionFeedback.show("Live cache could not be cleared · $detail")
+                } finally {
+                    cacheClearInFlight = false
+                    if (!isFinishing) {
+                        binding.clear.isEnabled = true
+                        binding.clear.setText(R.string.clear_cache)
+                    }
+                }
             }
         }
         binding.back.setOnClickListener { finish() }
@@ -289,9 +302,19 @@ class SettingsActivity : AppCompatActivity() {
             runCatching { exportDocument.launch(intent) }.onFailure { toast("This device has no file picker") }
         }
         binding.diagClear.setOnClickListener {
+            val tappedAt = SystemClock.elapsedRealtime()
+            if (diagClearInFlight || (lastDiagClearTapAt > 0L &&
+                    tappedAt - lastDiagClearTapAt < ACTION_TAP_DEBOUNCE_MILLIS)) return@setOnClickListener
+            diagClearInFlight = true
+            lastDiagClearTapAt = tappedAt
+            binding.diagClear.isEnabled = false
             diary.clear()
             renderDiary(diary)
-            toast("Log deleted from this device")
+            actionFeedback.show("Log deleted from this device")
+            binding.diagClear.postDelayed({
+                diagClearInFlight = false
+                if (!isFinishing) binding.diagClear.isEnabled = true
+            }, ACTION_TAP_DEBOUNCE_MILLIS)
         }
     }
 
@@ -311,7 +334,13 @@ class SettingsActivity : AppCompatActivity() {
         }
     }
 
-    private fun toast(message: String) = Toast.makeText(applicationContext, message, Toast.LENGTH_LONG).show()
-    private fun toast(res: Int) = Toast.makeText(applicationContext, res, Toast.LENGTH_LONG).show()
+    private fun toast(message: String) = actionFeedback.show(message)
+    private fun toast(res: Int) = actionFeedback.show(getString(res))
 
+    override fun onDestroy() {
+        if (::actionFeedback.isInitialized) actionFeedback.dispose()
+        super.onDestroy()
+    }
+
+    companion object { private const val ACTION_TAP_DEBOUNCE_MILLIS = 700L }
 }

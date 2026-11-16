@@ -26,10 +26,17 @@ class JourneyAlertPresentationTest {
         assertFalse(several.openAlerts)
     }
 
+    @Test fun activeAlertAlsoRoutesToPerAlertTurnOffAndSnoozeControls() {
+        val alerting = journeyAlertPresentation(listOf(AlertState.ALERTING))
+        assertEquals("Alert active", alerting.label)
+        assertTrue(alerting.contentDescription.contains("tap to open Alerts and Turn off or Snooze"))
+        assertTrue(alerting.openAlerts)
+    }
+
     @Test fun ringingButtonRoutesDirectlyToPerAlertStopControls() {
         val one = journeyAlertPresentation(listOf(AlertState.RINGING))
         assertEquals("Ringing", one.label)
-        assertTrue(one.contentDescription.contains("tap to open Alerts and stop each one independently"))
+        assertTrue(one.contentDescription.contains("tap to open Alerts and Turn off or Snooze"))
         assertTrue(one.openAlerts)
 
         val several = journeyAlertPresentation(listOf(

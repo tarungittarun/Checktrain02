@@ -160,6 +160,20 @@ class JourneyAlarmPolicyTest {
         assertTrue(custom is JourneyAlarmPolicy.Decision.Waiting)
     }
 
+    @Test fun outageQualificationRejectsStaleAndScheduleEchoDataButAllowsQualifiedLiveActuals() {
+        val c = config()
+        assertTrue(JourneyAlarmPolicy.hasUsableSourceData(c, route,
+            answer(actualDeparture = 665), now(670)))
+        assertTrue(!JourneyAlarmPolicy.hasUsableSourceData(c, route,
+            answer(actualDeparture = 665, feedAgeSeconds = 26 * 60L), now(670)))
+        val scheduleEcho = answer(source = SourceKind.PROVIDER, actualDeparture = 665)
+        assertTrue(!JourneyAlarmPolicy.hasUsableSourceData(c, route, scheduleEcho, now(670)))
+        assertTrue(JourneyAlarmPolicy.hasUsableSourceData(c, route, scheduleEcho, now(670),
+            allowOnScheduleActual = true))
+        assertTrue(!JourneyAlarmPolicy.hasUsableSourceData(c, route,
+            answer(source = SourceKind.CACHED, actualDeparture = 665), now(670)))
+    }
+
     @Test fun aFreshReplyCannotMakeAnOldSourceUpdateOrInconsistentEventFresh() {
         val c = config()
         val staleFeed = JourneyAlarmPolicy.stationEvent(c, route,

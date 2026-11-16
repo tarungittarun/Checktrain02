@@ -13,16 +13,18 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import `in`.opentrack.india.R
 import `in`.opentrack.india.ui.AlertsActivity
-import `in`.opentrack.india.ui.TrainActivity
 
 internal object JourneyAlarmNotifications {
-    /** One foreground-service summary for the monitor; terminal notices are alert-ID scoped. */
+    /** One foreground-service summary for the monitor; alert notices are ID-scoped. */
     const val MONITOR_ID = 7201
     const val MONITOR_CHANNEL = "journey_monitor"
     const val NOTIFICATION_CHANNEL = "journey_alert_notification"
     const val VIBRATION_CHANNEL = "journey_alert_vibration"
     const val RING_CHANNEL = "journey_alert_ring"
     const val MISSED_CHANNEL = "journey_alert_missed"
+    const val CHECK_WARNING_CHANNEL = "journey_alert_check_warning"
+
+    private const val CHECK_WARNING_TAG = "arrival-check-warning"
 
     fun ensureChannels(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -33,7 +35,7 @@ internal object JourneyAlarmNotifications {
         manager.createNotificationChannel(NotificationChannel(
             NOTIFICATION_CHANNEL, "Arrival alert · ping", NotificationManager.IMPORTANCE_DEFAULT,
         ).apply {
-            description = "One ping sound when the selected station reminder fires"
+            description = "Ping for an arrival alert; Turn off or Snooze from its notification"
             setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION),
                 AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION).build())
             enableVibration(false)
@@ -41,7 +43,7 @@ internal object JourneyAlarmNotifications {
         manager.createNotificationChannel(NotificationChannel(
             VIBRATION_CHANNEL, "Arrival alert · vibration", NotificationManager.IMPORTANCE_DEFAULT,
         ).apply {
-            description = "One vibration pattern when a selected train event is reported"
+            description = "Vibration for an arrival alert; Turn off or Snooze from its notification"
             setSound(null, null)
             enableVibration(true)
             vibrationPattern = longArrayOf(0L, 450L, 180L, 450L)
@@ -52,17 +54,25 @@ internal object JourneyAlarmNotifications {
         manager.createNotificationChannel(NotificationChannel(
             MISSED_CHANNEL, "Arrival alert · status", NotificationManager.IMPORTANCE_LOW,
         ).apply { setSound(null, null); enableVibration(false); setShowBadge(false) })
+        manager.createNotificationChannel(NotificationChannel(
+            CHECK_WARNING_CHANNEL, "Arrival alert · source check status", NotificationManager.IMPORTANCE_LOW,
+        ).apply {
+            description = "Silent status only when all qualified live-source attempts have no usable data"
+            setSound(null, null)
+            enableVibration(false)
+            setShowBadge(false)
+        })
     }
 
     fun monitoring(context: Context, snapshots: List<JourneyAlarmSnapshot>): Notification {
         val armed = snapshots.count { it.state == AlertState.ARMED }
+        val alerting = snapshots.count { it.state == AlertState.ALERTING }
         val ringing = snapshots.count { it.state == AlertState.RINGING }
         val detail = buildString {
             append("${snapshots.size} alert${if (snapshots.size == 1) "" else "s"} active")
             if (armed > 0) append(" · $armed monitoring")
+            if (alerting > 0) append(" · $alerting alerting")
             if (ringing > 0) append(" · $ringing ringing")
-            snapshots.firstOrNull { it.state == AlertState.ARMED }?.status?.takeIf { it.isNotBlank() }
-                ?.let { append("\n").append(it) }
         }
         return NotificationCompat.Builder(context, MONITOR_CHANNEL)
             .setSmallIcon(R.drawable.ic_notification_train)
@@ -81,42 +91,56 @@ internal object JourneyAlarmNotifications {
     fun monitoring(context: Context, snapshot: JourneyAlarmSnapshot): Notification =
         monitoring(context, listOf(snapshot))
 
-    fun ringing(context: Context, snapshot: JourneyAlarmSnapshot, title: String, detail: String): Notification {
-        val c = snapshot.config
-        return NotificationCompat.Builder(context, RING_CHANNEL)
-            .setSmallIcon(R.drawable.ic_notification_train)
-            .setContentTitle("TrackTrain alarm · ${c.trainNo}")
-            .setContentText("$title · $detail")
-            .setStyle(NotificationCompat.BigTextStyle().bigText("$title\n$detail\nRing stops when you tap Stop alarm."))
-            .setContentIntent(openTrain(context, snapshot))
-            .setCategory(NotificationCompat.CATEGORY_ALARM)
-            .setOngoing(true)
-            .setOnlyAlertOnce(true)
-            .setShowWhen(false)
-            .addAction(R.drawable.ic_notification_train, "Stop alarm", serviceAction(context,
-                JourneyAlarmService.ACTION_STOP_RINGING, snapshot.id, snapshot.id))
-            .build()
-    }
-
-    fun triggered(context: Context, snapshot: JourneyAlarmSnapshot, title: String,
-                  detail: String, missed: Boolean = false) {
+    /** One persistent, alert-ID notification for ping, vibration, or ring; repeat calls re-alert only when requested. */
+    fun activeAlert(context: Context, snapshot: JourneyAlarmSnapshot, soundNow: Boolean): Notification {
         val config = snapshot.config
-        val channel = if (missed) MISSED_CHANNEL else when (config.feedback) {
+        val channel = when (config.feedback) {
             AlertFeedback.NOTIFICATION -> NOTIFICATION_CHANNEL
             AlertFeedback.VIBRATION -> VIBRATION_CHANNEL
             AlertFeedback.RING_UNTIL_STOPPED -> RING_CHANNEL
         }
+        val snoozed = snapshot.snoozedUntilMillis > System.currentTimeMillis()
+        val title = when {
+            config.feedback == AlertFeedback.RING_UNTIL_STOPPED -> "Train ${config.trainNo} · ring alarm"
+            config.feedback == AlertFeedback.VIBRATION -> "Train ${config.trainNo} · vibration alert"
+            else -> "Train ${config.trainNo} · ping alert"
+        }
+        val detail = buildString {
+            append(snapshot.status)
+            if (snoozed) append("\nSnoozed · resumes around ")
+                .append(`in`.opentrack.india.core.RailTime.formatClockSeconds(snapshot.snoozedUntilMillis))
+                .append(" IST")
+            else when (config.feedback) {
+                AlertFeedback.NOTIFICATION -> append(
+                    if (config.repeatIntervalSeconds == JourneyAlarmSchedule.REPEAT_ONCE)
+                        "\nOne ping sent · Turn off or Snooze 2 min"
+                    else "\nRepeats every ${repeatLabel(config.repeatIntervalSeconds)} · Turn off or Snooze 2 min")
+                AlertFeedback.VIBRATION -> append(
+                    if (config.repeatIntervalSeconds == JourneyAlarmSchedule.REPEAT_ONCE)
+                        "\nOne vibration sent · Turn off or Snooze 2 min"
+                    else "\nRepeats every ${repeatLabel(config.repeatIntervalSeconds)} · Turn off or Snooze 2 min")
+                AlertFeedback.RING_UNTIL_STOPPED -> append("\nRings until turned off · Turn off or Snooze 2 min")
+            }
+        }
         val builder = NotificationCompat.Builder(context, channel)
             .setSmallIcon(R.drawable.ic_notification_train)
-            .setContentTitle(if (missed) "Arrival alert · not reported in time" else "Train ${config.trainNo} · $title")
-            .setContentText(detail)
+            .setContentTitle(title)
+            .setContentText(snapshot.status.take(180))
             .setStyle(NotificationCompat.BigTextStyle().bigText(detail))
-            .setContentIntent(openTrain(context, snapshot))
-            .setCategory(if (missed) NotificationCompat.CATEGORY_STATUS else NotificationCompat.CATEGORY_ALARM)
-            .setAutoCancel(true)
-            .setOnlyAlertOnce(true)
-            .setShowWhen(false)
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O && !missed) {
+            .setContentIntent(openAlertsForAlert(context, snapshot.id))
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setOngoing(true)
+            .setAutoCancel(false)
+            .setOnlyAlertOnce(!soundNow)
+            .setShowWhen(true)
+            .setWhen(snapshot.evidenceAtMillis.takeIf { it > 0L } ?: System.currentTimeMillis())
+            .addAction(R.drawable.ic_notification_train, "Turn off", serviceAction(context,
+                JourneyAlarmService.ACTION_STOP_ALERT, snapshot.id, snapshot.id))
+            .addAction(R.drawable.ic_notification_train, "Snooze 2 min", serviceAction(context,
+                JourneyAlarmService.ACTION_SNOOZE, snapshot.id, snapshot.id))
+        if (!soundNow || config.feedback == AlertFeedback.RING_UNTIL_STOPPED || snoozed)
+            builder.setSilent(true)
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O && soundNow && !snoozed) {
             when (config.feedback) {
                 AlertFeedback.NOTIFICATION -> builder.setSound(
                     RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION))
@@ -124,14 +148,32 @@ internal object JourneyAlarmNotifications {
                 AlertFeedback.RING_UNTIL_STOPPED -> Unit
             }
         }
-        NotificationManagerCompat.from(context).notify(snapshot.id, builder.build())
+        return builder.build()
     }
 
-    /** One quiet warning per consecutive failure streak; successful checks never alert. */
+    /** Terminal missed notices are quiet status, never an arrival sound. */
+    fun triggered(context: Context, snapshot: JourneyAlarmSnapshot, title: String,
+                  detail: String, missed: Boolean = false) {
+        val notification = NotificationCompat.Builder(context, MISSED_CHANNEL)
+            .setSmallIcon(R.drawable.ic_notification_train)
+            .setContentTitle(if (missed) "Arrival alert · not reported in time" else "Train ${snapshot.config.trainNo} · $title")
+            .setContentText(detail)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(detail))
+            .setContentIntent(openAlerts(context))
+            .setCategory(NotificationCompat.CATEGORY_STATUS)
+            .setAutoCancel(true)
+            .setOnlyAlertOnce(true)
+            .setSilent(true)
+            .setShowWhen(false)
+            .build()
+        NotificationManagerCompat.from(context).notify(snapshot.id, notification)
+    }
+
+    /** One silent, ID/tag-keyed notice per consecutive no-usable-source outage. */
     fun checkWarning(context: Context, snapshot: JourneyAlarmSnapshot, detail: String) {
         val config = snapshot.config
         val message = detail.take(500)
-        val notification = NotificationCompat.Builder(context, MISSED_CHANNEL)
+        val notification = NotificationCompat.Builder(context, CHECK_WARNING_CHANNEL)
             .setSmallIcon(R.drawable.ic_notification_train)
             .setContentTitle("Arrival alert check issue · train ${config.trainNo}")
             .setContentText(message)
@@ -141,13 +183,19 @@ internal object JourneyAlarmNotifications {
             .setCategory(NotificationCompat.CATEGORY_STATUS)
             .setAutoCancel(true)
             .setOnlyAlertOnce(true)
+            .setSilent(true)
             .setShowWhen(false)
             .build()
-        NotificationManagerCompat.from(context).notify(snapshot.id, notification)
+        NotificationManagerCompat.from(context).notify(CHECK_WARNING_TAG, snapshot.id, notification)
+    }
+
+    fun cancelCheckWarning(context: Context, id: Int) {
+        NotificationManagerCompat.from(context).cancel(CHECK_WARNING_TAG, id)
     }
 
     fun cancelAlert(context: Context, id: Int) {
         NotificationManagerCompat.from(context).cancel(id)
+        cancelCheckWarning(context, id)
     }
 
     fun cancelMonitor(context: Context) {
@@ -168,16 +216,13 @@ internal object JourneyAlarmNotifications {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     }
 
-    private fun openTrain(context: Context, snapshot: JourneyAlarmSnapshot): PendingIntent {
-        val c = snapshot.config
-        val intent = Intent(context, TrainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra(TrainActivity.EXTRA_TRAIN_NO, c.trainNo)
-            putExtra(TrainActivity.EXTRA_FROM, c.fromCode)
-            putExtra(TrainActivity.EXTRA_TO, c.toCode)
-            putExtra(TrainActivity.EXTRA_ORIGIN_EPOCH_DAY, c.originEpochDay)
+    private fun openAlertsForAlert(context: Context, alertId: Int): PendingIntent {
+        val intent = Intent(context, AlertsActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                Intent.FLAG_ACTIVITY_SINGLE_TOP
+            putExtra(AlertsActivity.EXTRA_ALERT_ID, alertId)
         }
-        return PendingIntent.getActivity(context, snapshot.id, intent,
+        return PendingIntent.getActivity(context, alertId, intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     }
 
@@ -188,5 +233,12 @@ internal object JourneyAlarmNotifications {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
             PendingIntent.getForegroundService(context, requestCode, intent, flags)
         else PendingIntent.getService(context, requestCode, intent, flags)
+    }
+
+    private fun repeatLabel(seconds: Int): String = when {
+        seconds == JourneyAlarmSchedule.REPEAT_ONCE -> "once"
+        seconds < 60 -> "$seconds seconds"
+        seconds % 60 == 0 -> "${seconds / 60} ${if (seconds == 60) "minute" else "minutes"}"
+        else -> "$seconds seconds"
     }
 }

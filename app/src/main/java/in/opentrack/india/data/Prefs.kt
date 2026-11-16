@@ -159,13 +159,31 @@ class Prefs(context: Context) {
     var defaultAlertIntervalMinutes: Int
         get() {
             val fallback = if (batteryMode) 5 else 2
-            return sp.getInt(KEY_ALERT_INTERVAL, fallback).takeIf { it in setOf(1, 2, 5) } ?: fallback
+            return sp.getInt(KEY_ALERT_INTERVAL, fallback).takeIf {
+                it in 1..`in`.opentrack.india.alarm.JourneyAlarmSchedule.MAX_CHECK_INTERVAL_MINUTES
+            } ?: fallback
         }
         set(value) {
             val fallback = if (batteryMode) 5 else 2
             sp.edit().putInt(KEY_ALERT_INTERVAL,
-                value.takeIf { it in setOf(1, 2, 5) } ?: fallback).apply()
+                value.takeIf {
+                    it in 1..`in`.opentrack.india.alarm.JourneyAlarmSchedule.MAX_CHECK_INTERVAL_MINUTES
+                } ?: fallback).apply()
         }
+
+    var defaultAlertRepeatIntervalSeconds: Int
+        get() = sp.getInt(KEY_ALERT_REPEAT_SECONDS, 60).let { value ->
+            if (value == `in`.opentrack.india.alarm.JourneyAlarmSchedule.REPEAT_ONCE) value
+            else value.takeIf {
+                it in `in`.opentrack.india.alarm.JourneyAlarmSchedule.MIN_REPEAT_SECONDS..
+                    `in`.opentrack.india.alarm.JourneyAlarmSchedule.MAX_REPEAT_SECONDS
+            } ?: 60
+        }
+        set(value) = sp.edit().putInt(KEY_ALERT_REPEAT_SECONDS,
+            if (value == `in`.opentrack.india.alarm.JourneyAlarmSchedule.REPEAT_ONCE) value
+            else value.coerceIn(
+                `in`.opentrack.india.alarm.JourneyAlarmSchedule.MIN_REPEAT_SECONDS,
+                `in`.opentrack.india.alarm.JourneyAlarmSchedule.MAX_REPEAT_SECONDS)).apply()
 
     var defaultAlertLeadSeconds: Int
         get() = sp.getInt(KEY_ALERT_LEAD_SECONDS, 120)
@@ -222,6 +240,7 @@ class Prefs(context: Context) {
         private const val KEY_ALERT_TRIGGER = "defaultAlertTrigger"
         private const val KEY_ALERT_FEEDBACK = "defaultAlertFeedback"
         private const val KEY_ALERT_INTERVAL = "defaultAlertInterval"
+        private const val KEY_ALERT_REPEAT_SECONDS = "defaultAlertRepeatSeconds"
         private const val KEY_ALERT_LEAD_SECONDS = "defaultAlertLeadSeconds"
         private const val KEY_ALERT_DISTANCE = "defaultAlertDistance"
         private const val KEY_RECENT = "recent"

@@ -41,6 +41,8 @@ class JourneyAlarmService : Service() {
     private val monitorConfigs = mutableMapOf<Int, JourneyAlarmConfig>()
     private val dueJobs = mutableMapOf<Int, Job>()
     private val expiryJobs = mutableMapOf<Int, Job>()
+    private val repeatJobs = mutableMapOf<Int, Job>()
+    private val repeatConfigs = mutableMapOf<Int, Pair<JourneyAlarmConfig, AlertState>>()
     private var ringPlayer: MediaPlayer? = null
 
     /** Multiple alerts for the same run share one short-lived source result rather than duplicating HTTP work. */
@@ -58,6 +60,8 @@ class JourneyAlarmService : Service() {
         val sourceLabel: String? = null,
         val receivedSources: String? = null,
         val failures: List<String> = emptyList(),
+        /** True only if at least one source supplied data usable under the alert's qualification rules. */
+        val hasUsableSourceData: Boolean = false,
     )
     private val sourceLocks = ConcurrentHashMap<String, Mutex>()
     private val sourceCache = ConcurrentHashMap<String, TimedSourceBatch>()
@@ -83,14 +87,29 @@ class JourneyAlarmService : Service() {
                     JourneyAlarmNotifications.cancel(this)
                 }
             }
-            ACTION_STOP_RINGING -> {
+            ACTION_STOP_ALERT, ACTION_STOP_RINGING -> {
                 val id = intent.getIntExtra(EXTRA_ALERT_ID, NO_ALERT_ID)
                 val snapshot = if (id > 0) JourneyAlarmStore.find(this, id)
-                    else JourneyAlarmStore.readAll(this).firstOrNull { it.state == AlertState.RINGING }
-                snapshot?.takeIf { it.state == AlertState.RINGING }?.let {
+                    else JourneyAlarmStore.readAll(this).firstOrNull {
+                        it.state == AlertState.ALERTING || it.state == AlertState.RINGING
+                    }
+                snapshot?.takeIf {
+                    it.state == AlertState.ALERTING || it.state == AlertState.RINGING
+                }?.let {
                     JourneyAlarmStore.update(this, it.id, AlertState.DISMISSED,
-                        "Alarm stopped by you", checkFailed = false)
+                        "Alert stopped by you", checkFailed = false)
                     JourneyAlarmNotifications.cancelAlert(this, it.id)
+                }
+            }
+            ACTION_SNOOZE -> {
+                val id = intent.getIntExtra(EXTRA_ALERT_ID, NO_ALERT_ID)
+                val snapshot = JourneyAlarmStore.find(this, id)
+                snapshot?.takeIf {
+                    it.state == AlertState.ALERTING || it.state == AlertState.RINGING
+                }?.let {
+                    val until = System.currentTimeMillis() + JourneyAlarmSchedule.SNOOZE_MILLIS
+                    JourneyAlarmStore.updateActiveTiming(this, it.id, it.config, it.state,
+                        snoozedUntilMillis = until, nextRepeatAtMillis = until)
                 }
             }
         }
@@ -100,7 +119,8 @@ class JourneyAlarmService : Service() {
     /** Reconcile a single foreground notice and the ID-keyed monitor/deadline jobs. */
     private fun reconcile(startId: Int = 0): Int {
         val all = JourneyAlarmStore.readAll(this)
-        val active = all.filter { it.state == AlertState.ARMED || it.state == AlertState.RINGING }
+        val active = all.filter { isActiveState(it.state) }
+        val activeById = active.associateBy { it.id }
         val armed = active.filter { it.state == AlertState.ARMED }.associate { it.id to it.config }
         monitorJobs.toMap().forEach { (id, job) ->
             if (armed[id] != monitorConfigs[id]) {
@@ -117,6 +137,19 @@ class JourneyAlarmService : Service() {
         expiryJobs.toMap().forEach { (id, job) -> if (id !in armed) {
             job.cancel(); expiryJobs.remove(id)
         } }
+        repeatJobs.toMap().forEach { (id, job) ->
+            val snapshot = activeById[id]
+            val needsTimer = snapshot != null &&
+                ((snapshot.state == AlertState.ALERTING &&
+                    (snapshot.snoozedUntilMillis > 0L || snapshot.nextRepeatAtMillis > 0L)) ||
+                    (snapshot.state == AlertState.RINGING && snapshot.snoozedUntilMillis > 0L))
+            val current = snapshot?.let { it.config to it.state }
+            if (!needsTimer || repeatConfigs[id] != current) {
+                job.cancel()
+                repeatJobs.remove(id)
+                repeatConfigs.remove(id)
+            }
+        }
         if (active.isEmpty()) {
             stopRinging()
             JourneyAlarmNotifications.cancelMonitor(this)
@@ -127,18 +160,104 @@ class JourneyAlarmService : Service() {
 
         startForegroundWithType(JourneyAlarmNotifications.MONITOR_ID,
             JourneyAlarmNotifications.monitoring(this, active), active)
-        active.filter { it.state == AlertState.RINGING }.forEach { snapshot ->
-            val (title, detail) = snapshot.status.split('\n', limit = 2)
-                .let { it.firstOrNull().orEmpty() to it.getOrNull(1).orEmpty() }
-            androidx.core.app.NotificationManagerCompat.from(this).notify(snapshot.id,
-                JourneyAlarmNotifications.ringing(this, snapshot, title, detail))
+        active.filter { it.state == AlertState.ALERTING || it.state == AlertState.RINGING }
+            .forEach { snapshot ->
+                androidx.core.app.NotificationManagerCompat.from(this).notify(snapshot.id,
+                    JourneyAlarmNotifications.activeAlert(this, snapshot, soundNow = false))
+            }
+        val ringNow = active.any {
+            it.state == AlertState.RINGING && it.snoozedUntilMillis <= System.currentTimeMillis()
         }
-        if (active.any { it.state == AlertState.RINGING }) startRinging() else stopRinging()
+        if (ringNow) startRinging() else stopRinging()
         active.filter { it.state == AlertState.ARMED }.forEach { snapshot ->
             if (monitorJobs[snapshot.id]?.isActive != true ||
                 monitorConfigs[snapshot.id] != snapshot.config) startMonitoring(snapshot)
         }
+        active.filter {
+            (it.state == AlertState.ALERTING &&
+                (it.snoozedUntilMillis > 0L || it.nextRepeatAtMillis > 0L)) ||
+                (it.state == AlertState.RINGING && it.snoozedUntilMillis > 0L)
+        }.forEach(::startAlertTimer)
         return START_STICKY
+    }
+
+    /** Persisted per-alert timer for repeated ping/vibration and 2-minute snooze expiry. */
+    private fun startAlertTimer(initial: JourneyAlarmSnapshot) {
+        val id = initial.id
+        val config = initial.config
+        val state = initial.state
+        val key = config to state
+        if (repeatJobs[id]?.isActive == true && repeatConfigs[id] == key) return
+        repeatJobs[id]?.cancel()
+        repeatJobs.remove(id)
+        repeatConfigs.remove(id)
+        val job = scope.launch(start = CoroutineStart.LAZY) {
+            try {
+                while (isActive) {
+                    var snapshot = JourneyAlarmStore.find(this@JourneyAlarmService, id) ?: break
+                    if (snapshot.state != state || snapshot.config != config) break
+                    val now = System.currentTimeMillis()
+                    val targetAt = when {
+                        snapshot.snoozedUntilMillis > 0L -> snapshot.snoozedUntilMillis
+                        state == AlertState.RINGING -> break
+                        snapshot.nextRepeatAtMillis > 0L -> snapshot.nextRepeatAtMillis
+                        else -> break
+                    }
+                    if (targetAt > now) delay(targetAt - now)
+                    snapshot = JourneyAlarmStore.find(this@JourneyAlarmService, id) ?: break
+                    if (snapshot.state != state || snapshot.config != config) break
+                    val resumedAt = System.currentTimeMillis()
+                    if (snapshot.snoozedUntilMillis > 0L &&
+                        snapshot.snoozedUntilMillis <= resumedAt) {
+                        val nextRepeat = if (state == AlertState.ALERTING &&
+                            config.repeatIntervalSeconds > JourneyAlarmSchedule.REPEAT_ONCE)
+                            resumedAt + config.repeatIntervalSeconds * 1_000L else 0L
+                        if (!JourneyAlarmStore.updateActiveTiming(this@JourneyAlarmService, id,
+                                config, state, snoozedUntilMillis = 0L,
+                                nextRepeatAtMillis = nextRepeat)) break
+                        val resumed = JourneyAlarmStore.find(this@JourneyAlarmService, id) ?: break
+                        withContext(Dispatchers.Main) {
+                            if (resumed.state == state && resumed.config == config) {
+                                if (state == AlertState.ALERTING)
+                                    androidx.core.app.NotificationManagerCompat.from(this@JourneyAlarmService)
+                                        .notify(id, JourneyAlarmNotifications.activeAlert(
+                                            this@JourneyAlarmService, resumed, soundNow = true))
+                                reconcile()
+                            }
+                        }
+                        continue
+                    }
+                    if (state == AlertState.ALERTING && snapshot.snoozedUntilMillis <= 0L &&
+                        snapshot.nextRepeatAtMillis > 0L && snapshot.nextRepeatAtMillis <= resumedAt) {
+                        val nextRepeat = resumedAt + config.repeatIntervalSeconds * 1_000L
+                        if (!JourneyAlarmStore.updateActiveTiming(this@JourneyAlarmService, id,
+                                config, state, snoozedUntilMillis = 0L,
+                                nextRepeatAtMillis = nextRepeat)) break
+                        val repeated = JourneyAlarmStore.find(this@JourneyAlarmService, id) ?: break
+                        withContext(Dispatchers.Main) {
+                            if (repeated.state == state && repeated.config == config &&
+                                repeated.nextRepeatAtMillis == nextRepeat) {
+                                androidx.core.app.NotificationManagerCompat.from(this@JourneyAlarmService)
+                                    .notify(id, JourneyAlarmNotifications.activeAlert(
+                                        this@JourneyAlarmService, repeated, soundNow = true))
+                                refreshForegroundNotification()
+                            }
+                        }
+                    }
+                }
+            } finally {
+                val thisJob = currentCoroutineContext()[Job]
+                withContext(Dispatchers.Main) {
+                    if (repeatJobs[id] === thisJob) {
+                        repeatJobs.remove(id)
+                        repeatConfigs.remove(id)
+                    }
+                }
+            }
+        }
+        repeatJobs[id] = job
+        repeatConfigs[id] = key
+        job.start()
     }
 
     private fun startMonitoring(initial: JourneyAlarmSnapshot) {
@@ -204,31 +323,42 @@ class JourneyAlarmService : Service() {
                             break
                         }
                         is JourneyAlarmPolicy.Decision.Waiting -> {
-                            val failed = check.failures.isNotEmpty()
+                            // A partial outage is not a traveller-facing failure when any independent
+                            // source still supplied fresh, route-qualified actual data. Notify only when
+                            // the whole qualified fallback/retry set has no usable source result.
+                            val noUsableSource = !check.hasUsableSourceData
                             val failureText = check.failures.joinToString(" · ").take(FAILURE_SUMMARY_LIMIT)
+                            val detail = buildString {
+                                append(decision.detail)
+                                if (failureText.isNotBlank() && check.hasUsableSourceData)
+                                    append(" · Other source attempts unavailable: ").append(failureText)
+                            }
                             val status = when {
-                                failed && check.receivedSources != null ->
-                                    "${check.receivedSources} checked · another source unavailable: $failureText"
-                                failed -> "Source check unavailable · $failureText"
-                                else -> decision.detail
+                                noUsableSource -> buildString {
+                                    append("No usable live source data · ")
+                                    append(failureText.ifBlank { decision.detail }.take(FAILURE_SUMMARY_LIMIT))
+                                }
+                                snapshot.checkFailed -> "Recovered · $detail"
+                                else -> detail
                             }
                             val updated = JourneyAlarmStore.updateArmed(this@JourneyAlarmService,
                                 id, config, status, checkedAtMillis = System.currentTimeMillis(),
-                                lastSourceLabel = check.receivedSources, checkFailed = failed)
+                                lastSourceLabel = check.receivedSources.takeIf { check.hasUsableSourceData },
+                                checkFailed = noUsableSource)
                             if (!updated) break
                             val saved = JourneyAlarmStore.find(this@JourneyAlarmService, id)
-                            if (failed && !snapshot.checkFailed && saved != null &&
+                            if (noUsableSource && !snapshot.checkFailed && saved != null &&
                                 saved.state == AlertState.ARMED && saved.config == config && saved.checkFailed) {
                                 JourneyAlarmNotifications.checkWarning(this@JourneyAlarmService,
                                     saved, failureText.ifBlank {
-                                        "A fresh source report could not be received."
+                                        "No qualified source returned fresh, usable data after its request retries."
                                     })
                                 val afterWarning = JourneyAlarmStore.find(this@JourneyAlarmService, id)
                                 if (afterWarning == null || afterWarning.state != AlertState.ARMED ||
                                     afterWarning.config != config || !afterWarning.checkFailed)
-                                    JourneyAlarmNotifications.cancelAlert(this@JourneyAlarmService, id)
-                            } else if (!failed && snapshot.checkFailed) {
-                                JourneyAlarmNotifications.cancelAlert(this@JourneyAlarmService, id)
+                                    JourneyAlarmNotifications.cancelCheckWarning(this@JourneyAlarmService, id)
+                            } else if (!noUsableSource && snapshot.checkFailed) {
+                                JourneyAlarmNotifications.cancelCheckWarning(this@JourneyAlarmService, id)
                             }
                             withContext(Dispatchers.Main) { refreshForegroundNotification() }
                             val afterCheck = JourneyAlarmStore.find(this@JourneyAlarmService, id)
@@ -307,6 +437,7 @@ class JourneyAlarmService : Service() {
         val received = mutableListOf<String>()
         val details = mutableListOf<String>()
         val deferredTerminals = mutableListOf<JourneyAlarmPolicy.SourceDecision>()
+        var hasUsableSourceData = false
         var ntesReport: RailRepository.Live? = null
 
         // Check the first source immediately; Fire is returned without waiting for slower sources.
@@ -314,14 +445,17 @@ class JourneyAlarmService : Service() {
         for (live in batch.reports) {
             val label = live.sourceName ?: JourneyAlarmPolicy.sourceLabel(live.provenance)
             received += label
+            val checkedAt = System.currentTimeMillis()
+            val sourceUsable = JourneyAlarmPolicy.hasUsableSourceData(
+                config, live.route, live.answer, checkedAt)
+            hasUsableSourceData = hasUsableSourceData || sourceUsable
             val decision = JourneyAlarmPolicy.stationEvent(
-                config, live.route, live.answer, System.currentTimeMillis(),
-                sourceDisplayName = label)
+                config, live.route, live.answer, checkedAt, sourceDisplayName = label)
             when (decision) {
                 is JourneyAlarmPolicy.Decision.Fire -> return CheckResult(
                     decision, sourceLabel = label,
                     receivedSources = received.distinct().joinToString(" + "),
-                    failures = failures.distinct())
+                    failures = failures.distinct(), hasUsableSourceData = true)
                 is JourneyAlarmPolicy.Decision.Missed ->
                     deferredTerminals += JourneyAlarmPolicy.SourceDecision(label, decision)
                 is JourneyAlarmPolicy.Decision.Waiting -> details += "$label: ${decision.detail}"
@@ -334,13 +468,16 @@ class JourneyAlarmService : Service() {
             independent.live?.let { erail ->
                 val label = erail.sourceName ?: JourneyAlarmPolicy.sourceLabel(erail.provenance)
                 received += label
+                val checkedAt = System.currentTimeMillis()
+                val sourceUsable = JourneyAlarmPolicy.hasUsableSourceData(
+                    config, erail.route, erail.answer, checkedAt)
+                hasUsableSourceData = hasUsableSourceData || sourceUsable
                 when (val decision = JourneyAlarmPolicy.stationEvent(
-                    config, erail.route, erail.answer, System.currentTimeMillis(),
-                    sourceDisplayName = label)) {
+                    config, erail.route, erail.answer, checkedAt, sourceDisplayName = label)) {
                     is JourneyAlarmPolicy.Decision.Fire -> return CheckResult(
                         decision, sourceLabel = label,
                         receivedSources = received.distinct().joinToString(" + "),
-                        failures = failures.distinct())
+                        failures = failures.distinct(), hasUsableSourceData = true)
                     is JourneyAlarmPolicy.Decision.Missed ->
                         deferredTerminals += JourneyAlarmPolicy.SourceDecision(label, decision)
                     is JourneyAlarmPolicy.Decision.Waiting -> details += "$label: ${decision.detail}"
@@ -357,14 +494,17 @@ class JourneyAlarmService : Service() {
             wimt.live?.let { live ->
                 val label = live.sourceName ?: "WIMT .in live-status feed"
                 received += label
+                val checkedAt = System.currentTimeMillis()
+                val sourceUsable = JourneyAlarmPolicy.hasUsableSourceData(
+                    config, live.route, live.answer, checkedAt, allowOnScheduleActual = true)
+                hasUsableSourceData = hasUsableSourceData || sourceUsable
                 when (val decision = JourneyAlarmPolicy.stationEvent(
-                    config, live.route, live.answer, System.currentTimeMillis(),
-                    sourceDisplayName = label,
-                    allowOnScheduleActual = true)) {
+                    config, live.route, live.answer, checkedAt,
+                    sourceDisplayName = label, allowOnScheduleActual = true)) {
                     is JourneyAlarmPolicy.Decision.Fire -> return CheckResult(
                         decision, sourceLabel = label,
                         receivedSources = received.distinct().joinToString(" + "),
-                        failures = failures.distinct())
+                        failures = failures.distinct(), hasUsableSourceData = true)
                     is JourneyAlarmPolicy.Decision.Missed ->
                         deferredTerminals += JourneyAlarmPolicy.SourceDecision(label, decision)
                     is JourneyAlarmPolicy.Decision.Waiting -> details += "$label: ${decision.detail}"
@@ -390,10 +530,11 @@ class JourneyAlarmService : Service() {
             "${sourceNames.joinToString(" + ")} checked · $waiting" else waiting
         Diary.get()?.log("ARRIVAL_ALERT", "${config.trainNo} station check: " +
             "${sourceNames.joinToString(" + ").ifBlank { "no accepted live source" }}; " +
-            "${failures.size} source check failure(s)")
+            if (hasUsableSourceData) "usable data received; ${failures.size} other source attempt(s) unavailable"
+            else "no usable source data; ${failures.size} source attempt(s) unavailable")
         return CheckResult(JourneyAlarmPolicy.Decision.Waiting(withSources),
             receivedSources = sourceNames.takeIf { it.isNotEmpty() }?.joinToString(" + "),
-            failures = failures.distinct())
+            failures = failures.distinct(), hasUsableSourceData = hasUsableSourceData)
     }
 
     /** In-flight and very short completed-result coalescing avoids duplicate network work for same-run alerts. */
@@ -569,19 +710,24 @@ class JourneyAlarmService : Service() {
         val routeMatch = sensor.evidence(fix, route) != null
         val evidence = JourneyAlarmPolicy.PhoneFix(fix.lat, fix.lon, fix.accuracyM,
             fix.atMillis, fix.speedKmh, fix.movedMeters, routeMatch)
-        return CheckResult(JourneyAlarmPolicy.distanceEvent(
-            config, route, evidence, System.currentTimeMillis()),
-            receivedSources = "Phone location")
+        val checkedAt = System.currentTimeMillis()
+        val decision = JourneyAlarmPolicy.distanceEvent(config, route, evidence, checkedAt)
+        val usableFix = checkedAt - fix.atMillis in 0..90_000L &&
+            fix.accuracyM in 0f..250f && routeMatch
+        return CheckResult(decision, receivedSources = "Phone location",
+            hasUsableSourceData = usableFix)
     }
 
     private suspend fun fireScheduled(initial: JourneyAlarmSnapshot, dueAtMillis: Long) {
         val config = initial.config
         val stationTime = config.scheduledMinute?.let { RailTime.formatRailMinute(it) } ?: "unknown"
+        val reminderDetail = if (config.leadSeconds > 0)
+            "The published timetable lists ${config.toName} at $stationTime. This reminder was set " +
+                "${config.leadSeconds} seconds before that timetable time; it is not a live ETA or a source-reported arrival."
+        else "The published timetable lists ${config.toName} at $stationTime. This is a timetable reminder, not a live ETA or a source-reported arrival."
         val due = JourneyAlarmPolicy.Decision.Fire(
             title = "Scheduled reminder · ${config.toName}",
-            detail = "The published timetable lists ${config.toName} at $stationTime. " +
-                "This reminder was set ${config.leadSeconds} seconds before that timetable time; " +
-                "it is not a live ETA or a source-reported arrival.",
+            detail = reminderDetail,
             evidenceAtMillis = dueAtMillis,
         )
         fire(initial, due, evidenceSourceLabel = null)
@@ -594,27 +740,28 @@ class JourneyAlarmService : Service() {
         val id = initial.id
         val config = initial.config
         val ringing = config.feedback == AlertFeedback.RING_UNTIL_STOPPED
-        val state = if (ringing) AlertState.RINGING else AlertState.FIRED
+        val state = if (ringing) AlertState.RINGING else AlertState.ALERTING
         val status = if (ringing) "${event.title}\n${event.detail}"
             else "${event.title} · ${event.detail}"
+        val now = System.currentTimeMillis()
+        val nextRepeat = if (ringing ||
+            config.repeatIntervalSeconds == JourneyAlarmSchedule.REPEAT_ONCE) 0L
+            else now + config.repeatIntervalSeconds * 1_000L
         val won = JourneyAlarmStore.transitionFromArmed(this, id, config, state, status,
+            checkedAtMillis = now,
             evidenceAtMillis = event.evidenceAtMillis,
-            lastSourceLabel = sourceLabel, evidenceSourceLabel = evidenceSourceLabel)
+            lastSourceLabel = sourceLabel, evidenceSourceLabel = evidenceSourceLabel,
+            nextRepeatAtMillis = nextRepeat)
         if (!won) return
         withContext(Dispatchers.Main) {
             val snapshot = JourneyAlarmStore.find(this@JourneyAlarmService, id)
                 ?: return@withContext
             if (snapshot.state != state || snapshot.config != config) return@withContext
             JourneyAlarmNotifications.cancelAlert(this@JourneyAlarmService, id)
-            if (ringing) {
-                androidx.core.app.NotificationManagerCompat.from(this@JourneyAlarmService)
-                    .notify(id, JourneyAlarmNotifications.ringing(this@JourneyAlarmService,
-                        snapshot, event.title, event.detail))
-                startRinging()
-            } else {
-                JourneyAlarmNotifications.triggered(this@JourneyAlarmService,
-                    snapshot, event.title, event.detail)
-            }
+            androidx.core.app.NotificationManagerCompat.from(this@JourneyAlarmService).notify(id,
+                JourneyAlarmNotifications.activeAlert(this@JourneyAlarmService, snapshot,
+                    soundNow = !ringing))
+            if (ringing) startRinging()
         }
         Diary.get()?.log("ARRIVAL_ALERT", "${config.trainNo} fired: ${event.detail}")
     }
@@ -653,10 +800,11 @@ class JourneyAlarmService : Service() {
         }
     }
 
+    private fun isActiveState(state: AlertState): Boolean =
+        state == AlertState.ARMED || state == AlertState.ALERTING || state == AlertState.RINGING
+
     private fun refreshForegroundNotification() {
-        val active = JourneyAlarmStore.readAll(this).filter {
-            it.state == AlertState.ARMED || it.state == AlertState.RINGING
-        }
+        val active = JourneyAlarmStore.readAll(this).filter { isActiveState(it.state) }
         if (active.isEmpty()) {
             reconcile()
             return
@@ -712,10 +860,13 @@ class JourneyAlarmService : Service() {
         monitorJobs.values.toList().forEach { it.cancel() }
         dueJobs.values.toList().forEach { it.cancel() }
         expiryJobs.values.toList().forEach { it.cancel() }
+        repeatJobs.values.toList().forEach { it.cancel() }
         monitorJobs.clear()
         monitorConfigs.clear()
         dueJobs.clear()
         expiryJobs.clear()
+        repeatJobs.clear()
+        repeatConfigs.clear()
         stopRinging()
         scope.cancel()
         super.onDestroy()
@@ -728,6 +879,8 @@ class JourneyAlarmService : Service() {
         private const val SOURCE_CACHE_LIMIT = 32
         private const val FAILURE_SUMMARY_LIMIT = 420
         const val ACTION_CANCEL = "in.opentrack.india.alarm.CANCEL"
+        const val ACTION_STOP_ALERT = "in.opentrack.india.alarm.STOP_ALERT"
+        const val ACTION_SNOOZE = "in.opentrack.india.alarm.SNOOZE"
         const val ACTION_STOP_RINGING = "in.opentrack.india.alarm.STOP_RINGING"
         const val ACTION_RECONFIGURE = "in.opentrack.india.alarm.RECONFIGURE"
         const val EXTRA_ALERT_ID = "alertId"
@@ -755,10 +908,30 @@ class JourneyAlarmService : Service() {
         fun reconfigure(context: android.content.Context) {
             val intent = Intent(context, JourneyAlarmService::class.java).setAction(ACTION_RECONFIGURE)
             val active = JourneyAlarmStore.readAll(context).any {
-                it.state == AlertState.ARMED || it.state == AlertState.RINGING
+                it.state == AlertState.ARMED || it.state == AlertState.ALERTING ||
+                    it.state == AlertState.RINGING
             }
             if (active) runCatching { ContextCompat.startForegroundService(context, intent) }
             else runCatching { context.startService(intent) }
+        }
+
+        fun stopAlert(context: android.content.Context, id: Int) {
+            val snapshot = JourneyAlarmStore.find(context, id) ?: return
+            if (snapshot.state != AlertState.ALERTING && snapshot.state != AlertState.RINGING) return
+            JourneyAlarmStore.update(context, id, AlertState.DISMISSED,
+                "Alert stopped by you", checkFailed = false)
+            JourneyAlarmNotifications.cancelAlert(context, id)
+            reconfigure(context)
+        }
+
+        fun snooze(context: android.content.Context, id: Int) {
+            val snapshot = JourneyAlarmStore.find(context, id) ?: return
+            if (snapshot.state != AlertState.ALERTING && snapshot.state != AlertState.RINGING) return
+            val until = System.currentTimeMillis() + JourneyAlarmSchedule.SNOOZE_MILLIS
+            if (JourneyAlarmStore.updateActiveTiming(context, id, snapshot.config, snapshot.state,
+                    snoozedUntilMillis = until, nextRepeatAtMillis = until)) {
+                reconfigure(context)
+            }
         }
 
         /** Explicit all-alert cancellation for the legacy global action only. */

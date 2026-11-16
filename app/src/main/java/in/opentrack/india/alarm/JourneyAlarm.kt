@@ -11,7 +11,7 @@ enum class AlertTrigger { DESTINATION_REPORT, PREVIOUS_STOP_REPORT, PHONE_DISTAN
 
 enum class AlertFeedback { NOTIFICATION, VIBRATION, RING_UNTIL_STOPPED }
 
-enum class AlertState { ARMED, FIRED, RINGING, MISSED, DISMISSED }
+enum class AlertState { ARMED, FIRED, ALERTING, RINGING, MISSED, DISMISSED }
 
 data class JourneyAlarmConfig(
     val trainNo: String,
@@ -27,8 +27,10 @@ data class JourneyAlarmConfig(
     /** Used only by PHONE_DISTANCE, and explicitly measured as straight-line distance. */
     val distanceKm: Int,
     val feedback: AlertFeedback,
-    /** Period for the foreground monitor. The UI offers 1, 2, or 5 minutes. */
+    /** Poll interval in minutes. Presets are 2, 5, and 10; custom values are bounded to 1–60. */
     val intervalMinutes: Int,
+    /** 0 sends once (a snooze sends one more); otherwise ping/vibration repeats at this interval. */
+    val repeatIntervalSeconds: Int = 60,
     val originEpochDay: Long,
     /** Last route stop already reported when the user armed the alert. */
     val baselineSeq: Int,
@@ -54,13 +56,22 @@ data class JourneyAlarmSnapshot(
     val lastSourceLabel: String? = null,
     /** Source evidence for the terminal event; null for a timetable-only reminder. */
     val evidenceSourceLabel: String? = null,
-    /** A warning has already been shown for the current consecutive source-check failure. */
+    /** A silent warning was already shown for this consecutive no-usable-source outage. */
     val checkFailed: Boolean = false,
+    /** A fired alert resumes after this wall-clock time; zero means it is not snoozed. */
+    val snoozedUntilMillis: Long = 0L,
+    /** Next ping/vibration repeat, or ring resume after snooze; zero when no timer is needed. */
+    val nextRepeatAtMillis: Long = 0L,
 )
 
 /** Lead timer and conservative end-of-run cutoff shared by the service and UI. */
 object JourneyAlarmSchedule {
     const val MAX_LEAD_SECONDS = 7_200
+    const val REPEAT_ONCE = 0
+    const val MIN_REPEAT_SECONDS = 5
+    const val MAX_REPEAT_SECONDS = 3_600
+    const val MAX_CHECK_INTERVAL_MINUTES = 60
+    const val SNOOZE_MILLIS = 2 * 60_000L
     const val RUN_END_GRACE_MILLIS = 90 * 60_000L
 
     fun dueAtMillis(config: JourneyAlarmConfig): Long? {
@@ -128,7 +139,10 @@ object JourneyAlarmStore {
         require(config.trainNo.isNotBlank() && config.fromCode.isNotBlank() && config.toCode.isNotBlank())
         require(config.triggerCode.isNotBlank() && config.triggerSeq > 0 && config.toSeq > 0)
         require(config.originEpochDay > 0L && config.createdAtMillis > 0L && config.baselineSeq >= 0)
-        require(config.intervalMinutes in 1..5)
+        require(config.intervalMinutes in 1..JourneyAlarmSchedule.MAX_CHECK_INTERVAL_MINUTES)
+        require(config.repeatIntervalSeconds == JourneyAlarmSchedule.REPEAT_ONCE ||
+            config.repeatIntervalSeconds in JourneyAlarmSchedule.MIN_REPEAT_SECONDS..
+                JourneyAlarmSchedule.MAX_REPEAT_SECONDS)
         require(config.leadSeconds in 0..JourneyAlarmSchedule.MAX_LEAD_SECONDS)
         require(config.scheduledMinute == null || config.scheduledMinute in 0..4_320)
         require(config.journeyEndMinute == null || config.journeyEndMinute in 0..4_320)
@@ -158,6 +172,8 @@ object JourneyAlarmStore {
             lastSourceLabel = lastSourceLabel ?: previous.lastSourceLabel,
             evidenceSourceLabel = evidenceSourceLabel ?: previous.evidenceSourceLabel,
             checkFailed = checkFailed ?: previous.checkFailed,
+            snoozedUntilMillis = if (isActive(state)) previous.snoozedUntilMillis else 0L,
+            nextRepeatAtMillis = if (isActive(state)) previous.nextRepeatAtMillis else 0L,
         )
         saveLocked(context, items)
     }
@@ -199,6 +215,7 @@ object JourneyAlarmStore {
         evidenceAtMillis: Long? = null,
         lastSourceLabel: String? = null,
         evidenceSourceLabel: String? = null,
+        nextRepeatAtMillis: Long = 0L,
     ): Boolean = synchronized(lock) {
         val items = loadLocked(context)
         val index = items.indexOfFirst { it.id == id }
@@ -214,6 +231,33 @@ object JourneyAlarmStore {
             lastSourceLabel = lastSourceLabel ?: previous.lastSourceLabel,
             evidenceSourceLabel = evidenceSourceLabel,
             checkFailed = false,
+            snoozedUntilMillis = 0L,
+            nextRepeatAtMillis = nextRepeatAtMillis,
+        )
+        saveLocked(context, items)
+        true
+    }
+
+    /** Compare-and-update snooze/repeat deadlines without changing source-check evidence. */
+    fun updateActiveTiming(
+        context: Context,
+        id: Int,
+        expectedConfig: JourneyAlarmConfig,
+        expectedState: AlertState,
+        snoozedUntilMillis: Long,
+        nextRepeatAtMillis: Long,
+    ): Boolean = synchronized(lock) {
+        if (expectedState !in setOf(AlertState.ALERTING, AlertState.RINGING))
+            return@synchronized false
+        val items = loadLocked(context)
+        val index = items.indexOfFirst { it.id == id }
+        if (index < 0) return@synchronized false
+        val previous = items[index]
+        if (previous.state != expectedState || previous.config != expectedConfig)
+            return@synchronized false
+        items[index] = previous.copy(
+            snoozedUntilMillis = snoozedUntilMillis.coerceAtLeast(0L),
+            nextRepeatAtMillis = nextRepeatAtMillis.coerceAtLeast(0L),
         )
         saveLocked(context, items)
         true
@@ -228,7 +272,8 @@ object JourneyAlarmStore {
             if (index < 0 || items[index].state != AlertState.ARMED) return@synchronized false
             items[index] = items[index].copy(config = config,
                 status = "Settings updated · restarting monitor",
-                lastCheckedAtMillis = 0L, lastSourceLabel = null, checkFailed = false)
+                lastCheckedAtMillis = 0L, lastSourceLabel = null, checkFailed = false,
+                snoozedUntilMillis = 0L, nextRepeatAtMillis = 0L)
             saveLocked(context, items)
             true
         }
@@ -255,9 +300,10 @@ object JourneyAlarmStore {
 
     fun dismissActive(context: Context, reason: String = "Cancelled from alert controls") = synchronized(lock) {
         val items = loadLocked(context).map { snapshot ->
-            if (snapshot.state == AlertState.ARMED || snapshot.state == AlertState.RINGING)
+            if (isActive(snapshot.state))
                 snapshot.copy(state = AlertState.DISMISSED, status = reason.take(500),
-                    lastCheckedAtMillis = System.currentTimeMillis(), checkFailed = false)
+                    lastCheckedAtMillis = System.currentTimeMillis(), checkFailed = false,
+                    snoozedUntilMillis = 0L, nextRepeatAtMillis = 0L)
             else snapshot
         }
         saveLocked(context, items)
@@ -274,7 +320,7 @@ object JourneyAlarmStore {
         prefs(context).unregisterOnSharedPreferenceChangeListener(listener)
 
     private fun isActive(state: AlertState): Boolean =
-        state == AlertState.ARMED || state == AlertState.RINGING
+        state == AlertState.ARMED || state == AlertState.ALERTING || state == AlertState.RINGING
 
     /** Must be called under [lock]. */
     private fun loadLocked(context: Context): MutableList<JourneyAlarmSnapshot> {
@@ -346,6 +392,8 @@ object JourneyAlarmStore {
         .put("lastSource", snapshot.lastSourceLabel ?: JSONObject.NULL)
         .put("evidenceSource", snapshot.evidenceSourceLabel ?: JSONObject.NULL)
         .put("checkFailed", snapshot.checkFailed)
+        .put("snoozedUntilMillis", snapshot.snoozedUntilMillis)
+        .put("nextRepeatAtMillis", snapshot.nextRepeatAtMillis)
 
     private fun decodeSnapshot(o: JSONObject): JourneyAlarmSnapshot {
         val config = decodeConfig(o.getJSONObject("config").toString())
@@ -356,7 +404,9 @@ object JourneyAlarmStore {
             o.getInt("id").also { require(it >= FIRST_ID) },
             lastSourceLabel = o.optString("lastSource").takeIf { it.isNotBlank() && it != "null" },
             evidenceSourceLabel = o.optString("evidenceSource").takeIf { it.isNotBlank() && it != "null" },
-            checkFailed = o.optBoolean("checkFailed", false))
+            checkFailed = o.optBoolean("checkFailed", false),
+            snoozedUntilMillis = o.optLong("snoozedUntilMillis", 0L).coerceAtLeast(0L),
+            nextRepeatAtMillis = o.optLong("nextRepeatAtMillis", 0L).coerceAtLeast(0L))
     }
 
     private fun encodeConfig(c: JourneyAlarmConfig): JSONObject = JSONObject()
@@ -366,6 +416,7 @@ object JourneyAlarmStore {
         .put("triggerCode", c.triggerCode).put("triggerName", c.triggerName)
         .put("triggerSeq", c.triggerSeq).put("distanceKm", c.distanceKm)
         .put("feedback", c.feedback.name).put("intervalMinutes", c.intervalMinutes)
+        .put("repeatIntervalSeconds", c.repeatIntervalSeconds)
         .put("originEpochDay", c.originEpochDay).put("baselineSeq", c.baselineSeq)
         .put("baselineEventMinute", c.baselineEventMinute ?: JSONObject.NULL)
         .put("createdAtMillis", c.createdAtMillis)
@@ -383,7 +434,13 @@ object JourneyAlarmStore {
             triggerCode = o.getString("triggerCode"), triggerName = o.getString("triggerName"),
             triggerSeq = o.getInt("triggerSeq"), distanceKm = o.optInt("distanceKm", 0),
             feedback = AlertFeedback.valueOf(o.getString("feedback")),
-            intervalMinutes = o.optInt("intervalMinutes", 1).coerceIn(1, 5),
+            intervalMinutes = o.optInt("intervalMinutes", 2).coerceIn(1,
+                JourneyAlarmSchedule.MAX_CHECK_INTERVAL_MINUTES),
+            repeatIntervalSeconds = o.optInt("repeatIntervalSeconds", 60).let { value ->
+                if (value == JourneyAlarmSchedule.REPEAT_ONCE) value else value.coerceIn(
+                    JourneyAlarmSchedule.MIN_REPEAT_SECONDS,
+                    JourneyAlarmSchedule.MAX_REPEAT_SECONDS)
+            },
             originEpochDay = o.getLong("originEpochDay"), baselineSeq = o.optInt("baselineSeq", 0),
             baselineEventMinute = if (o.isNull("baselineEventMinute")) null
                 else o.optInt("baselineEventMinute", -1).takeIf { it >= 0 },

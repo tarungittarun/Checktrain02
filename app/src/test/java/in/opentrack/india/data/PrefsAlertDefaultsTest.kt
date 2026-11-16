@@ -19,7 +19,8 @@ class PrefsAlertDefaultsTest {
 
     @Before fun resetAlertDefaults() {
         prefs.edit().remove("defaultAlertTrigger").remove("defaultAlertFeedback")
-            .remove("defaultAlertInterval").remove("defaultAlertLeadSeconds")
+            .remove("defaultAlertInterval").remove("defaultAlertRepeatSeconds")
+            .remove("defaultAlertLeadSeconds")
             .remove("defaultAlertDistance").remove("batteryMode").commit()
     }
 
@@ -30,18 +31,21 @@ class PrefsAlertDefaultsTest {
         assertEquals(AlertTrigger.DESTINATION_REPORT, defaults.defaultAlertTrigger)
         assertEquals(AlertFeedback.NOTIFICATION, defaults.defaultAlertFeedback)
         assertEquals(2, defaults.defaultAlertIntervalMinutes)
+        assertEquals(60, defaults.defaultAlertRepeatIntervalSeconds)
         assertEquals(120, defaults.defaultAlertLeadSeconds)
         assertEquals(5, defaults.defaultAlertDistanceKm)
 
         defaults.defaultAlertTrigger = AlertTrigger.PHONE_DISTANCE
         defaults.defaultAlertFeedback = AlertFeedback.RING_UNTIL_STOPPED
         defaults.defaultAlertIntervalMinutes = 1
+        defaults.defaultAlertRepeatIntervalSeconds = 0
         defaults.defaultAlertLeadSeconds = 600
         defaults.defaultAlertDistanceKm = 10
         val restored = Prefs(context)
         assertEquals(AlertTrigger.PHONE_DISTANCE, restored.defaultAlertTrigger)
         assertEquals(AlertFeedback.RING_UNTIL_STOPPED, restored.defaultAlertFeedback)
         assertEquals(1, restored.defaultAlertIntervalMinutes)
+        assertEquals(0, restored.defaultAlertRepeatIntervalSeconds)
         assertEquals(600, restored.defaultAlertLeadSeconds)
         assertEquals(10, restored.defaultAlertDistanceKm)
 

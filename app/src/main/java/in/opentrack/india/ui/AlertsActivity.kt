@@ -1,13 +1,12 @@
 package `in`.opentrack.india.ui
 
+import android.content.Intent
 import android.content.SharedPreferences
 import android.os.Bundle
 import android.view.View
-import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
-import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
@@ -35,6 +34,9 @@ import kotlinx.coroutines.launch
 /** Master alert options, per-alert editing, cancellation, status and bounded local history. */
 class AlertsActivity : AppCompatActivity() {
     private lateinit var binding: ActivityAlertsBinding
+    private var screenStarted = false
+    private var alertActionDialog: AlertDialog? = null
+    private val actionDialogShown = mutableSetOf<Int>()
     private val storeListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
         runOnUiThread { if (!isFinishing) renderAlerts() }
     }
@@ -50,8 +52,8 @@ class AlertsActivity : AppCompatActivity() {
                 .setTitle("Clear past alert history?")
                 .setMessage("Active alerts will remain armed. This removes completed, missed, stopped and cancelled entries from this device.")
                 .setPositiveButton("Clear history") { _, _ ->
-                    JourneyAlarmStore.readAll(this).filter {
-                        it.state != AlertState.ARMED && it.state != AlertState.RINGING
+                    JourneyAlarmStore.readAll(this).filterNot {
+                        isActiveState(it.state)
                     }.forEach { JourneyAlarmNotifications.cancelAlert(this, it.id) }
                     JourneyAlarmStore.clearHistory(this)
                     renderAlerts()
@@ -62,13 +64,23 @@ class AlertsActivity : AppCompatActivity() {
         renderAlerts()
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        renderAlerts()
+    }
+
     override fun onStart() {
         super.onStart()
+        screenStarted = true
         JourneyAlarmStore.register(this, storeListener)
         renderAlerts()
     }
 
     override fun onStop() {
+        screenStarted = false
+        alertActionDialog?.dismiss()
+        alertActionDialog = null
         JourneyAlarmStore.unregister(this, storeListener)
         super.onStop()
     }
@@ -76,9 +88,9 @@ class AlertsActivity : AppCompatActivity() {
     private fun renderAlerts() {
         if (!::binding.isInitialized) return
         val all = JourneyAlarmStore.readAll(this)
-        val active = all.filter { it.state == AlertState.ARMED || it.state == AlertState.RINGING }
+        val active = all.filter { isActiveState(it.state) }
             .sortedByDescending { it.config.createdAtMillis }
-        val history = all.filterNot { it.state == AlertState.ARMED || it.state == AlertState.RINGING }
+        val history = all.filterNot { isActiveState(it.state) }
             .sortedByDescending { maxOf(it.evidenceAtMillis, it.lastCheckedAtMillis, it.config.createdAtMillis) }
         val container = binding.alertsContainer
         container.removeAllViews()
@@ -94,6 +106,7 @@ class AlertsActivity : AppCompatActivity() {
         else history.forEach { addAlertCard(container, it, active = false) }
         binding.clearHistory.visibility = if (history.isNotEmpty()) View.VISIBLE else View.GONE
         if (BatteryMode.enabled(binding.root)) BatteryMode.paint(binding.root)
+        presentAlertAction(active)
     }
 
     private fun addSection(parent: LinearLayout, title: String) {
@@ -133,11 +146,13 @@ class AlertsActivity : AppCompatActivity() {
             13f, R.color.text2, top = 3))
         card.addView(text(triggerSummary(snapshot), 14f, R.color.text1, top = 10))
         if (config.trigger != AlertTrigger.PHONE_DISTANCE && config.scheduledMinute != null) {
-            card.addView(text("Lead ${config.leadSeconds}s · timetable ${RailTime.formatRailMinute(config.scheduledMinute)}",
+            card.addView(text("Published timetable · ${RailTime.formatRailMinute(config.scheduledMinute)}",
                 13f, R.color.text2, top = 3))
         }
-        card.addView(text("${feedbackSummary(config.feedback)} · every ${config.intervalMinutes}m",
-            13f, R.color.text2, top = 3))
+        card.addView(text(feedbackSummary(config), 13f, R.color.text2, top = 5))
+        card.addView(text("Check frequency · every ${config.intervalMinutes} " +
+            if (config.intervalMinutes == 1) "minute" else "minutes",
+            13f, R.color.text2, top = 2))
         card.addView(text(stateSummary(snapshot), 14f, stateColor(snapshot.state), top = 9, bold = true))
         if (snapshot.status.isNotBlank()) {
             val status = text(snapshot.status, 13f,
@@ -152,9 +167,27 @@ class AlertsActivity : AppCompatActivity() {
             val label = if (config.trigger == AlertTrigger.PHONE_DISTANCE) "Location" else "Sources"
             card.addView(text("$label · $source", 12f, R.color.text3, top = 4))
         }
-        if (snapshot.lastCheckedAtMillis > 0L)
-            card.addView(text("Checked · ${RailTime.formatClockSeconds(snapshot.lastCheckedAtMillis)} IST",
+        if (snapshot.lastCheckedAtMillis > 0L) {
+            card.addView(text("Last check · ${RailTime.formatClockSeconds(snapshot.lastCheckedAtMillis)} IST",
                 12f, R.color.text3, top = 5))
+            if (snapshot.state == AlertState.ARMED) {
+                val expectedNext = snapshot.lastCheckedAtMillis + config.intervalMinutes * 60_000L
+                card.addView(text("Next check · about ${RailTime.formatClockSeconds(expectedNext)} IST",
+                    12f, R.color.text3, top = 2))
+            }
+        } else if (snapshot.state == AlertState.ARMED) {
+            card.addView(text("First check · starting soon", 12f, R.color.text3, top = 5))
+        }
+        if (snapshot.snoozedUntilMillis > 0L &&
+            snapshot.state in setOf(AlertState.ALERTING, AlertState.RINGING)) {
+            card.addView(text("Snoozed · resumes around " +
+                "${RailTime.formatClockSeconds(snapshot.snoozedUntilMillis)} IST",
+                12f, R.color.text3, top = 3))
+        } else if (snapshot.state == AlertState.ALERTING && snapshot.nextRepeatAtMillis > 0L) {
+            card.addView(text("Next ping · about " +
+                "${RailTime.formatClockSeconds(snapshot.nextRepeatAtMillis)} IST",
+                12f, R.color.text3, top = 3))
+        }
         if (snapshot.evidenceAtMillis > 0L) {
             val evidenceLabel = when {
                 config.trigger == AlertTrigger.PHONE_DISTANCE -> "Phone location"
@@ -168,18 +201,33 @@ class AlertsActivity : AppCompatActivity() {
         if (active) {
             val actions = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
-                val lp = LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) }
-                layoutParams = lp
+                layoutParams = LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) }
             }
-            if (snapshot.state == AlertState.ARMED) {
-                val edit = actionButton("Modify alert") { editAlert(snapshot) }
-                actions.addView(edit, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(8) })
+            when (snapshot.state) {
+                AlertState.ARMED -> {
+                    val edit = actionButton("Modify alert") { editAlert(snapshot) }
+                    actions.addView(edit, LinearLayout.LayoutParams(0, -2, 1f).apply {
+                        marginEnd = dp(8)
+                    })
+                    val cancel = actionButton("Cancel alert") {
+                        confirmStop(snapshot, "Cancel alert")
+                    }
+                    actions.addView(cancel, LinearLayout.LayoutParams(0, -2, 1f))
+                }
+                AlertState.ALERTING, AlertState.RINGING -> {
+                    val turnOff = actionButton("Turn off") {
+                        JourneyAlarmService.stopAlert(this@AlertsActivity, snapshot.id)
+                    }
+                    actions.addView(turnOff, LinearLayout.LayoutParams(0, -2, 1f).apply {
+                        marginEnd = dp(8)
+                    })
+                    val snooze = actionButton("Snooze 2 min") {
+                        JourneyAlarmService.snooze(this@AlertsActivity, snapshot.id)
+                    }
+                    actions.addView(snooze, LinearLayout.LayoutParams(0, -2, 1f))
+                }
+                else -> Unit
             }
-            val actionText = if (snapshot.state == AlertState.RINGING) "Stop alarm" else "Cancel alert"
-            val action = actionButton(actionText) { confirmStop(snapshot, actionText) }
-            actions.addView(action, LinearLayout.LayoutParams(
-                if (snapshot.state == AlertState.ARMED) 0 else -1, -2,
-                if (snapshot.state == AlertState.ARMED) 1f else 0f))
             card.addView(actions)
         }
         parent.addView(card)
@@ -206,28 +254,43 @@ class AlertsActivity : AppCompatActivity() {
     private fun triggerSummary(snapshot: JourneyAlarmSnapshot): String {
         val c = snapshot.config
         return when (c.trigger) {
-            AlertTrigger.DESTINATION_REPORT -> "At destination · ${c.toName}"
+            AlertTrigger.DESTINATION_REPORT -> "At selected station · ${c.toName}"
             AlertTrigger.PREVIOUS_STOP_REPORT -> "At preceding station · ${c.triggerName}"
             AlertTrigger.PHONE_DISTANCE -> "Within ${c.distanceKm} km · ${c.toName}"
         }
     }
 
-    private fun feedbackSummary(feedback: AlertFeedback): String = when (feedback) {
-        AlertFeedback.NOTIFICATION -> "Ping"
-        AlertFeedback.VIBRATION -> "Vibrate"
-        AlertFeedback.RING_UNTIL_STOPPED -> "Ring · stop anytime"
+    private fun feedbackSummary(config: JourneyAlarmConfig): String = when (config.feedback) {
+        AlertFeedback.NOTIFICATION -> if (config.repeatIntervalSeconds == JourneyAlarmSchedule.REPEAT_ONCE)
+            "Ping · once" else "Ping · repeats every ${repeatLabel(config.repeatIntervalSeconds)}"
+        AlertFeedback.VIBRATION -> if (config.repeatIntervalSeconds == JourneyAlarmSchedule.REPEAT_ONCE)
+            "Vibrate · once" else "Vibrate · repeats every ${repeatLabel(config.repeatIntervalSeconds)}"
+        AlertFeedback.RING_UNTIL_STOPPED -> "Ring · continues until turned off"
+    }
+
+    private fun repeatLabel(seconds: Int): String = when {
+        seconds == JourneyAlarmSchedule.REPEAT_ONCE -> "once"
+        seconds < 60 -> "$seconds sec"
+        seconds % 60 == 0 -> "${seconds / 60} min"
+        else -> "$seconds sec"
     }
 
     private fun stateSummary(snapshot: JourneyAlarmSnapshot): String = when (snapshot.state) {
-        AlertState.ARMED -> if (snapshot.checkFailed) "Monitoring · source check needs attention" else "Monitoring"
-        AlertState.RINGING -> "Alarm ringing"
+        AlertState.ARMED -> if (snapshot.checkFailed)
+            "Monitoring · no usable source data; retrying" else "Monitoring"
+        AlertState.ALERTING -> if (snapshot.snoozedUntilMillis > 0L) "Alert snoozed"
+            else if (snapshot.config.repeatIntervalSeconds == JourneyAlarmSchedule.REPEAT_ONCE)
+                "One-time alert sent · turn off or snooze"
+            else "Alert active · repeating"
+        AlertState.RINGING -> if (snapshot.snoozedUntilMillis > 0L)
+            "Ring snoozed" else "Ring active · turn off anytime"
         AlertState.FIRED -> "Alert sent"
         AlertState.MISSED -> "Trigger not reported in time"
         AlertState.DISMISSED -> "Stopped or cancelled"
     }
 
     private fun stateColor(state: AlertState): Int = when (state) {
-        AlertState.ARMED, AlertState.RINGING -> R.color.live
+        AlertState.ARMED, AlertState.ALERTING, AlertState.RINGING -> R.color.live
         AlertState.FIRED -> R.color.accent
         AlertState.MISSED -> R.color.warn
         AlertState.DISMISSED -> R.color.text2
@@ -246,31 +309,18 @@ class AlertsActivity : AppCompatActivity() {
 
     private fun showDefaultOptions() {
         val prefs = Prefs(this)
-        val editor = JourneyAlarmOptionsEditor(this, prefs.defaultAlertFeedback,
-            prefs.defaultAlertLeadSeconds, prefs.defaultAlertIntervalMinutes,
-            "Starting choices for new alerts. Each alert keeps its own settings.",
-            details = "Station checks use fresh route-matched NTES, erail and the direct .in live-status feed. The .in source must match the run date and both route endpoints. Successful checks stay quiet; a failed check warns once until recovery. A station reminder uses the published timetable time, not a live ETA. .org.in pages and Google's WIMT app are not polled. Android background limits can delay checks.")
-        val triggerOptions = listOf(AlertTrigger.DESTINATION_REPORT,
-            AlertTrigger.PREVIOUS_STOP_REPORT, AlertTrigger.PHONE_DISTANCE)
-        val distanceOptions = listOf(2, 5, 10)
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            addView(optionLabel("Default trigger"))
-        }
-        val triggerSpinner = optionSpinner(
-            listOf("Destination · station report or timetable reminder",
-                "Any upcoming station · source report or timetable reminder",
-                "Phone distance · location"),
-            triggerOptions.indexOf(prefs.defaultAlertTrigger), "Default alert trigger")
-        root.addView(triggerSpinner)
-        root.addView(optionLabel("Default phone-distance radius"))
-        val distanceSpinner = optionSpinner(distanceOptions.map { "$it km · straight-line" },
-            distanceOptions.indexOf(prefs.defaultAlertDistanceKm), "Default phone-distance radius")
-        root.addView(distanceSpinner)
-        root.addView(editor.view)
+        val editor = JourneyAlarmOptionsEditor(
+            context = this,
+            initialFeedback = prefs.defaultAlertFeedback,
+            initialRepeatIntervalSeconds = prefs.defaultAlertRepeatIntervalSeconds,
+            initialIntervalMinutes = prefs.defaultAlertIntervalMinutes,
+            note = "Starting choices for new alerts. Select the upcoming station on each train's route.",
+            details = "Station checks use only fresh, route-matched NTES/eRail reports and the direct .in live-status feed, which must match the run date and both route endpoints. Successful checks stay silent. A silent status notification is sent only when all qualified source attempts fail to return usable data, then cleared on recovery. Timetable reminders are labeled separately from source reports. Ping/vibration can be one-shot or repeat; ring continues until turned off. Android background limits can delay checks.",
+            stationUnavailableSummary = "Station is chosen per journey from its upcoming stops.",
+        )
         val scroll = ScrollView(this).apply {
             isFillViewport = true
-            addView(root)
+            addView(editor.view)
         }
         val dialog = AlertDialog.Builder(this)
             .setTitle("Alert defaults")
@@ -281,40 +331,14 @@ class AlertsActivity : AppCompatActivity() {
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 val selected = editor.read() ?: return@setOnClickListener
-                prefs.defaultAlertTrigger = triggerOptions.getOrNull(triggerSpinner.selectedItemPosition)
-                    ?: AlertTrigger.DESTINATION_REPORT
-                prefs.defaultAlertDistanceKm = distanceOptions.getOrNull(distanceSpinner.selectedItemPosition)
-                    ?: 5
                 prefs.defaultAlertFeedback = selected.feedback
-                prefs.defaultAlertLeadSeconds = selected.leadSeconds
+                prefs.defaultAlertRepeatIntervalSeconds = selected.repeatIntervalSeconds
                 prefs.defaultAlertIntervalMinutes = selected.intervalMinutes
                 dialog.dismiss()
             }
         }
         dialog.show()
         if (BatteryMode.enabled(binding.root)) BatteryMode.paint(dialog.window?.decorView ?: binding.root)
-    }
-
-    private fun optionLabel(label: String) = TextView(this).apply {
-        text = label
-        textSize = 14f
-        setTextColor(getColor(R.color.text1))
-        setPadding(dp(4), dp(10), dp(4), dp(4))
-    }
-
-    private fun optionSpinner(labels: List<String>, selected: Int, description: String) = Spinner(this).apply {
-        contentDescription = description
-        setBackgroundResource(R.drawable.bg_inset)
-        minimumHeight = dp(48)
-        adapter = object : ArrayAdapter<String>(this@AlertsActivity,
-            R.layout.item_sort_selected, labels) {
-            init { setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
-            override fun getView(position: Int, convertView: View?, parent: android.view.ViewGroup): View =
-                super.getView(position, convertView, parent).also { BatteryMode.paint(it) }
-            override fun getDropDownView(position: Int, convertView: View?, parent: android.view.ViewGroup): View =
-                super.getDropDownView(position, convertView, parent).also { BatteryMode.paint(it) }
-        }
-        setSelection(selected.coerceIn(labels.indices), false)
     }
 
     private fun editAlert(snapshot: JourneyAlarmSnapshot) {
@@ -335,52 +359,23 @@ class AlertsActivity : AppCompatActivity() {
 
     private fun showEditDialog(snapshot: JourneyAlarmSnapshot, route: TrainRoute?, stations: List<StopRow>) {
         val c = snapshot.config
-        val editor = JourneyAlarmOptionsEditor(this, c.feedback, c.leadSeconds,
-            c.intervalMinutes, "Only this alert changes.",
-            details = "Station events must be fresh and match this train, run and stop; the notification names the first qualifying source. If no report qualifies, the selected lead uses the published timetable clock. Successful checks stay quiet; check failures warn once until recovery. Ringing can be stopped from this screen or its notification. Android background limits may delay monitoring.",
-            includeLeadTime = c.trigger != AlertTrigger.PHONE_DISTANCE &&
-                (c.scheduledMinute != null || route != null))
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(4), dp(4), dp(4), dp(4))
-        }
-        val stationSpinner: Spinner? = if (stations.isNotEmpty()) {
-            root.addView(TextView(this).apply {
-                text = "Upcoming station"
-                textSize = 14f
-                setTextColor(getColor(R.color.text1))
-                setPadding(0, dp(6), 0, dp(4))
-            })
-            Spinner(this).apply {
-                contentDescription = "Alert station"
-                setBackgroundResource(R.drawable.bg_inset)
-                minimumHeight = dp(48)
-                adapter = stationAdapter(stations, c)
-                val selectedCode = if (c.trigger == AlertTrigger.PREVIOUS_STOP_REPORT)
-                    c.triggerCode else c.toCode
-                val selectedIndex = stations.indexOfFirst { it.code.equals(selectedCode, true) }
-                setSelection(selectedIndex.coerceAtLeast(0), false)
-                root.addView(this)
-            }
-        } else {
-            root.addView(TextView(this).apply {
-                text = "The route is not available offline; the current station cannot be changed here. Timing and alert style can still be modified."
-                textSize = 12f
-                setTextColor(getColor(R.color.text2))
-                setPadding(0, dp(8), 0, dp(8))
-            })
-            null
-        }
-        val distanceOptions = listOf(2, 5, 10)
-        val distanceSpinner = if (c.trigger == AlertTrigger.PHONE_DISTANCE) {
-            root.addView(optionLabel("Distance radius · straight-line"))
-            val spinner = optionSpinner(distanceOptions.map { "$it km" },
-                distanceOptions.indexOf(c.distanceKm), "Phone-distance radius")
-            root.addView(spinner)
-            spinner
-        } else null
-        root.addView(editor.view)
-        val scroll = ScrollView(this).apply { isFillViewport = true; addView(root) }
+        val currentStationCode = if (c.trigger == AlertTrigger.PREVIOUS_STOP_REPORT)
+            c.triggerCode else c.toCode
+        val stationHint = if (route == null || stations.isEmpty())
+            "The route is unavailable offline. The current station stays ${c.toName}."
+        else "Choose any upcoming stop, including the final station on this route."
+        val editor = JourneyAlarmOptionsEditor(
+            context = this,
+            initialFeedback = c.feedback,
+            initialRepeatIntervalSeconds = c.repeatIntervalSeconds,
+            initialIntervalMinutes = c.intervalMinutes,
+            note = "Only this alert changes. Successful source checks stay quiet; check status and timing stay here.",
+            details = "Station events qualify only when fresh NTES/eRail or direct .in data matches this train, run and ordered route. The .in feed must echo the run date and both route endpoints. Timetable reminders are clearly labeled and are not live ETAs. If every qualified source attempt fails to return usable data, one silent notice is sent for the outage and cleared on recovery. Ping/vibration can be one-shot or repeat; ring continues until turned off. Snooze pauses any style for 2 minutes.",
+            stations = stations,
+            initialStationCode = currentStationCode,
+            stationUnavailableSummary = stationHint,
+        )
+        val scroll = ScrollView(this).apply { isFillViewport = true; addView(editor.view) }
         val dialog = AlertDialog.Builder(this)
             .setTitle("Modify alert · train ${c.trainNo}")
             .setView(scroll)
@@ -390,10 +385,15 @@ class AlertsActivity : AppCompatActivity() {
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 val selected = editor.read() ?: return@setOnClickListener
-                val stationIndex = stationSpinner?.selectedItemPosition ?: -1
-                val stop = stations.getOrNull(stationIndex)
+                val stop = selected.station?.takeIf { route != null }
                 val now = System.currentTimeMillis()
-                val changed = if (stop != null && route != null) {
+                if (stop != null && c.trigger != AlertTrigger.PHONE_DISTANCE &&
+                    stop.arrivalMin == null && stop.departureMin == null) {
+                    Toast.makeText(this, "This station has no published timetable time.",
+                        Toast.LENGTH_LONG).show()
+                    return@setOnClickListener
+                }
+                val changed = if (stop != null) {
                     val trigger = if (c.trigger == AlertTrigger.PHONE_DISTANCE)
                         AlertTrigger.PHONE_DISTANCE else AlertTrigger.DESTINATION_REPORT
                     c.copy(
@@ -404,30 +404,28 @@ class AlertsActivity : AppCompatActivity() {
                         triggerCode = stop.code,
                         triggerName = stop.name,
                         triggerSeq = stop.seq,
-                        distanceKm = if (trigger == AlertTrigger.PHONE_DISTANCE)
-                            distanceOptions.getOrNull(distanceSpinner?.selectedItemPosition ?: -1)
-                                ?: c.distanceKm else 0,
+                        distanceKm = if (trigger == AlertTrigger.PHONE_DISTANCE) c.distanceKm else 0,
                         feedback = selected.feedback,
-                        leadSeconds = selected.leadSeconds,
+                        repeatIntervalSeconds = selected.repeatIntervalSeconds,
                         intervalMinutes = selected.intervalMinutes,
+                        leadSeconds = if (trigger == AlertTrigger.PHONE_DISTANCE) c.leadSeconds else 0,
                         scheduledMinute = if (trigger == AlertTrigger.PHONE_DISTANCE) null
                             else stop.arrivalMin ?: stop.departureMin,
                         journeyEndMinute = stop.arrivalMin ?: stop.departureMin,
                         createdAtMillis = now,
                     )
-                } else c.copy(feedback = selected.feedback, leadSeconds = selected.leadSeconds,
+                } else c.copy(
+                    feedback = selected.feedback,
+                    repeatIntervalSeconds = selected.repeatIntervalSeconds,
                     intervalMinutes = selected.intervalMinutes,
-                    distanceKm = distanceOptions.getOrNull(distanceSpinner?.selectedItemPosition ?: -1)
-                        ?: c.distanceKm,
-                    createdAtMillis = now)
-                if (changed.trigger != AlertTrigger.PHONE_DISTANCE && changed.scheduledMinute == null &&
-                    (stop != null || c.scheduledMinute != null)) {
-                    Toast.makeText(this, "This station has no published timetable time.", Toast.LENGTH_LONG).show()
-                    return@setOnClickListener
-                }
+                    leadSeconds = if (c.trigger == AlertTrigger.PHONE_DISTANCE) c.leadSeconds else 0,
+                    createdAtMillis = now,
+                )
+                val stationChanged = stop != null && !stop.code.equals(currentStationCode, true)
                 val due = JourneyAlarmSchedule.dueAtMillis(changed)
-                if (due != null && due <= now) {
-                    Toast.makeText(this, "That lead time has already passed; choose a shorter lead or later station.",
+                if (stationChanged && due != null && due <= now) {
+                    Toast.makeText(this,
+                        "That station's timetable time has passed. Choose a later stop.",
                         Toast.LENGTH_LONG).show()
                     return@setOnClickListener
                 }
@@ -443,18 +441,36 @@ class AlertsActivity : AppCompatActivity() {
         if (BatteryMode.enabled(binding.root)) BatteryMode.paint(dialog.window?.decorView ?: binding.root)
     }
 
-    private fun stationAdapter(stations: List<StopRow>, config: JourneyAlarmConfig): ArrayAdapter<String> =
-        object : ArrayAdapter<String>(this, R.layout.item_sort_selected, stations.map { stop ->
-            val time = (stop.arrivalMin ?: stop.departureMin)?.let { RailTime.formatRailMinute(it) }
-                ?: "time unavailable"
-            "${stop.name} (${stop.code}) · $time"
-        }) {
-            init { setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
-            override fun getView(position: Int, convertView: View?, parent: android.view.ViewGroup): View =
-                super.getView(position, convertView, parent).also { BatteryMode.paint(it) }
-            override fun getDropDownView(position: Int, convertView: View?, parent: android.view.ViewGroup): View =
-                super.getDropDownView(position, convertView, parent).also { BatteryMode.paint(it) }
+    private fun presentAlertAction(active: List<JourneyAlarmSnapshot>) {
+        if (!screenStarted || isFinishing) return
+        val requestedId = intent.getIntExtra(EXTRA_ALERT_ID, -1)
+        val now = System.currentTimeMillis()
+        active.filter {
+            it.state in setOf(AlertState.ALERTING, AlertState.RINGING) &&
+                it.snoozedUntilMillis > now
+        }.forEach { actionDialogShown.remove(it.id) }
+        if (alertActionDialog?.isShowing == true) return
+        val ready = active.filter {
+            it.state in setOf(AlertState.ALERTING, AlertState.RINGING) &&
+                it.snoozedUntilMillis <= now && it.id !in actionDialogShown
         }
+        val snapshot = ready.firstOrNull { it.id == requestedId } ?: ready.firstOrNull() ?: return
+        actionDialogShown += snapshot.id
+        alertActionDialog = JourneyAlertActionDialog.show(
+            activity = this,
+            snapshot = snapshot,
+            onStop = { JourneyAlarmService.stopAlert(this, snapshot.id) },
+            onSnooze = {
+                JourneyAlarmService.snooze(this, snapshot.id)
+                actionDialogShown.remove(snapshot.id)
+            },
+        ).also { dialog ->
+            dialog.setOnDismissListener { if (alertActionDialog === dialog) alertActionDialog = null }
+        }
+    }
+
+    private fun isActiveState(state: AlertState): Boolean =
+        state == AlertState.ARMED || state == AlertState.ALERTING || state == AlertState.RINGING
 
     private fun date(epochDay: Long): String = RailTime.formatDate(epochDay)
 
@@ -463,4 +479,6 @@ class AlertsActivity : AppCompatActivity() {
     private fun paintBatteryDialog(dialog: AlertDialog) {
         if (BatteryMode.enabled(binding.root)) BatteryMode.paint(dialog.window?.decorView ?: binding.root)
     }
+
+    companion object { const val EXTRA_ALERT_ID = "alertId" }
 }

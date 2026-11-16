@@ -6,18 +6,28 @@ import `in`.opentrack.india.alarm.AlertState
 internal data class JourneyAlertPresentation(
     val label: String,
     val contentDescription: String,
-    /** Ringing alerts need an immediate route to their per-alert Stop action. */
+    /** Fired alerts need an immediate route to their per-alert Turn off/Snooze controls. */
     val openAlerts: Boolean,
 )
 
 internal fun journeyAlertPresentation(states: Iterable<AlertState>): JourneyAlertPresentation {
-    val active = states.filter { it == AlertState.ARMED || it == AlertState.RINGING }
+    val all = states.toList()
+    val active = all.filter {
+        it == AlertState.ARMED || it == AlertState.ALERTING || it == AlertState.RINGING
+    }
     val ringing = active.count { it == AlertState.RINGING }
+    val alerting = active.count { it == AlertState.ALERTING }
     return when {
         ringing > 0 -> JourneyAlertPresentation(
             label = if (ringing == 1) "Ringing" else "Ringing · $ringing",
             contentDescription = "$ringing arrival alarm${if (ringing == 1) " is" else "s are"} " +
-                "ringing for this journey; tap to open Alerts and stop each one independently",
+                "ringing for this journey; tap to open Alerts and Turn off or Snooze",
+            openAlerts = true,
+        )
+        alerting > 0 -> JourneyAlertPresentation(
+            label = if (alerting == 1) "Alert active" else "Alerts active · $alerting",
+            contentDescription = "$alerting arrival alert${if (alerting == 1) " is" else "s are"} " +
+                "active for this journey; tap to open Alerts and Turn off or Snooze",
             openAlerts = true,
         )
         active.isNotEmpty() -> JourneyAlertPresentation(
