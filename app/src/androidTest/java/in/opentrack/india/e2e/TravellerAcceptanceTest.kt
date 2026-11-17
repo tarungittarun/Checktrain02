@@ -621,7 +621,7 @@ class TravellerAcceptanceTest {
         assertTrue("Source/reliability details could not be expanded",
             tapTextContains("Source and reliability details"))
         assertTrue("Routine usable-data checks are not explicitly quiet",
-            revealTextContains("Successful checks stay silent", "alertDialogScroll"))
+            revealTextContains("Successful checks stay quiet", "alertDialogScroll"))
         assertTrue("Alert evidence is not limited to fresh NTES and direct WIMT reports",
             revealTextContains("Only fresh, route- and run-matched NTES or direct WIMT .in reports",
                 "alertDialogScroll"))
