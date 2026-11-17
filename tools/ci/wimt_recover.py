@@ -402,6 +402,13 @@ def summarize_wimt_46_artifact(folder: Path, original: dict,
         "NOT_QUALIFIED_BY_THE_APP_RUNNING_STATUS_GATE" if running_gate is False else
         "NOT_CAPTURED_BY_THIS_RUN_SCHEMA"
     )
+    fresh_stamp = initial.get("freshSourceStamp") is True
+    freshness_accurate = initial.get("freshnessAccurate") is True
+    freshness_assessment = (
+        "FRESH_SOURCE_STAMP_REPORTED" if fresh_stamp and freshness_accurate else
+        "NONFRESH_SOURCE_STAMP_REPORTED" if freshness_accurate else
+        "FRESHNESS_NOT_ESTABLISHED_OR_INCONSISTENT"
+    )
     result = {
         "verdict": str(original.get("verdict", ""))[:100],
         "passed": original.get("passed") is True,
@@ -425,8 +432,9 @@ def summarize_wimt_46_artifact(folder: Path, original: dict,
             "httpStatus": initial.get("httpStatus") if type(initial.get("httpStatus")) is int else None,
             "runDateMatched": initial.get("runDateMatched") is True,
             "routeMatched": initial.get("routeMatched") is True,
-            "freshSourceStamp": initial.get("freshSourceStamp") is True,
-            "freshnessAccurate": initial.get("freshnessAccurate") is True,
+            "freshSourceStamp": fresh_stamp,
+            "freshnessAccurate": freshness_accurate,
+            "freshnessAssessment": freshness_assessment,
             "sourceRows": initial.get("sourceRows") if type(initial.get("sourceRows")) is int else None,
             "visibleSourceCells": initial.get("visibleSourceCells")
                 if type(initial.get("visibleSourceCells")) is int else None,
@@ -681,6 +689,8 @@ def _self_test() -> None:
         assert summary["currentStationCheckpoints"] == []
         assert summary["refresh"]["receipts"] == 0
         assert summary["runningStatus"] == "NOT_CAPTURED_BY_THIS_RUN_SCHEMA"
+        assert summary["initial"]["freshnessAssessment"] == \
+            "FRESHNESS_NOT_ESTABLISHED_OR_INCONSISTENT"
         assert summary["reportedScreenshotNames"] == ["wimt-soak-start.png"]
         assert summary["screenshotFilesVerified"] is False
         assert summary["traceEvents"][1]["fields"]["parserOutcome"] == "SOURCE_ROWS_PRESENT"
