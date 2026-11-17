@@ -2,24 +2,67 @@ name: wimt-20-train-45-minute-campaign
 
 on:
   # workflow_dispatch is available after this file reaches the repository's default branch.
-  # For the open PR branch, the one-time workflow-file push below provides a safe way to
-  # start this campaign without running 20 emulators on every later code push.
+  # On this PR branch, narrow campaign-only paths trigger the run without firing on unrelated pushes.
+  # A [campaign-diagnostic-only] commit retrieves prior-run evidence but skips APK/emulator work.
   push:
     branches:
       - 'arena/6f68e526-checktrain02'
     paths:
       - .github/workflows/wimt-20-train-campaign.yml
+      - app/src/androidTest/java/in/opentrack/india/e2e/TrainCampaignObservationTest.kt
+      - tools/ci/select_wimt_campaign_roster.py
+      - tools/ci/verify_campaign_assignment.py
+      - tools/ci/prepare_campaign_slot.py
+      - tools/ci/run_train_campaign_device.sh
+      - tools/ci/build_wimt_20_train_campaign_pdf.py
+      - tools/ci/diagnose_campaign_evidence.py
+      - tools/ci/test_diagnose_campaign_evidence.py
   workflow_dispatch:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: wimt-20-train-campaign-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
+  diagnose_previous:
+    name: Diagnose the previous emulator failure (no campaign run)
+    if: ${{ contains(github.event.head_commit.message, '[campaign-diagnostic-only]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Download the prior roster from the completed campaign
+        uses: actions/download-artifact@v4
+        with:
+          name: campaign-roster
+          run-id: 44056035051
+          github-token: ${{ github.token }}
+          path: prior-campaign/roster
+      - name: Download the prior emulator evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: wimt-20-train-campaign-slot-1
+          run-id: 44056035051
+          github-token: ${{ github.token }}
+          path: prior-campaign/slot-1
+      - name: Extract the exact failure and coverage metrics
+        run: |
+          python3 tools/ci/diagnose_campaign_evidence.py \
+            --roster-dir prior-campaign/roster \
+            --slot-dir prior-campaign/slot-1 \
+            --markdown prior-campaign/diagnostic.md \
+            --json prior-campaign/diagnostic.json
+          cat prior-campaign/diagnostic.md >> "$GITHUB_STEP_SUMMARY"
+
   prepare:
+    if: ${{ !contains(github.event.head_commit.message, '[campaign-diagnostic-only]') }}
     name: Build APKs and verify a distinct live roster
     runs-on: ubuntu-latest
     timeout-minutes: 90
@@ -56,11 +99,14 @@ jobs:
           python3 tools/ci/test_select_wimt_campaign_roster.py
           python3 tools/ci/test_verify_campaign_assignment.py
           python3 tools/ci/test_prepare_campaign_slot.py
+          python3 tools/ci/test_diagnose_campaign_evidence.py
           python3 tools/ci/check_workflows.py
           python3 -m py_compile \
             tools/ci/select_wimt_campaign_roster.py \
             tools/ci/verify_campaign_assignment.py \
             tools/ci/prepare_campaign_slot.py \
+            tools/ci/diagnose_campaign_evidence.py \
+            tools/ci/test_diagnose_campaign_evidence.py \
             tools/ci/build_wimt_20_train_campaign_pdf.py \
             tools/ci/test_build_wimt_20_train_campaign_pdf.py
           bash -n tools/ci/run_train_campaign_device.sh
@@ -120,7 +166,7 @@ jobs:
   emulator:
     name: Emulator observation · slot ${{ matrix.slot }}
     needs: [prepare]
-    if: always()
+    if: ${{ always() && !contains(github.event.head_commit.message, '[campaign-diagnostic-only]') }}
     runs-on: ubuntu-latest
     timeout-minutes: 105
     strategy:
@@ -180,7 +226,7 @@ jobs:
   report:
     name: Consolidate observations into the campaign PDF
     needs: [prepare, emulator]
-    if: always()
+    if: ${{ always() && !contains(github.event.head_commit.message, '[campaign-diagnostic-only]') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
