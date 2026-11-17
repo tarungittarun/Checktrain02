@@ -850,7 +850,13 @@ class TrainActivity : AppCompatActivity() {
         lifecycleScope.launch {
             val armedConfig = config.copy(createdAtMillis = System.currentTimeMillis())
             try {
-                val repo = (application as App).repository()
+                val repo = (application as App).repository() ?: run {
+                    AlertDialog.Builder(this@TrainActivity)
+                        .setTitle("Reference data unavailable")
+                        .setMessage("The route data could not be opened, so current position could not be verified. No alert was armed.")
+                        .setPositiveButton("Close", null).show().also(::paintBatteryDialog)
+                    return@launch
+                }
                 // Setup and background monitoring must use the same ordered route. The
                 // generic train-number lookup can be valid for the train yet describe a
                 // different corridor/stop sequence than the journey the traveller selected.

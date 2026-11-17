@@ -451,7 +451,13 @@ class AlertsActivity : AppCompatActivity() {
                 saveButton.text = "Checking position…"
                 lifecycleScope.launch {
                     try {
-                        val repo = (application as App).repository()
+                        val repo = (application as App).repository() ?: run {
+                            AlertDialog.Builder(this@AlertsActivity)
+                                .setTitle("Reference data unavailable")
+                                .setMessage("The route data could not be opened, so current position could not be verified. No changes were saved.")
+                                .setPositiveButton("Close", null).show().also(::paintBatteryDialog)
+                            return@launch
+                        }
                         val eligibility = JourneyAlarmPositionGate.verifyUpcoming(repo, changed, route)
                         val verified = when (eligibility) {
                             is `in`.opentrack.india.alarm.JourneyAlarmPolicy.SetupEligibility.Upcoming ->
