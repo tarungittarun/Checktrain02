@@ -3,6 +3,7 @@ package `in`.opentrack.india.alarm
 import `in`.opentrack.india.core.Geo
 import `in`.opentrack.india.core.RailTime
 import `in`.opentrack.india.domain.PositionEngine
+import `in`.opentrack.india.model.LiveStopFields
 import `in`.opentrack.india.model.SourceKind
 import `in`.opentrack.india.model.TrainRoute
 import `in`.opentrack.india.ui.SourceFreshness
