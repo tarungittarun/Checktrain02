@@ -4,7 +4,6 @@ import `in`.opentrack.india.core.Geo
 import `in`.opentrack.india.core.RailTime
 import `in`.opentrack.india.domain.PositionEngine
 import `in`.opentrack.india.model.SourceKind
-import `in`.opentrack.india.model.StopStatus
 import `in`.opentrack.india.model.TrainRoute
 import `in`.opentrack.india.ui.SourceFreshness
 import java.util.Locale
@@ -20,24 +19,9 @@ object JourneyAlarmPolicy {
     sealed class Decision {
         data class Waiting(val detail: String) : Decision()
         data class Fire(val title: String, val detail: String, val evidenceAtMillis: Long) : Decision()
-        data class Missed(val detail: String, val evidenceAtMillis: Long) : Decision()
     }
 
     data class Baseline(val seq: Int = 0, val eventMinute: Int? = null)
-
-    /** A later-stop result is terminal only after every available source has been checked. */
-    data class SourceDecision(val sourceLabel: String, val decision: Decision)
-
-    /**
-     * Return the first source that can end an alert. A qualifying Fire wins immediately in
-     * source order; a single source's Missed verdict is held until all sources were reachable,
-     * so a second source can still report the selected station event.
-     */
-    fun firstTerminalSource(results: List<SourceDecision>, allSourcesChecked: Boolean): SourceDecision? =
-        results.firstOrNull { it.decision is Decision.Fire }
-            ?: if (allSourcesChecked) results.firstOrNull {
-                it.decision is Decision.Missed
-            } else null
 
     data class PhoneFix(
         val latitude: Double,
@@ -155,6 +139,8 @@ object JourneyAlarmPolicy {
         // A fresh source can contain a target-station event even if its headline anchor is
         // inconsistent. Never allow that contradiction to arm a duplicate or already-reached alert.
         val targetFields = fieldsAt(answer, target.code)
+        // Any actual time at the selected stop blocks duplicate setup. The monitor itself still
+        // requires an actual arrival for a destination alert; a departure is not an arrival event.
         val targetMinute = targetFields?.let { it.actualDepartureMin ?: it.actualArrivalMin }
         if (targetMinute != null) {
             val targetAt = RailTime.railMinuteToEpochMillis(config.originEpochDay, targetMinute)
@@ -212,42 +198,44 @@ object JourneyAlarmPolicy {
             ?: return Decision.Waiting("The selected trigger station is not on this route")
         if (target.seq != config.triggerSeq || target.seq > config.toSeq)
             return Decision.Waiting("The selected trigger station no longer matches this route")
+        val missingEvent = if (config.trigger == AlertTrigger.DESTINATION_REPORT)
+            "No qualifying arrival report at ${target.name} yet"
+        else "No qualifying station event at ${target.name} yet"
         val fields = fieldsAt(answer, target.code)
-            ?: return waitOrMiss(anchor, anchorAt, anchorEventFresh, config,
-                "No actual arrival or departure time at ${target.name}")
-        val minute = fields.actualDepartureMin ?: fields.actualArrivalMin
-            ?: return waitOrMiss(anchor, anchorAt, anchorEventFresh, config,
-                "No actual arrival or departure time at ${target.name}")
-        val scheduled = if (fields.actualDepartureMin != null) target.departureMin
-            else target.arrivalMin
+            ?: return waitForEvent(anchor, anchorAt, anchorEventFresh, config, missingEvent)
+        val stationEvent = qualifyingStationEvent(config, fields)
+            ?: return waitForEvent(anchor, anchorAt, anchorEventFresh, config, missingEvent)
+        val minute = stationEvent.minute
+        val scheduled = if (stationEvent.kind == "arrival") target.arrivalMin
+            else target.departureMin
         // A schedule-matching cell from the generic provider is not a confirmed event. WIMT
         // may use it only after its direct probe has matched run date, endpoints and fresh stamp.
         if (source != AlertEvidenceSource.WIMT && position.provenance == SourceKind.PROVIDER &&
             scheduled != null && minute == scheduled)
-            return waitOrMiss(anchor, anchorAt, anchorEventFresh, config,
+            return waitForEvent(anchor, anchorAt, anchorEventFresh, config,
                 "The provider time at ${target.name} matches the timetable; it may be a schedule echo")
 
         val eventAt = RailTime.railMinuteToEpochMillis(config.originEpochDay, minute)
         val age = SourceFreshness.ageMillis(eventAt, nowMillis)
-            ?: return waitOrMiss(anchor, anchorAt, anchorEventFresh, config,
+            ?: return waitForEvent(anchor, anchorAt, anchorEventFresh, config,
                 "The reported station event time is unknown or in the future")
         if (age > PositionEngine.STALE_MS)
-            return waitOrMiss(anchor, anchorAt, anchorEventFresh, config,
+            return waitForEvent(anchor, anchorAt, anchorEventFresh, config,
                 "The last event at ${target.name} is ${SourceFreshness.label(eventAt, nowMillis)}")
         if (feedStamp != null && feedStamp < eventAt)
             return Decision.Waiting("The source update stamp predates the reported station event; waiting for a consistent reply")
         val createdMinute = ((RailTime.istEpochDay(config.createdAtMillis) - config.originEpochDay) *
             RailTime.MINUTES_PER_DAY + RailTime.istMinuteOfDay(config.createdAtMillis)).toInt()
         if (minute <= createdMinute)
-            return waitOrMiss(anchor, anchorAt, anchorEventFresh, config,
+            return waitForEvent(anchor, anchorAt, anchorEventFresh, config,
                 "This station event was reported at or before the alert was set")
         if (target.seq < config.baselineSeq ||
             (target.seq == config.baselineSeq &&
                 config.baselineEventMinute?.let { minute <= it } == true))
-            return waitOrMiss(anchor, anchorAt, anchorEventFresh, config,
+            return waitForEvent(anchor, anchorAt, anchorEventFresh, config,
                 "Waiting for a new station event after the alert was set")
 
-        val event = if (fields.actualDepartureMin != null) "departure" else "arrival"
+        val event = stationEvent.kind
         val source = sourceDisplayName?.takeIf { it.isNotBlank() }
             ?: sourceLabel(position.provenance)
         val evidence = "$source reports $event at ${target.name} "
@@ -279,8 +267,13 @@ object JourneyAlarmPolicy {
         val anchorCode = answer.anchorStopCode ?: return false
         val anchor = route.stops.firstOrNull { it.code.equals(anchorCode, true) } ?: return false
         val fields = fieldsAt(answer, anchor.code) ?: return false
-        val minute = fields.actualDepartureMin ?: fields.actualArrivalMin ?: return false
-        val scheduled = if (fields.actualDepartureMin != null) anchor.departureMin else anchor.arrivalMin
+        // Fresh arrival OR departure data means the source answered usefully, even when a
+        // destination alert still needs the selected stop's arrival before it can fire.
+        val event = fields.actualArrivalMin?.let { StationEvent("arrival", it) }
+            ?: fields.actualDepartureMin?.let { StationEvent("departure", it) }
+            ?: return false
+        val minute = event.minute
+        val scheduled = if (event.kind == "arrival") anchor.arrivalMin else anchor.departureMin
         // Schedule-matching clocks count only from the strictly qualified, direct WIMT source.
         if (source != AlertEvidenceSource.WIMT && position.provenance == SourceKind.PROVIDER &&
             scheduled != null && minute == scheduled) return false
@@ -349,14 +342,29 @@ object JourneyAlarmPolicy {
             it.key.equals(code, true)
         }?.value
 
-    private fun waitOrMiss(anchor: `in`.opentrack.india.model.StopRow, anchorAt: Long?,
-                           anchorEventFresh: Boolean, config: JourneyAlarmConfig,
-                           reason: String): Decision =
-        if (anchor.seq > config.triggerSeq && anchorEventFresh && anchorAt != null)
-            Decision.Missed(
-                "A later station has been reported, but no qualifying event was reported at " +
-                    "${config.triggerName}. No alarm was sent. $reason", anchorAt)
-        else Decision.Waiting(reason)
+    private fun waitForEvent(anchor: `in`.opentrack.india.model.StopRow, anchorAt: Long?,
+                             anchorEventFresh: Boolean, config: JourneyAlarmConfig,
+                             reason: String): Decision.Waiting {
+        val detail = if (anchor.seq > config.triggerSeq && anchorEventFresh && anchorAt != null) {
+            val eventName = if (config.trigger == AlertTrigger.DESTINATION_REPORT)
+                "arrival" else "station event"
+            "A later station report is fresh, but it does not confirm a qualifying $eventName at " +
+                "${config.triggerName}. Delay is unconfirmed; monitoring continues. $reason"
+        } else reason
+        return Decision.Waiting(detail)
+    }
+
+    private data class StationEvent(val kind: String, val minute: Int)
+
+    /** Destination alerts need an actual arrival; a later departure cannot replace that event. */
+    private fun qualifyingStationEvent(config: JourneyAlarmConfig,
+                                       fields: LiveStopFields): StationEvent? {
+        val clocks = if (config.trigger == AlertTrigger.DESTINATION_REPORT)
+            listOf("arrival" to fields.actualArrivalMin)
+        else listOf("departure" to fields.actualDepartureMin, "arrival" to fields.actualArrivalMin)
+        val (kind, minute) = clocks.firstOrNull { it.second != null } ?: return null
+        return StationEvent(kind, minute!!)
+    }
 
     private fun sourceMatches(source: AlertEvidenceSource, provenance: SourceKind): Boolean =
         when (source) {

@@ -1332,15 +1332,30 @@ class LiveViewModel(
                 _ui.value = buildUi(fallbackRoute, initial, emptyList(),
                     listOf("Only endpoint times available while checking the dated official station table."))
             }
+            // The offline route is enough to ask independent sources. Start their jobs before
+            // the official request can spend its full timeout budget: a slow NTES response must
+            // not delay WIMT/website/other live-status evidence until after the user taps Refresh.
+            val startSurveyAlongsideOfficial = _ui.value != null && !firstSourceSurveyStarted &&
+                !`in`.opentrack.india.data.Prefs(app).batteryMode
             val officialStarted = android.os.SystemClock.elapsedRealtime()
-            val live = runCatching {
-                repo.live(
-                    trainNo = trainNo, fromCode = fromCode, toCode = toCode,
-                    originEpochDay = originEpochDay,
-                    previous = previous?.let { PositionEngine.TrainPositionInput(it) },
-                    fallbackRoute = fallbackRoute,
-                )
-            }.getOrNull()
+            val live = TrackingSourceFanout.startBeforeOfficial(
+                startIndependentSources = {
+                    if (startSurveyAlongsideOfficial) {
+                        Diary.get()?.log("UI", "offline route ready; starting independent source checks alongside official live request")
+                        surveySourcesOnce()
+                    }
+                },
+                fetchOfficial = {
+                    runCatching {
+                        repo.live(
+                            trainNo = trainNo, fromCode = fromCode, toCode = toCode,
+                            originEpochDay = originEpochDay,
+                            previous = previous?.let { PositionEngine.TrainPositionInput(it) },
+                            fallbackRoute = fallbackRoute,
+                        )
+                    }.getOrNull()
+                },
+            )
             lastOfficialMs = android.os.SystemClock.elapsedRealtime() - officialStarted
             lastOfficialRequest = if (live == null)
                 OfficialRequestReceipt(OfficialRequestReceipt.Kind.REQUEST_FAILED,

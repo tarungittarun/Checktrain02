@@ -36,12 +36,46 @@ class JourneyAlarmNotificationsTest {
 
         assertEquals("Scheduled reminder · Tiptur",
             reminder.extras.getCharSequence(Notification.EXTRA_TITLE).toString())
-        assertTrue(reminder.extras.getCharSequence(Notification.EXTRA_TEXT).toString()
-            .contains("Monitoring continues"))
+        val reminderText = reminder.extras.getCharSequence(Notification.EXTRA_TEXT).toString()
+        assertTrue(reminderText.contains("Monitoring continues"))
+        assertTrue(reminderText.contains("no qualifying arrival report yet"))
+        assertTrue(reminderText.contains("Delay is not confirmed"))
+        assertTrue(reminder.extras.getCharSequence(Notification.EXTRA_BIG_TEXT).toString()
+            .contains("Checked at"))
+        assertEquals(JourneyAlarmNotifications.SCHEDULED_CHANNEL, reminder.channelId)
         assertEquals(Notification.CATEGORY_REMINDER, reminder.category)
         assertEquals("Train 16228 · Tiptur reported",
             reached.extras.getCharSequence(Notification.EXTRA_TITLE).toString())
         assertEquals(1, reminder.actions.size)
         assertEquals(2, reached.actions.size)
+    }
+
+    @Test fun outageNoticeIsSilentEdgeStatusWithTheCheckTimestamp() {
+        val context = RuntimeEnvironment.getApplication()
+        val checkedAt = 1_793_000_000_000L
+        val config = JourneyAlarmConfig(
+            trainNo = "20652", trainName = "Test Express", fromCode = "TLGP",
+            toCode = "TKE", toName = "Tarikere Jn", toSeq = 8,
+            trigger = AlertTrigger.DESTINATION_REPORT, triggerCode = "TKE",
+            triggerName = "Tarikere Jn", triggerSeq = 8, distanceKm = 0,
+            feedback = AlertFeedback.NOTIFICATION, intervalMinutes = 5,
+            originEpochDay = 20_751L, baselineSeq = 4, baselineEventMinute = 450,
+            createdAtMillis = checkedAt, scheduledMinute = 467, journeyEndMinute = 1_100,
+        )
+        val snapshot = JourneyAlarmSnapshot(config, AlertState.ARMED,
+            "No usable live source data · retrying", checkedAt, 0L, id = 10_052,
+            checkFailed = true)
+
+        val warning = JourneyAlarmNotifications.checkWarning(context, snapshot,
+            "NTES timed out · WIMT .in could not resolve host")
+        val timeText = `in`.opentrack.india.core.RailTime.formatClockSeconds(checkedAt)
+
+        assertEquals(JourneyAlarmNotifications.CHECK_WARNING_CHANNEL, warning.channelId)
+        assertTrue(warning.extras.getCharSequence(Notification.EXTRA_TEXT).toString()
+            .contains("checked $timeText IST"))
+        assertTrue(warning.extras.getCharSequence(Notification.EXTRA_BIG_TEXT).toString()
+            .contains("Checked at $timeText IST"))
+        assertEquals(checkedAt, warning.`when`)
+        assertTrue("source-check status must not make an arrival sound", warning.sound == null)
     }
 }

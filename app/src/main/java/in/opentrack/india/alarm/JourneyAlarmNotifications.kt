@@ -22,6 +22,7 @@ internal object JourneyAlarmNotifications {
     const val VIBRATION_CHANNEL = "journey_alert_vibration"
     const val RING_CHANNEL = "journey_alert_ring"
     const val MISSED_CHANNEL = "journey_alert_missed"
+    const val SCHEDULED_CHANNEL = "journey_alert_scheduled"
     const val CHECK_WARNING_CHANNEL = "journey_alert_check_warning"
 
     private const val CHECK_WARNING_TAG = "arrival-check-warning"
@@ -53,6 +54,9 @@ internal object JourneyAlarmNotifications {
         ).apply { setSound(null, null); enableVibration(false); setShowBadge(false) })
         manager.createNotificationChannel(NotificationChannel(
             MISSED_CHANNEL, "Arrival alert · status", NotificationManager.IMPORTANCE_LOW,
+        ).apply { setSound(null, null); enableVibration(false); setShowBadge(false) })
+        manager.createNotificationChannel(NotificationChannel(
+            SCHEDULED_CHANNEL, "Arrival alert · scheduled-time status", NotificationManager.IMPORTANCE_LOW,
         ).apply { setSound(null, null); enableVibration(false); setShowBadge(false) })
         manager.createNotificationChannel(NotificationChannel(
             CHECK_WARNING_CHANNEL, "Arrival alert · source check status", NotificationManager.IMPORTANCE_LOW,
@@ -149,7 +153,7 @@ internal object JourneyAlarmNotifications {
         return builder.build()
     }
 
-    /** A one-time timetable ping; unlike a final alert it leaves the source monitor ARMED. */
+    /** A one-time, silent timetable status notice; the source monitor remains ARMED. */
     fun scheduledReminder(
         context: Context,
         snapshot: JourneyAlarmSnapshot,
@@ -159,23 +163,31 @@ internal object JourneyAlarmNotifications {
         val timetableTime = config.scheduledMinute?.let {
             `in`.opentrack.india.core.RailTime.formatRailMinute(it)
         } ?: "not published"
-        val message = "Timetable: $timetableTime · no qualifying report at ${config.toName} yet. Monitoring continues."
-        val builder = NotificationCompat.Builder(context, NOTIFICATION_CHANNEL)
+        val station = if (config.trigger == AlertTrigger.PREVIOUS_STOP_REPORT)
+            config.triggerName else config.toName
+        val eventName = if (config.trigger == AlertTrigger.PREVIOUS_STOP_REPORT)
+            "station event" else "arrival"
+        val checkedAt = snapshot.lastCheckedAtMillis.takeIf { it > 0L }?.let {
+            `in`.opentrack.india.core.RailTime.formatClockSeconds(it)
+        }
+        val message = "Timetable: $timetableTime · no qualifying $eventName report yet at " +
+            "$station. Delay is not confirmed; monitoring continues."
+        val checkTime = checkedAt?.let { "Checked at $it IST." } ?: "Monitoring continues."
+        val builder = NotificationCompat.Builder(context, SCHEDULED_CHANNEL)
             .setSmallIcon(R.drawable.ic_notification_train)
-            .setContentTitle("Scheduled reminder · ${config.toName}")
+            .setContentTitle("Scheduled reminder · $station")
             .setContentText("Train ${config.trainNo} · $message")
             .setStyle(NotificationCompat.BigTextStyle().bigText(
-                "Train ${config.trainNo}\n$message\nThis is a timetable reminder, not a live ETA."))
+                "Train ${config.trainNo}\n$message\n$checkTime\nThis is a timetable notice, not a live ETA."))
             .setContentIntent(openAlertsForAlert(context, snapshot.id))
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setAutoCancel(true)
             .setOnlyAlertOnce(true)
+            .setSilent(true)
             .setShowWhen(true)
-            .setWhen(dueAtMillis)
+            .setWhen(snapshot.lastCheckedAtMillis.takeIf { it > 0L } ?: dueAtMillis)
             .addAction(R.drawable.ic_notification_train, "Stop alert", serviceAction(context,
                 JourneyAlarmService.ACTION_CANCEL, snapshot.id, snapshot.id))
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O)
-            builder.setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION))
         return builder.build()
     }
 
@@ -200,23 +212,29 @@ internal object JourneyAlarmNotifications {
     }
 
     /** One silent, ID/tag-keyed notice per consecutive no-usable-source outage. */
-    fun checkWarning(context: Context, snapshot: JourneyAlarmSnapshot, detail: String) {
+    fun checkWarning(context: Context, snapshot: JourneyAlarmSnapshot, detail: String): Notification {
         val config = snapshot.config
-        val message = detail.take(500)
+        val checkedAtMillis = snapshot.lastCheckedAtMillis.takeIf { it > 0L }
+        val checkedAt = checkedAtMillis?.let {
+            "${`in`.opentrack.india.core.RailTime.formatClockSeconds(it)} IST"
+        } ?: "time unavailable"
+        val message = detail.take(320)
         val notification = NotificationCompat.Builder(context, CHECK_WARNING_CHANNEL)
             .setSmallIcon(R.drawable.ic_notification_train)
             .setContentTitle("Train ${config.trainNo} · live checks unavailable")
-            .setContentText("No usable NTES or WIMT data · alert remains armed")
+            .setContentText("No usable NTES or WIMT data · checked $checkedAt")
             .setStyle(NotificationCompat.BigTextStyle().bigText(
-                "$message\nNo fresh, usable station-event data; monitoring continues at the configured interval."))
+                "$message\nChecked at $checkedAt · the alert remains armed and monitoring continues."))
             .setContentIntent(openAlertsForAlert(context, snapshot.id))
             .setCategory(NotificationCompat.CATEGORY_STATUS)
             .setAutoCancel(true)
             .setOnlyAlertOnce(true)
             .setSilent(true)
-            .setShowWhen(false)
+            .setShowWhen(true)
+            .setWhen(checkedAtMillis ?: System.currentTimeMillis())
             .build()
         NotificationManagerCompat.from(context).notify(CHECK_WARNING_TAG, snapshot.id, notification)
+        return notification
     }
 
     fun cancelCheckWarning(context: Context, id: Int) {

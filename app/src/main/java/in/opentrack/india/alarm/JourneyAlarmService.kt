@@ -307,10 +307,6 @@ class JourneyAlarmService : Service() {
                             fire(initial, decision, check.sourceLabel ?: check.receivedSources)
                             break
                         }
-                        is JourneyAlarmPolicy.Decision.Missed -> {
-                            markMissed(initial, decision, check.sourceLabel ?: check.receivedSources)
-                            break
-                        }
                         is JourneyAlarmPolicy.Decision.Waiting -> {
                             // A partial outage is not a traveller-facing failure when any independent
                             // source still supplied fresh, route-qualified actual data. Notify only when
@@ -350,8 +346,8 @@ class JourneyAlarmService : Service() {
                                 JourneyAlarmNotifications.cancelCheckWarning(this@JourneyAlarmService, id)
                             }
                             val dueAtForReminder = JourneyAlarmSchedule.dueAtMillis(config)
-                            if (dueAtForReminder != null && checkedAt >= dueAtForReminder &&
-                                !transition.snapshot.scheduledReminderSent)
+                            if (dueAtForReminder != null && JourneyAlarmSchedule.reminderDue(
+                                    config, transition.snapshot.scheduledReminderSent, checkedAt))
                                 sendScheduledReminder(initial, dueAtForReminder)
                             withContext(Dispatchers.Main) { refreshForegroundNotification() }
                             val afterCheck = JourneyAlarmStore.find(this@JourneyAlarmService, id)
@@ -418,11 +414,10 @@ class JourneyAlarmService : Service() {
         val failures = batch.failures.toMutableList()
         val received = mutableListOf<String>()
         val details = mutableListOf<String>()
-        val deferredTerminals = mutableListOf<JourneyAlarmPolicy.SourceDecision>()
         var hasUsableSourceData = false
 
-        // Check the first source immediately; Fire is returned without waiting for slower sources.
-        // A Missed verdict is deferred: another available source may still report the selected stop.
+        // Check the first source immediately; a qualifying Fire is returned without waiting for slower sources.
+        // A later-station position without this stop's actual event remains Waiting, never terminal.
         for (live in batch.reports) {
             val label = live.sourceName ?: JourneyAlarmPolicy.sourceLabel(live.provenance)
             received += label
@@ -439,8 +434,6 @@ class JourneyAlarmService : Service() {
                     decision, sourceLabel = label,
                     receivedSources = received.distinct().joinToString(" + "),
                     failures = failures.distinct(), hasUsableSourceData = true)
-                is JourneyAlarmPolicy.Decision.Missed ->
-                    deferredTerminals += JourneyAlarmPolicy.SourceDecision(label, decision)
                 is JourneyAlarmPolicy.Decision.Waiting -> details += "$label: ${decision.detail}"
             }
         }
@@ -466,23 +459,11 @@ class JourneyAlarmService : Service() {
                         decision, sourceLabel = label,
                         receivedSources = received.distinct().joinToString(" + "),
                         failures = failures.distinct(), hasUsableSourceData = true)
-                    is JourneyAlarmPolicy.Decision.Missed ->
-                        deferredTerminals += JourneyAlarmPolicy.SourceDecision(label, decision)
                     is JourneyAlarmPolicy.Decision.Waiting -> details += "$label: ${decision.detail}"
                 }
             } ?: wimt.failure?.let(failures::add)
         } else {
             failures += "No route was available for the WIMT .in alert check"
-        }
-
-        val terminal = JourneyAlarmPolicy.firstTerminalSource(
-            deferredTerminals, allSourcesChecked = failures.isEmpty())
-        if (terminal != null) return CheckResult(
-            terminal.decision, sourceLabel = terminal.sourceLabel,
-            receivedSources = received.distinct().joinToString(" + "),
-            failures = failures.distinct())
-        if (deferredTerminals.isNotEmpty() && failures.isNotEmpty()) {
-            details += "A source reports the selected station was passed, but another source check failed; keeping the alert armed."
         }
 
         val sourceNames = received.distinct()
@@ -700,24 +681,6 @@ class JourneyAlarmService : Service() {
             if (ringing) startRinging()
         }
         Diary.get()?.log("ARRIVAL_ALERT", "${config.trainNo} fired: ${event.detail}")
-    }
-
-    private suspend fun markMissed(initial: JourneyAlarmSnapshot,
-                                   event: JourneyAlarmPolicy.Decision.Missed,
-                                   sourceLabel: String? = null) {
-        val won = JourneyAlarmStore.transitionFromArmed(this, initial.id, initial.config,
-            AlertState.MISSED, event.detail, evidenceAtMillis = event.evidenceAtMillis,
-            lastSourceLabel = sourceLabel, evidenceSourceLabel = sourceLabel)
-        if (!won) return
-        withContext(Dispatchers.Main) {
-            val snapshot = JourneyAlarmStore.find(this@JourneyAlarmService, initial.id)
-                ?: return@withContext
-            if (snapshot.state != AlertState.MISSED || snapshot.config != initial.config)
-                return@withContext
-            JourneyAlarmNotifications.cancelAlert(this@JourneyAlarmService, initial.id)
-            JourneyAlarmNotifications.triggered(this@JourneyAlarmService,
-                snapshot, "Earlier stop was not reported", event.detail, missed = true)
-        }
     }
 
     private suspend fun expire(initial: JourneyAlarmSnapshot) {

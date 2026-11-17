@@ -141,6 +141,25 @@ class JourneyAlarmStoreTest {
             JourneyAlarmSchedule.dueAtMillis(scheduled))
     }
 
+    @Test fun scheduledNoticeWaitsForItsBoundaryAndCanCatchUpWhenAlertWasArmedLate() {
+        val dueConfig = config().copy(scheduledMinute = 755, leadSeconds = 0)
+        val dueAt = JourneyAlarmSchedule.dueAtMillis(dueConfig)!!
+        assertTrue(!JourneyAlarmSchedule.reminderDue(dueConfig, alreadySent = false,
+            checkedAtMillis = dueAt - 1L))
+        assertTrue(JourneyAlarmSchedule.reminderDue(dueConfig, alreadySent = false,
+            checkedAtMillis = dueAt))
+        assertTrue(!JourneyAlarmSchedule.reminderDue(dueConfig, alreadySent = true,
+            checkedAtMillis = dueAt + 60_000L))
+
+        val createdAfterSchedule = dueConfig.copy(createdAtMillis = dueAt + 1_000L)
+        val id = JourneyAlarmStore.arm(context, createdAfterSchedule)
+        val restored = JourneyAlarmStore.find(context, id)!!
+        assertTrue("an already-past schedule still needs one catch-up status notice",
+            !restored.scheduledReminderSent)
+        assertTrue(JourneyAlarmSchedule.reminderDue(createdAfterSchedule,
+            restored.scheduledReminderSent, createdAfterSchedule.createdAtMillis))
+    }
+
     @Test fun aStalePollCannotResurrectACancelledOrReconfiguredAlert() {
         val configured = config()
         val id = JourneyAlarmStore.arm(context, configured)

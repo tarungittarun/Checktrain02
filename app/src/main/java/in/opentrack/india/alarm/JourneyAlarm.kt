@@ -58,7 +58,7 @@ data class JourneyAlarmSnapshot(
     val evidenceSourceLabel: String? = null,
     /** A silent warning was already shown for this consecutive no-usable-source outage. */
     val checkFailed: Boolean = false,
-    /** The one-time schedule reminder was sent (or was already past when this alert was armed). */
+    /** The one-time scheduled-time status reminder has actually been sent. */
     val scheduledReminderSent: Boolean = false,
     /** A fired alert resumes after this wall-clock time; zero means it is not snoozed. */
     val snoozedUntilMillis: Long = 0L,
@@ -82,6 +82,11 @@ object JourneyAlarmSchedule {
         return RailTime.railMinuteToEpochMillis(config.originEpochDay, minute) -
             config.leadSeconds * 1_000L
     }
+
+    /** A reminder is due only after its scheduled boundary and only until it is claimed once. */
+    fun reminderDue(config: JourneyAlarmConfig, alreadySent: Boolean,
+                    checkedAtMillis: Long): Boolean =
+        !alreadySent && dueAtMillis(config)?.let { checkedAtMillis >= it } == true
 
     fun expiryAtMillis(config: JourneyAlarmConfig): Long {
         val minute = config.journeyEndMinute ?: config.scheduledMinute
@@ -134,10 +139,8 @@ object JourneyAlarmStore {
         validateConfig(config)
         val items = loadLocked(context)
         val id = allocateId(context, items)
-        val dueAt = JourneyAlarmSchedule.dueAtMillis(config)
         items += JourneyAlarmSnapshot(config, AlertState.ARMED, "Starting background monitor",
-            0L, 0L, id,
-            scheduledReminderSent = dueAt != null && dueAt <= config.createdAtMillis)
+            0L, 0L, id)
         saveLocked(context, items, nextId = if (id == Int.MAX_VALUE) FIRST_ID else id + 1)
         id
     }
@@ -336,11 +339,10 @@ object JourneyAlarmStore {
             val items = loadLocked(context)
             val index = items.indexOfFirst { it.id == id }
             if (index < 0 || items[index].state != AlertState.ARMED) return@synchronized false
-            val dueAt = JourneyAlarmSchedule.dueAtMillis(config)
             items[index] = items[index].copy(config = config,
                 status = "Settings updated · restarting monitor",
                 lastCheckedAtMillis = 0L, lastSourceLabel = null, checkFailed = false,
-                scheduledReminderSent = dueAt != null && dueAt <= config.createdAtMillis,
+                scheduledReminderSent = false,
                 snoozedUntilMillis = 0L, nextRepeatAtMillis = 0L)
             saveLocked(context, items)
             true

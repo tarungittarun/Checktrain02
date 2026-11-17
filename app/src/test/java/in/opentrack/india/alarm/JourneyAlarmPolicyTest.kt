@@ -197,15 +197,49 @@ class JourneyAlarmPolicyTest {
         assertTrue((futureStamp as JourneyAlarmPolicy.Decision.Waiting).detail.contains("in the future"))
     }
 
-    @Test fun aSourceReportPastTheSelectedTriggerMarksItMissedWithoutFiring() {
+    @Test fun laterStationWithoutTriggerArrivalRemainsWaitingAndDoesNotClaimDelay() {
         val c = config()
         val after = answer(code = "SBC", seq = 3, actualArrival = 710,
             actualDeparture = null, replyAtMillis = now(715))
         val decision = JourneyAlarmPolicy.stationEvent(c, route, after, now(715))
 
-        assertTrue(decision is JourneyAlarmPolicy.Decision.Missed)
-        assertTrue((decision as JourneyAlarmPolicy.Decision.Missed).detail.contains("No alarm was sent"))
-        assertEquals(now(710), decision.evidenceAtMillis)
+        assertTrue(decision is JourneyAlarmPolicy.Decision.Waiting)
+        val detail = (decision as JourneyAlarmPolicy.Decision.Waiting).detail
+        assertTrue(detail.contains("does not confirm a qualifying station event at Kengeri"))
+        assertTrue(detail.contains("Delay is unconfirmed; monitoring continues"))
+        assertTrue(!detail.contains("No alarm was sent"))
+    }
+
+    @Test fun earlyDestinationArrivalFiresEvenWhenDepartureIsNotYetDue() {
+        val c = config(AlertTrigger.DESTINATION_REPORT, "KGI", "Kengeri", 2,
+            createdMinute = 650, baselineSeq = 1).copy(scheduledMinute = 660)
+        val earlyArrival = answer(code = "KGI", seq = 2, actualArrival = 658,
+            actualDeparture = 665, fetchedAgeSeconds = 1, feedAgeSeconds = 1,
+            replyAtMillis = now(659))
+
+        val decision = JourneyAlarmPolicy.stationEvent(c, route, earlyArrival, now(659))
+
+        assertTrue("a qualifying early arrival must sound immediately: $decision",
+            decision is JourneyAlarmPolicy.Decision.Fire)
+        val fired = decision as JourneyAlarmPolicy.Decision.Fire
+        assertTrue(fired.detail.contains("reports arrival at Kengeri 10:58"))
+        assertEquals(now(658), fired.evidenceAtMillis)
+    }
+
+    @Test fun destinationDepartureWithoutArrivalIsUsableButCannotSoundArrivalAlert() {
+        val c = config(AlertTrigger.DESTINATION_REPORT, "KGI", "Kengeri", 2,
+            createdMinute = 650, baselineSeq = 1).copy(scheduledMinute = 660)
+        val departureOnly = answer(code = "KGI", seq = 2, actualArrival = null,
+            actualDeparture = 655, fetchedAgeSeconds = 1, feedAgeSeconds = 1,
+            replyAtMillis = now(656))
+
+        val decision = JourneyAlarmPolicy.stationEvent(c, route, departureOnly, now(656))
+
+        assertTrue(decision is JourneyAlarmPolicy.Decision.Waiting)
+        assertTrue((decision as JourneyAlarmPolicy.Decision.Waiting).detail
+            .contains("No qualifying arrival report at Kengeri yet"))
+        assertTrue("fresh live departure data is still a usable source answer",
+            JourneyAlarmPolicy.hasUsableSourceData(c, route, departureOnly, now(656)))
     }
 
     @Test fun aFreshTargetEventStillFiresWhenTheCurrentAnchorHasPassedTheDestination() {
@@ -223,24 +257,6 @@ class JourneyAlarmPolicyTest {
         assertTrue("a fresh target event must win over the later current anchor: $decision",
             decision is JourneyAlarmPolicy.Decision.Fire)
         assertEquals(now(725), (decision as JourneyAlarmPolicy.Decision.Fire).evidenceAtMillis)
-    }
-
-    @Test fun oneSourceMissedVerdictWaitsForAnotherSourceThatCanStillFire() {
-        val missed = JourneyAlarmPolicy.Decision.Missed("NTES is past the trigger", now(710))
-        val fired = JourneyAlarmPolicy.Decision.Fire("Kengeri reported", "WIMT event", now(665))
-        val chosen = JourneyAlarmPolicy.firstTerminalSource(listOf(
-            JourneyAlarmPolicy.SourceDecision("NTES running status", missed),
-            JourneyAlarmPolicy.SourceDecision("WIMT .in live-status feed", fired),
-        ), allSourcesChecked = true)
-        assertEquals("WIMT .in live-status feed", chosen?.sourceLabel)
-        assertTrue(chosen?.decision is JourneyAlarmPolicy.Decision.Fire)
-    }
-
-    @Test fun sourceMissedVerdictDoesNotCloseAlertWhenAnotherSourceCheckFailed() {
-        val missed = JourneyAlarmPolicy.Decision.Missed("NTES is past the trigger", now(710))
-        assertEquals(null, JourneyAlarmPolicy.firstTerminalSource(listOf(
-            JourneyAlarmPolicy.SourceDecision("NTES", missed),
-        ), allSourcesChecked = false))
     }
 
     @Test fun baselineAllowsAStationEventThatHappenedAfterTheUserSetTheAlert() {

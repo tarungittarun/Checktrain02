@@ -97,9 +97,9 @@ init doFinal indices optJSONObject optBoolean opt optString has keys getJSONArra
 setPrimaryClip isNull createNotificationChannel getNotificationChannel setSound setVibrate isFinite vibrate isPlaying getButton setOnShowListener setPositiveButton setNeutralButton checkedRadioButtonId
 # Android notifications, channels, dialog controls, and numeric location checks used by the opt-in
 # foreground arrival monitor; these are Android framework/stdlib surfaces, not project receiver APIs.
-# Notification.extras/category and AlertDialog.isShowing are used by the minimal-card assertions and
-# by the asynchronous stop-edit save flow.
-extras category isShowing
+# Notification extras/category/channel/audio fields back the alert notice tests. Coroutine Job and
+# CompletableDeferred state gate the deterministic slow-first-load sequencing test.
+extras category isShowing channelId sound isCompleted complete
 # Android Drawable bounds and Bitmap pixel-parity checks in the source-neutral route render tests.
 setBounds sameAs
 # Android ViewGroup translates measured clock bounds into shared route-item coordinates.
