@@ -37,6 +37,10 @@ internal object JourneyAlertActionDialog {
             .create()
         dialog.setCanceledOnTouchOutside(true)
         dialog.show()
+        dialog.getButton(AlertDialog.BUTTON_NEGATIVE).contentDescription =
+            "Turn off · train ${config.trainNo} · alert ${snapshot.id}"
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).contentDescription =
+            "Snooze 2 min · train ${config.trainNo} · alert ${snapshot.id}"
         if (BatteryMode.enabled(activity.findViewById(android.R.id.content)))
             BatteryMode.paint(dialog.window?.decorView ?: activity.findViewById(android.R.id.content))
         return dialog
