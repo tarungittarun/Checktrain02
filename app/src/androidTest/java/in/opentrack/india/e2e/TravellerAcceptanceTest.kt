@@ -626,7 +626,7 @@ class TravellerAcceptanceTest {
             revealTextContains("Only fresh, route- and run-matched NTES or direct WIMT .in reports",
                 "alertDialogScroll"))
         assertTrue("The outage notice is not limited to one per continuous failure streak",
-            revealTextContains("One silent notice is sent per continuous failure streak",
+            revealTextContains("one silent notice is sent per continuous failure streak",
                 "alertDialogScroll"))
         E2E.shotRequired("alert-source-warning-copy")
 
