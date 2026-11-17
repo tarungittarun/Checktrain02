@@ -243,6 +243,103 @@ def summarize_live_artifact(folder: Path, original: dict,
     }
 
 
+def summarize_direct_source_artifact(folder: Path, original: dict,
+                                     source_run: str = "unknown",
+                                     source_artifact: str = "unknown") -> dict:
+    """Recover only redacted metadata from a direct-source observer artifact."""
+    observation = original.get("observation")
+    if not isinstance(observation, dict):
+        observation = {}
+    raw_samples = observation.get("samples", [])
+    if not isinstance(raw_samples, list):
+        raw_samples = []
+    sample_fields = (
+        "checkpointMinute", "elapsedSeconds", "sampledAtUtc", "httpStatus",
+        "responseBytes", "responseSha256", "runDateMatched", "routeMatched",
+        "freshSourceStamp", "sourceUpdateStamp", "sourceUpdateAgeSeconds",
+        "currentStationCodeClaim", "sourceScheduleRowCount", "sourceActualStopRowCount",
+        "runningStatusQualified", "protocolChecksPassed", "qualified", "failureReasons",
+    )
+    samples = []
+    for item in raw_samples:
+        if not isinstance(item, dict):
+            continue
+        samples.append({key: item.get(key) for key in sample_fields if key in item})
+    raw_checks = observation.get("checks")
+    checks = ({str(key)[:120]: value for key, value in raw_checks.items()
+               if isinstance(key, str) and type(value) is bool}
+              if isinstance(raw_checks, dict) else {})
+    raw_attempts = original.get("candidateAttempts", [])
+    if not isinstance(raw_attempts, list):
+        raw_attempts = []
+    attempt_fields = (
+        "probe", "trainNo", "runDate", "route", "httpStatus", "responseBytes",
+        "responseSha256", "runDateMatched", "routeMatched", "freshSourceStamp",
+        "currentStationCodeClaim", "sourceActualStopRowCount", "qualified", "failureReasons",
+    )
+    attempts = [{key: item.get(key) for key in attempt_fields if key in item}
+                for item in raw_attempts if isinstance(item, dict)]
+    return {
+        "sourceRun": source_run,
+        "sourceArtifact": source_artifact,
+        "mode": "direct-source-only" if original.get("mode") == "direct-source-only" else "unknown",
+        "source": original.get("source") if original.get("source") ==
+            "whereismytrain.in/cache/live_status" else None,
+        "passed": original.get("passed") is True,
+        "verdict": str(original.get("verdict", ""))[:100],
+        "trainNo": original.get("trainNo") if isinstance(original.get("trainNo"), str)
+            and re.fullmatch(r"[0-9]{1,8}", original.get("trainNo")) else None,
+        "runDate": str(original.get("runDate", ""))[:40],
+        "route": str(original.get("route", ""))[:100],
+        "selectionStopReason": str(original.get("selectionStopReason", ""))[:120],
+        "durationMinutes": observation.get("durationMinutes")
+            if isinstance(observation.get("durationMinutes"), (int, float)) and
+               type(observation.get("durationMinutes")) is not bool else None,
+        "requiredDurationMinutes": observation.get("requiredDurationMinutes")
+            if type(observation.get("requiredDurationMinutes")) is int else 45,
+        "recordedCheckpointMinutes": [value for value in
+            observation.get("recordedCheckpointMinutes", []) if type(value) is int]
+            if isinstance(observation.get("recordedCheckpointMinutes"), list) else [],
+        "checks": checks,
+        "candidateAttempts": attempts,
+        "samples": samples,
+        "reportFilePresent": (folder / "report.md").is_file(),
+        "noProviderRequestDuringRecovery": True,
+        "independentlyVerifiedMovement": False,
+        "gpsVerified": False,
+    }
+
+
+def _run_direct_source_report(folder: Path, original: dict) -> int:
+    source_run = os.environ.get("WIMT_SOURCE_RUN", "unknown")
+    source_artifact = os.environ.get("WIMT_SOURCE_ARTIFACT", "unknown")
+    if not re.fullmatch(r"[A-Za-z0-9._-]{1,100}", source_artifact):
+        source_artifact = "invalid-artifact-name"
+    summary = summarize_direct_source_artifact(folder, original, source_run, source_artifact)
+    original_report = original.get("reportMarkdown")
+    if not isinstance(original_report, str) or not original_report.strip():
+        original_report = _read_text(folder / "report.md")
+    text = [
+        "### Existing direct WIMT `.in` observation · artifact recovery (no new provider request)",
+        "",
+        f"- Source run/artifact: `{source_run}` / `{source_artifact}`",
+        f"- Timed observation passed: **{summary['passed']}**",
+        f"- Duration: **{summary['durationMinutes'] if summary['durationMinutes'] is not None else 'not recorded'} / 45 minutes**",
+        "- This was direct-source evidence only; recovery made no WIMT request and did not convert it into app/emulator evidence.",
+        "",
+        "```json",
+        json.dumps(summary, indent=2, sort_keys=True),
+        "```",
+        "",
+        original_report.strip() if original_report.strip() else "No original markdown report was present in the artifact.",
+        "",
+    ]
+    report = "\n".join(text)
+    (folder / "recovered-report.md").write_text(report, encoding="utf-8")
+    print(report)
+    return 0
+
+
 def _is_wimt_46_result(original) -> bool:
     return isinstance(original, dict) and \
         type(original.get("requiredDurationMinutes")) is int and \
@@ -817,6 +914,39 @@ def _self_test() -> None:
         assert diagnostic_summary["screenVerificationMode"] == "DIAGNOSTIC"
         assert "PRIVATE" not in json.dumps(summary)
         assert "<url>" in json.dumps(summary)
+    with tempfile.TemporaryDirectory(prefix="wimt-direct-source-recover-") as temporary:
+        folder = Path(temporary)
+        (folder / "report.md").write_text(
+            "# 45-minute direct WIMT `.in` source observation\n\n"
+            "No APK or emulator was used.\n", encoding="utf-8")
+        direct_result = {
+            "mode": "direct-source-only",
+            "source": "whereismytrain.in/cache/live_status",
+            "passed": False,
+            "verdict": "NO_VERIFIED_45_MINUTE_DIRECT_WIMT_IN_OBSERVATION",
+            "trainNo": "12627", "runDate": "12-10-2026", "route": "MYS->TLGP",
+            "selectionStopReason": "observation_gate_failed",
+            "observation": {
+                "durationMinutes": 35.1, "requiredDurationMinutes": 45,
+                "recordedCheckpointMinutes": [0, 5, 10, 15, 20, 25, 30, 35],
+                "checks": {"elapsedAtLeast45Minutes": False},
+                "samples": [{
+                    "checkpointMinute": 35, "httpStatus": 200,
+                    "freshSourceStamp": False, "qualified": False,
+                    "responseSha256": "a" * 64,
+                    "rawResponse": "PRIVATE raw body must never be copied",
+                }],
+            },
+            "candidateAttempts": [],
+            "reportMarkdown": "# Direct-source report; no app test.\n",
+        }
+        direct_summary = summarize_direct_source_artifact(
+            folder, direct_result, "123456", "wimt-direct-source-45-minute-evidence-123456")
+        assert direct_summary["mode"] == "direct-source-only"
+        assert direct_summary["durationMinutes"] == 35.1
+        assert direct_summary["samples"][0]["checkpointMinute"] == 35
+        assert "rawResponse" not in json.dumps(direct_summary)
+        assert direct_summary["noProviderRequestDuringRecovery"] is True
     print("WIMT artifact recovery self-test passed (no network or provider request)")
 
 
@@ -846,6 +976,8 @@ if __name__ == "__main__":
         raise SystemExit("usage: wimt_recover.py ARTIFACT_DIR | --self-test")
     folder = Path(sys.argv[1])
     original = _read_json(folder / "result.json")
+    if isinstance(original, dict) and original.get("mode") == "direct-source-only":
+        raise SystemExit(_run_direct_source_report(folder, original))
     if isinstance(original, dict) and _is_wimt_46_result(original):
         raise SystemExit(_run_wimt_46_report(folder, original))
     if isinstance(original, dict) and _is_live_comparison_result(original):
