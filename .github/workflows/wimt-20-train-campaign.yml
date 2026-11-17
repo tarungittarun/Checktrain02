@@ -1,6 +1,14 @@
 name: wimt-20-train-45-minute-campaign
 
 on:
+  # workflow_dispatch is available after this file reaches the repository's default branch.
+  # For the open PR branch, the one-time workflow-file push below provides a safe way to
+  # start this campaign without running 20 emulators on every later code push.
+  push:
+    branches:
+      - 'arena/6f68e526-checktrain02'
+    paths:
+      - .github/workflows/wimt-20-train-campaign.yml
   workflow_dispatch:
 
 permissions:
