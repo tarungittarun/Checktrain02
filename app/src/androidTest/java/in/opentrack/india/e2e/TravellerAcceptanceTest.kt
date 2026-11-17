@@ -776,9 +776,9 @@ class TravellerAcceptanceTest {
             evidenceSourceLabel = "CI fixture", checkFailed = false)
         JourneyAlarmService.reconfigure(context)
         assertTrue("Fired in-app alert did not show Turn off",
-            E2E.ui.wait(Until.hasObject(By.textContains("Turn off")), E2E.LOCAL_MS))
+            findTextContains("Turn off", E2E.LOCAL_MS) != null)
         assertTrue("Fired in-app alert did not show Snooze 2 min",
-            E2E.ui.wait(Until.hasObject(By.textContains("Snooze 2 min")), E2E.LOCAL_MS))
+            findTextContains("Snooze 2 min", E2E.LOCAL_MS) != null)
         E2E.shotRequired("alert-in-app-action-controls")
 
         val notificationManager = context.getSystemService(android.app.NotificationManager::class.java)
