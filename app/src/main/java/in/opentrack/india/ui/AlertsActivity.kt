@@ -504,7 +504,10 @@ class AlertsActivity : AppCompatActivity() {
 
     private fun presentAlertAction(active: List<JourneyAlarmSnapshot>) {
         if (!screenStarted || isFinishing) return
+        // The alert card already exposes per-alert controls. Pop the modal only when the
+        // traveller opened this page from that alert's notification, not on ordinary navigation.
         val requestedId = intent.getIntExtra(EXTRA_ALERT_ID, -1)
+        if (requestedId <= 0) return
         val now = System.currentTimeMillis()
         active.filter {
             it.state in setOf(AlertState.ALERTING, AlertState.RINGING) &&
@@ -515,7 +518,7 @@ class AlertsActivity : AppCompatActivity() {
             it.state in setOf(AlertState.ALERTING, AlertState.RINGING) &&
                 it.snoozedUntilMillis <= now && it.id !in actionDialogShown
         }
-        val snapshot = ready.firstOrNull { it.id == requestedId } ?: ready.firstOrNull() ?: return
+        val snapshot = ready.firstOrNull { it.id == requestedId } ?: return
         actionDialogShown += snapshot.id
         alertActionDialog = JourneyAlertActionDialog.show(
             activity = this,
