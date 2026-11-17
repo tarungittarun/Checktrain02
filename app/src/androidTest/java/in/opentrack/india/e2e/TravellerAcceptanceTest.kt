@@ -184,6 +184,16 @@ class TravellerAcceptanceTest {
         return false
     }
 
+    private fun revealDescription(description: String, container: String, swipes: Int = 6,
+                                  up: Boolean = true): Boolean {
+        repeat(swipes + 1) { attempt ->
+            val node = E2E.ui.wait(Until.findObject(By.desc(description)), 300)
+            if (visibleInScroll(node, container)) return true
+            if (attempt == swipes || !E2E.swipeIn(container, up = up)) return false
+        }
+        return false
+    }
+
     /** Radio options below the fold are not accessibility nodes until scrolled into view.
      * Scope this lookup to radio buttons so a similarly worded lead-time Spinner label
      * cannot satisfy the check-interval assertion. */
@@ -779,7 +789,7 @@ class TravellerAcceptanceTest {
             findTextContains("Turn off", E2E.LOCAL_MS) != null)
         val snoozeDescription = "Snooze 2 min · train ${armed.config.trainNo} · alert ${armed.id}"
         assertTrue("Fired in-app alert did not show its alert-scoped snooze action",
-            E2E.ui.wait(Until.hasObject(By.desc(snoozeDescription)), E2E.LOCAL_MS))
+            revealDescription(snoozeDescription, "alertsScroll"))
         E2E.shotRequired("alert-in-app-action-controls")
 
         val notificationManager = context.getSystemService(android.app.NotificationManager::class.java)
@@ -798,21 +808,25 @@ class TravellerAcceptanceTest {
         assertTrue("Notification shade is missing Turn off", "Turn off" in notificationActions)
         assertTrue("Notification shade is missing Snooze 2 min", "Snooze 2 min" in notificationActions)
         val snoozeAction = E2E.ui.wait(Until.findObject(By.desc(snoozeDescription)), E2E.LOCAL_MS)
-        assertTrue("Alert-scoped snooze action could not be found", snoozeAction != null)
-        snoozeAction!!.click()
+        assertTrue("Alert-scoped snooze action is not visible inside the Alerts list",
+            visibleInScroll(snoozeAction, "alertsScroll"))
+        assertTrue("A physical tap on the visible alert-scoped Snooze control did not land",
+            E2E.fingerTap(snoozeAction))
         E2E.ui.waitForIdle()
         val snoozed = JourneyAlarmStore.find(context, armed.id)
             ?: throw AssertionError("Snoozed alert disappeared from the store")
         val checkedAt = System.currentTimeMillis()
+        val hasSnoozeDeadline = snoozed.snoozedUntilMillis > checkedAt &&
+            snoozed.snoozedUntilMillis <= checkedAt + 121_000L
+        if (!hasSnoozeDeadline) E2E.shotDiagnostic("alert-snooze-not-persisted")
         assertTrue("Snooze did not persist a two-minute resume time: state=${snoozed.state}, " +
             "deadline=${snoozed.snoozedUntilMillis}, now=$checkedAt",
-            snoozed.snoozedUntilMillis > checkedAt &&
-                snoozed.snoozedUntilMillis <= checkedAt + 121_000L)
-        E2E.shotRequired("alert-snoozed-state")
+            hasSnoozeDeadline)
         assertTrue("Snoozed alert card lost its Turn off control",
             revealTextContains("Turn off", "alertsScroll"))
         assertTrue("Snoozed alert card lost its alert-scoped Snooze 2 min control",
-            E2E.ui.wait(Until.hasObject(By.desc(snoozeDescription)), E2E.LOCAL_MS))
+            revealDescription(snoozeDescription, "alertsScroll"))
+        E2E.shotRequired("alert-snoozed-state")
         E2E.shotRequired("alert-active-action-controls")
         assertTrue("Turn off could not stop the active alert",
             tapTextContains("Turn off"))
