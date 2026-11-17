@@ -410,6 +410,14 @@ def summarize_wimt_46_artifact(folder: Path, original: dict,
         "FRESHNESS_NOT_ESTABLISHED_OR_INCONSISTENT"
     )
     trace_events = _safe_trace_events(folder)
+    source_loss_events = [
+        {"event": event["event"], **event["fields"]}
+        for event in trace_events
+        if event["event"] in (
+            "WIMT_SOAK_SOURCE_LOST", "WIMT_SOAK_DETAIL_UNAVAILABLE",
+            "WIMT_SOAK_FINAL_DETAILS_UNAVAILABLE", "WIMT_SOAK_AUTO_STOP",
+        )
+    ]
     running_required = any(
         event["fields"].get(key) is True
         for event in trace_events
@@ -492,6 +500,7 @@ def summarize_wimt_46_artifact(folder: Path, original: dict,
         "runningStatus": running_status,
         "runningStatusBasis": "app-side rule: matched run/route + fresh source update + current-station field + at least one source-reported actual stop clock; not an explicit provider boolean or movement/GPS proof",
         "runningStatusFailurePoints": running_failure_points,
+        "sourceLossEvents": source_loss_events,
         "instrumentationPassed": original.get("instrumentationPassed") is True,
         "runnerExitCode": original.get("runnerExitCode")
             if type(original.get("runnerExitCode")) is int else None,
@@ -685,6 +694,7 @@ def _self_test() -> None:
             "requireCurrentStation=true requiredReceipts=46 initialHttpStatus=200\n"
             "WIMT_SOAK_SAMPLE minute=0 elapsedSeconds=0 receiptClock=12:00:00 "
             "selected=true visibleCells=3 sourceRowsVisible=true autoEnabled=true receiptFailure=false\n"
+            "WIMT_SOAK_SOURCE_LOST cycle=35 elapsedMinutes=35\n"
             "WIMT_SOAK_SUMMARY durationMs=1000 cycles=0 requiredReceipts=46 missedReceipts=0 "
             "detailSamples=1 freshSamples=1 nonFreshSamples=0 unqualifiedSamples=0 "
             "httpFailures=0 selectedLosses=0 autoStoppedAfterSourceFailure=false "
@@ -729,6 +739,9 @@ def _self_test() -> None:
             "httpStatus": 200, "runDateMatched": True, "routeMatched": True,
             "freshSourceStamp": True, "sourceRows": 2,
             "currentStationCodeClaim": "MYS", "appRunningStatusQualified": False,
+        }]
+        assert summary["sourceLossEvents"] == [{
+            "event": "WIMT_SOAK_SOURCE_LOST", "cycle": 35, "elapsedMinutes": 35,
         }]
         assert summary["reportedScreenshotNames"] == ["wimt-soak-start.png"]
         assert summary["screenshotFilesVerified"] is False
