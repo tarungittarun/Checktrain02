@@ -243,6 +243,232 @@ def summarize_live_artifact(folder: Path, original: dict,
     }
 
 
+def _is_wimt_46_result(original) -> bool:
+    return isinstance(original, dict) and \
+        type(original.get("requiredDurationMinutes")) is int and \
+        original.get("requiredDurationMinutes") == 46 and \
+        isinstance(original.get("checks"), dict) and \
+        isinstance(original.get("refresh"), dict)
+
+
+def _safe_trace_events(folder: Path) -> list[dict]:
+    """Keep only allowlisted fields emitted by the 46-minute instrumentation test."""
+    allowed_events = {
+        "WIMT_SOAK_TRAIN", "WIMT_SOAK_TABLE_CAPTURE", "WIMT_SOAK_INITIAL",
+        "WIMT_SOAK_AUTO_ENABLE", "WIMT_SOAK_STARTED", "WIMT_SOAK_SAMPLE",
+        "WIMT_SOAK_DETAIL", "WIMT_SOAK_AUTO_STOP", "WIMT_SOAK_SOURCE_LOST",
+        "WIMT_SOAK_DETAIL_UNAVAILABLE", "WIMT_SOAK_FINAL_DETAILS_UNAVAILABLE",
+        "WIMT_SOAK_MISSED_SLOT", "WIMT_SOAK_APP_SCREEN_LOST", "WIMT_SOAK_SUMMARY",
+    }
+    allowed_fields = {
+        "trainNo", "runDate", "route", "selection", "currentStationRequired",
+        "selected", "visibleCells", "hasSourceRows", "httpStatus", "responseBytes",
+        "runDateMatched", "routeMatched", "fresh", "stale", "freshnessAccurate",
+        "rows", "cells", "responseClass", "parserOutcome", "disclosed",
+        "currentStationClaim", "accepted", "revealed", "initialChecked", "resetTap",
+        "checkedAfterReset", "enableTap", "enableRetryTap", "checkedAfterEnable",
+        "enabled", "durationMinutes", "autoIntervalMinutes", "requiredReceipts",
+        "initialHttpStatus", "minute", "elapsedSeconds", "receiptClock", "autoEnabled",
+        "sourceRowsVisible", "receiptFailure", "sample", "cycle", "elapsedMinutes",
+        "autoOff", "reason", "elapsedMs", "slot", "detailSamples", "freshSamples",
+        "nonFreshSamples", "unqualifiedSamples", "httpFailures", "selectedLosses",
+        "autoStoppedAfterSourceFailure", "sourceFailureReason", "durationMs", "cycles",
+        "missedReceipts", "fullDuration", "finalSelected", "currentStationChecksPassed",
+    }
+    boolean_fields = {
+        "currentStationRequired", "selected", "hasSourceRows", "runDateMatched",
+        "routeMatched", "fresh", "stale", "freshnessAccurate", "disclosed", "accepted",
+        "revealed", "resetTap", "enabled", "sourceRowsVisible", "autoEnabled",
+        "receiptFailure", "autoOff", "autoStoppedAfterSourceFailure", "fullDuration",
+        "finalSelected", "currentStationChecksPassed",
+    }
+    numeric_fields = {
+        "trainNo", "responseBytes", "rows", "cells", "durationMinutes",
+        "autoIntervalMinutes", "requiredReceipts", "initialHttpStatus", "minute",
+        "elapsedSeconds", "sample", "cycle", "elapsedMinutes", "elapsedMs", "slot",
+        "detailSamples", "freshSamples", "nonFreshSamples", "unqualifiedSamples",
+        "httpFailures", "selectedLosses", "durationMs", "cycles", "missedReceipts",
+    }
+    events = []
+    trace = _read_text(folder / "soak-trace.txt")
+    for line in trace.splitlines():
+        tag, separator, payload = line.partition(" ")
+        if not separator or tag not in allowed_events:
+            continue
+        values = dict(re.findall(r"([A-Za-z][A-Za-z0-9]*)=([^\s]+)", payload))
+        safe_values = {}
+        for key, value in values.items():
+            if key not in allowed_fields:
+                continue
+            if key in boolean_fields:
+                if value.lower() in ("true", "false"):
+                    safe_values[key] = value.lower() == "true"
+            elif key in numeric_fields:
+                if re.fullmatch(r"-?[0-9]{1,16}", value):
+                    safe_values[key] = int(value)
+            elif key == "currentStationClaim":
+                if re.fullmatch(r"(?i:unknown|[A-Z0-9]{2,5})", value):
+                    safe_values[key] = value.upper()
+            elif key == "receiptClock":
+                if re.fullmatch(r"(?:[0-2][0-9]:[0-5][0-9]:[0-5][0-9]|none)", value):
+                    safe_values[key] = value
+            elif re.fullmatch(r"[A-Za-z0-9_.:/-]{1,120}", value):
+                safe_values[key] = value
+        # Minute-by-minute receipt samples are already summarized in result.json;
+        # retain a few boundary samples plus every five-minute source-details check.
+        if tag == "WIMT_SOAK_SAMPLE" and safe_values.get("minute") not in (0, 1, 45, 46):
+            continue
+        if tag == "WIMT_SOAK_DETAIL":
+            cycle = values.get("cycle", "")
+            if cycle != "final" and (not cycle.isdigit() or int(cycle) % 5):
+                continue
+        if tag == "WIMT_SOAK_MISSED_SLOT" and len(events) >= 32:
+            continue
+        events.append({"event": tag, "fields": safe_values})
+        if len(events) >= 100:
+            break
+    return events
+
+
+def summarize_wimt_46_artifact(folder: Path, original: dict,
+                               source_run: str = "unknown",
+                               source_artifact: str = "unknown") -> dict:
+    """Recover bounded 46-minute evidence without repeating a WIMT request."""
+    if not re.fullmatch(r"[0-9]{1,20}", source_run):
+        source_run = "unknown"
+    if not re.fullmatch(r"[A-Za-z0-9._-]{1,100}", source_artifact):
+        source_artifact = "unknown"
+    initial = original.get("initial")
+    if not isinstance(initial, dict):
+        initial = {}
+    refresh = original.get("refresh")
+    if not isinstance(refresh, dict):
+        refresh = {}
+    raw_samples = refresh.get("samples", [])
+    samples = [item for item in raw_samples if isinstance(item, dict)] \
+        if isinstance(raw_samples, list) else []
+    checkpoints = original.get("currentStationCheckpoints", [])
+    if not isinstance(checkpoints, list):
+        checkpoints = []
+    safe_checkpoints = []
+    for item in checkpoints[:20]:
+        if not isinstance(item, dict):
+            continue
+        station = item.get("currentStationCodeClaim")
+        safe_checkpoints.append({
+            "minute": item.get("minute") if type(item.get("minute")) is int else None,
+            "currentStationCodeClaim": station.upper()
+                if isinstance(station, str) and re.fullmatch(r"(?i:[A-Z0-9]{2,5})", station)
+                else None,
+            "httpStatus": item.get("httpStatus") if type(item.get("httpStatus")) is int else None,
+            "runDateMatched": item.get("runDateMatched") is True,
+            "routeMatched": item.get("routeMatched") is True,
+            "freshSourceStamp": item.get("freshSourceStamp") is True,
+            "sourceRows": item.get("sourceRows") if type(item.get("sourceRows")) is int else None,
+            "qualified": item.get("qualified") is True,
+        })
+    checks = original.get("checks")
+    if not isinstance(checks, dict):
+        checks = {}
+    safe_checks = {str(key)[:120]: value for key, value in checks.items()
+                   if isinstance(key, str) and type(value) is bool}
+    screenshot_names = []
+    raw_screenshots = original.get("screenshots", [])
+    if isinstance(raw_screenshots, list):
+        screenshot_names = sorted({
+            value.rsplit("/", 1)[-1] for value in raw_screenshots
+            if isinstance(value, str) and
+            re.fullmatch(r"screens/wimt-soak-[A-Za-z0-9_-]{1,80}\.png", value)
+        })
+    instrumentation = _read_text(folder / "instrumentation.txt")
+    failed_step_log = _read_text(folder / "failed-step-log.txt")
+    retrieval_status = _read_text(folder / "failed-step-log-status.txt").strip()
+    if retrieval_status not in ("available", "unavailable"):
+        retrieval_status = "not-recorded"
+
+    train_no = original.get("trainNo")
+    run_date = original.get("runDate")
+    route = original.get("route")
+    result = {
+        "verdict": str(original.get("verdict", ""))[:100],
+        "passed": original.get("passed") is True,
+        "failureStage": str(original.get("failureStage", ""))[:100],
+        "requiredDurationMinutes": 46,
+        "observedDurationMs": original.get("observedDurationMs")
+            if type(original.get("observedDurationMs")) is int else None,
+        "observedDurationMinutes": original.get("observedDurationMinutes")
+            if isinstance(original.get("observedDurationMinutes"), (int, float)) and
+               type(original.get("observedDurationMinutes")) is not bool else None,
+        "trainNo": train_no if isinstance(train_no, str) and re.fullmatch(r"[0-9]{1,8}", train_no)
+            else None,
+        "runDate": run_date if isinstance(run_date, str) and
+            re.fullmatch(r"[A-Za-z0-9 _-]{1,40}", run_date) else None,
+        "route": route if isinstance(route, str) and
+            re.fullmatch(r"[A-Za-z0-9 _>.-]{1,100}", route) else None,
+        "trainSelectionRule": str(original.get("trainSelectionRule", ""))[:100],
+        "source": "whereismytrain.in/cache/live_status (installed APK selected-source response)",
+        "initial": {
+            "accepted": initial.get("accepted") is True,
+            "httpStatus": initial.get("httpStatus") if type(initial.get("httpStatus")) is int else None,
+            "runDateMatched": initial.get("runDateMatched") is True,
+            "routeMatched": initial.get("routeMatched") is True,
+            "freshSourceStamp": initial.get("freshSourceStamp") is True,
+            "sourceRows": initial.get("sourceRows") if type(initial.get("sourceRows")) is int else None,
+            "visibleSourceCells": initial.get("visibleSourceCells")
+                if type(initial.get("visibleSourceCells")) is int else None,
+            "currentStationCodeClaim": initial.get("currentStationCodeClaim")
+                if isinstance(initial.get("currentStationCodeClaim"), str) else None,
+        },
+        "refresh": {
+            "receipts": refresh.get("receipts") if type(refresh.get("receipts")) is int else 0,
+            "requiredReceipts": refresh.get("requiredReceipts")
+                if type(refresh.get("requiredReceipts")) is int else None,
+            "missedReceiptSlots": refresh.get("missedReceiptSlots")
+                if type(refresh.get("missedReceiptSlots")) is int else None,
+            "sampleCount": len(samples),
+            "sampleMinutes": sorted({item.get("minute") for item in samples
+                                      if type(item.get("minute")) is int}),
+            "failedReceiptMinutes": sorted({item.get("minute") for item in samples
+                                             if type(item.get("minute")) is int and
+                                             item.get("receiptFailure") is True}),
+        },
+        "currentStationCheckpoints": safe_checkpoints,
+        "checks": safe_checks,
+        "independentlyVerifiedMovement": False,
+        "gpsVerified": False,
+        "runningStatus": "NOT_CAPTURED; a current-station field claim is not a running-status proof",
+        "instrumentationPassed": original.get("instrumentationPassed") is True,
+        "runnerExitCode": original.get("runnerExitCode")
+            if type(original.get("runnerExitCode")) is int else None,
+        "verifiedAppScreenshotNames": screenshot_names,
+        "traceEvents": _safe_trace_events(folder),
+        "failedStepLog": {
+            "retrievalStatus": retrieval_status,
+            "boundedFailureLines": brief(failed_step_log),
+            "boundedInstrumentationLines": brief(instrumentation),
+        },
+        "note": "Recovered from the completed run artifact and GitHub log only; no WIMT request was made.",
+    }
+    return {"sourceRun": source_run, "sourceArtifact": source_artifact, **result}
+
+
+def _run_wimt_46_report(folder: Path, original: dict) -> int:
+    source_run = os.environ.get("WIMT_SOURCE_RUN", "unknown")
+    source_artifact = os.environ.get("WIMT_SOURCE_ARTIFACT", "unknown")
+    summary = summarize_wimt_46_artifact(folder, original, source_run, source_artifact)
+    report = [
+        "### Existing installed-APK WIMT `.in` 46-minute run · recovery diagnosis (no new provider request)",
+        "", "```json", json.dumps(summary, indent=2, sort_keys=True), "```", "",
+        "The current-station text above is only a WIMT source claim. The 46-minute test/report "
+        "does not record a separate WIMT `running` status, and this failed run is not a completed "
+        "observation or independent movement/GPS evidence.",
+    ]
+    text = "\n".join(report) + "\n"
+    (folder / "recovered-report.md").write_text(text, encoding="utf-8")
+    print(text)
+    return 0
+
+
 def _is_live_comparison_result(original) -> bool:
     return isinstance(original, dict) and \
         isinstance(original.get("attempts"), list) and \
@@ -387,6 +613,62 @@ def _self_test() -> None:
             summary["failedStepLog"]["boundedFailureLines"][0]
         assert "FAILURES!!!" in \
             summary["failedStepLog"]["boundedInstrumentationLines"][0]
+    with tempfile.TemporaryDirectory(prefix="wimt-46-recover-") as temporary:
+        folder = Path(temporary)
+        (folder / "soak-trace.txt").write_text(
+            "WIMT_SOAK_TRAIN trainNo=16227 runDate=12_Oct_2026 route=MYS_TLGP "
+            "selection=IST-hour-schedule-candidate currentStationRequired=true\n"
+            "WIMT_SOAK_INITIAL httpStatus=200 responseBytes=1234 runDateMatched=true "
+            "routeMatched=true fresh=true rows=2 cells=3 responseClass=HTTP_200_SOURCE_ROWS_PRESENT "
+            "parserOutcome=SOURCE_ROWS_PRESENT selected=true disclosed=true "
+            "currentStationClaim=MYS accepted=true\n"
+            "WIMT_SOAK_STARTED durationMinutes=46 autoIntervalMinutes=1 "
+            "requireCurrentStation=true requiredReceipts=46 initialHttpStatus=200\n"
+            "WIMT_SOAK_SAMPLE minute=0 elapsedSeconds=0 receiptClock=12:00:00 "
+            "selected=true visibleCells=3 sourceRowsVisible=true autoEnabled=true receiptFailure=false\n"
+            "WIMT_SOAK_SUMMARY durationMs=1000 cycles=0 requiredReceipts=46 missedReceipts=0 "
+            "detailSamples=1 freshSamples=1 nonFreshSamples=0 unqualifiedSamples=0 "
+            "httpFailures=0 selectedLosses=0 autoStoppedAfterSourceFailure=false "
+            "sourceFailureReason=none fullDuration=false finalSelected=true autoOff=true "
+            "currentStationRequired=true currentStationChecksPassed=true\n",
+            encoding="utf-8")
+        (folder / "instrumentation.txt").write_text(
+            "java.lang.AssertionError: strict fresh WIMT .in source response failed\nFAILURES!!!\n",
+            encoding="utf-8")
+        (folder / "failed-step-log.txt").write_text(
+            "java.lang.AssertionError: strict fresh WIMT .in source response failed\n",
+            encoding="utf-8")
+        (folder / "failed-step-log-status.txt").write_text("available\n", encoding="utf-8")
+        observation = {
+            "verdict": "NO_VERIFIED_46_MINUTE_WIMT_IN_APP_OBSERVATION",
+            "passed": False, "failureStage": "INITIAL_WIMT_LIVE_STATUS_GATE_FAILED",
+            "requiredDurationMinutes": 46, "observedDurationMs": None,
+            "observedDurationMinutes": None, "trainNo": "16227", "runDate": "12 Oct 2026",
+            "route": "MYS → TLGP", "trainSelectionRule": "IST-hour-schedule-candidate",
+            "initial": {"accepted": True, "httpStatus": 200, "runDateMatched": True,
+                        "routeMatched": True, "freshSourceStamp": True, "sourceRows": 2,
+                        "visibleSourceCells": 3, "currentStationCodeClaim": "MYS"},
+            "refresh": {"receipts": 0, "requiredReceipts": 46,
+                        "missedReceiptSlots": 0, "samples": []},
+            "currentStationCheckpoints": [],
+            "checks": {"initialFreshRunRouteMatchedWimtInResponse": True,
+                       "freshCurrentStationClaimAtStartAndCheckpoints": False},
+            "instrumentationPassed": False, "runnerExitCode": 1,
+            "screenshots": ["screens/wimt-soak-start.png"],
+        }
+        summary = summarize_wimt_46_artifact(folder, observation, "44093117512",
+                                             "wimt-one-train-46-minute-evidence-44093117512")
+        assert summary["sourceRun"] == "44093117512"
+        assert summary["trainSelectionRule"] == "IST-hour-schedule-candidate"
+        assert summary["currentStationCheckpoints"] == []
+        assert summary["refresh"]["receipts"] == 0
+        assert summary["runningStatus"].startswith("NOT_CAPTURED")
+        assert summary["traceEvents"][1]["fields"]["parserOutcome"] == "SOURCE_ROWS_PRESENT"
+        assert "AssertionError" in summary["failedStepLog"][
+            "boundedInstrumentationLines"][0]
+        assert "current-station field claim is not a running-status proof" in \
+            summary["runningStatus"]
+
     with tempfile.TemporaryDirectory(prefix="wimt-website-recover-") as temporary:
         folder = Path(temporary)
         (folder / "screens").mkdir()
@@ -482,6 +764,8 @@ if __name__ == "__main__":
         raise SystemExit("usage: wimt_recover.py ARTIFACT_DIR | --self-test")
     folder = Path(sys.argv[1])
     original = _read_json(folder / "result.json")
+    if isinstance(original, dict) and _is_wimt_46_result(original):
+        raise SystemExit(_run_wimt_46_report(folder, original))
     if isinstance(original, dict) and _is_live_comparison_result(original):
         raise SystemExit(_run_live_report(folder, original))
 
