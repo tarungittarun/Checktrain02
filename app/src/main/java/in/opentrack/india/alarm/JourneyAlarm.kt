@@ -324,6 +324,11 @@ object JourneyAlarmStore {
         val previous = items[index]
         if (previous.state != expectedState || previous.config != expectedConfig)
             return@synchronized false
+        // A repeat-timer tick may have read an unsnoozed snapshot just before the user
+        // snoozed the alert. Never let that stale tick clear a snooze that is still live;
+        // it can retry at the snooze deadline, where clearing it is valid.
+        if (snoozedUntilMillis <= 0L &&
+            previous.snoozedUntilMillis > System.currentTimeMillis()) return@synchronized false
         items[index] = previous.copy(
             snoozedUntilMillis = snoozedUntilMillis.coerceAtLeast(0L),
             nextRepeatAtMillis = nextRepeatAtMillis.coerceAtLeast(0L),

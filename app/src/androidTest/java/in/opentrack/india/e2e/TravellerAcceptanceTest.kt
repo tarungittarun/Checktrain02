@@ -115,13 +115,22 @@ class TravellerAcceptanceTest {
     private fun selectSpinnerOption(description: String, label: String): Boolean {
         val spinner = E2E.ui.wait(Until.findObject(By.desc(description)), E2E.LOCAL_MS) ?: return false
         if (!E2E.fingerTap(spinner)) return false
-        val option = findTextContains(label, E2E.LOCAL_MS) ?: return false
-        if (!visibleOnScreen(option)) return false
-        return runCatching {
-            option.click()
-            E2E.ui.waitForIdle()
-            true
-        }.getOrDefault(false)
+        val deadline = System.currentTimeMillis() + E2E.LOCAL_MS
+        while (System.currentTimeMillis() < deadline) {
+            val option = findTextContains(label, 300) ?: continue
+            val clicked = runCatching {
+                if (!visibleOnScreen(option)) return@runCatching false
+                option.click()
+                E2E.ui.waitForIdle()
+                true
+            }.getOrDefault(false)
+            val selected = runCatching {
+                E2E.ui.findObject(By.desc(description))?.text.orEmpty()
+            }.getOrDefault("")
+            if (selected.contains(label, ignoreCase = true)) return true
+            if (clicked) return true
+        }
+        return false
     }
 
     /** Radio selection can redraw a frame after the click callback returns. Do not save
@@ -156,7 +165,7 @@ class TravellerAcceptanceTest {
     }
 
     private fun visibleOnScreen(node: androidx.test.uiautomator.UiObject2?): Boolean {
-        val bounds = node?.visibleBounds ?: return false
+        val bounds = runCatching { node?.visibleBounds }.getOrNull() ?: return false
         return bounds.width() > 0 && bounds.height() > 0
     }
 
@@ -164,13 +173,14 @@ class TravellerAcceptanceTest {
         visibleOnScreen(E2E.find(name, 300))
 
     private fun visibleInScroll(node: androidx.test.uiautomator.UiObject2?, container: String): Boolean {
-        if (!visibleOnScreen(node)) return false
-        val item = node!!.visibleBounds
-        val viewport = E2E.find(container, 500)?.visibleBounds ?: return false
+        val item = runCatching { node?.visibleBounds }.getOrNull() ?: return false
+        val viewport = runCatching { E2E.find(container, 500)?.visibleBounds }.getOrNull()
+            ?: return false
         // UiObject2 can expose a clipped child with a non-empty intersection. Treat that
         // as *not revealed*: Alerts choices must be wholly visible inside their own scroll
         // viewport, not just leave a few pixels above the fixed Cancel/Set-alert footer.
-        return item.left >= viewport.left && item.top >= viewport.top &&
+        return item.width() > 0 && item.height() > 0 &&
+            item.left >= viewport.left && item.top >= viewport.top &&
             item.right <= viewport.right && item.bottom <= viewport.bottom
     }
 
@@ -813,14 +823,22 @@ class TravellerAcceptanceTest {
         assertTrue("A physical tap on the visible alert-scoped Snooze control did not land",
             E2E.fingerTap(snoozeAction))
         E2E.ui.waitForIdle()
-        val snoozed = JourneyAlarmStore.find(context, armed.id)
+        var snoozed = JourneyAlarmStore.find(context, armed.id)
             ?: throw AssertionError("Snoozed alert disappeared from the store")
+        val persistenceDeadline = System.currentTimeMillis() + 2_000L
+        while (snoozed.snoozedUntilMillis <= System.currentTimeMillis() &&
+            System.currentTimeMillis() < persistenceDeadline) {
+            Thread.sleep(50L)
+            snoozed = JourneyAlarmStore.find(context, armed.id)
+                ?: throw AssertionError("Snoozed alert disappeared from the store")
+        }
         val checkedAt = System.currentTimeMillis()
         val hasSnoozeDeadline = snoozed.snoozedUntilMillis > checkedAt &&
             snoozed.snoozedUntilMillis <= checkedAt + 121_000L
         if (!hasSnoozeDeadline) E2E.shotDiagnostic("alert-snooze-not-persisted")
         assertTrue("Snooze did not persist a two-minute resume time: state=${snoozed.state}, " +
-            "deadline=${snoozed.snoozedUntilMillis}, now=$checkedAt",
+            "deadline=${snoozed.snoozedUntilMillis}, now=$checkedAt, " +
+            "visible='${visibleTextNodes().take(500)}'",
             hasSnoozeDeadline)
         assertTrue("Snoozed alert card lost its Turn off control",
             revealTextContains("Turn off", "alertsScroll"))

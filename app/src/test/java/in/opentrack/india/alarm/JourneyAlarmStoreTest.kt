@@ -253,6 +253,28 @@ class JourneyAlarmStoreTest {
         assertEquals(AlertState.ARMED, JourneyAlarmStore.find(context, otherId)?.state)
     }
 
+    @Test fun aStaleRepeatTickCannotClearASnoozeThatWasJustSet() {
+        val repeatedConfig = config().copy(repeatIntervalSeconds = 15)
+        val id = JourneyAlarmStore.arm(context, repeatedConfig)
+        val staleRepeatAt = System.currentTimeMillis() - 1L
+        assertTrue(JourneyAlarmStore.transitionFromArmed(context, id, repeatedConfig,
+            AlertState.ALERTING, "Repeated alert", nextRepeatAtMillis = staleRepeatAt))
+
+        val snoozedUntil = System.currentTimeMillis() + JourneyAlarmSchedule.SNOOZE_MILLIS
+        assertTrue(JourneyAlarmStore.updateActiveTiming(context, id, repeatedConfig,
+            AlertState.ALERTING, snoozedUntilMillis = snoozedUntil,
+            nextRepeatAtMillis = snoozedUntil))
+
+        // A timer which read the old unsnoozed snapshot may finish after the user's tap.
+        assertTrue("A stale repeat tick cleared the user's active snooze",
+            !JourneyAlarmStore.updateActiveTiming(context, id, repeatedConfig,
+                AlertState.ALERTING, snoozedUntilMillis = 0L,
+                nextRepeatAtMillis = staleRepeatAt + repeatedConfig.repeatIntervalSeconds * 1_000L))
+        val saved = JourneyAlarmStore.find(context, id)!!
+        assertEquals(snoozedUntil, saved.snoozedUntilMillis)
+        assertEquals(snoozedUntil, saved.nextRepeatAtMillis)
+    }
+
     @Test fun terminalHistoryIsBoundedButActiveAlertsAreNeverPruned() {
         repeat(105) { index ->
             val id = JourneyAlarmStore.arm(context, config(createdAt = 1_793_000_000_000L + index))

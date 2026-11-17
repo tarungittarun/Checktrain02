@@ -206,7 +206,12 @@ class JourneyAlarmService : Service() {
                             resumedAt + config.repeatIntervalSeconds * 1_000L else 0L
                         if (!JourneyAlarmStore.updateActiveTiming(this@JourneyAlarmService, id,
                                 config, state, snoozedUntilMillis = 0L,
-                                nextRepeatAtMillis = nextRepeat)) break
+                                nextRepeatAtMillis = nextRepeat)) {
+                            val current = JourneyAlarmStore.find(this@JourneyAlarmService, id)
+                            if (current != null && current.state == state && current.config == config)
+                                continue
+                            break
+                        }
                         val resumed = JourneyAlarmStore.find(this@JourneyAlarmService, id) ?: break
                         withContext(Dispatchers.Main) {
                             if (resumed.state == state && resumed.config == config) {
@@ -224,7 +229,12 @@ class JourneyAlarmService : Service() {
                         val nextRepeat = resumedAt + config.repeatIntervalSeconds * 1_000L
                         if (!JourneyAlarmStore.updateActiveTiming(this@JourneyAlarmService, id,
                                 config, state, snoozedUntilMillis = 0L,
-                                nextRepeatAtMillis = nextRepeat)) break
+                                nextRepeatAtMillis = nextRepeat)) {
+                            val current = JourneyAlarmStore.find(this@JourneyAlarmService, id)
+                            if (current != null && current.state == state && current.config == config)
+                                continue
+                            break
+                        }
                         val repeated = JourneyAlarmStore.find(this@JourneyAlarmService, id) ?: break
                         withContext(Dispatchers.Main) {
                             if (repeated.state == state && repeated.config == config &&
