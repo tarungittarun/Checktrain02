@@ -1,10 +1,24 @@
 #!/usr/bin/env bash
-# Install the exact APKs, require fresh WIMT .in clocks in the UI, then run the opt-in
-# selected-source one-minute refresh regression for an explicitly allowed duration.
+# Install the exact APKs. Existing modes require fresh WIMT .in data; the 30-minute
+# diagnostic mode also continues passive 20-second UI observation after a source failure.
 set -euo pipefail
 OUT=${WIMT_LIVE_SOAK_EVIDENCE_DIR:-wimt-live-api-soak-evidence}
 SOAK_MINUTES=${WIMT_LIVE_SOAK_MINUTES:-240}
+SOAK_TRAIN_NO=${WIMT_LIVE_SOAK_TRAIN_NO:-}
+OBSERVATION_INTERVAL_SECONDS=${WIMT_LIVE_SOAK_OBSERVATION_INTERVAL_SECONDS:-0}
 case "$SOAK_MINUTES" in
+  30)
+    TEST_METHOD=selectedWimtAppRemainsObservableEvery20SecondsFor30Minutes
+    TEST_TIMEOUT_SECONDS=2700
+    if [[ ! "$SOAK_TRAIN_NO" =~ ^[1-9][0-9]{3,4}$ ]]; then
+      echo "30-minute installed-app observation requires WIMT_LIVE_SOAK_TRAIN_NO (4-5 digits)" >&2
+      exit 2
+    fi
+    if [ "$OBSERVATION_INTERVAL_SECONDS" != 20 ]; then
+      echo "30-minute installed-app observation requires a 20-second sample interval" >&2
+      exit 2
+    fi
+    ;;
   46)
     TEST_METHOD=selectedWimtAutoRefreshRemainsStableFor46Minutes
     TEST_TIMEOUT_SECONDS=3600
@@ -14,7 +28,7 @@ case "$SOAK_MINUTES" in
     TEST_TIMEOUT_SECONDS=17400
     ;;
   *)
-    echo "Unsupported opt-in WIMT soak duration: $SOAK_MINUTES (allowed: 46, 240)" >&2
+    echo "Unsupported opt-in WIMT soak duration: $SOAK_MINUTES (allowed: 30, 46, 240)" >&2
     exit 2
     ;;
 esac
@@ -28,7 +42,9 @@ finish() {
   export PATH="${ANDROID_HOME:-/usr/local/lib/android/sdk}/platform-tools:$PATH"
   for name in \
       wimt-soak-before wimt-soak-start wimt-soak-start-details \
+      wimt-soak-5m wimt-soak-5m-details wimt-soak-10m wimt-soak-10m-details \
       wimt-soak-15m wimt-soak-15m-details \
+      wimt-soak-20m wimt-soak-20m-details wimt-soak-25m wimt-soak-25m-details \
       wimt-soak-30m wimt-soak-30m-details \
       wimt-soak-45m wimt-soak-45m-details \
       wimt-soak-46m wimt-soak-46m-details \
@@ -86,13 +102,15 @@ cmp app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk /tmp/wimt-
 rm -f /tmp/wimt-soak-installed.apk /tmp/wimt-soak-installed-test.apk
 adb shell pm clear in.opentrack.india
 adb logcat -c
-# The installed-app test requires a fresh, run/date/route-matched WIMT .in response before Auto.
-# The 46-minute mode also requires a current-station field claim at start and each details checkpoint.
-# A refusal stops further selected-source polling rather than retrying it.
+# Existing 46/240-minute modes require fresh WIMT .in rows before Auto. The 30-minute
+# diagnostic records an unqualified initial response, keeps Auto OFF, and continues only passive
+# UI sampling; a qualified response uses the app's normal one-minute Auto cadence. Refusals stop polling.
 set +e
 timeout --signal=TERM --kill-after=60 "${TEST_TIMEOUT_SECONDS}s" adb shell am instrument -w \
   -e class "in.opentrack.india.e2e.WimtLiveApiSoakTest#$TEST_METHOD" \
   -e soak_minutes "$SOAK_MINUTES" \
+  -e soak_train_no "$SOAK_TRAIN_NO" \
+  -e observation_interval_seconds "$OBSERVATION_INTERVAL_SECONDS" \
   in.opentrack.india.test/androidx.test.runner.AndroidJUnitRunner \
   > "$OUT/instrumentation.txt" 2>&1
 rc=$?

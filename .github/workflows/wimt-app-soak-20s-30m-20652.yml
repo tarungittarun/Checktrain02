@@ -1,0 +1,23 @@
+name: WIMT installed app · train 20652 · 30 min / 20 s
+
+on:
+  push:
+    branches: ['arena/6f68e526-checktrain02']
+    paths:
+      - '.github/workflows/wimt-app-soak-20s-30m-20652.yml'
+      - '.github/workflows/wimt-app-soak-20s-30m-reusable.yml'
+      - 'app/src/androidTest/java/in/opentrack/india/e2e/WimtLiveApiSoakTest.kt'
+      - 'tools/ci/run_wimt_live_api_soak.sh'
+      - 'tools/ci/wimt_app_20s_30m_report.py'
+      - 'tools/ci/test_wimt_app_20s_30m_workflows.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  installed-app-soak:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[wimt-app-soak-20s]'))
+    uses: ./.github/workflows/wimt-app-soak-20s-30m-reusable.yml
+    with:
+      train_no: '20652'
