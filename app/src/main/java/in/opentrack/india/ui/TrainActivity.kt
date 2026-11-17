@@ -1237,7 +1237,8 @@ class TrainActivity : AppCompatActivity() {
 
     private fun sourcePickerDescription(selectedSource: String?): String =
         "Selected ${TrackingSources.label(TrackingSources.valid(selectedSource))}. " +
-            "Choose NTES or the Where Is My Train website (.org.in). Long press for time and source details."
+            "Choose NTES, the direct WIMT .in live-status feed, or the distinct WIMT .org.in website. " +
+            "Long press for time and source details."
 
     private fun renderSourceChips(ui: LiveViewModel.Ui) {
         spinnerStates = ui.sourceStates
@@ -1935,7 +1936,11 @@ class TrainActivity : AppCompatActivity() {
                 else rows.take(12).forEach { append("• ").append(it).append('\n') }
                 if (rows.size > 12) append("… ${rows.size - 12} additional rows omitted.\n")
                 append("These are source-reported clocks, not NTES actuals, independent verification, " +
-                    "GPS or movement inferred from the request time.\n\n")
+                    "GPS or movement inferred from the request time.\n")
+                append("WIMT .in app-side running-status qualification: ")
+                    .append(if (evidence?.reportsRunningStatus == true) "QUALIFIED" else "NOT QUALIFIED")
+                    .append(" (matched run and route, fresh source update, current-station field, and at least " +
+                        "one source-reported actual stop clock; not independent movement or GPS).\n\n")
             }
             ui.sourceStates.forEach { (name, status) ->
                 append(sourceName(name)).append(": ")

@@ -5,21 +5,21 @@ import `in`.opentrack.india.v2.mirror.PublicPageChecks
 import `in`.opentrack.india.v2.mirror.WimtCandidate
 
 /** Preferences use exact source keys, never shortened display names.
- * The main and Settings pickers offer one WIMT choice: the .org.in website. The .in live feed and
- * web cache remain separate internal evidence sources, but are not separate user-facing choices. */
+ * The direct WIMT `.in` JSON feed and the `.org.in` website are distinct user-facing sources.
+ * The experimental web-cache candidate and Google's WIMT phone app are not aliases for either. */
 object TrackingSources {
     const val OFFICIAL = "NTES (official)"
     const val WIMT = WimtLiveProvider.SOURCE_NAME
-    val options = listOf(OFFICIAL, PublicPageChecks.ORG)
+    val options = listOf(OFFICIAL, WIMT, PublicPageChecks.ORG)
 
     enum class PickerAction { IGNORE, REFRESH, SELECT }
 
     /** A dropdown choice is a user action even when it arrives through Accessibility or UiAutomator
-     * rather than MotionEvent. Public-page selections always make a fresh request; cached comparison
-     * state must never suppress the traveller's explicit choice. */
+     * rather than MotionEvent. Direct `.in` and public-page selections always make a fresh request;
+     * cached comparison state must never suppress the traveller's explicit choice. */
     fun pickerAction(name: String, active: String?, state: String?): PickerAction = when {
         name == active -> PickerAction.IGNORE
-        name in PublicPageChecks.names -> PickerAction.REFRESH
+        name == WIMT || name in PublicPageChecks.names -> PickerAction.REFRESH
         state == null || state !in setOf("live", "last-known", "candidate") -> PickerAction.REFRESH
         else -> PickerAction.SELECT
     }
@@ -32,12 +32,14 @@ object TrackingSources {
         else -> name
     }
 
-    /** Resolve legacy .in/cache defaults to the sole WIMT choice without merging provider data. */
+    /** Normalize only recognized user-facing source keys; never alias `.in` to `.org.in`. */
     fun valid(name: String?): String {
         val source = name ?: return OFFICIAL
         return when (source) {
-            OFFICIAL, PublicPageChecks.ORG -> source
-            WIMT, WimtCandidate.SOURCE -> PublicPageChecks.ORG
+            OFFICIAL, WIMT, PublicPageChecks.ORG -> source
+            // The experimental cache is not a selectable source. An old cache preference must
+            // fall back to NTES, not silently turn into a request to the unrelated `.org.in` site.
+            WimtCandidate.SOURCE -> OFFICIAL
             else -> OFFICIAL
         }
     }

@@ -89,20 +89,24 @@ def build(evidence: Path, output_pdf: Path) -> dict:
         f"<b>missed slots:</b> {escape(str(refresh.get('missedReceiptSlots', 0)))}; "
         f"<b>Auto off at end:</b> {escape(str(result.get('checks', {}).get('AutoWasTurnedOffAtEnd', False)))}.", body))
     story.append(Paragraph(
-        "A current-station entry below is a WIMT source claim, not independent evidence of movement.", body))
+        "Current-station entries are WIMT source claims. The Running column is an app-side qualification "
+        "requiring a run/route match, fresh source stamp, current-station field, and at least one "
+        "source-reported actual stop clock; it is not an explicit provider boolean or independent "
+        "movement/GPS evidence.", body))
     story.append(Paragraph("Current-station claim checkpoints", heading))
-    checkpoint_rows = [["Minute", "WIMT .in station-code claim", "HTTP", "Run/route", "Fresh", "Rows", "Qualified"]]
+    checkpoint_rows = [["Minute", "WIMT .in station-code claim", "HTTP", "Run/route", "Fresh", "Rows", "Running", "Qualified"]]
     for item in result.get("currentStationCheckpoints", []):
         checkpoint_rows.append([
             str(item.get("minute", "—")), str(item.get("currentStationCodeClaim") or "—"),
             str(item.get("httpStatus", "—")),
             f"{item.get('runDateMatched', False)}/{item.get('routeMatched', False)}",
             str(item.get("freshSourceStamp", False)), str(item.get("sourceRows", 0)),
+            str(item.get("wimtRunningStatusQualified", False)),
             str(item.get("qualified", False)),
         ])
     checkpoint_table = Table(checkpoint_rows, repeatRows=1,
-                             colWidths=[14 * mm, 45 * mm, 13 * mm, 22 * mm,
-                                        16 * mm, 13 * mm, 20 * mm])
+                             colWidths=[14 * mm, 41 * mm, 12 * mm, 20 * mm,
+                                        15 * mm, 12 * mm, 20 * mm, 20 * mm])
     checkpoint_table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#15314B")),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),

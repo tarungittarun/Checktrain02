@@ -3,21 +3,24 @@ package `in`.opentrack.india.ui
 import `in`.opentrack.india.v2.mirror.PublicPageChecks
 import `in`.opentrack.india.v2.mirror.WimtCandidate
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SourceIndicatorTest {
-    @Test fun pickerOffersOneWimtWebsiteChoiceAndKeepsOtherSourcesDistinct() {
-        assertEquals(listOf(TrackingSources.OFFICIAL, PublicPageChecks.ORG), TrackingSources.options)
+    @Test fun pickerKeepsDirectWimtFeedWebsiteAndNtesAsSeparateSources() {
+        assertEquals(listOf(TrackingSources.OFFICIAL, TrackingSources.WIMT, PublicPageChecks.ORG),
+            TrackingSources.options)
         assertEquals("WIMT .in live-status feed", TrackingSources.label(TrackingSources.WIMT))
         assertEquals("Where Is My Train · website", TrackingSources.label(PublicPageChecks.ORG))
         assertEquals("WIMT web cache · experimental",
             TrackingSources.label(WimtCandidate.SOURCE))
 
-        // Previously saved .in/cache defaults resolve to the sole WIMT picker choice. Their
-        // providers and labels remain independent; this only normalizes the user-facing preference.
-        assertEquals(PublicPageChecks.ORG, TrackingSources.valid(TrackingSources.WIMT))
-        assertEquals(PublicPageChecks.ORG, TrackingSources.valid(WimtCandidate.SOURCE))
+        // Exact provider keys stay distinct; the nonselectable cache and separate Google phone
+        // app are never silently relabelled as the `.org.in` website or direct `.in` API.
+        assertEquals(TrackingSources.WIMT, TrackingSources.valid(TrackingSources.WIMT))
         assertEquals(PublicPageChecks.ORG, TrackingSources.valid(PublicPageChecks.ORG))
+        assertEquals(TrackingSources.OFFICIAL, TrackingSources.valid(WimtCandidate.SOURCE))
         assertEquals(TrackingSources.OFFICIAL, TrackingSources.valid("WIMT phone app"))
     }
 
@@ -30,6 +33,11 @@ class SourceIndicatorTest {
         assertEquals("Accessibility/UiAutomator selection with no touch state still refreshes",
             TrackingSources.PickerAction.REFRESH,
             TrackingSources.pickerAction(PublicPageChecks.ORG, TrackingSources.OFFICIAL, null))
+        assertEquals("selecting the direct `.in` source must always make a fresh GET, not select `.org.in`",
+            TrackingSources.PickerAction.REFRESH,
+            TrackingSources.pickerAction(TrackingSources.WIMT, TrackingSources.OFFICIAL, "live"))
+        assertEquals(TrackingSources.PickerAction.IGNORE,
+            TrackingSources.pickerAction(TrackingSources.WIMT, TrackingSources.WIMT, "live"))
         assertEquals(TrackingSources.PickerAction.SELECT,
             TrackingSources.pickerAction("cached local source", TrackingSources.OFFICIAL, "live"))
         assertEquals(TrackingSources.PickerAction.REFRESH,
@@ -73,6 +81,42 @@ class SourceIndicatorTest {
             SourceIndicator.of(TrackingSources.WIMT, "last-known", "update stamp is stale").tone)
         assertEquals(SourceIndicator.Tone.CANDIDATE,
             SourceIndicator.of(TrackingSources.WIMT, "unverified", "no source update clock").tone)
+    }
+
+    @Test fun wimtRunningStatusNeedsFreshMatchedCurrentStationAndAnActualStopRow() {
+        fun evidence(
+            runDateMatched: Boolean? = true,
+            routeMatched: Boolean? = true,
+            actualStopCount: Int = 1,
+            currentStationCode: String? = "BDVT",
+            freshSourceUpdate: Boolean = true,
+        ) = WimtLiveEvidence(
+            detail = "WIMT .in source report",
+            responseCode = 200,
+            responseBytes = 2048,
+            runDateMatched = runDateMatched,
+            routeMatched = routeMatched,
+            routeFromCode = "SBC",
+            routeToCode = "TLGP",
+            sourceUpdateMillis = 1_000L,
+            actualStopCount = actualStopCount,
+            currentStationCode = currentStationCode,
+            sourceUpdateAheadByMillis = null,
+            freshSourceUpdate = freshSourceUpdate,
+            checkedAtMillis = 2_000L,
+        )
+
+        assertTrue(evidence().reportsRunningStatus)
+        assertFalse("a current-station field alone is only a candidate",
+            evidence(actualStopCount = 0).reportsRunningStatus)
+        assertFalse("a stop row without a current-station field is not a running report",
+            evidence(currentStationCode = null).reportsRunningStatus)
+        assertFalse("stale source data cannot establish a current running status",
+            evidence(freshSourceUpdate = false).reportsRunningStatus)
+        assertFalse("the source must echo the selected run date",
+            evidence(runDateMatched = false).reportsRunningStatus)
+        assertFalse("the source must echo both selected route endpoints",
+            evidence(routeMatched = false).reportsRunningStatus)
     }
 
     @Test fun siteClaimsAreAmberAndNeverLabelledAsVerifiedActuals() {

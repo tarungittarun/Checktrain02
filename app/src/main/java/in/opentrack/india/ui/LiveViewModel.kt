@@ -77,7 +77,16 @@ data class WimtLiveEvidence(
     val sourceUpdateAheadByMillis: Long?,
     val freshSourceUpdate: Boolean,
     val checkedAtMillis: Long,
-)
+) {
+    /**
+     * Bounded interpretation of the `.in` response, not independent movement proof: the source
+     * must match this run and route, carry a fresh update stamp, name a current station, and report
+     * at least one actual stop clock. A current-station field or a timetable row alone is not enough.
+     */
+    val reportsRunningStatus: Boolean
+        get() = runDateMatched == true && routeMatched == true && freshSourceUpdate &&
+            actualStopCount > 0 && !currentStationCode.isNullOrBlank()
+}
 
 fun interface IdentityFetch {
     suspend fun identityOf(trainNo: String): ErailLiveIdentity?
@@ -703,9 +712,11 @@ class LiveViewModel(
                     append(" · ").append(runLabel)
                     append(" · ").append(routeLabel)
                 }
+                val reportsRunningStatus = identityMatched && freshUpdate && actualStopCount > 0 &&
+                    hasCurrentStation
                 val state = when {
                     !hasRunBoundReport -> if (result.snapshot != null) "unverified" else "none"
-                    freshUpdate && actualStopCount > 0 -> "live"
+                    reportsRunningStatus -> "live"
                     freshUpdate && hasCurrentStation -> "candidate"
                     updateStamp != null && updateAheadBy == null -> "last-known"
                     else -> "unverified"
@@ -2319,8 +2330,9 @@ class LiveViewModel(
             TrackingSources.WIMT to (wimtEvidenceForUi?.let { evidence ->
                 val state = when {
                     !wimtIdentityMatched -> if (manualWimtResult?.snapshot != null) "unverified" else "none"
-                    evidence.actualStopCount > 0 && wimtFreshNow -> "live"
-                    evidence.currentStationCode != null && wimtFreshNow -> "candidate"
+                    evidence.actualStopCount > 0 && !evidence.currentStationCode.isNullOrBlank() &&
+                        wimtFreshNow -> "live"
+                    !evidence.currentStationCode.isNullOrBlank() && wimtFreshNow -> "candidate"
                     evidence.sourceUpdateMillis != null -> "last-known"
                     manualWimtResult?.snapshot != null -> "unverified"
                     else -> "none"

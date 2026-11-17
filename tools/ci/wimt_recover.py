@@ -264,6 +264,7 @@ def _safe_trace_events(folder: Path) -> list[dict]:
         "trainNo", "runDate", "route", "selection", "currentStationRequired",
         "selected", "visibleCells", "hasSourceRows", "httpStatus", "responseBytes",
         "runDateMatched", "routeMatched", "fresh", "stale", "freshnessAccurate",
+        "wimtReportsRunning", "runningStatusRequired", "wimtRunningStatusChecksPassed",
         "rows", "cells", "responseClass", "parserOutcome", "disclosed",
         "currentStationClaim", "accepted", "revealed", "initialChecked", "resetTap",
         "checkedAfterReset", "enableTap", "enableRetryTap", "checkedAfterEnable",
@@ -277,7 +278,8 @@ def _safe_trace_events(folder: Path) -> list[dict]:
     }
     boolean_fields = {
         "currentStationRequired", "selected", "hasSourceRows", "runDateMatched",
-        "routeMatched", "fresh", "stale", "freshnessAccurate", "disclosed", "accepted",
+        "routeMatched", "fresh", "stale", "freshnessAccurate", "wimtReportsRunning",
+        "runningStatusRequired", "wimtRunningStatusChecksPassed", "disclosed", "accepted",
         "revealed", "resetTap", "enabled", "sourceRowsVisible", "autoEnabled",
         "receiptFailure", "autoOff", "autoStoppedAfterSourceFailure", "fullDuration",
         "finalSelected", "currentStationChecksPassed",
@@ -365,6 +367,7 @@ def summarize_wimt_46_artifact(folder: Path, original: dict,
             "routeMatched": item.get("routeMatched") is True,
             "freshSourceStamp": item.get("freshSourceStamp") is True,
             "sourceRows": item.get("sourceRows") if type(item.get("sourceRows")) is int else None,
+            "wimtRunningStatusQualified": item.get("wimtRunningStatusQualified") is True,
             "qualified": item.get("qualified") is True,
         })
     checks = original.get("checks")
@@ -389,6 +392,16 @@ def summarize_wimt_46_artifact(folder: Path, original: dict,
     train_no = original.get("trainNo")
     run_date = original.get("runDate")
     route = original.get("route")
+    station_claim = initial.get("currentStationCodeClaim")
+    safe_station_claim = (station_claim.upper() if isinstance(station_claim, str) and
+                          re.fullmatch(r"(?i:unknown|[A-Z0-9]{2,5})", station_claim) else None)
+    running_gate = safe_checks.get("wimtRunningStatusQualifiedAtStartAndCheckpoints")
+    running_status = (
+        "APP_QUALIFIED_FROM_FRESH_MATCHED_CURRENT_STATION_AND_ACTUAL_ROWS; not movement proof"
+        if running_gate is True else
+        "NOT_QUALIFIED_BY_THE_APP_RUNNING_STATUS_GATE" if running_gate is False else
+        "NOT_CAPTURED_BY_THIS_RUN_SCHEMA"
+    )
     result = {
         "verdict": str(original.get("verdict", ""))[:100],
         "passed": original.get("passed") is True,
@@ -404,7 +417,7 @@ def summarize_wimt_46_artifact(folder: Path, original: dict,
         "runDate": run_date if isinstance(run_date, str) and
             re.fullmatch(r"[A-Za-z0-9 _-]{1,40}", run_date) else None,
         "route": route if isinstance(route, str) and
-            re.fullmatch(r"[A-Za-z0-9 _>.-]{1,100}", route) else None,
+            re.fullmatch(r"[A-Za-z0-9 _>→.-]{1,100}", route) else None,
         "trainSelectionRule": str(original.get("trainSelectionRule", ""))[:100],
         "source": "whereismytrain.in/cache/live_status (installed APK selected-source response)",
         "initial": {
@@ -413,11 +426,12 @@ def summarize_wimt_46_artifact(folder: Path, original: dict,
             "runDateMatched": initial.get("runDateMatched") is True,
             "routeMatched": initial.get("routeMatched") is True,
             "freshSourceStamp": initial.get("freshSourceStamp") is True,
+            "freshnessAccurate": initial.get("freshnessAccurate") is True,
             "sourceRows": initial.get("sourceRows") if type(initial.get("sourceRows")) is int else None,
             "visibleSourceCells": initial.get("visibleSourceCells")
                 if type(initial.get("visibleSourceCells")) is int else None,
-            "currentStationCodeClaim": initial.get("currentStationCodeClaim")
-                if isinstance(initial.get("currentStationCodeClaim"), str) else None,
+            "currentStationCodeClaim": safe_station_claim,
+            "wimtRunningStatusQualified": initial.get("wimtRunningStatusQualified") is True,
         },
         "refresh": {
             "receipts": refresh.get("receipts") if type(refresh.get("receipts")) is int else 0,
@@ -436,7 +450,8 @@ def summarize_wimt_46_artifact(folder: Path, original: dict,
         "checks": safe_checks,
         "independentlyVerifiedMovement": False,
         "gpsVerified": False,
-        "runningStatus": "NOT_CAPTURED; a current-station field claim is not a running-status proof",
+        "runningStatus": running_status,
+        "runningStatusBasis": "app-side rule: matched run/route + fresh source update + current-station field + at least one source-reported actual stop clock; not an explicit provider boolean or movement/GPS proof",
         "instrumentationPassed": original.get("instrumentationPassed") is True,
         "runnerExitCode": original.get("runnerExitCode")
             if type(original.get("runnerExitCode")) is int else None,
@@ -459,9 +474,10 @@ def _run_wimt_46_report(folder: Path, original: dict) -> int:
     report = [
         "### Existing installed-APK WIMT `.in` 46-minute run · recovery diagnosis (no new provider request)",
         "", "```json", json.dumps(summary, indent=2, sort_keys=True), "```", "",
-        "The current-station text above is only a WIMT source claim. The 46-minute test/report "
-        "does not record a separate WIMT `running` status, and this failed run is not a completed "
-        "observation or independent movement/GPS evidence.",
+        "The running-status result is an app-side qualification requiring a fresh matched WIMT `.in` "
+        "response, current-station field, and at least one source-reported actual stop clock; it is "
+        "not an explicit provider boolean or independent movement/GPS proof. A failed run is not a "
+        "completed observation.",
     ]
     text = "\n".join(report) + "\n"
     (folder / "recovered-report.md").write_text(text, encoding="utf-8")
@@ -662,12 +678,12 @@ def _self_test() -> None:
         assert summary["trainSelectionRule"] == "IST-hour-schedule-candidate"
         assert summary["currentStationCheckpoints"] == []
         assert summary["refresh"]["receipts"] == 0
-        assert summary["runningStatus"].startswith("NOT_CAPTURED")
+        assert summary["runningStatus"] == "NOT_CAPTURED_BY_THIS_RUN_SCHEMA"
         assert summary["traceEvents"][1]["fields"]["parserOutcome"] == "SOURCE_ROWS_PRESENT"
         assert "AssertionError" in summary["failedStepLog"][
             "boundedInstrumentationLines"][0]
-        assert "current-station field claim is not a running-status proof" in \
-            summary["runningStatus"]
+        assert "not an explicit provider boolean or movement/GPS proof" in \
+            summary["runningStatusBasis"]
 
     with tempfile.TemporaryDirectory(prefix="wimt-website-recover-") as temporary:
         folder = Path(temporary)

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Build a bounded report for one installed-APK, 46-minute WIMT .in observation.
 
-The report counts app receipts and current-station claims; it does not turn the source's
-claims into independent proof of train movement, GPS, or railway actuals.
+The report requires a fresh matched current-station plus actual-stop source-status qualification;
+it does not turn that WIMT claim into independent proof of train movement, GPS, or railway actuals.
 """
 from __future__ import annotations
 
@@ -19,9 +19,12 @@ REQUIRED_CHECKPOINTS = tuple(range(5, 46, 5))
 PROVENANCE = (
     "The observation used the installed APK's selected WIMT .in live-status source and its "
     "one-minute Auto refresh. A fresh source-update stamp is not event time; the endpoint may "
-    "be server-cached. Current-station fields are WIMT source claims, not independently verified "
-    "railway movement, GPS, NTES actuals, or provider permission. WIMT .org.in, the separate "
-    "WIMT web-cache path, NTES, eRail, and the Google WIMT Android app are not merged into this result."
+    "be server-cached. The app-side running-status gate requires a same-run and same-route "
+    "response, a fresh update stamp, a nonblank WIMT current-station field, and at least one "
+    "WIMT source-reported actual stop clock. This is a bounded source-status qualification, not "
+    "an explicit provider boolean or independent proof of movement, GPS, or railway actuals. "
+    "WIMT .org.in, the separate WIMT web-cache path, NTES, eRail, and the Google WIMT Android "
+    "app are not merged into this result."
 )
 
 
@@ -87,7 +90,8 @@ def valid_app_hierarchy(path: Path) -> bool:
         return False
 
 
-def _strict_detail(item: dict[str, str], *, require_station: bool) -> bool:
+def _strict_detail(item: dict[str, str], *, require_station: bool,
+                   require_running: bool = False) -> bool:
     station_claim = item.get("currentStationClaim", "").strip()
     station_ok = bool(station_claim) and station_claim.lower() != "unknown"
     return (
@@ -101,6 +105,7 @@ def _strict_detail(item: dict[str, str], *, require_station: bool) -> bool:
         and truth(item, "selected")
         and truth(item, "disclosed")
         and (station_ok or not require_station)
+        and (truth(item, "wimtReportsRunning") or not require_running)
     )
 
 
@@ -118,7 +123,11 @@ def build_report(evidence: Path) -> dict[str, Any]:
     auto = fields(auto_line)
     started = fields(started_line)
     summary = fields(summary_line)
-    require_station = truth(started, "requireCurrentStation") or truth(summary, "currentStationRequired")
+    require_station = (truth(train, "currentStationRequired") or
+                       truth(started, "requireCurrentStation") or
+                       truth(summary, "currentStationRequired"))
+    require_running = (require_station or truth(started, "runningStatusRequired") or
+                       truth(summary, "runningStatusRequired"))
 
     samples = [fields(line) for line in lines if "WIMT_SOAK_SAMPLE " in line]
     samples.sort(key=lambda item: number(item, "minute", -1))
@@ -150,16 +159,19 @@ def build_report(evidence: Path) -> dict[str, Any]:
     checkpoint_set = set(REQUIRED_CHECKPOINTS)
     checkpoints_ok = (
         checkpoint_set.issubset(periodic_details)
-        and all(_strict_detail(periodic_details[minute], require_station=True)
+        and all(_strict_detail(periodic_details[minute], require_station=require_station,
+                               require_running=require_running)
                 for minute in REQUIRED_CHECKPOINTS)
-        and _strict_detail(final_detail, require_station=True)
-    ) if require_station else True
+        and _strict_detail(final_detail, require_station=require_station,
+                           require_running=require_running)
+    ) if require_station or require_running else True
 
     initial_ok = (
         initial.get("httpStatus") == "200"
         and truth(initial, "runDateMatched")
         and truth(initial, "routeMatched")
         and truth(initial, "fresh")
+        and truth(initial, "freshnessAccurate")
         and number(initial, "rows") > 0
         and number(initial, "cells") > 0
         and truth(initial, "selected")
@@ -169,6 +181,7 @@ def build_report(evidence: Path) -> dict[str, Any]:
             bool(initial.get("currentStationClaim", "").strip())
             and initial.get("currentStationClaim", "").lower() != "unknown"
         ))
+        and (not require_running or truth(initial, "wimtReportsRunning"))
     )
 
     try:
@@ -208,10 +221,17 @@ def build_report(evidence: Path) -> dict[str, Any]:
         and initial.get("currentStationClaim", "unknown").lower() != "unknown"
         and checkpoints_ok
     )
+    running_status_ok = (
+        not require_running
+        or (truth(initial, "wimtReportsRunning")
+            and truth(summary, "wimtRunningStatusChecksPassed")
+            and checkpoints_ok)
+    )
     auto_off = truth(summary, "autoOff") and truth(auto, "enabled")
     checks = {
         "initialFreshRunRouteMatchedWimtInResponse": initial_ok,
         "freshCurrentStationClaimAtStartAndCheckpoints": current_station_ok,
+        "wimtRunningStatusQualifiedAtStartAndCheckpoints": running_status_ok,
         "elapsedAtLeast46Minutes": full_duration,
         "atLeast46DistinctOneMinuteReceipts": cycles >= REQUIRED_MINUTES and required_receipts >= REQUIRED_MINUTES,
         "minuteZeroThrough46SamplesPresent": sample_minutes_ok,
@@ -230,10 +250,14 @@ def build_report(evidence: Path) -> dict[str, Any]:
         failure_stage = "PASS"
     elif not train_line:
         failure_stage = "TRAIN_NOT_SELECTED_OR_SETUP_FAILED"
+    elif initial_line and require_running and not truth(initial, "wimtReportsRunning"):
+        failure_stage = "WIMT_RUNNING_STATUS_NOT_QUALIFIED_AT_START"
     elif initial_line and not initial_ok:
         failure_stage = "INITIAL_WIMT_LIVE_STATUS_GATE_FAILED"
     elif started_line and not summary_line:
         failure_stage = "OBSERVATION_DID_NOT_REACH_FINAL_SUMMARY"
+    elif summary_line and require_running and not running_status_ok:
+        failure_stage = "WIMT_RUNNING_STATUS_NOT_CONTINUOUSLY_QUALIFIED"
     elif summary_line and not full_duration:
         failure_stage = "OBSERVATION_ENDED_BEFORE_46_MINUTES"
     elif summary_line and not current_station_ok:
@@ -259,7 +283,9 @@ def build_report(evidence: Path) -> dict[str, Any]:
             "freshSourceStamp": truth(item, "fresh"),
             "sourceRows": number(item, "rows"),
             "visibleSourceCells": number(item, "cells"),
-            "qualified": _strict_detail(item, require_station=True),
+            "wimtRunningStatusQualified": truth(item, "wimtReportsRunning"),
+            "qualified": _strict_detail(item, require_station=require_station,
+                                        require_running=require_running),
         })
     if final_detail:
         checkpoints.append({
@@ -271,7 +297,9 @@ def build_report(evidence: Path) -> dict[str, Any]:
             "freshSourceStamp": truth(final_detail, "fresh"),
             "sourceRows": number(final_detail, "rows"),
             "visibleSourceCells": number(final_detail, "cells"),
-            "qualified": _strict_detail(final_detail, require_station=True),
+            "wimtRunningStatusQualified": truth(final_detail, "wimtReportsRunning"),
+            "qualified": _strict_detail(final_detail, require_station=require_station,
+                                        require_running=require_running),
         })
 
     result = {
@@ -294,9 +322,11 @@ def build_report(evidence: Path) -> dict[str, Any]:
             "runDateMatched": truth(initial, "runDateMatched"),
             "routeMatched": truth(initial, "routeMatched"),
             "freshSourceStamp": truth(initial, "fresh"),
+            "freshnessAccurate": truth(initial, "freshnessAccurate"),
             "sourceRows": number(initial, "rows"),
             "visibleSourceCells": number(initial, "cells"),
             "currentStationCodeClaim": initial.get("currentStationClaim"),
+            "wimtRunningStatusQualified": truth(initial, "wimtReportsRunning"),
         },
         "refresh": {
             "receipts": cycles,
@@ -337,18 +367,20 @@ def render_markdown(result: dict[str, Any]) -> str:
         f"- Elapsed: **{result.get('observedDurationMinutes') if result.get('observedDurationMinutes') is not None else 'not recorded'} / 46 minutes**",
         f"- One-minute refresh receipts / missed slots: **{result['refresh']['receipts']} / {result['refresh']['missedReceiptSlots']}**",
         f"- Start current-station claim: **{result['initial']['currentStationCodeClaim'] or 'not recorded'}**",
+        f"- WIMT running-status qualification at start: **{result['initial']['wimtRunningStatusQualified']}**",
         "",
-        "## Current-station source claims",
+        "## WIMT .in current-station and running-status claims",
         "",
-        "| Checkpoint minute | WIMT .in current-station code claim | HTTP | Run/route matched | Fresh stamp | Source rows | Qualified |",
-        "|---:|---|---:|---|---|---:|---|",
+        "| Checkpoint minute | Current-station code claim | HTTP | Run/route matched | Fresh stamp | Source rows | Running-status gate | Qualified |",
+        "|---:|---|---:|---|---|---:|---|---|",
     ]
     for item in result["currentStationCheckpoints"]:
         lines.append(
             f"| {item['minute']} | {item.get('currentStationCodeClaim') or '—'} | "
             f"{item['httpStatus'] if item['httpStatus'] >= 0 else '—'} | "
             f"{item['runDateMatched']}/{item['routeMatched']} | "
-            f"{item['freshSourceStamp']} | {item['sourceRows']} | {item['qualified']} |"
+            f"{item['freshSourceStamp']} | {item['sourceRows']} | "
+            f"{item['wimtRunningStatusQualified']} | {item['qualified']} |"
         )
     lines.extend([
         "",

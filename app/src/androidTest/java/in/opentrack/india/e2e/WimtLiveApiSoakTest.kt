@@ -19,6 +19,8 @@ import java.util.TimeZone
  * selected-source refresh and stops polling after a refusal or an unqualified WIMT response, so a
  * blocked/rate-limited endpoint is not hammered. Feed freshness, missing rows and HTTP status stay
  * separate; an elapsed schedule, page check, or retained row is never counted as fresh movement.
+ * The 46-minute mode also requires the app's bounded WIMT running-status qualification: matched
+ * run/route, fresh source stamp, current-station field, and at least one source-reported actual row.
  */
 @RunWith(AndroidJUnit4::class)
 class WimtLiveApiSoakTest {
@@ -37,6 +39,7 @@ class WimtLiveApiSoakTest {
         val visibleCells: Int,
         val disclosed: Boolean,
         val currentStationCodeClaim: String?,
+        val runningStatusQualified: Boolean,
     ) {
         val hasCurrentStationClaim: Boolean
             get() = !currentStationCodeClaim.isNullOrBlank()
@@ -44,7 +47,7 @@ class WimtLiveApiSoakTest {
         val qualified: Boolean
             get() = selected && httpStatus == 200 && runMatched && routeMatched && rows > 0
         val strictFresh: Boolean
-            get() = qualified && fresh && visibleCells > 0 && disclosed
+            get() = qualified && fresh && freshnessAccurate && visibleCells > 0 && disclosed
     }
 
     private fun trainForIstHour(): String = when (
@@ -203,6 +206,8 @@ class WimtLiveApiSoakTest {
             disclosed = details.contains("not NTES actuals", true) &&
                 details.contains("GPS or movement", true),
             currentStationCodeClaim = currentStationCode?.uppercase(),
+            runningStatusQualified = details.contains(
+                "WIMT .in app-side running-status qualification: QUALIFIED", true),
         )
     }
 
@@ -319,6 +324,7 @@ class WimtLiveApiSoakTest {
         var sourceLossRecorded = false
         var sourceFailureReason = "none"
         var currentStationChecksPassed = true
+        var runningStatusChecksPassed = true
 
         try {
             val number = trainForIstHour()
@@ -383,23 +389,30 @@ class WimtLiveApiSoakTest {
             if (initial.strictFresh) freshSamples++ else nonFreshSamples++
             val initialOk = initial.strictFresh &&
                 summaryAtTableCapture.contains("source-reported stop row", true) &&
-                (!requireCurrentStation || initial.hasCurrentStationClaim)
+                (!requireCurrentStation || (initial.hasCurrentStationClaim &&
+                    initial.runningStatusQualified))
             if (requireCurrentStation && !initial.hasCurrentStationClaim) {
                 currentStationChecksPassed = false
+            }
+            if (requireCurrentStation && !initial.runningStatusQualified) {
+                runningStatusChecksPassed = false
             }
             writeTrace(traceFile,
                 "WIMT_SOAK_INITIAL httpStatus=${initial.httpStatus ?: "none"} " +
                     "responseBytes=${initial.responseBytes ?: "unknown"} " +
                     "runDateMatched=${initial.runMatched} routeMatched=${initial.routeMatched} " +
-                    "fresh=${initial.fresh} rows=${initial.rows} cells=${initial.visibleCells} " +
+                    "fresh=${initial.fresh} freshnessAccurate=${initial.freshnessAccurate} " +
+                    "rows=${initial.rows} cells=${initial.visibleCells} " +
                     "responseClass=${initial.responseClass} parserOutcome=${initial.parserOutcome} " +
                     "selected=${initial.selected} disclosed=${initial.disclosed} " +
-                    "currentStationClaim=${initial.currentStationCodeClaim ?: "unknown"} accepted=$initialOk")
+                    "currentStationClaim=${initial.currentStationCodeClaim ?: "unknown"} " +
+                    "wimtReportsRunning=${initial.runningStatusQualified} accepted=$initialOk")
             assertTrue("strict fresh WIMT .in source-reported table was not present before the " +
                 "$durationMinutes-minute regression: http=${initial.httpStatus} run=${initial.runMatched} " +
                 "route=${initial.routeMatched} fresh=${initial.fresh} rows=${initial.rows} " +
                 "cells=${initial.visibleCells} selected=${initial.selected} " +
                 "currentStation=${initial.currentStationCodeClaim ?: "unknown"} " +
+                "wimtReportsRunning=${initial.runningStatusQualified} " +
                 "disclosed=${initial.disclosed}", initialOk)
 
             val autoAttempt = enableAuto()
@@ -436,14 +449,16 @@ class WimtLiveApiSoakTest {
             val startSummary = E2E.text("sourceSummary", 500)
             writeTrace(traceFile,
                 "WIMT_SOAK_STARTED durationMinutes=$durationMinutes autoIntervalMinutes=1 " +
-                    "requireCurrentStation=$requireCurrentStation requiredReceipts=$durationMinutes " +
+                    "requireCurrentStation=$requireCurrentStation " +
+                    "runningStatusRequired=$requireCurrentStation requiredReceipts=$durationMinutes " +
                     "initialHttpStatus=${initial.httpStatus}")
             writeTrace(traceFile,
                 "WIMT_SOAK_SAMPLE minute=0 elapsedSeconds=0 receiptClock=${lastReceiptClock ?: "none"} " +
                     "selected=$startSelected visibleCells=$startCells " +
                     "sourceRowsVisible=${startSummary.contains("source-reported stop row", true)} " +
                     "autoEnabled=${autoChecked() == true} receiptFailure=false " +
-                    "currentStationClaim=${initial.currentStationCodeClaim ?: "unknown"}")
+                    "currentStationClaim=${initial.currentStationCodeClaim ?: "unknown"} " +
+                    "wimtReportsRunning=${initial.runningStatusQualified}")
 
             while (SystemClock.elapsedRealtime() < endAt ||
                 (requireCurrentStation && cycles < durationMinutes.toInt() &&
@@ -549,11 +564,14 @@ class WimtLiveApiSoakTest {
                             if (measured.fresh) freshSamples++ else nonFreshSamples++
                             val currentStationMissing = requireCurrentStation &&
                                 !measured.hasCurrentStationClaim
+                            val runningStatusMissing = requireCurrentStation &&
+                                !measured.runningStatusQualified
                             if (currentStationMissing) currentStationChecksPassed = false
+                            if (runningStatusMissing) runningStatusChecksPassed = false
                             if (measured.httpStatus != 200 || !measured.runMatched ||
                                 !measured.routeMatched || measured.rows == 0 || !measured.selected ||
                                 !measured.freshnessAccurate || !measured.disclosed ||
-                                currentStationMissing) {
+                                currentStationMissing || runningStatusMissing) {
                                 unqualifiedSamples++
                             }
                             if (measured.httpStatus != 200) httpFailures++
@@ -566,12 +584,13 @@ class WimtLiveApiSoakTest {
                                     "stale=${measured.stale} freshnessAccurate=${measured.freshnessAccurate} " +
                                     "rows=${measured.rows} cells=${measured.visibleCells} " +
                                     "selected=${measured.selected} disclosed=${measured.disclosed} " +
-                                    "currentStationClaim=${measured.currentStationCodeClaim ?: "unknown"}")
+                                    "currentStationClaim=${measured.currentStationCodeClaim ?: "unknown"} " +
+                                    "wimtReportsRunning=${measured.runningStatusQualified}")
                             val responseUnqualified = measured.httpStatus != 200 ||
                                 measured.rows == 0 || !measured.runMatched ||
                                 !measured.routeMatched || !measured.selected ||
                                 !measured.freshnessAccurate || !measured.disclosed ||
-                                currentStationMissing
+                                currentStationMissing || runningStatusMissing
                             if (responseUnqualified) {
                                 sourceFailureReason = when (measured.httpStatus) {
                                     403 -> "HTTP_403"
@@ -638,7 +657,10 @@ class WimtLiveApiSoakTest {
             val finalSelected = selectedWimt()
             if (finalDetails == null) {
                 unqualifiedSamples++
-                if (requireCurrentStation) currentStationChecksPassed = false
+                if (requireCurrentStation) {
+                    currentStationChecksPassed = false
+                    runningStatusChecksPassed = false
+                }
                 writeTrace(traceFile, "WIMT_SOAK_FINAL_DETAILS_UNAVAILABLE selected=$finalSelected")
             } else {
                 val final = sample(finalSummary, finalDetails,
@@ -647,10 +669,14 @@ class WimtLiveApiSoakTest {
                 if (final.fresh) freshSamples++ else nonFreshSamples++
                 val finalCurrentStationMissing = requireCurrentStation &&
                     !final.hasCurrentStationClaim
+                val finalRunningStatusMissing = requireCurrentStation &&
+                    !final.runningStatusQualified
                 if (finalCurrentStationMissing) currentStationChecksPassed = false
+                if (finalRunningStatusMissing) runningStatusChecksPassed = false
                 if (final.httpStatus != 200 || !final.runMatched || !final.routeMatched ||
                     final.rows == 0 || !final.selected || !final.freshnessAccurate ||
-                    !final.disclosed || finalCurrentStationMissing) unqualifiedSamples++
+                    !final.disclosed || finalCurrentStationMissing || finalRunningStatusMissing)
+                    unqualifiedSamples++
                 if (final.httpStatus != 200) httpFailures++
                 writeTrace(traceFile,
                     "WIMT_SOAK_DETAIL sample=$detailSamples cycle=final " +
@@ -661,6 +687,7 @@ class WimtLiveApiSoakTest {
                         "cells=${final.visibleCells} selected=${final.selected} " +
                         "disclosed=${final.disclosed} " +
                         "currentStationClaim=${final.currentStationCodeClaim ?: "unknown"} " +
+                        "wimtReportsRunning=${final.runningStatusQualified} " +
                         "responseClass=${final.responseClass} parserOutcome=${final.parserOutcome} " +
                         "responseBytes=${final.responseBytes ?: "unknown"}")
             }
@@ -676,7 +703,9 @@ class WimtLiveApiSoakTest {
                 "sourceFailureReason=$sourceFailureReason fullDuration=$fullDuration " +
                 "finalSelected=$finalSelected autoOff=$autoOffConfirmed " +
                 "currentStationRequired=$requireCurrentStation " +
-                "currentStationChecksPassed=$currentStationChecksPassed"
+                "currentStationChecksPassed=$currentStationChecksPassed " +
+                "runningStatusRequired=$requireCurrentStation " +
+                "wimtRunningStatusChecksPassed=$runningStatusChecksPassed"
             writeTrace(traceFile, summaryLine)
             assertTrue("the $durationMinutes-minute soak ended early: elapsedMs=$elapsed", fullDuration)
             assertTrue("fewer than $requiredReceipts one-minute selected-source receipts: " +
@@ -688,6 +717,10 @@ class WimtLiveApiSoakTest {
             if (requireCurrentStation) assertTrue(
                 "WIMT .in stopped claiming a current station at a required checkpoint",
                 currentStationChecksPassed)
+            if (requireCurrentStation) assertTrue(
+                "WIMT .in running-status qualification failed at a required checkpoint; it needs a " +
+                    "fresh, run/route-matched current-station field and at least one source-reported actual stop clock",
+                runningStatusChecksPassed)
             assertTrue("final WIMT source selection did not remain visible", finalSelected)
             assertTrue("Auto must be verified OFF when the soak ends", autoOffConfirmed && !autoEnabled)
             E2E.assertNoSystemDialog("WIMT $durationMinutes-minute Auto refresh observation")

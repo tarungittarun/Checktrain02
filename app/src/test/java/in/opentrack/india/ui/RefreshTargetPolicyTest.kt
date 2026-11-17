@@ -27,13 +27,14 @@ class RefreshTargetPolicyTest {
         assertEquals(official, RefreshTargetPolicy.afterWebsiteSurvey(official, false, true))
     }
 
-    @Test fun manualRefreshNormalizesLegacyWimtDefaultsToTheWebsiteAfterOfficialFallback() {
+    @Test fun manualRefreshKeepsTheSavedProviderIdentityAfterOfficialFallback() {
         assertEquals(site, RefreshTargetPolicy.target(official, site, auto = false))
         assertEquals(site, RefreshTargetPolicy.target(site, site, auto = false))
-        assertEquals(site, RefreshTargetPolicy.target(
+        assertEquals(TrackingSources.WIMT, RefreshTargetPolicy.target(
             official, TrackingSources.WIMT, auto = false))
-        assertEquals(site, RefreshTargetPolicy.target(
-            official, WimtCandidate.SOURCE, auto = false))
+        assertEquals("an experimental cache preference must not become a `.org.in` request",
+            official, RefreshTargetPolicy.target(
+                official, WimtCandidate.SOURCE, auto = false))
     }
 
     @Test fun automaticRefreshDoesNotHammerARefusingWebsiteAfterFallback() {
