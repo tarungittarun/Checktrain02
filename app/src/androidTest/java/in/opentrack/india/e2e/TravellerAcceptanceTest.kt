@@ -737,8 +737,15 @@ class TravellerAcceptanceTest {
         assertTrue("Returning from Alerts lost the selected journey",
             E2E.ui.wait(Until.hasObject(E2E.res("arrivalAlert")), E2E.NETWORK_MS))
         assertTrue("Saved journey alert could not be reopened", E2E.tap("arrivalAlert"))
-        assertTrue("A second alert cannot be added for this journey", tapTextContains("Add another"))
-        assertTrue("Add another did not open the four-field editor", waitForAlertSetup())
+        val addAnotherButton = E2E.ui.wait(Until.findObject(By.text("Add another")), 300L)
+            ?: E2E.ui.wait(Until.findObject(By.text("ADD ANOTHER")), E2E.LOCAL_MS)
+        assertTrue("A second alert cannot be added for this journey", addAnotherButton != null)
+        addAnotherButton!!.click()
+        E2E.ui.waitForIdle()
+        val secondSetupOpened = waitForAlertSetup()
+        if (!secondSetupOpened) E2E.shotDiagnostic("alert-add-another-open-failure")
+        assertTrue("Add another did not open the four-field editor; visible app text='${visibleTextNodes()}'",
+            secondSetupOpened)
         assertTrue("Saved Ping default was not applied to a new journey alert",
             revealRadioContains("Ping", "alertDialogScroll", up = false) &&
                 E2E.ui.findObject(By.clazz("android.widget.RadioButton").text("Ping"))?.isChecked == true)

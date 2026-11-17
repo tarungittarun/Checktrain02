@@ -147,7 +147,9 @@ jobs:
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
         with:
-          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+          # Push builds write this branch-scoped Gradle cache so new unit-test/runtime artifacts
+          # are not fetched cold from Maven Central on every session commit.
+          cache-read-only: false
       - name: Unit tests in this independent partition
         shell: bash
         env:
@@ -276,7 +278,7 @@ jobs:
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
         with:
-          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+          cache-read-only: false
       - name: Compile instrumented field tests
         run: ./gradlew --no-daemon :app:assembleDebugAndroidTest --stacktrace
       - uses: actions/upload-artifact@v4
@@ -393,7 +395,7 @@ jobs:
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
         with:
-          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+          cache-read-only: false
       # Deliberately `assembleDebug` only. The unit tests — including the ones that paint the screens —
       # run in `ui`, in parallel, and a red render test must not stop an APK from reaching a device.
       - name: Assemble debug APK
