@@ -94,6 +94,10 @@ class WimtLiveApiSoakTest {
             .contains("Selected WIMT .in live-status feed", true)
     }.getOrDefault(false)
 
+    /** The traveller-facing summary says "N WIMT .in stop time(s)", not "source-reported stop row". */
+    private fun hasWimtReportedStopTimes(summary: String): Boolean =
+        summary.contains("WIMT .in stop time(s)", true)
+
     private fun receiptDescription(): String {
         val spinnerReceipt = runCatching {
             E2E.find("sourceSpinner", 100)?.contentDescription.orEmpty()
@@ -148,7 +152,8 @@ class WimtLiveApiSoakTest {
         val rows = Regex("""Selected WIMT \.in source-reported rows \((\d+)\):""")
             .find(details)?.groupValues?.get(1)?.toIntOrNull() ?: 0
         val stampFresh = details.contains("fresh source stamp; not event time")
-        val summaryFresh = summary.contains("upstream update stamp is fresh")
+        val summaryFresh = summary.contains("source stamp fresh", true) ||
+            summary.contains("upstream update stamp is fresh", true)
         val stale = details.contains("stale source stamp; current position unknown")
         val responseClass = when {
             status == null -> "HTTP_STATUS_UNKNOWN"
@@ -357,8 +362,9 @@ class WimtLiveApiSoakTest {
             while (SystemClock.elapsedRealtime() < settleDeadline) {
                 summary = E2E.text("sourceSummary", 500)
                 val selected = selectedWimtDescription()
-                if (selected && summary.contains("source-reported stop row", true) &&
+                if (selected && hasWimtReportedStopTimes(summary) &&
                     !summary.contains("Checking", true) &&
+                    !summary.contains("source stamp ahead", true) &&
                     !summary.contains("ahead; not counted fresh yet", true)) break
                 Thread.sleep(250)
             }
@@ -380,7 +386,7 @@ class WimtLiveApiSoakTest {
             writeTrace(traceFile,
                 "WIMT_SOAK_TABLE_CAPTURE selected=$selectedAtTableCapture " +
                     "visibleCells=$cellsAtTableCapture hasSourceRows=" +
-                    summaryAtTableCapture.contains("source-reported stop row", true))
+                    hasWimtReportedStopTimes(summaryAtTableCapture))
             val initialDetails = sourceDetails("wimt-soak-start-details")
             assertNotNull("selected WIMT .in source details were not available", initialDetails)
             val initial = sample(summaryAtTableCapture, initialDetails.orEmpty(),
@@ -388,7 +394,7 @@ class WimtLiveApiSoakTest {
             detailSamples++
             if (initial.strictFresh) freshSamples++ else nonFreshSamples++
             val initialOk = initial.strictFresh &&
-                summaryAtTableCapture.contains("source-reported stop row", true) &&
+                hasWimtReportedStopTimes(summaryAtTableCapture) &&
                 (!requireCurrentStation || (initial.hasCurrentStationClaim &&
                     initial.runningStatusQualified))
             if (requireCurrentStation && !initial.hasCurrentStationClaim) {
@@ -455,7 +461,7 @@ class WimtLiveApiSoakTest {
             writeTrace(traceFile,
                 "WIMT_SOAK_SAMPLE minute=0 elapsedSeconds=0 receiptClock=${lastReceiptClock ?: "none"} " +
                     "selected=$startSelected visibleCells=$startCells " +
-                    "sourceRowsVisible=${startSummary.contains("source-reported stop row", true)} " +
+                    "sourceRowsVisible=${hasWimtReportedStopTimes(startSummary)} " +
                     "autoEnabled=${autoChecked() == true} receiptFailure=false " +
                     "currentStationClaim=${initial.currentStationCodeClaim ?: "unknown"} " +
                     "wimtReportsRunning=${initial.runningStatusQualified}")
@@ -477,7 +483,7 @@ class WimtLiveApiSoakTest {
                     val receiptFailed = receiptSuggestsFailure(currentReceipt)
                     val cycleSummary = E2E.text("sourceSummary", 500)
                     val cycleCells = visibleWimtSourceCellCount()
-                    val cycleRowsVisible = cycleSummary.contains("source-reported stop row", true)
+                    val cycleRowsVisible = hasWimtReportedStopTimes(cycleSummary)
                     val cycleAutoOn = autoChecked() == true
                     writeTrace(traceFile,
                         "WIMT_SOAK_CYCLE cycle=$cycles receiptClock=$clock " +
