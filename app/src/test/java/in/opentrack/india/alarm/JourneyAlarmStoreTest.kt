@@ -52,6 +52,30 @@ class JourneyAlarmStoreTest {
         assertEquals(1_793_000_000_100L, restored.lastCheckedAtMillis)
     }
 
+    @Test fun unverifiedSetupIsPersistedWithoutAnInventedPositionBaseline() {
+        val pending = config().copy(baselineSeq = 0, baselineEventMinute = null,
+            positionVerifiedAtSetup = false)
+        val id = JourneyAlarmStore.arm(context, pending)
+
+        val restored = JourneyAlarmStore.find(context, id)!!
+        assertEquals(pending, restored.config)
+        assertTrue(!restored.config.positionVerifiedAtSetup)
+        assertEquals(0, restored.config.baselineSeq)
+        assertNull(restored.config.baselineEventMinute)
+        assertTrue(restored.status.contains("Position unverified at setup"))
+    }
+
+    @Test fun unverifiedSetupCannotPersistAnInventedPositionBaseline() {
+        val invalid = config().copy(positionVerifiedAtSetup = false)
+        var rejected = false
+        try {
+            JourneyAlarmStore.arm(context, invalid)
+        } catch (expected: IllegalArgumentException) {
+            rejected = true
+        }
+        assertTrue("an unverified setup must not carry a fabricated route baseline", rejected)
+    }
+
     @Test fun multipleAlertsForTheSameTrainAndOtherTrainsPersistAndUpdateById() {
         val stationAlert = JourneyAlarmStore.arm(context,
             config(trigger = AlertTrigger.PREVIOUS_STOP_REPORT))

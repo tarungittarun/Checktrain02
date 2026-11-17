@@ -50,9 +50,9 @@ class TravellerAcceptanceTest {
         assertEquals("Track opened a DIFFERENT train from the ticket", "12627", E2E.text("trainNo"))
     }
 
-    /** The source gate is intentionally strict, so offline acceptance cannot create a live alert.
-     * This explicit local fixture lets the same profile still exercise Alerts' management controls;
-     * its status is labeled CI fixture and is never treated as train evidence. */
+    /** The position gate never fabricates a baseline. If the source is unavailable, acceptance
+     * explicitly chooses the monitor-until-a-fresh-event path; this labelled fixture is reserved
+     * for a source that already reports the selected stop reached. */
     private fun seedCiJourneyAlert(context: android.content.Context = E2E.context()): Int {
         var trainNo = ""
         var fromCode = ""
@@ -665,19 +665,47 @@ class TravellerAcceptanceTest {
             stopAlreadyReached = E2E.ui.findObject(By.text("Selected stop already reached")) != null
             if (!saved && !positionUnavailable && !stopAlreadyReached) Thread.sleep(100)
         }
-        if (positionUnavailable || stopAlreadyReached) {
+        if (positionUnavailable) {
+            val activeBeforeChoice = JourneyAlarmStore.readAll(context).any {
+                it.config.trainNo == "12627" && it.state in setOf(
+                    AlertState.ARMED, AlertState.ALERTING, AlertState.RINGING)
+            }
+            assertTrue("The monitor started before the user chose the unverified-position path",
+                !activeBeforeChoice)
+            assertTrue("The position warning did not say that monitoring has not started yet",
+                E2E.ui.findObject(By.textContains("No alert is active yet")) != null)
+            if (E2E.flag("offline"))
+                assertTrue("Offline setup should expose the explicit monitor-until-verified path",
+                    positionUnavailable)
+            E2E.shotDiagnostic("alert-setup-position-unverified-choice")
+            assertTrue("The safe monitor option is missing",
+                tapTextContains("Monitor for verified event"))
+            val pendingDeadline = System.currentTimeMillis() + E2E.LOCAL_MS
+            var pending = JourneyAlarmStore.readAll(context).firstOrNull {
+                it.config.trainNo == "12627" && it.state == AlertState.ARMED
+            }
+            while (pending == null && System.currentTimeMillis() < pendingDeadline) {
+                Thread.sleep(100)
+                pending = JourneyAlarmStore.readAll(context).firstOrNull {
+                    it.config.trainNo == "12627" && it.state == AlertState.ARMED
+                }
+            }
+            assertTrue("Confirmed monitor was not persisted", pending != null)
+            assertTrue("Position-unknown setup incorrectly recorded a verified baseline",
+                !pending!!.config.positionVerifiedAtSetup && pending.config.baselineSeq == 0 &&
+                    pending.config.baselineEventMinute == null)
+            saved = true
+        }
+        if (stopAlreadyReached) {
             val activeForTrain = JourneyAlarmStore.readAll(context).any {
                 it.config.trainNo == "12627" && it.state in setOf(
                     AlertState.ARMED, AlertState.ALERTING, AlertState.RINGING)
             }
-            assertTrue("The live-position gate showed a refusal but still armed an alert", !activeForTrain)
-            assertTrue("The live-position gate did not explain that no alert was armed",
+            assertTrue("A source-reported reached stop must not arm a new alert", !activeForTrain)
+            assertTrue("Reached-stop warning did not fail closed",
                 E2E.ui.findObject(By.textContains("No alert was armed")) != null)
-            if (E2E.flag("offline"))
-                assertTrue("Offline setup did not fail closed when no live position source was available",
-                    positionUnavailable)
-            E2E.shotDiagnostic("alert-setup-position-refused")
-            assertTrue("The live-position refusal could not be dismissed", tapTextContains("Close"))
+            E2E.shotDiagnostic("alert-setup-stop-already-reached")
+            assertTrue("Reached-stop warning could not be dismissed", tapTextContains("Close"))
             seedCiJourneyAlert(context)
             saved = E2E.ui.wait(Until.hasObject(By.text("Alert on")), E2E.LOCAL_MS)
         }
@@ -701,6 +729,9 @@ class TravellerAcceptanceTest {
             revealTextContains("Vibrate · repeats every 15 sec", "alertsScroll"))
         assertTrue("The active alert did not retain the custom check interval",
             revealTextContains("Check frequency · every 7 minutes", "alertsScroll"))
+        if (positionUnavailable)
+            assertTrue("The active alert did not disclose its unverified setup baseline",
+                revealTextContains("Position at setup was unverified", "alertsScroll"))
         E2E.shotRequired("alert-active-management")
 
         assertTrue("Alerts has no default-options action", visibleResource("options"))

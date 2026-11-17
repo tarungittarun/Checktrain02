@@ -225,6 +225,9 @@ object JourneyAlarmPolicy {
                 "The last event at ${target.name} is ${SourceFreshness.label(eventAt, nowMillis)}")
         if (feedStamp != null && feedStamp < eventAt)
             return Decision.Waiting("The source update stamp predates the reported station event; waiting for a consistent reply")
+        // When setup explicitly proceeds without a verified position, its baseline is empty.
+        // This event-time fence is still mandatory: the first later source check cannot replay
+        // an event whose reported minute was at or before the user's confirmation.
         val createdMinute = ((RailTime.istEpochDay(config.createdAtMillis) - config.originEpochDay) *
             RailTime.MINUTES_PER_DAY + RailTime.istMinuteOfDay(config.createdAtMillis)).toInt()
         if (minute <= createdMinute)

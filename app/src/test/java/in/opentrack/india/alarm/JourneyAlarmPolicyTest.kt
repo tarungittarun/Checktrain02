@@ -327,6 +327,26 @@ class JourneyAlarmPolicyTest {
         assertTrue(wimtResult is JourneyAlarmPolicy.SetupEligibility.Upcoming)
     }
 
+    @Test fun unverifiedSetupOnlyAllowsAStationEventTimestampedAfterConfirmation() {
+        val c = config(createdMinute = 665, baselineSeq = 0, baselineMinute = null)
+            .copy(positionVerifiedAtSetup = false)
+        val oldEvent = answer(actualDeparture = 665, feedAgeSeconds = 1,
+            replyAtMillis = now(670))
+        val laterEvent = answer(actualDeparture = 666, feedAgeSeconds = 1,
+            replyAtMillis = now(670))
+
+        val beforeSetup = JourneyAlarmPolicy.stationEvent(c, route, oldEvent, now(670),
+            source = JourneyAlarmPolicy.AlertEvidenceSource.NTES)
+        val afterSetup = JourneyAlarmPolicy.stationEvent(c, route, laterEvent, now(670),
+            source = JourneyAlarmPolicy.AlertEvidenceSource.NTES)
+
+        assertTrue(beforeSetup is JourneyAlarmPolicy.Decision.Waiting)
+        assertTrue((beforeSetup as JourneyAlarmPolicy.Decision.Waiting).detail
+            .contains("at or before the alert was set"))
+        assertTrue(afterSetup is JourneyAlarmPolicy.Decision.Fire)
+        assertEquals(now(666), (afterSetup as JourneyAlarmPolicy.Decision.Fire).evidenceAtMillis)
+    }
+
     @Test fun phoneDistanceNeedsFreshAccurateRouteMatchedMovement() {
         val c = config(AlertTrigger.PHONE_DISTANCE, "SBC", "KSR Bengaluru", 3,
             distanceKm = 5)

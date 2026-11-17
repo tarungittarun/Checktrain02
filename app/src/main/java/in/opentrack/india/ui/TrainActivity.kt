@@ -759,8 +759,8 @@ class TrainActivity : AppCompatActivity() {
             initialFeedback = config.feedback,
             initialRepeatIntervalSeconds = config.repeatIntervalSeconds,
             initialIntervalMinutes = config.intervalMinutes,
-            note = "Current station is rechecked with fresh NTES/WIMT evidence when you set the alert. A passed timetable time alone does not disqualify an upcoming stop.",
-            details = "Only fresh, route- and run-matched NTES or direct WIMT .in reports can confirm station events. The .in feed must echo this run date and both route endpoints. eRail, website claims, cached comparisons and timetable-only times never trigger an arrival alert. A one-time scheduled reminder does not stop monitoring; the final alert waits for a qualifying station event. Successful checks stay quiet. If neither source returns fresh, usable data, one silent notice is sent per continuous failure streak and cleared on recovery. Ping/vibration can be one-shot or repeat at the selected interval. Ring continues until turned off; Snooze pauses any final alert for 2 minutes. Android background limits can delay checks.",
+            note = "Current station is rechecked with fresh NTES/WIMT evidence when you set the alert. If position cannot be verified, you can still monitor for a new qualifying event without assuming the stop is ahead.",
+            details = "Only fresh, route- and run-matched NTES or direct WIMT .in reports can confirm station events. The .in feed must echo this run date and both route endpoints. eRail, website claims, cached comparisons and timetable-only times never trigger an arrival alert. If setup position is unavailable, monitoring can start with no baseline and only a later qualifying event can alert; events at or before setup are ignored. At the scheduled-time transition, the app sends one short notification ping (or one vibration when vibration feedback is selected); ring-until-stopped begins only after a fresh qualifying station event. This reminder does not confirm arrival or stop monitoring. Successful checks stay quiet. If neither source returns fresh, usable data, one silent notice is sent per continuous failure streak and cleared on recovery. Ping/vibration can be one-shot or repeat at the selected interval. Ring begins only on a qualifying event and continues until turned off; Snooze pauses any final alert for 2 minutes. Android background limits can delay checks.",
             stations = stations,
             initialStationCode = config.toCode,
         )
@@ -908,15 +908,12 @@ class TrainActivity : AppCompatActivity() {
                         return@launch
                     }
                     is JourneyAlarmPolicy.SetupEligibility.Unavailable -> {
-                        AlertDialog.Builder(this@TrainActivity)
-                            .setTitle("Current position not verified")
-                            .setMessage("${eligibility.detail}\n\nNo alert was armed. Refresh the live status and try again; a timetable time alone cannot prove that the stop is ahead.")
-                            .setPositiveButton("Close", null).show().also(::paintBatteryDialog)
+                        showUnverifiedPositionSetup(verifiedConfig, eligibility.detail)
                         return@launch
                     }
                 }
                 val ready = verifiedConfig.copy(baselineSeq = baseline.seq,
-                    baselineEventMinute = baseline.eventMinute)
+                    baselineEventMinute = baseline.eventMinute, positionVerifiedAtSetup = true)
                 JourneyAlarmService.start(this@TrainActivity, ready)
                 Toast.makeText(this@TrainActivity,
                     "Arrival alert armed · ongoing notification shows monitoring status",
@@ -933,6 +930,51 @@ class TrainActivity : AppCompatActivity() {
                 refreshArrivalAlertButton()
             }
         }
+    }
+
+    private fun showUnverifiedPositionSetup(config: JourneyAlarmConfig, detail: String) {
+        val evidenceRule = if (config.trigger == AlertTrigger.PHONE_DISTANCE) {
+            "It will alert only when a fresh, accurate phone-location fix shows movement matching " +
+                "this train's ordered route and places the phone within ${config.distanceKm} km " +
+                "of ${config.toName}. Phone location is not train GPS; stale fixes, timetable " +
+                "times and website claims cannot trigger it."
+        } else {
+            "It will alert only if direct NTES or WIMT .in later gives a fresh station event " +
+                "matching this train, run and ordered route, with an event time after you confirm. " +
+                "Stale events, the WIMT website and timetable times alone cannot trigger the " +
+                "arrival alert."
+        }
+        val scheduleRule = if (config.trigger == AlertTrigger.PHONE_DISTANCE)
+            "Monitoring continues until the distance condition is met."
+        else "The scheduled-time reminder is separate; monitoring continues until a qualifying station event is reported."
+        val explanation = "$detail\n\nNo alert is active yet. You can start a cautious monitor without assuming " +
+            "the selected stop is ahead. $evidenceRule $scheduleRule"
+        AlertDialog.Builder(this)
+            .setTitle("Current position not verified")
+            .setMessage(explanation)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton(if (config.trigger == AlertTrigger.PHONE_DISTANCE)
+                "Monitor for route movement" else "Monitor for verified event") { _, _ ->
+                val pending = config.copy(
+                    baselineSeq = 0,
+                    baselineEventMinute = null,
+                    positionVerifiedAtSetup = false,
+                    createdAtMillis = System.currentTimeMillis(),
+                )
+                try {
+                    JourneyAlarmService.start(this, pending)
+                    val startedMessage = if (config.trigger == AlertTrigger.PHONE_DISTANCE)
+                        "Monitoring started · only fresh route-matched phone movement can alert"
+                    else "Monitoring started · only a fresh station event after setup can alert"
+                    Toast.makeText(this, startedMessage, Toast.LENGTH_LONG).show()
+                } catch (failure: Exception) {
+                    AlertDialog.Builder(this)
+                        .setTitle("Could not start arrival alert")
+                        .setMessage("${failure.javaClass.simpleName}: ${failure.message.orEmpty().take(180)}")
+                        .setPositiveButton("Close", null).show().also(::paintBatteryDialog)
+                }
+            }
+            .show().also(::paintBatteryDialog)
     }
 
     /** Default in the clock-free bottom dock; a deliberate drag stays anywhere

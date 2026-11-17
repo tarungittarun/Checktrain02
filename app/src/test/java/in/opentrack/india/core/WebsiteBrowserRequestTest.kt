@@ -23,6 +23,20 @@ class WebsiteBrowserRequestTest {
         assertEquals("", decodeJavascriptStringResult("\"markup\" trailing"))
     }
 
+    @Test fun onlyOneTransientWebViewTimeoutCanRetryInsideTheSharedDeadline() {
+        val transientTimeout = Http.Result.Failed(Http.Result.Kind.HTTP,
+            "browser network error -8")
+        assertTrue(WebsiteBrowserRequest.shouldRetryTransientTimeout(1, 1_000L,
+            transientTimeout))
+        assertFalse("the retry itself must not recurse",
+            WebsiteBrowserRequest.shouldRetryTransientTimeout(2, 5_000L, transientTimeout))
+        assertFalse("do not begin a retry without the minimum remaining budget",
+            WebsiteBrowserRequest.shouldRetryTransientTimeout(1, 999L, transientTimeout))
+        assertFalse("403/other navigation failures are not retried",
+            WebsiteBrowserRequest.shouldRetryTransientTimeout(1, 5_000L,
+                Http.Result.Failed(Http.Result.Kind.HTTP, "HTTP 403")))
+    }
+
     @Test fun overlappingSameUrlRequestsJoinOneInFlightNavigation() {
         val registry = InFlightRequestRegistry<String, String>()
         val url = "https://whereismytrain.org.in/?trainNo=16227"
@@ -123,6 +137,37 @@ class WebsiteBrowserRequestTest {
             hasPopulatedTrainDocument(html, "12627"))
     }
 
+    @Test fun visibleMarkupMaskingHandlesMismatchedRawTextClosersAndKeepsOnlyRealCardMarkers() {
+        val fakeCard = """<div class='flex-grow rounded-lg'><h3>Hidden (FAKE)</h3>
+            <div>ARRIVAL 04:20 AM</div></div>"""
+        val marker = "<!-- Station Details Card -->"
+        val visibleCard = """$marker<div class='flex-grow rounded-lg'>
+            <h3>Visible (ARU)</h3><div>ARRIVAL 04:20 AM</div></div>"""
+        val html = "<html><script>Train 16227 $marker$fakeCard</style>still hidden $fakeCard</script>" +
+            "<style>$fakeCard</style><body><h1>Train 16227</h1>$visibleCard</body></html>"
+
+        val visible = WebsiteCardMarkup.visiblePageMarkup(html)
+        assertEquals("masking must preserve offsets and source length", html.length, visible.html.length)
+        assertFalse("script content after a mismatched close tag stays hidden",
+            visible.html.contains("Hidden"))
+        assertEquals("a card-like marker in script content must not become a source card",
+            1, visible.stationCardMarkerOffsets.size)
+        assertEquals(html.indexOf(marker, html.indexOf("<body>")) + marker.length,
+            visible.stationCardMarkerOffsets.single())
+        assertTrue(hasPopulatedTrainDocument(html, "16227"))
+    }
+
+    @Test fun malformedRawTextScannerKeepsLargeRenderedMarkupAndDoesNotStopAtWrongCloser() {
+        val decoys = "</style><p>decoy station card 04:20 AM</p></scriptX>".repeat(8_000)
+        val html = "<html><script>$decoys</script><body><h1>Visible route</h1></body></html>"
+
+        val visible = WebsiteCardMarkup.visiblePageMarkup(html)
+
+        assertEquals("large-page masking must preserve parser offsets", html.length, visible.html.length)
+        assertFalse(visible.html.contains("decoy station card"))
+        assertTrue(visible.html.contains("<h1>Visible route</h1>"))
+    }
+
     @Test fun oneWebsiteNavigationGetsARealBoundedLoadAndDomHydrationWindow() {
         assertTrue(WebsiteBrowserRequestTiming.DOCUMENT_TIMEOUT_MS >= 35_000L)
         assertTrue("browser wait must fit inside the source acceptance's 45-second window",
@@ -131,6 +176,7 @@ class WebsiteBrowserRequestTest {
             WebsiteBrowserRequestTiming.DOM_READINESS_WAIT_MS in 3_000L..8_000L)
         assertTrue(WebsiteBrowserRequestTiming.DOM_READINESS_WAIT_MS <
             WebsiteBrowserRequestTiming.DOCUMENT_TIMEOUT_MS)
+        assertTrue(WebsiteBrowserRequestTiming.DOM_SETTLE_AFTER_PAGE_FINISHED_MS in 500L..1_500L)
         assertTrue(WebsiteBrowserRequestTiming.DOM_READINESS_POLL_MS in 100L..500L)
     }
 

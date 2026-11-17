@@ -146,6 +146,12 @@ class AlertsActivity : AppCompatActivity() {
         card.addView(text("${config.fromCode} → ${config.toCode} · ${date(config.originEpochDay)}",
             13f, R.color.text2, top = 3))
         card.addView(text(triggerSummary(snapshot), 14f, R.color.text1, top = 10))
+        if (!config.positionVerifiedAtSetup) {
+            val unverifiedCopy = if (config.trigger == AlertTrigger.PHONE_DISTANCE)
+                "Route position was unverified at setup · alert still requires a fresh, accurate phone-location fix moving on this route and within ${config.distanceKm} km; phone location is not train GPS."
+            else "Position at setup was unverified · a final alert still requires a fresh direct NTES/WIMT .in station event after setup; website/timetable alone never trigger."
+            card.addView(text(unverifiedCopy, 13f, R.color.warn, top = 5))
+        }
         if (config.trigger != AlertTrigger.PHONE_DISTANCE && config.scheduledMinute != null) {
             card.addView(text("Published timetable · ${RailTime.formatRailMinute(config.scheduledMinute)}",
                 13f, R.color.text2, top = 3))
@@ -279,8 +285,11 @@ class AlertsActivity : AppCompatActivity() {
     }
 
     private fun stateSummary(snapshot: JourneyAlarmSnapshot): String = when (snapshot.state) {
-        AlertState.ARMED -> if (snapshot.checkFailed)
-            "Monitoring · no usable source data; retrying" else "Monitoring"
+        AlertState.ARMED -> when {
+            snapshot.checkFailed -> "Monitoring · no usable source data; retrying"
+            !snapshot.config.positionVerifiedAtSetup -> "Monitoring · setup position unverified"
+            else -> "Monitoring"
+        }
         AlertState.ALERTING -> if (snapshot.snoozedUntilMillis > 0L) "Alert snoozed"
             else if (snapshot.config.repeatIntervalSeconds == JourneyAlarmSchedule.REPEAT_ONCE)
                 "One-time alert sent · turn off or snooze"
@@ -317,8 +326,8 @@ class AlertsActivity : AppCompatActivity() {
             initialFeedback = prefs.defaultAlertFeedback,
             initialRepeatIntervalSeconds = prefs.defaultAlertRepeatIntervalSeconds,
             initialIntervalMinutes = prefs.defaultAlertIntervalMinutes,
-            note = "Starting choices for new alerts. The selected stop is checked against current NTES/WIMT position evidence when Set is pressed.",
-            details = "Alert monitoring uses only fresh, run- and route-matched NTES or direct WIMT .in reports; the .in source must match the run date and both route endpoints. eRail, website claims, cached comparisons and timetable-only values cannot trigger an arrival. A one-time scheduled reminder leaves monitoring armed; the final alert requires a qualifying station event. Successful checks stay quiet. If neither source returns fresh, usable data, one silent notice is sent per continuous failure streak and cleared on recovery. Ping/vibration can be one-shot or repeat; ring continues until turned off. Android background limits can delay checks.",
+            note = "Starting choices for new alerts. If NTES/WIMT cannot verify position when Set is pressed, you may still monitor for a later qualifying event without assuming the stop is ahead.",
+            details = "Alert monitoring uses only fresh, run- and route-matched NTES or direct WIMT .in reports; the .in source must match the run date and both route endpoints. eRail, website claims, cached comparisons and timetable-only values cannot trigger an arrival. If setup position is unavailable, monitoring may start with no baseline and events at or before setup are ignored. At the scheduled-time transition, the app sends one short notification ping (or one vibration when vibration feedback is selected); ring-until-stopped begins only after a fresh qualifying station event. The reminder does not confirm arrival; monitoring continues until a qualifying station event. Successful checks stay quiet. If neither source returns fresh, usable data, one silent notice is sent per continuous failure streak and cleared on recovery. Ping/vibration can be one-shot or repeat; ring continues until turned off. Android background limits can delay checks.",
             stationUnavailableSummary = "Station is chosen per journey from its upcoming stops.",
         )
         val scroll = ScrollView(this).apply {
@@ -373,8 +382,8 @@ class AlertsActivity : AppCompatActivity() {
             initialFeedback = c.feedback,
             initialRepeatIntervalSeconds = c.repeatIntervalSeconds,
             initialIntervalMinutes = c.intervalMinutes,
-            note = "Only this alert changes. Successful source checks stay quiet; check status and timing stay here.",
-            details = "Station events qualify only when fresh, direct NTES or WIMT .in data matches this train, run and ordered route. The .in feed must echo the run date and both route endpoints. eRail, website claims, caches and timetable-only values cannot trigger arrival alerts. A scheduled reminder is separate and monitoring continues until a qualifying station event. Only when neither source returns fresh, usable data does one silent notice appear for a continuous failure streak; it clears on recovery. Ping/vibration can be one-shot or repeat; ring continues until turned off. Snooze pauses any final alert for 2 minutes.",
+            note = "Only this alert changes. Successful source checks stay quiet; check status and timing stay here. If position cannot be verified after a stop change, you may save a monitor that waits for a new qualifying event.",
+            details = "Station events qualify only when fresh, direct NTES or WIMT .in data matches this train, run and ordered route. The .in feed must echo the run date and both route endpoints. eRail, website claims, caches and timetable-only values cannot trigger arrival alerts. If position is unavailable after the change, monitoring may save without a baseline and events at or before confirmation are ignored. At the scheduled-time transition, the app sends one short notification ping (or one vibration when vibration feedback is selected); ring-until-stopped begins only after a fresh qualifying station event. The reminder does not confirm arrival; monitoring continues until a qualifying station event. Only when neither source returns fresh, usable data does one silent notice appear for a continuous failure streak; it clears on recovery. Ping/vibration can be one-shot or repeat; ring continues until turned off. Snooze pauses any final alert for 2 minutes.",
             stations = stations,
             initialStationCode = currentStationCode,
             stationUnavailableSummary = stationHint,
@@ -445,7 +454,7 @@ class AlertsActivity : AppCompatActivity() {
                         "The alert changed before these settings could be saved.", Toast.LENGTH_LONG).show()
                 }
 
-                if (!stationChanged || route == null) {
+                if (!stationChanged || route == null || c.trigger == AlertTrigger.PHONE_DISTANCE) {
                     persist(changed)
                     return@click
                 }
@@ -464,7 +473,8 @@ class AlertsActivity : AppCompatActivity() {
                         val verified = when (eligibility) {
                             is `in`.opentrack.india.alarm.JourneyAlarmPolicy.SetupEligibility.Upcoming ->
                                 changed.copy(baselineSeq = eligibility.baseline.seq,
-                                    baselineEventMinute = eligibility.baseline.eventMinute)
+                                    baselineEventMinute = eligibility.baseline.eventMinute,
+                                    positionVerifiedAtSetup = true)
                             is `in`.opentrack.india.alarm.JourneyAlarmPolicy.SetupEligibility.Reached -> {
                                 AlertDialog.Builder(this@AlertsActivity)
                                     .setTitle("Selected stop already reached")
@@ -473,10 +483,27 @@ class AlertsActivity : AppCompatActivity() {
                                 return@launch
                             }
                             is `in`.opentrack.india.alarm.JourneyAlarmPolicy.SetupEligibility.Unavailable -> {
+                                val explanation = "${eligibility.detail}\n\nNo changes have been saved yet. " +
+                                    "You can save this monitor without assuming the stop is ahead. " +
+                                    "It will alert only on a fresh direct NTES or WIMT .in event " +
+                                    "matching this run and route, timestamped after you confirm. " +
+                                    "Stale events, the WIMT website and timetable clocks alone " +
+                                    "cannot trigger an arrival alert. Monitoring continues."
                                 AlertDialog.Builder(this@AlertsActivity)
                                     .setTitle("Current position not verified")
-                                    .setMessage("${eligibility.detail}\n\nNo changes were saved. Refresh the live status and try again.")
-                                    .setPositiveButton("Close", null).show().also(::paintBatteryDialog)
+                                    .setMessage(explanation)
+                                    .setNegativeButton("Keep editing", null)
+                                    .setPositiveButton("Save for a verified event") { _, _ ->
+                                        if (dialog.isShowing && !isFinishing) {
+                                            persist(changed.copy(
+                                                baselineSeq = 0,
+                                                baselineEventMinute = null,
+                                                positionVerifiedAtSetup = false,
+                                                createdAtMillis = System.currentTimeMillis(),
+                                            ))
+                                        }
+                                    }
+                                    .show().also(::paintBatteryDialog)
                                 return@launch
                             }
                         }

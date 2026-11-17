@@ -36,6 +36,8 @@ data class JourneyAlarmConfig(
     val baselineSeq: Int,
     val baselineEventMinute: Int?,
     val createdAtMillis: Long,
+    /** False only when the user explicitly chose to monitor without a current-position baseline. */
+    val positionVerifiedAtSetup: Boolean = true,
     /** User-selected lead before the published timetable clock; never presented as a live ETA. */
     val leadSeconds: Int = 120,
     /** Station's published arrival (or departure fallback) minute on the run's rail-time axis. */
@@ -139,8 +141,13 @@ object JourneyAlarmStore {
         validateConfig(config)
         val items = loadLocked(context)
         val id = allocateId(context, items)
-        items += JourneyAlarmSnapshot(config, AlertState.ARMED, "Starting background monitor",
-            0L, 0L, id)
+        val startStatus = when {
+            config.positionVerifiedAtSetup -> "Starting background monitor"
+            config.trigger == AlertTrigger.PHONE_DISTANCE ->
+                "Position unverified at setup · waiting for fresh route-matched phone movement"
+            else -> "Position unverified at setup · waiting for a later qualified station event"
+        }
+        items += JourneyAlarmSnapshot(config, AlertState.ARMED, startStatus, 0L, 0L, id)
         saveLocked(context, items, nextId = if (id == Int.MAX_VALUE) FIRST_ID else id + 1)
         id
     }
@@ -154,6 +161,8 @@ object JourneyAlarmStore {
             config.repeatIntervalSeconds in JourneyAlarmSchedule.MIN_REPEAT_SECONDS..
                 JourneyAlarmSchedule.MAX_REPEAT_SECONDS)
         require(config.leadSeconds in 0..JourneyAlarmSchedule.MAX_LEAD_SECONDS)
+        require(config.positionVerifiedAtSetup ||
+            (config.baselineSeq == 0 && config.baselineEventMinute == null))
         require(config.scheduledMinute == null || config.scheduledMinute in 0..4_320)
         require(config.journeyEndMinute == null || config.journeyEndMinute in 0..4_320)
         require(config.trigger != AlertTrigger.PHONE_DISTANCE || config.distanceKm in setOf(2, 5, 10))
@@ -496,6 +505,7 @@ object JourneyAlarmStore {
         .put("repeatIntervalSeconds", c.repeatIntervalSeconds)
         .put("originEpochDay", c.originEpochDay).put("baselineSeq", c.baselineSeq)
         .put("baselineEventMinute", c.baselineEventMinute ?: JSONObject.NULL)
+        .put("positionVerifiedAtSetup", c.positionVerifiedAtSetup)
         .put("createdAtMillis", c.createdAtMillis)
         .put("leadSeconds", c.leadSeconds)
         .put("scheduledMinute", c.scheduledMinute ?: JSONObject.NULL)
@@ -521,6 +531,7 @@ object JourneyAlarmStore {
             originEpochDay = o.getLong("originEpochDay"), baselineSeq = o.optInt("baselineSeq", 0),
             baselineEventMinute = if (o.isNull("baselineEventMinute")) null
                 else o.optInt("baselineEventMinute", -1).takeIf { it >= 0 },
+            positionVerifiedAtSetup = o.optBoolean("positionVerifiedAtSetup", true),
             createdAtMillis = o.getLong("createdAtMillis"),
             leadSeconds = o.optInt("leadSeconds", 120).coerceIn(0, JourneyAlarmSchedule.MAX_LEAD_SECONDS),
             scheduledMinute = if (o.isNull("scheduledMinute")) null

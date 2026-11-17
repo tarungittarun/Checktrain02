@@ -22,7 +22,8 @@ internal object JourneyAlarmNotifications {
     const val VIBRATION_CHANNEL = "journey_alert_vibration"
     const val RING_CHANNEL = "journey_alert_ring"
     const val MISSED_CHANNEL = "journey_alert_missed"
-    const val SCHEDULED_CHANNEL = "journey_alert_scheduled"
+    const val SCHEDULED_CHANNEL = "journey_alert_scheduled_ping_v2"
+    const val SCHEDULED_VIBRATION_CHANNEL = "journey_alert_scheduled_vibration_v2"
     const val CHECK_WARNING_CHANNEL = "journey_alert_check_warning"
 
     private const val CHECK_WARNING_TAG = "arrival-check-warning"
@@ -56,8 +57,24 @@ internal object JourneyAlarmNotifications {
             MISSED_CHANNEL, "Arrival alert · status", NotificationManager.IMPORTANCE_LOW,
         ).apply { setSound(null, null); enableVibration(false); setShowBadge(false) })
         manager.createNotificationChannel(NotificationChannel(
-            SCHEDULED_CHANNEL, "Arrival alert · scheduled-time status", NotificationManager.IMPORTANCE_LOW,
-        ).apply { setSound(null, null); enableVibration(false); setShowBadge(false) })
+            SCHEDULED_CHANNEL, "Arrival alert · scheduled-time ping", NotificationManager.IMPORTANCE_DEFAULT,
+        ).apply {
+            description = "One notification sound at the timetable boundary when no qualifying event is confirmed"
+            setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION),
+                AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION).build())
+            enableVibration(false)
+            setShowBadge(false)
+        })
+        manager.createNotificationChannel(NotificationChannel(
+            SCHEDULED_VIBRATION_CHANNEL, "Arrival alert · scheduled-time vibration",
+            NotificationManager.IMPORTANCE_DEFAULT,
+        ).apply {
+            description = "One vibration at the timetable boundary when no qualifying event is confirmed"
+            setSound(null, null)
+            enableVibration(true)
+            vibrationPattern = longArrayOf(0L, 450L, 180L, 450L)
+            setShowBadge(false)
+        })
         manager.createNotificationChannel(NotificationChannel(
             CHECK_WARNING_CHANNEL, "Arrival alert · source check status", NotificationManager.IMPORTANCE_LOW,
         ).apply {
@@ -75,6 +92,11 @@ internal object JourneyAlarmNotifications {
         val detail = buildString {
             append("${snapshots.size} alert${if (snapshots.size == 1) "" else "s"} active")
             if (armed > 0) append(" · $armed monitoring")
+            val waitingForPosition = snapshots.count {
+                it.state == AlertState.ARMED && !it.config.positionVerifiedAtSetup
+            }
+            if (waitingForPosition > 0)
+                append(" · $waitingForPosition started without verified position")
             if (alerting > 0) append(" · $alerting alerting")
             if (ringing > 0) append(" · $ringing ringing")
         }
@@ -153,7 +175,7 @@ internal object JourneyAlarmNotifications {
         return builder.build()
     }
 
-    /** A one-time, silent timetable status notice; the source monitor remains ARMED. */
+    /** One-time, feedback-matched timetable reminder; the source monitor remains ARMED. */
     fun scheduledReminder(
         context: Context,
         snapshot: JourneyAlarmSnapshot,
@@ -173,21 +195,27 @@ internal object JourneyAlarmNotifications {
         val message = "Timetable: $timetableTime · no qualifying $eventName report yet at " +
             "$station. Delay is not confirmed. Monitoring continues."
         val checkTime = checkedAt?.let { "Checked at $it IST." } ?: "Monitoring continues."
-        val builder = NotificationCompat.Builder(context, SCHEDULED_CHANNEL)
+        val vibration = config.feedback == AlertFeedback.VIBRATION
+        val channel = if (vibration) SCHEDULED_VIBRATION_CHANNEL else SCHEDULED_CHANNEL
+        val builder = NotificationCompat.Builder(context, channel)
             .setSmallIcon(R.drawable.ic_notification_train)
             .setContentTitle("Scheduled reminder · $station")
             .setContentText("Train ${config.trainNo} · $message")
             .setStyle(NotificationCompat.BigTextStyle().bigText(
-                "Train ${config.trainNo}\n$message\n$checkTime\nThis is a timetable notice, not a live ETA."))
+                "Train ${config.trainNo}\n$message\n$checkTime\nThis is a timetable notice, not a live ETA. The reminder is one-time; a final arrival alert still requires a fresh station event."))
             .setContentIntent(openAlertsForAlert(context, snapshot.id))
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setAutoCancel(true)
             .setOnlyAlertOnce(true)
-            .setSilent(true)
+            .setSilent(false)
             .setShowWhen(true)
             .setWhen(snapshot.lastCheckedAtMillis.takeIf { it > 0L } ?: dueAtMillis)
             .addAction(R.drawable.ic_notification_train, "Stop alert", serviceAction(context,
                 JourneyAlarmService.ACTION_CANCEL, snapshot.id, snapshot.id))
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            if (vibration) builder.setSound(null).setVibrate(longArrayOf(0L, 450L, 180L, 450L))
+            else builder.setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION))
+        }
         return builder.build()
     }
 

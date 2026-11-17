@@ -46,6 +46,8 @@ internal object WebsiteBrowserRequestTiming {
     // train identity and a station card's own clock are rendered. Do not turn a sentinel miss
     // into a long wait for a page whose content can still be shown diagnostically.
     const val DOM_READINESS_WAIT_MS = 6_000L
+    /** Let page-finish hydration settle before serializing the first populated DOM. */
+    const val DOM_SETTLE_AFTER_PAGE_FINISHED_MS = 750L
     const val DOM_READINESS_POLL_MS = 250L
 }
 
@@ -81,7 +83,6 @@ internal object WebsiteCardMarkup {
     private val stationHeading = Regex("(?is)<h[2-6]\\b[^>]*>(.*?)</h[2-6]>")
     private val cardClock = Regex("(?is)\\b(?:ARRIVAL|DEPARTURE)\\b.{0,900}?\\b\\d{1,2}:\\d{2}(?::\\d{2})?\\s*(?:AM|PM)\\b")
     private val htmlSpaceEntity = Regex("&(?:nbsp;|#160;|#x0*a0;)", RegexOption.IGNORE_CASE)
-    private val scriptOrStyle = Regex("(?is)<(?:script|style)\\b[^>]*>.*?</(?:script|style)\\s*>")
 
     /** HTML after scripts, styles and comments are masked; normalized entities preserve offsets. */
     internal data class VisiblePageMarkup(
@@ -91,28 +92,80 @@ internal object WebsiteCardMarkup {
 
     /** Only actual document markup can satisfy readiness; card-looking script/comment text is invisible. */
     internal fun visiblePageMarkup(html: String): VisiblePageMarkup {
-        val source = scriptOrStyle.replace(html) { match -> " ".repeat(match.value.length) }
-        val visible = StringBuilder(source.length)
+        // Do not use a lazy `.*?` regex to strip whole script/style blocks. A live .org.in DOM
+        // has exceeded 100 KB, and one malformed or mismatched closing tag made that expression
+        // spend about 80 seconds backtracking before the station parser even began. A small
+        // forward scan masks each block once and preserves source offsets for card comments.
+        val visible = StringBuilder(html)
         val markers = mutableListOf<Int>()
         var cursor = 0
-        while (cursor < source.length) {
-            val commentStart = source.indexOf("<!--", cursor)
-            if (commentStart < 0) {
-                visible.append(source, cursor, source.length)
-                break
+        while (cursor < html.length) {
+            if (html.startsWith("<!--", cursor)) {
+                val closeStart = html.indexOf("-->", cursor + 4)
+                val end = if (closeStart < 0) html.length else closeStart + 3
+                if (closeStart >= 0 && stationCardMarker.matches(html.substring(cursor, end)))
+                    markers += end
+                mask(visible, cursor, end)
+                cursor = end
+                continue
             }
-            visible.append(source, cursor, commentStart)
-            val closeStart = source.indexOf("-->", commentStart + 4)
-            val end = if (closeStart < 0) source.length else closeStart + 3
-            val comment = source.substring(commentStart, end)
-            if (closeStart >= 0 && stationCardMarker.matches(comment)) markers += end
-            visible.append(" ".repeat(comment.length))
-            cursor = end
+            val element = scriptOrStyleAt(html, cursor)
+            if (element != null) {
+                val openingEnd = html.indexOf('>', cursor + element.length + 1)
+                val end = if (openingEnd < 0) html.length
+                    else closingElementEnd(html, element, openingEnd + 1) ?: html.length
+                mask(visible, cursor, end)
+                cursor = end
+                continue
+            }
+            cursor++
         }
         val normalized = htmlSpaceEntity.replace(visible.toString()) {
             " ".repeat(it.value.length)
         }
         return VisiblePageMarkup(normalized, markers)
+    }
+
+    private fun scriptOrStyleAt(html: String, offset: Int): String? {
+        if (html[offset] != '<') return null
+        return listOf("script", "style").firstOrNull { name ->
+            val start = offset + 1
+            val end = start + name.length
+            html.regionMatches(start, name, 0, name.length, ignoreCase = true) &&
+                (end == html.length || html[end] == '>' || html[end].isWhitespace() || html[end] == '/')
+        }
+    }
+
+    /** Return the end offset of the next matching HTML raw-text closing tag. */
+    private fun closingElementEnd(html: String, element: String, from: Int): Int? {
+        var cursor = from
+        while (cursor < html.length) {
+            val closeStart = indexOfIgnoreCase(html, "</$element", cursor)
+            if (closeStart < 0) return null
+            val nameEnd = closeStart + element.length + 2
+            val boundary = html.getOrNull(nameEnd)
+            if (boundary == null || boundary == '>' || boundary == '/' || boundary.isWhitespace()) {
+                val closeEnd = html.indexOf('>', nameEnd)
+                return if (closeEnd < 0) html.length else closeEnd + 1
+            }
+            cursor = closeStart + 2
+        }
+        return null
+    }
+
+    private fun indexOfIgnoreCase(haystack: String, needle: String, from: Int): Int {
+        val lastStart = haystack.length - needle.length
+        var index = from.coerceAtLeast(0)
+        while (index <= lastStart) {
+            if (haystack.regionMatches(index, needle, 0, needle.length, ignoreCase = true))
+                return index
+            index++
+        }
+        return -1
+    }
+
+    private fun mask(value: StringBuilder, start: Int, end: Int) {
+        for (index in start until end) value.setCharAt(index, ' ')
     }
 
     /** One root per heading, even when a marker, a styled root and a semantic fallback overlap. */
@@ -266,12 +319,21 @@ object WebsiteBrowserRequest {
     private val gate = Any()
     private val inFlight = InFlightRequestRegistry<String, NavigationOutcome>()
     private data class NavigationOutcome(val answer: Http.Result, val timing: String?,
-                                         val navigated: Boolean)
+                                         val navigated: Boolean, val attempts: Int = 1)
     private val allowed = Regex("https://whereismytrain\\.org\\.in/\\?trainNo=[0-9]{5}")
     /** Instrumentation-only barrier, run off the UI thread before any WebView network navigation. */
     @Volatile internal var beforeDocumentNavigationForTest: (() -> Unit)? = null
     /** Bounded timing fields only; no page body, URL query, cookie, or refusal identifier. */
     @Volatile internal var timingObserverForTest: ((String) -> Unit)? = null
+    private const val RETRYABLE_WEBVIEW_ERROR_TIMEOUT = -8 // WebViewClient.ERROR_TIMEOUT
+    private const val MAX_TRANSIENT_RETRIES = 1
+    private const val MIN_RETRY_BUDGET_MS = 1_000L
+
+    internal fun shouldRetryTransientTimeout(attempt: Int, remainingBudgetMillis: Long,
+                                            answer: Http.Result): Boolean =
+        attempt <= MAX_TRANSIENT_RETRIES && remainingBudgetMillis >= MIN_RETRY_BUDGET_MS &&
+            answer is Http.Result.Failed &&
+            answer.message == "browser network error $RETRYABLE_WEBVIEW_ERROR_TIMEOUT"
 
     fun document(context: Context, url: String): Http.Result {
         if (!allowed.matches(url)) return Http.Result.Failed(Http.Result.Kind.HTTP, "invalid website URL")
@@ -318,7 +380,7 @@ object WebsiteBrowserRequest {
             // One actual main-frame navigation is logged, even when several callers share it.
             // Never log body, URL query, cookies, challenge tokens or raw CDN request IDs.
             if (lease.owner) Diary.get()?.log("HTTP") {
-                "GET whereismytrain.org.in try#1 $timing -> " + when (val answer = outcome.answer) {
+                "GET whereismytrain.org.in try#${outcome.attempts} $timing -> " + when (val answer = outcome.answer) {
                     is Http.Result.Ok -> "answered ${answer.body.length}B (WebView document)"
                     is Http.Result.Failed -> "${answer.kind} ${answer.message} (WebView document)"
                 }
@@ -336,27 +398,45 @@ object WebsiteBrowserRequest {
         val gateWait = (gateAcquiredAt - requestCallAt).coerceAtLeast(0L)
         beforeDocumentNavigationForTest?.invoke()
         val requestStartedAt = SystemClock.elapsedRealtime()
-        val pending = Pending(context, url)
-        if (!main.post { pending.start() }) return NavigationOutcome(
-            Http.Result.Failed(Http.Result.Kind.HTTP, "browser looper unavailable"), null, false)
-        var interrupted = false
-        val completed = try {
-            pending.done.await(WebsiteBrowserRequestTiming.DOCUMENT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
-        } catch (error: InterruptedException) {
-            interrupted = true
-            pending.abort()
-            Thread.currentThread().interrupt()
-            false
+        val deadline = requestStartedAt + WebsiteBrowserRequestTiming.DOCUMENT_TIMEOUT_MS
+        var attempts = 0
+        var pending: Pending? = null
+        var answer: Http.Result = Http.Result.Failed(Http.Result.Kind.EMPTY, "no document")
+
+        while (attempts <= MAX_TRANSIENT_RETRIES) {
+            attempts++
+            val current = Pending(context, url)
+            pending = current
+            if (!main.post { current.start() }) {
+                answer = Http.Result.Failed(Http.Result.Kind.HTTP, "browser looper unavailable")
+                break
+            }
+            val remaining = (deadline - SystemClock.elapsedRealtime()).coerceAtLeast(0L)
+            val completed = try {
+                current.done.await(remaining, TimeUnit.MILLISECONDS)
+            } catch (error: InterruptedException) {
+                current.abort()
+                Thread.currentThread().interrupt()
+                answer = Http.Result.Failed(Http.Result.Kind.TIMEOUT,
+                    "browser document interrupted")
+                break
+            }
+            if (!completed) current.abort()
+            answer = when {
+                completed -> current.result
+                else -> Http.Result.Failed(Http.Result.Kind.TIMEOUT,
+                    "browser document timed out")
+            }
+            val retryBudget = deadline - SystemClock.elapsedRealtime()
+            if (!shouldRetryTransientTimeout(attempts, retryBudget, answer)) break
+            Diary.get()?.log("HTTP", "retrying whereismytrain.org.in once after transient WebView timeout")
         }
-        if (!completed && !interrupted) pending.abort()
-        val answer = when {
-            completed -> pending.result
-            interrupted -> Http.Result.Failed(Http.Result.Kind.TIMEOUT, "browser document interrupted")
-            else -> Http.Result.Failed(Http.Result.Kind.TIMEOUT, "browser document timed out")
-        }
+
         val total = SystemClock.elapsedRealtime() - requestStartedAt
-        val timing = if (pending.navigated) pending.timingSummary(total, gateWait) else null
-        return NavigationOutcome(answer, timing, pending.navigated)
+        val last = pending
+        val timing = last?.takeIf { it.navigated }?.timingSummary(total, gateWait)
+            ?.let { if (attempts > 1) "attempts=$attempts $it" else it }
+        return NavigationOutcome(answer, timing, last?.navigated == true, attempts)
     }
 
     private class Pending(val context: Context, val url: String) {
@@ -371,6 +451,7 @@ object WebsiteBrowserRequest {
         @Volatile private var navigationStartedElapsed = 0L
         @Volatile private var pageCommitVisibleElapsed = 0L
         @Volatile private var pageFinishedElapsed = 0L
+        @Volatile private var firstPopulatedElapsed = 0L
         @Volatile private var completedElapsed = 0L
         @Volatile private var readinessPollCount = 0
         @Volatile var navigated: Boolean = false
@@ -418,9 +499,10 @@ object WebsiteBrowserRequest {
         }
 
         /**
-         * Cheap readiness sentinel: inspect card-sized ancestor text first; serialize the large
-         * document once the requested train and a station heading with its own labelled clock
-         * are visible. Source/date/route qualification runs independently after capture.
+         * Readiness sentinel: wait for the requested train and a populated station card, then
+         * let the page-finished DOM settle before serializing. Source/date/route qualification
+         * runs independently after capture; this bounded wait is only to avoid snapshotting a
+         * half-hydrated timeline after its first card appears.
          */
         private fun populatedDocumentScript(): String = """
             (function(){
@@ -468,9 +550,18 @@ object WebsiteBrowserRequest {
                 browser.evaluateJavascript(populatedDocumentScript()) { encoded ->
                     if (finished.get()) return@evaluateJavascript
                     val html = decodeJavascriptStringResult(encoded)
-                    val elapsed = SystemClock.elapsedRealtime() - readinessStartedElapsed
+                    val nowElapsed = SystemClock.elapsedRealtime()
+                    val elapsed = nowElapsed - readinessStartedElapsed
+                    val populated = html.isNotBlank() &&
+                        (firstPopulatedElapsed > 0L || hasPopulatedTrainDocument(html, expectedTrain))
+                    if (populated && firstPopulatedElapsed == 0L)
+                        firstPopulatedElapsed = nowElapsed
+                    val settledAfterPageFinish = pageFinishedElapsed > 0L &&
+                        nowElapsed - maxOf(pageFinishedElapsed, firstPopulatedElapsed) >=
+                            WebsiteBrowserRequestTiming.DOM_SETTLE_AFTER_PAGE_FINISHED_MS
                     when {
-                        html.isNotBlank() && hasPopulatedTrainDocument(html, expectedTrain) ->
+                        populated && (settledAfterPageFinish ||
+                            elapsed >= WebsiteBrowserRequestTiming.DOM_READINESS_WAIT_MS) ->
                             finish(Http.Result.Ok(html, fromCache = false, ageMillis = 0))
                         elapsed >= WebsiteBrowserRequestTiming.DOM_READINESS_WAIT_MS && html.isNotBlank() ->
                             // Preserve a real 200 document for parser diagnostics if the quick
@@ -593,7 +684,9 @@ object WebsiteBrowserRequest {
                 }
                 navigated = true
                 navigationStartedElapsed = SystemClock.elapsedRealtime()
-                browser.loadUrl(url)
+                // Bypass ordinary client caches and ask intermediaries to revalidate the page.
+                // This cannot make an upstream stale page fresh; its printed clock is still gated.
+                browser.loadUrl(url, mapOf("Cache-Control" to "no-cache", "Pragma" to "no-cache"))
             } catch (error: Exception) {
                 finish(Http.Result.Failed(Http.Result.Kind.HTTP,
                     "browser unavailable: ${error.javaClass.simpleName}"))
