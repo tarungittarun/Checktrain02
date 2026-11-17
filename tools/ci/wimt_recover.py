@@ -409,6 +409,37 @@ def summarize_wimt_46_artifact(folder: Path, original: dict,
         "NONFRESH_SOURCE_STAMP_REPORTED" if freshness_accurate else
         "FRESHNESS_NOT_ESTABLISHED_OR_INCONSISTENT"
     )
+    trace_events = _safe_trace_events(folder)
+    running_required = any(
+        event["fields"].get(key) is True
+        for event in trace_events
+        for key in ("currentStationRequired", "runningStatusRequired")
+    )
+    running_failure_points = []
+    if running_required:
+        for event in trace_events:
+            if event["event"] not in ("WIMT_SOAK_INITIAL", "WIMT_SOAK_DETAIL"):
+                continue
+            item = event["fields"]
+            if item.get("wimtReportsRunning") is True:
+                continue
+            status = item.get("httpStatus")
+            if isinstance(status, str) and re.fullmatch(r"[1-5][0-9]{2}", status):
+                status = int(status)
+            if type(status) is not int:
+                status = None
+            running_failure_points.append({
+                "event": event["event"],
+                "cycle": item.get("cycle"),
+                "elapsedMinutes": item.get("elapsedMinutes"),
+                "httpStatus": status,
+                "runDateMatched": item.get("runDateMatched") is True,
+                "routeMatched": item.get("routeMatched") is True,
+                "freshSourceStamp": item.get("fresh") is True,
+                "sourceRows": item.get("rows") if type(item.get("rows")) is int else None,
+                "currentStationCodeClaim": item.get("currentStationClaim"),
+                "appRunningStatusQualified": False,
+            })
     result = {
         "verdict": str(original.get("verdict", ""))[:100],
         "passed": original.get("passed") is True,
@@ -460,12 +491,13 @@ def summarize_wimt_46_artifact(folder: Path, original: dict,
         "gpsVerified": False,
         "runningStatus": running_status,
         "runningStatusBasis": "app-side rule: matched run/route + fresh source update + current-station field + at least one source-reported actual stop clock; not an explicit provider boolean or movement/GPS proof",
+        "runningStatusFailurePoints": running_failure_points,
         "instrumentationPassed": original.get("instrumentationPassed") is True,
         "runnerExitCode": original.get("runnerExitCode")
             if type(original.get("runnerExitCode")) is int else None,
         "reportedScreenshotNames": screenshot_names,
         "screenshotFilesVerified": False,
-        "traceEvents": _safe_trace_events(folder),
+        "traceEvents": trace_events,
         "failedStepLog": {
             "retrievalStatus": retrieval_status,
             "boundedFailureLines": brief(failed_step_log),
@@ -645,9 +677,10 @@ def _self_test() -> None:
             "WIMT_SOAK_TRAIN trainNo=16227 runDate=12_Oct_2026 route=MYS_TLGP "
             "selection=IST-hour-schedule-candidate currentStationRequired=true\n"
             "WIMT_SOAK_INITIAL httpStatus=200 responseBytes=1234 runDateMatched=true "
-            "routeMatched=true fresh=true rows=2 cells=3 responseClass=HTTP_200_SOURCE_ROWS_PRESENT "
-            "parserOutcome=SOURCE_ROWS_PRESENT selected=true disclosed=true "
-            "currentStationClaim=MYS accepted=true\n"
+            "routeMatched=true fresh=true freshnessAccurate=true rows=2 cells=3 "
+            "responseClass=HTTP_200_SOURCE_ROWS_PRESENT parserOutcome=SOURCE_ROWS_PRESENT "
+            "selected=true disclosed=true currentStationClaim=MYS "
+            "wimtReportsRunning=false accepted=false\n"
             "WIMT_SOAK_STARTED durationMinutes=46 autoIntervalMinutes=1 "
             "requireCurrentStation=true requiredReceipts=46 initialHttpStatus=200\n"
             "WIMT_SOAK_SAMPLE minute=0 elapsedSeconds=0 receiptClock=12:00:00 "
@@ -691,6 +724,12 @@ def _self_test() -> None:
         assert summary["runningStatus"] == "NOT_CAPTURED_BY_THIS_RUN_SCHEMA"
         assert summary["initial"]["freshnessAssessment"] == \
             "FRESHNESS_NOT_ESTABLISHED_OR_INCONSISTENT"
+        assert summary["runningStatusFailurePoints"] == [{
+            "event": "WIMT_SOAK_INITIAL", "cycle": None, "elapsedMinutes": None,
+            "httpStatus": 200, "runDateMatched": True, "routeMatched": True,
+            "freshSourceStamp": True, "sourceRows": 2,
+            "currentStationCodeClaim": "MYS", "appRunningStatusQualified": False,
+        }]
         assert summary["reportedScreenshotNames"] == ["wimt-soak-start.png"]
         assert summary["screenshotFilesVerified"] is False
         assert summary["traceEvents"][1]["fields"]["parserOutcome"] == "SOURCE_ROWS_PRESENT"
