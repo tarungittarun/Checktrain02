@@ -90,6 +90,29 @@ class CampaignPdfTests(unittest.TestCase):
         self.assertEqual(0, report["totalMinuteSlotsObserved"])
         self.assertIn("20-train, 45-minute emulator campaign", self.markdown.read_text())
 
+    def test_final_preflight_rejection_is_reported_as_not_dispatched_not_failed_soak(self):
+        self.roster.write_text(json.dumps({
+            "status": "FINAL_PREFLIGHT_REJECTED",
+            "requiredSlots": 20,
+            "eligibleCount": 0,
+            "candidateRosterEligibleCount": 7,
+            "assignments": [],
+            "stopReason": "Only seven fresh candidates remained; no emulator was dispatched.",
+            "finalPreflightStatus": "REJECTED",
+            "initialPreflight": {"status": "READY", "eligibleCount": 20, "probesAttempted": 20},
+            "finalValidation": {"errors": ["roster has 7 assignments, not 20"]},
+        }))
+
+        report = self.build()
+        self.assertEqual("NO_ELIGIBLE_ROSTER_OR_PREPARATION_FAILED", report["verdict"])
+        self.assertEqual(0, report["assignedDistinctTrains"])
+        self.assertEqual(7, report["candidateRosterEligibleCount"])
+        self.assertEqual("REJECTED", report["finalPreflightStatus"])
+        self.assertEqual("NOT_DISPATCHED_ROSTER_GATE_BLOCKED", report["slots"][0]["status"])
+        markdown = self.markdown.read_text()
+        self.assertIn("Only seven fresh candidates remained", markdown)
+        self.assertIn("Initial admission scan: **20/20**", markdown)
+
     def test_report_rejects_a_bare_pass_flag_without_observation_artifacts(self):
         self.roster.write_text(json.dumps({
             "status": "INSUFFICIENT_ELIGIBLE_CANDIDATES",

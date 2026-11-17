@@ -374,6 +374,27 @@ def build_report(
     assigned = len(assignment_by_slot)
     campaign_ready = roster.get("status") == "READY" and assigned == 20
     full_pass = campaign_ready and completed == 20
+    if not campaign_ready:
+        for summary in summaries:
+            slot = summary["slot"]
+            if slot_results.get(slot) is None:
+                summary["status"] = "NOT_DISPATCHED_ROSTER_GATE_BLOCKED"
+                summary["failure"] = _clean(roster.get("stopReason"), 500)
+    candidate_roster_count = roster.get("candidateRosterEligibleCount", roster.get("eligibleCount", 0))
+    if not isinstance(candidate_roster_count, int) or isinstance(candidate_roster_count, bool):
+        candidate_roster_count = 0
+    initial_preflight = roster.get("initialPreflight")
+    if not isinstance(initial_preflight, dict):
+        initial_preflight = {}
+    final_validation = roster.get("finalValidation")
+    if not isinstance(final_validation, dict):
+        final_validation = {}
+    final_preflight_status = roster.get("finalPreflightStatus") or (
+        "VALIDATED_READY" if campaign_ready else "NOT_CONFIRMED"
+    )
+    validation_errors = final_validation.get("errors", [])
+    if not isinstance(validation_errors, list):
+        validation_errors = []
     timetable = roster.get("timetable")
     if not isinstance(timetable, dict):
         timetable = {}
@@ -397,6 +418,10 @@ def build_report(
         "commit": metadata.get("sha"),
         "rosterStatus": roster.get("status", "unavailable"),
         "rosterStopReason": roster.get("stopReason"),
+        "finalPreflightStatus": final_preflight_status,
+        "initialPreflight": initial_preflight,
+        "candidateRosterEligibleCount": candidate_roster_count,
+        "finalValidation": final_validation,
         "probesAttempted": roster.get("probesAttempted"),
         "rejectionCounts": roster.get("rejectionCounts", {}),
         "timetable": timetable,
@@ -413,7 +438,11 @@ def build_report(
         "# 20-train, 45-minute emulator campaign",
         "",
         f"- Verdict: **{report['verdict']}**",
-        f"- Roster: **{assigned}/20 distinct train assignments** ({roster.get('status', 'unavailable')})",
+        f"- Roster: **{assigned}/20 dispatch assignments** ({roster.get('status', 'unavailable')})",
+        f"- Final preflight validation: **{final_preflight_status}**; selected-but-rejected candidate count: **{candidate_roster_count}/20**",
+        f"- Initial admission scan: **{initial_preflight.get('eligibleCount', 0)}/20** ({initial_preflight.get('status', 'not recorded')})",
+        f"- Stop reason: {roster.get('stopReason') or 'none recorded'}",
+        f"- Final validation findings: {'; '.join(str(item) for item in final_validation.get('errors', [])) or 'none recorded'}",
         f"- Completed 45-minute installed-app trials: **{completed}/20**",
         f"- Screen samples actually observed: **{report['totalMinuteSlotsObserved']}**",
         f"- Observation records (including explicit missing-sample gaps): **{report['totalObservationRecords']}**",
@@ -474,7 +503,9 @@ def build_report(
     summary_rows = [
         ["Verdict", report["verdict"], "Eligible roster", f"{assigned}/20"],
         ["45-minute UI trials", f"{completed}/20", "Minute observation slots", str(report["totalMinuteSlotsObserved"])],
-        ["Roster status", str(roster.get("status", "unavailable")), "WIMT .in probes", str(roster.get("probesAttempted", 0))],
+        ["Roster status", str(roster.get("status", "unavailable")), "Final preflight", str(final_preflight_status)],
+        ["Dispatch assignments", f"{assigned}/20", "Candidate scan", f"{candidate_roster_count}/20"],
+        ["Initial admission", f"{initial_preflight.get('eligibleCount', 0)}/20", "Final WIMT .in probes", str(roster.get("probesAttempted", 0))],
         ["Workflow run", str(metadata.get("run_id") or "not recorded"), "Commit", str((metadata.get("sha") or "not recorded")[:12])],
         ["Branch", str(metadata.get("ref_name") or "not recorded"), "Report generated", report["generatedAtUtc"]],
     ]
@@ -491,8 +522,24 @@ def build_report(
         ("TOPPADDING", (0, 0), (-1, -1), 5),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
     ]))
-    story.extend([summary_table, Spacer(1, 5 * mm), Paragraph("Source and test boundaries", h2),
-                  Paragraph(escape(PROVENANCE), body), Paragraph(escape(AUTO_LIMIT), body)])
+    validation_errors = final_validation.get("errors", [])
+    if not isinstance(validation_errors, list):
+        validation_errors = []
+    gate_detail = (
+        f"Initial admission: {initial_preflight.get('eligibleCount', 0)}/20 "
+        f"({initial_preflight.get('status', 'not recorded')}); final preflight: {final_preflight_status}; "
+        f"selected candidate count: {candidate_roster_count}/20; "
+        f"stop reason: {roster.get('stopReason') or 'none recorded'}; "
+        f"final validation findings: {'; '.join(str(item) for item in validation_errors) or 'none recorded'}. "
+        "Only a successful final gate dispatches the 20 emulator jobs."
+    )
+    story.extend([
+        summary_table, Spacer(1, 5 * mm),
+        Paragraph("Dispatch gate disposition", h2),
+        Paragraph(escape(gate_detail), body),
+        Paragraph("Source and test boundaries", h2),
+        Paragraph(escape(PROVENANCE), body), Paragraph(escape(AUTO_LIMIT), body),
+    ])
     story.append(Paragraph("Roster gate and timetable provenance", h2))
     tmeta = report["timetable"] or {}
     story.append(Paragraph(

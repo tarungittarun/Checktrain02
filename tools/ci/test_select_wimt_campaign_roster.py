@@ -32,7 +32,7 @@ def make_db(path: Path, count: int = 20, start_minute: int = 930) -> None:
         CREATE TABLE meta (k TEXT, v TEXT);
         INSERT INTO meta VALUES ('timetable_vintage', '2026-10-01');
         INSERT INTO meta VALUES ('timetable_age_days', '11');
-        INSERT INTO meta VALUES ('timetable_freshness', 'fresh');
+        INSERT INTO meta VALUES ('timetable_freshness', 'recent');
         INSERT INTO meta VALUES ('data_trust', 'verified');
         CREATE TABLE trains (
             train_no TEXT, name TEXT, src_code TEXT, dst_code TEXT,
@@ -101,6 +101,65 @@ class CampaignRosterTests(unittest.TestCase):
                             for item in roster["assignments"]))
         self.assertEqual(epoch_day(datetime(2026, 10, 12).date()),
                          roster["assignments"][0]["originEpochDay"])
+
+    def test_stale_timetable_blocks_live_probes_and_assignments(self):
+        db = sqlite3.connect(self.db_path)
+        db.execute("UPDATE meta SET v='120' WHERE k='timetable_age_days'")
+        db.execute("UPDATE meta SET v='stale' WHERE k='timetable_freshness'")
+        db.commit()
+        db.close()
+        calls = []
+        roster = build_roster(
+            self.db_path, NOW,
+            fetch=lambda train, run_date: (calls.append((train, run_date)) or
+                                           (200, reply(train))),
+            sleep=lambda _: None,
+        )
+        self.assertEqual("INSUFFICIENT_ELIGIBLE_CANDIDATES", roster["status"])
+        self.assertEqual(0, roster["eligibleCount"])
+        self.assertEqual(0, roster["probesAttempted"])
+        self.assertEqual([], calls)
+        self.assertEqual("timetable_vintage_not_recent", roster["stopReason"])
+        self.assertEqual(1, roster["rejectionCounts"]["timetable_vintage_not_recent"])
+        self.assertEqual(20, roster["timetable"]["knownRunDayCandidates"])
+
+    def test_duplicate_timetable_rows_never_create_duplicate_assignments(self):
+        db = sqlite3.connect(self.db_path)
+        db.execute("INSERT INTO trains SELECT * FROM trains WHERE train_no='12000'")
+        db.commit()
+        db.close()
+        calls = []
+        roster = build_roster(
+            self.db_path, NOW,
+            fetch=lambda train, run_date: (calls.append((train, run_date)) or
+                                           (200, reply(train))),
+            sleep=lambda _: None,
+        )
+        train_numbers = [item["trainNo"] for item in roster["assignments"]]
+        self.assertEqual("READY", roster["status"])
+        self.assertEqual(20, len(train_numbers))
+        self.assertEqual(20, len(set(train_numbers)))
+        self.assertEqual(20, len(calls))
+        self.assertEqual(1, roster["timetable"]["scheduleFilterRejections"]
+                         ["duplicate_timetable_candidate_train_number"])
+
+    def test_conflicting_duplicate_timetable_rows_are_rejected_before_probes(self):
+        db = sqlite3.connect(self.db_path)
+        db.execute("INSERT INTO trains VALUES ('12000', 'Conflicting copy', 'HYB', 'NDLS', 2, 2)")
+        db.commit()
+        db.close()
+        calls = []
+        roster = build_roster(
+            self.db_path, NOW,
+            fetch=lambda train, run_date: (calls.append((train, run_date)) or
+                                           (200, reply(train))),
+            sleep=lambda _: None,
+        )
+        self.assertEqual("INSUFFICIENT_ELIGIBLE_CANDIDATES", roster["status"])
+        self.assertEqual(19, roster["timetable"]["knownRunDayCandidates"])
+        self.assertNotIn("12000", {train for train, _ in calls})
+        self.assertEqual(1, roster["timetable"]["scheduleFilterRejections"]
+                         ["conflicting_timetable_candidate_rows"])
 
     def test_missing_run_date_is_rejected_without_body_logging(self):
         payload = json.loads(reply("12000"))

@@ -172,6 +172,7 @@ def scheduled_candidates(db: sqlite3.Connection, now_utc: datetime) -> tuple[lis
         ORDER BY t.train_no
     """
     candidates: list[dict[str, Any]] = []
+    candidate_groups: dict[str, list[dict[str, Any]]] = {}
     rejected: Counter[str] = Counter()
     for row in db.execute(query):
         train_no = str(row["train_no"]).strip()
@@ -218,7 +219,20 @@ def scheduled_candidates(db: sqlite3.Connection, now_utc: datetime) -> tuple[lis
         }
         candidate = _classify_window(candidate, now_utc)
         if candidate is not None:
-            candidates.append(candidate)
+            candidate_groups.setdefault(train_no, []).append(candidate)
+
+    for train_no, rows in candidate_groups.items():
+        signatures = {
+            (item["sourceStationCode"], item["destinationStationCode"],
+             item["scheduledDepartureMinute"], item["scheduledArrivalMinute"])
+            for item in rows
+        }
+        if len(signatures) > 1:
+            rejected["conflicting_timetable_candidate_rows"] += 1
+            continue
+        if len(rows) > 1:
+            rejected["duplicate_timetable_candidate_train_number"] += len(rows) - 1
+        candidates.append(rows[0])
 
     candidates.sort(key=lambda item: (
         0 if item["scheduleEligibility"] == "scheduled-active-now" else 1,
@@ -398,8 +412,18 @@ def build_roster(
     probes = 0
     consecutive_transport_failures = 0
     stop_reason: str | None = None
+    timetable_age = dataset.get("timetableAgeDays")
+    timetable_is_recent = (
+        dataset.get("timetableFreshness") == "recent"
+        and isinstance(timetable_age, int)
+        and not isinstance(timetable_age, bool)
+        and 0 <= timetable_age <= 90
+    )
+    if not timetable_is_recent:
+        rejection_counts["timetable_vintage_not_recent"] += 1
+        stop_reason = "timetable_vintage_not_recent"
     live_fetch = fetch is fetch_once
-    for candidate in candidates:
+    for candidate in (candidates if timetable_is_recent else []):
         if len(accepted) >= min_candidates or probes >= max_probes:
             break
         request_time = datetime.now(UTC) if live_fetch else now_utc

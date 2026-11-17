@@ -51,24 +51,59 @@ with open(path, "w", encoding="utf-8") as stream:
 PY
 }
 
+collect_device_evidence() {
+  local result_ok=0
+  local observations_ok=0
+  local tmp
+  export PATH="${ANDROID_HOME:-/usr/local/lib/android/sdk}/platform-tools:$PATH"
+  if ! command -v adb >/dev/null 2>&1 || ! adb get-state >/dev/null 2>&1; then
+    return 1
+  fi
+
+  tmp="$OUT/slot-result.json.tmp"
+  if adb exec-out run-as in.opentrack.india cat files/campaign/result.json \
+      > "$tmp" 2>/dev/null && \
+      python3 -c 'import json,sys; value=json.load(open(sys.argv[1], encoding="utf-8")); sys.exit(0 if isinstance(value, dict) else 1)' "$tmp"; then
+    mv "$tmp" "$OUT/slot-result.json"
+    result_ok=1
+  else
+    rm -f "$tmp"
+  fi
+
+  tmp="$OUT/observations.jsonl.tmp"
+  if adb exec-out run-as in.opentrack.india cat files/campaign/observations.jsonl \
+      > "$tmp" 2>/dev/null && [ -s "$tmp" ]; then
+    mv "$tmp" "$OUT/observations.jsonl"
+    observations_ok=1
+  else
+    rm -f "$tmp"
+  fi
+
+  mkdir -p "$OUT/screens"
+  for name in campaign-minute-00 campaign-minute-15 campaign-minute-30 campaign-minute-45; do
+    tmp="$OUT/screens/$name.png.tmp"
+    if adb exec-out run-as in.opentrack.india cat "files/campaign/screens/$name.png" \
+        > "$tmp" 2>/dev/null && [ "$(wc -c < "$tmp")" -gt 1000 ]; then
+      mv "$tmp" "$OUT/screens/$name.png"
+    else
+      rm -f "$tmp" "$OUT/screens/$name.png"
+    fi
+    tmp="$OUT/screens/$name.xml.tmp"
+    if adb exec-out run-as in.opentrack.india cat "files/campaign/screens/$name.xml" \
+        > "$tmp" 2>/dev/null && [ "$(wc -c < "$tmp")" -gt 100 ]; then
+      mv "$tmp" "$OUT/screens/$name.xml"
+    else
+      rm -f "$tmp" "$OUT/screens/$name.xml"
+    fi
+  done
+  adb logcat -d -s TrainCampaign:I TrainCampaign:E > "$OUT/device-log.txt" 2>/dev/null || true
+  [ "$result_ok" -eq 1 ] && [ "$observations_ok" -eq 1 ]
+}
+
 finish() {
   local rc=$?
   set +e
-  export PATH="${ANDROID_HOME:-/usr/local/lib/android/sdk}/platform-tools:$PATH"
-  if command -v adb >/dev/null 2>&1 && adb get-state >/dev/null 2>&1; then
-    adb exec-out run-as in.opentrack.india cat files/campaign/result.json \
-      > "$OUT/slot-result.json" 2>/dev/null || true
-    adb exec-out run-as in.opentrack.india cat files/campaign/observations.jsonl \
-      > "$OUT/observations.jsonl" 2>/dev/null || true
-    mkdir -p "$OUT/screens"
-    for name in campaign-minute-00 campaign-minute-15 campaign-minute-30 campaign-minute-45; do
-      adb exec-out run-as in.opentrack.india cat "files/campaign/screens/$name.png" \
-        > "$OUT/screens/$name.png" 2>/dev/null || rm -f "$OUT/screens/$name.png"
-      adb exec-out run-as in.opentrack.india cat "files/campaign/screens/$name.xml" \
-        > "$OUT/screens/$name.xml" 2>/dev/null || rm -f "$OUT/screens/$name.xml"
-    done
-    adb logcat -d -s TrainCampaign:I TrainCampaign:E > "$OUT/device-log.txt" 2>/dev/null || true
-  fi
+  collect_device_evidence >/dev/null 2>&1 || true
   if [ ! -s "$OUT/slot-result.json" ]; then
     write_fallback_result "DEVICE_RUN_FAILED_OR_NO_RESULT" \
       "The emulator test did not leave a readable in-app result; see runner logs and instrumentation output."
@@ -121,6 +156,13 @@ if [ "$eligibility_rc" -ne 0 ]; then
   exit 1
 fi
 
+APP_APK=${CAMPAIGN_APP_APK:-campaign-apks/app-debug.apk}
+TEST_APK=${CAMPAIGN_TEST_APK:-campaign-apks/app-debug-androidTest.apk}
+if [ ! -s "$APP_APK" ] || [ ! -s "$TEST_APK" ]; then
+  write_fallback_result "APK_ARTIFACT_MISSING" "The same-run debug app/instrumentation APK pair was unavailable; emulator boot was skipped."
+  exit 4
+fi
+
 export API=34 IMG=google_apis ABI=x86_64 DEVICE=pixel_6 BOOT_TIMEOUT=600
 if ! bash tools/ci/emulator_boot.sh > "$OUT/boot.txt" 2>&1; then
   tail -40 "$OUT/boot.txt"
@@ -134,12 +176,6 @@ adb shell svc power stayon true >/dev/null 2>&1 || true
 adb shell settings put global stay_on_while_plugged_in 3 >/dev/null 2>&1 || true
 adb shell settings put system screen_off_timeout 2147483647 >/dev/null 2>&1 || true
 
-APP_APK=${CAMPAIGN_APP_APK:-campaign-apks/app-debug.apk}
-TEST_APK=${CAMPAIGN_TEST_APK:-campaign-apks/app-debug-androidTest.apk}
-if [ ! -s "$APP_APK" ] || [ ! -s "$TEST_APK" ]; then
-  write_fallback_result "APK_ARTIFACT_MISSING" "The same-run debug app/instrumentation APK pair was unavailable."
-  exit 4
-fi
 adb install -r -g "$APP_APK"
 adb install -r "$TEST_APK"
 installed=$(adb shell pm path in.opentrack.india | tr -d '\r' | sed -n 's/^package://p' | head -1)
@@ -194,10 +230,15 @@ if [ "$INSTRUMENTATION_RC" -ne 0 ] || \
   tail -80 "$OUT/instrumentation.txt"
   exit 1
 fi
-python3 - "$OUT/slot-result.json" <<'PY'
-import json, sys
-result = json.load(open(sys.argv[1], encoding="utf-8"))
-if result.get("passed") is not True:
-    print("in-app campaign result failed acceptance:", result.get("failure") or result.get("status"))
-    raise SystemExit(1)
-PY
+# Copy the in-app result BEFORE validating it. The EXIT trap is only a failure-safe collector;
+# the previous runner validated slot-result.json before this collection happened.
+collect_device_evidence || true
+python3 tools/ci/verify_campaign_runner_result.py \
+  --result "$OUT/slot-result.json" \
+  --observations "$OUT/observations.jsonl" \
+  --instrumentation "$OUT/instrumentation.txt" \
+  --instrumentation-exit-code "$INSTRUMENTATION_RC" \
+  --evidence-dir "$OUT" \
+  --assignment "$ASSIGNMENT" \
+  --eligibility-before "$OUT/eligibility-before-emulator.json" \
+  --eligibility-after "$OUT/eligibility-after-emulator-boot.json"
