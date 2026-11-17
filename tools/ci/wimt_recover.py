@@ -255,7 +255,7 @@ def summarize_direct_source_artifact(folder: Path, original: dict,
         raw_samples = []
     sample_fields = (
         "checkpointMinute", "elapsedSeconds", "sampledAtUtc", "httpStatus",
-        "responseBytes", "responseSha256", "runDateMatched", "routeMatched",
+        "responseBytes", "responseSha256", "trainNumberMatched", "runDateMatched", "routeMatched",
         "freshSourceStamp", "sourceUpdateStamp", "sourceUpdateAgeSeconds",
         "currentStationCodeClaim", "sourceScheduleRowCount", "sourceActualStopRowCount",
         "runningStatusQualified", "protocolChecksPassed", "qualified", "failureReasons",
@@ -274,11 +274,21 @@ def summarize_direct_source_artifact(folder: Path, original: dict,
         raw_attempts = []
     attempt_fields = (
         "probe", "trainNo", "runDate", "route", "httpStatus", "responseBytes",
-        "responseSha256", "runDateMatched", "routeMatched", "freshSourceStamp",
+        "responseSha256", "trainNumberMatched", "runDateMatched", "routeMatched", "freshSourceStamp",
         "currentStationCodeClaim", "sourceActualStopRowCount", "qualified", "failureReasons",
     )
     attempts = [{key: item.get(key) for key in attempt_fields if key in item}
                 for item in raw_attempts if isinstance(item, dict)]
+    raw_timetable = original.get("timetableSelectionMetadata")
+    timetable_fields = (
+        "sourceVintage", "timetableVintage", "timetableAgeDays", "timetableFreshness",
+        "runDaysVintage", "dataTrust", "knownRunDayCandidates", "candidateCount",
+    )
+    timetable = ({key: raw_timetable.get(key) for key in timetable_fields
+                  if key in raw_timetable and
+                  (raw_timetable.get(key) is None or
+                   isinstance(raw_timetable.get(key), (str, int, float)))}
+                 if isinstance(raw_timetable, dict) else {})
     return {
         "sourceRun": source_run,
         "sourceArtifact": source_artifact,
@@ -292,6 +302,7 @@ def summarize_direct_source_artifact(folder: Path, original: dict,
         "runDate": str(original.get("runDate", ""))[:40],
         "route": str(original.get("route", ""))[:100],
         "selectionStopReason": str(original.get("selectionStopReason", ""))[:120],
+        "timetableSelectionMetadata": timetable,
         "durationMinutes": observation.get("durationMinutes")
             if isinstance(observation.get("durationMinutes"), (int, float)) and
                type(observation.get("durationMinutes")) is not bool else None,
@@ -926,13 +937,16 @@ def _self_test() -> None:
             "verdict": "NO_VERIFIED_45_MINUTE_DIRECT_WIMT_IN_OBSERVATION",
             "trainNo": "12627", "runDate": "12-10-2026", "route": "MYS->TLGP",
             "selectionStopReason": "observation_gate_failed",
+            "timetableSelectionMetadata": {
+                "timetableAgeDays": 200, "timetableFreshness": "stale",
+            },
             "observation": {
                 "durationMinutes": 35.1, "requiredDurationMinutes": 45,
                 "recordedCheckpointMinutes": [0, 5, 10, 15, 20, 25, 30, 35],
                 "checks": {"elapsedAtLeast45Minutes": False},
                 "samples": [{
                     "checkpointMinute": 35, "httpStatus": 200,
-                    "freshSourceStamp": False, "qualified": False,
+                    "trainNumberMatched": True, "freshSourceStamp": False, "qualified": False,
                     "responseSha256": "a" * 64,
                     "rawResponse": "PRIVATE raw body must never be copied",
                 }],
@@ -945,6 +959,8 @@ def _self_test() -> None:
         assert direct_summary["mode"] == "direct-source-only"
         assert direct_summary["durationMinutes"] == 35.1
         assert direct_summary["samples"][0]["checkpointMinute"] == 35
+        assert direct_summary["samples"][0]["trainNumberMatched"] is True
+        assert direct_summary["timetableSelectionMetadata"]["timetableFreshness"] == "stale"
         assert "rawResponse" not in json.dumps(direct_summary)
         assert direct_summary["noProviderRequestDuringRecovery"] is True
     print("WIMT artifact recovery self-test passed (no network or provider request)")
