@@ -293,7 +293,7 @@ jobs:
           final['initialPreflight']['validation'] = early_validation
           final['initialPreflightValidation'] = early_validation
           Path('campaign-roster/roster.json').write_text(
-              json.dumps(final, indent=2, sort_keys=True) + '\\n', encoding='utf-8')
+              json.dumps(final, indent=2, sort_keys=True) + chr(10), encoding='utf-8')
           PY
           fi
           echo "eligible_count=$eligible_count" >> "$GITHUB_OUTPUT"
