@@ -455,7 +455,8 @@ def summarize_wimt_46_artifact(folder: Path, original: dict,
         "instrumentationPassed": original.get("instrumentationPassed") is True,
         "runnerExitCode": original.get("runnerExitCode")
             if type(original.get("runnerExitCode")) is int else None,
-        "verifiedAppScreenshotNames": screenshot_names,
+        "reportedScreenshotNames": screenshot_names,
+        "screenshotFilesVerified": False,
         "traceEvents": _safe_trace_events(folder),
         "failedStepLog": {
             "retrievalStatus": retrieval_status,
@@ -477,7 +478,8 @@ def _run_wimt_46_report(folder: Path, original: dict) -> int:
         "The running-status result is an app-side qualification requiring a fresh matched WIMT `.in` "
         "response, current-station field, and at least one source-reported actual stop clock; it is "
         "not an explicit provider boolean or independent movement/GPS proof. A failed run is not a "
-        "completed observation.",
+        "completed observation. Screenshot filenames are copied from result metadata only; the "
+        "recovery step does not validate image bytes or matching app hierarchies.",
     ]
     text = "\n".join(report) + "\n"
     (folder / "recovered-report.md").write_text(text, encoding="utf-8")
@@ -679,6 +681,8 @@ def _self_test() -> None:
         assert summary["currentStationCheckpoints"] == []
         assert summary["refresh"]["receipts"] == 0
         assert summary["runningStatus"] == "NOT_CAPTURED_BY_THIS_RUN_SCHEMA"
+        assert summary["reportedScreenshotNames"] == ["wimt-soak-start.png"]
+        assert summary["screenshotFilesVerified"] is False
         assert summary["traceEvents"][1]["fields"]["parserOutcome"] == "SOURCE_ROWS_PRESENT"
         assert "AssertionError" in summary["failedStepLog"][
             "boundedInstrumentationLines"][0]
