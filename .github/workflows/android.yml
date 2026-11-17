@@ -174,7 +174,18 @@ jobs:
             sources) filters=(--tests 'in.opentrack.india.remote.*' --tests 'in.opentrack.india.v2.*') ;;
             *) exit 2 ;;
           esac
-          ./gradlew --no-daemon :app:testDebugUnitTest "${filters[@]}" --stacktrace 2>&1 | tee /tmp/test.log
+          # Retry ONLY the Maven Central throttle, matching the APK build's policy. Keep compiler and
+          # test failures fail-fast; a red assertion must never be hidden by another attempt.
+          for attempt in 1 2 3; do
+            if ./gradlew --no-daemon :app:testDebugUnitTest "${filters[@]}" --stacktrace 2>&1 | tee /tmp/test.log; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ] || ! grep -Eq 'status code 429|Too Many Requests' /tmp/test.log; then
+              exit 1
+            fi
+            echo "::warning::Maven returned 429; retrying test dependency resolution ($attempt/3)"
+            sleep $((attempt * 20))
+          done
       - uses: actions/upload-artifact@v4
         if: always()
         with:
