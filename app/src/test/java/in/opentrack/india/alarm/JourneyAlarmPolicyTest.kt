@@ -100,14 +100,16 @@ class JourneyAlarmPolicyTest {
         assertEquals(now(665), fire.evidenceAtMillis)
     }
 
-    @Test fun explicitProviderIdentityIsKeptEvenWhenSourcesShareAProvenanceKind() {
+    @Test fun genericProviderEvidenceCannotTriggerWithoutTheQualifiedWimtSourceType() {
         val decision = JourneyAlarmPolicy.stationEvent(config(), route,
             answer(source = SourceKind.PROVIDER, actualDeparture = 664), now(670),
-            sourceDisplayName = "Independent eRail probe")
+            sourceDisplayName = "eRail running-status feed")
 
-        assertTrue(decision is JourneyAlarmPolicy.Decision.Fire)
-        assertTrue((decision as JourneyAlarmPolicy.Decision.Fire).detail
-            .contains("Independent eRail probe reports departure at Kengeri"))
+        assertTrue(decision is JourneyAlarmPolicy.Decision.Waiting)
+        assertTrue((decision as JourneyAlarmPolicy.Decision.Waiting).detail
+            .contains("NTES or WIMT"))
+        assertEquals("Unidentified live provider",
+            JourneyAlarmPolicy.sourceLabel(SourceKind.PROVIDER))
     }
 
     @Test fun strictWimtActualCanQualifyEvenWhenItsClockMatchesTheSchedule() {
@@ -116,10 +118,11 @@ class JourneyAlarmPolicyTest {
         val genericProvider = JourneyAlarmPolicy.stationEvent(c, route, event, now(670))
         assertTrue(genericProvider is JourneyAlarmPolicy.Decision.Waiting)
         assertTrue((genericProvider as JourneyAlarmPolicy.Decision.Waiting).detail
-            .contains("schedule echo"))
+            .contains("NTES or WIMT"))
 
         val wimt = JourneyAlarmPolicy.stationEvent(c, route, event, now(670),
-            sourceDisplayName = "WIMT .in live-status feed", allowOnScheduleActual = true)
+            sourceDisplayName = "WIMT .in live-status feed",
+            source = JourneyAlarmPolicy.AlertEvidenceSource.WIMT)
         assertTrue(wimt is JourneyAlarmPolicy.Decision.Fire)
         assertTrue((wimt as JourneyAlarmPolicy.Decision.Fire).detail
             .contains("WIMT .in live-status feed reports departure at Kengeri"))
@@ -148,7 +151,7 @@ class JourneyAlarmPolicyTest {
         val echo = JourneyAlarmPolicy.stationEvent(c, route,
             answer(source = SourceKind.PROVIDER, actualDeparture = 665), now(670))
         assertTrue(echo is JourneyAlarmPolicy.Decision.Waiting)
-        assertTrue((echo as JourneyAlarmPolicy.Decision.Waiting).detail.contains("schedule echo"))
+        assertTrue((echo as JourneyAlarmPolicy.Decision.Waiting).detail.contains("NTES or WIMT"))
 
         val cached = JourneyAlarmPolicy.stationEvent(c, route,
             answer(source = SourceKind.CACHED, actualDeparture = 664), now(670))
@@ -169,7 +172,7 @@ class JourneyAlarmPolicyTest {
         val scheduleEcho = answer(source = SourceKind.PROVIDER, actualDeparture = 665)
         assertTrue(!JourneyAlarmPolicy.hasUsableSourceData(c, route, scheduleEcho, now(670)))
         assertTrue(JourneyAlarmPolicy.hasUsableSourceData(c, route, scheduleEcho, now(670),
-            allowOnScheduleActual = true))
+            source = JourneyAlarmPolicy.AlertEvidenceSource.WIMT))
         assertTrue(!JourneyAlarmPolicy.hasUsableSourceData(c, route,
             answer(source = SourceKind.CACHED, actualDeparture = 665), now(670)))
     }
@@ -205,14 +208,31 @@ class JourneyAlarmPolicyTest {
         assertEquals(now(710), decision.evidenceAtMillis)
     }
 
+    @Test fun aFreshTargetEventStillFiresWhenTheCurrentAnchorHasPassedTheDestination() {
+        val c = config(AlertTrigger.DESTINATION_REPORT, "SBC", "KSR Bengaluru", 3,
+            createdMinute = 650, baselineSeq = 1)
+        val laterAnchor = answer(code = "BNC", seq = 4, actualArrival = 728,
+            actualDeparture = null, fetchedAgeSeconds = 1, feedAgeSeconds = 1,
+            replyAtMillis = now(729)).copy(perStop = mapOf(
+            "SBC" to LiveStopFields(actualArrivalMin = 725),
+            "BNC" to LiveStopFields(actualArrivalMin = 728),
+        ))
+
+        val decision = JourneyAlarmPolicy.stationEvent(c, route, laterAnchor, now(729))
+
+        assertTrue("a fresh target event must win over the later current anchor: $decision",
+            decision is JourneyAlarmPolicy.Decision.Fire)
+        assertEquals(now(725), (decision as JourneyAlarmPolicy.Decision.Fire).evidenceAtMillis)
+    }
+
     @Test fun oneSourceMissedVerdictWaitsForAnotherSourceThatCanStillFire() {
         val missed = JourneyAlarmPolicy.Decision.Missed("NTES is past the trigger", now(710))
-        val fired = JourneyAlarmPolicy.Decision.Fire("Kengeri reported", "eRail event", now(665))
+        val fired = JourneyAlarmPolicy.Decision.Fire("Kengeri reported", "WIMT event", now(665))
         val chosen = JourneyAlarmPolicy.firstTerminalSource(listOf(
-            JourneyAlarmPolicy.SourceDecision("NTES", missed),
-            JourneyAlarmPolicy.SourceDecision("erail", fired),
+            JourneyAlarmPolicy.SourceDecision("NTES running status", missed),
+            JourneyAlarmPolicy.SourceDecision("WIMT .in live-status feed", fired),
         ), allSourcesChecked = true)
-        assertEquals("erail", chosen?.sourceLabel)
+        assertEquals("WIMT .in live-status feed", chosen?.sourceLabel)
         assertTrue(chosen?.decision is JourneyAlarmPolicy.Decision.Fire)
     }
 
@@ -232,6 +252,61 @@ class JourneyAlarmPolicyTest {
         val decision = JourneyAlarmPolicy.stationEvent(c, route,
             answer(actualDeparture = 665), now(670))
         assertTrue(decision is JourneyAlarmPolicy.Decision.Fire)
+    }
+
+    @Test fun delayedButStillAheadStopIsEligibleAfterItsPublishedTimePassed() {
+        val c = config(AlertTrigger.DESTINATION_REPORT, "SBC", "KSR Bengaluru", 3,
+            createdMinute = 725).copy(scheduledMinute = 720)
+        val current = answer(code = "KGI", seq = 2, actualDeparture = 728,
+            fetchedAgeSeconds = 5, feedAgeSeconds = 5, replyAtMillis = now(731))
+
+        val result = JourneyAlarmPolicy.setupEligibility(c, route, current, now(732),
+            JourneyAlarmPolicy.AlertEvidenceSource.NTES)
+
+        assertTrue("a past timetable clock cannot reject a fresh upcoming stop: $result",
+            result is JourneyAlarmPolicy.SetupEligibility.Upcoming)
+        assertEquals(2, (result as JourneyAlarmPolicy.SetupEligibility.Upcoming).baseline.seq)
+        assertEquals("Kengeri", result.currentStation)
+    }
+
+    @Test fun currentPositionAtOrBeyondSelectedStopBlocksSetup() {
+        val c = config(AlertTrigger.DESTINATION_REPORT, "SBC", "KSR Bengaluru", 3,
+            createdMinute = 725).copy(scheduledMinute = 720)
+        val atTarget = answer(code = "SBC", seq = 3, actualArrival = 730,
+            actualDeparture = null, fetchedAgeSeconds = 5, feedAgeSeconds = 5,
+            replyAtMillis = now(731))
+        val pastTarget = answer(code = "BNC", seq = 4, actualArrival = 731,
+            actualDeparture = null, fetchedAgeSeconds = 5, feedAgeSeconds = 5,
+            replyAtMillis = now(732))
+
+        val reached = JourneyAlarmPolicy.setupEligibility(c, route, atTarget, now(732),
+            JourneyAlarmPolicy.AlertEvidenceSource.NTES)
+        val passed = JourneyAlarmPolicy.setupEligibility(c, route, pastTarget, now(733),
+            JourneyAlarmPolicy.AlertEvidenceSource.NTES)
+
+        assertTrue(reached is JourneyAlarmPolicy.SetupEligibility.Reached)
+        assertTrue(passed is JourneyAlarmPolicy.SetupEligibility.Reached)
+    }
+
+    @Test fun staleOrUnqualifiedPositionCannotAuthorizeAlertSetup() {
+        val c = config(AlertTrigger.DESTINATION_REPORT, "SBC", "KSR Bengaluru", 3,
+            createdMinute = 725).copy(scheduledMinute = 720)
+        val stale = answer(code = "KGI", seq = 2, actualDeparture = 728,
+            fetchedAgeSeconds = 700, feedAgeSeconds = 700, replyAtMillis = now(730))
+        val genericProvider = answer(code = "KGI", seq = 2, source = SourceKind.PROVIDER,
+            actualDeparture = 728, fetchedAgeSeconds = 5, feedAgeSeconds = 5,
+            replyAtMillis = now(731))
+
+        val staleResult = JourneyAlarmPolicy.setupEligibility(c, route, stale, now(732),
+            JourneyAlarmPolicy.AlertEvidenceSource.NTES)
+        val wrongSource = JourneyAlarmPolicy.setupEligibility(c, route, genericProvider, now(732),
+            JourneyAlarmPolicy.AlertEvidenceSource.NTES)
+        val wimtResult = JourneyAlarmPolicy.setupEligibility(c, route, genericProvider, now(732),
+            JourneyAlarmPolicy.AlertEvidenceSource.WIMT)
+
+        assertTrue(staleResult is JourneyAlarmPolicy.SetupEligibility.Unavailable)
+        assertTrue(wrongSource is JourneyAlarmPolicy.SetupEligibility.Unavailable)
+        assertTrue(wimtResult is JourneyAlarmPolicy.SetupEligibility.Upcoming)
     }
 
     @Test fun phoneDistanceNeedsFreshAccurateRouteMatchedMovement() {

@@ -58,6 +58,8 @@ data class JourneyAlarmSnapshot(
     val evidenceSourceLabel: String? = null,
     /** A silent warning was already shown for this consecutive no-usable-source outage. */
     val checkFailed: Boolean = false,
+    /** The one-time schedule reminder was sent (or was already past when this alert was armed). */
+    val scheduledReminderSent: Boolean = false,
     /** A fired alert resumes after this wall-clock time; zero means it is not snoozed. */
     val snoozedUntilMillis: Long = 0L,
     /** Next ping/vibration repeat, or ring resume after snooze; zero when no timer is needed. */
@@ -83,10 +85,13 @@ object JourneyAlarmSchedule {
 
     fun expiryAtMillis(config: JourneyAlarmConfig): Long {
         val minute = config.journeyEndMinute ?: config.scheduledMinute
-        return if (minute != null)
+        val scheduledEnd = if (minute != null)
             RailTime.railMinuteToEpochMillis(config.originEpochDay, minute) + RUN_END_GRACE_MILLIS
         else RailTime.railMinuteToEpochMillis(config.originEpochDay + 2L, 0) +
             RUN_END_GRACE_MILLIS
+        // A delayed stop can still be upcoming when the traveller arms the monitor after
+        // its timetable clock. Give that newly verified monitor a full grace window too.
+        return maxOf(scheduledEnd, config.createdAtMillis + RUN_END_GRACE_MILLIS)
     }
 }
 
@@ -129,8 +134,10 @@ object JourneyAlarmStore {
         validateConfig(config)
         val items = loadLocked(context)
         val id = allocateId(context, items)
+        val dueAt = JourneyAlarmSchedule.dueAtMillis(config)
         items += JourneyAlarmSnapshot(config, AlertState.ARMED, "Starting background monitor",
-            0L, 0L, id)
+            0L, 0L, id,
+            scheduledReminderSent = dueAt != null && dueAt <= config.createdAtMillis)
         saveLocked(context, items, nextId = if (id == Int.MAX_VALUE) FIRST_ID else id + 1)
         id
     }
@@ -204,6 +211,65 @@ object JourneyAlarmStore {
         true
     }
 
+    data class CheckStatusTransition(
+        val snapshot: JourneyAlarmSnapshot,
+        val outageStarted: Boolean,
+        val recovered: Boolean,
+    )
+
+    /** Atomically records one check and reports only the edge into/out of an outage streak. */
+    fun updateArmedCheck(
+        context: Context,
+        id: Int,
+        expectedConfig: JourneyAlarmConfig,
+        status: String,
+        checkedAtMillis: Long,
+        lastSourceLabel: String?,
+        hasUsableSourceData: Boolean,
+    ): CheckStatusTransition? = synchronized(lock) {
+        val items = loadLocked(context)
+        val index = items.indexOfFirst { it.id == id }
+        if (index < 0) return@synchronized null
+        val previous = items[index]
+        if (previous.state != AlertState.ARMED || previous.config != expectedConfig ||
+            checkedAtMillis < previous.lastCheckedAtMillis) return@synchronized null
+        val failed = !hasUsableSourceData
+        val updated = previous.copy(
+            status = status.take(500),
+            lastCheckedAtMillis = checkedAtMillis,
+            lastSourceLabel = lastSourceLabel ?: previous.lastSourceLabel,
+            checkFailed = failed,
+        )
+        items[index] = updated
+        saveLocked(context, items)
+        CheckStatusTransition(updated, outageStarted = failed && !previous.checkFailed,
+            recovered = !failed && previous.checkFailed)
+    }
+
+    /** Claims the one-time schedule reminder while leaving the live monitor ARMED. */
+    fun markScheduledReminderSent(
+        context: Context,
+        id: Int,
+        expectedConfig: JourneyAlarmConfig,
+        status: String,
+        sentAtMillis: Long,
+    ): JourneyAlarmSnapshot? = synchronized(lock) {
+        val items = loadLocked(context)
+        val index = items.indexOfFirst { it.id == id }
+        if (index < 0) return@synchronized null
+        val previous = items[index]
+        if (previous.state != AlertState.ARMED || previous.config != expectedConfig ||
+            previous.scheduledReminderSent) return@synchronized null
+        val updated = previous.copy(
+            status = status.take(500),
+            lastCheckedAtMillis = maxOf(previous.lastCheckedAtMillis, sentAtMillis),
+            scheduledReminderSent = true,
+        )
+        items[index] = updated
+        saveLocked(context, items)
+        updated
+    }
+
     /** Compare-and-transition prevents a source result racing the scheduled timer into double alerts. */
     fun transitionFromArmed(
         context: Context,
@@ -270,9 +336,11 @@ object JourneyAlarmStore {
             val items = loadLocked(context)
             val index = items.indexOfFirst { it.id == id }
             if (index < 0 || items[index].state != AlertState.ARMED) return@synchronized false
+            val dueAt = JourneyAlarmSchedule.dueAtMillis(config)
             items[index] = items[index].copy(config = config,
                 status = "Settings updated · restarting monitor",
                 lastCheckedAtMillis = 0L, lastSourceLabel = null, checkFailed = false,
+                scheduledReminderSent = dueAt != null && dueAt <= config.createdAtMillis,
                 snoozedUntilMillis = 0L, nextRepeatAtMillis = 0L)
             saveLocked(context, items)
             true
@@ -392,6 +460,7 @@ object JourneyAlarmStore {
         .put("lastSource", snapshot.lastSourceLabel ?: JSONObject.NULL)
         .put("evidenceSource", snapshot.evidenceSourceLabel ?: JSONObject.NULL)
         .put("checkFailed", snapshot.checkFailed)
+        .put("scheduledReminderSent", snapshot.scheduledReminderSent)
         .put("snoozedUntilMillis", snapshot.snoozedUntilMillis)
         .put("nextRepeatAtMillis", snapshot.nextRepeatAtMillis)
 
@@ -405,6 +474,7 @@ object JourneyAlarmStore {
             lastSourceLabel = o.optString("lastSource").takeIf { it.isNotBlank() && it != "null" },
             evidenceSourceLabel = o.optString("evidenceSource").takeIf { it.isNotBlank() && it != "null" },
             checkFailed = o.optBoolean("checkFailed", false),
+            scheduledReminderSent = o.optBoolean("scheduledReminderSent", false),
             snoozedUntilMillis = o.optLong("snoozedUntilMillis", 0L).coerceAtLeast(0L),
             nextRepeatAtMillis = o.optLong("nextRepeatAtMillis", 0L).coerceAtLeast(0L))
     }

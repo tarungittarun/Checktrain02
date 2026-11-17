@@ -11,6 +11,7 @@ import `in`.opentrack.india.domain.TrainFinder
 import `in`.opentrack.india.model.SourceKind
 import `in`.opentrack.india.model.TrainRoute
 import `in`.opentrack.india.remote.ErailProvider
+import `in`.opentrack.india.remote.NtesProvider
 import `in`.opentrack.india.remote.ProviderChain
 import `in`.opentrack.india.remote.OfficialScheduleCache
 import `in`.opentrack.india.remote.SnapshotStore
@@ -81,6 +82,51 @@ class RailRepository private constructor(
 
     suspend fun resolveStations(text: String) = withContext(Dispatchers.IO) {
         queries.resolveStations(text)
+    }
+
+    /** Independent, alert-only NTES probe; no erail, snapshot, timetable, or custom-source fallback. */
+    suspend fun probeNtesStatus(
+        trainNo: String,
+        route: TrainRoute,
+        day: Long,
+        fromCode: String,
+        toCode: String,
+    ): SourceProbe = withContext(Dispatchers.IO) {
+        if (!route.trainNo.equals(trainNo, true) ||
+            !RunRouteSelection.covers(route, fromCode, toCode))
+            return@withContext SourceProbe(null,
+                "The selected train or ordered journey does not match the NTES route request")
+        val provider = NtesProvider(http, selectedFrom = fromCode, selectedTo = toCode)
+        val snapshot = try {
+            provider.fetch(trainNo, route, day)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            return@withContext SourceProbe(null,
+                "NTES alert request failed (${failure.javaClass.simpleName})")
+        } ?: return@withContext SourceProbe(null,
+            provider.failureNote() ?: "NTES did not return a usable run-matched report")
+        if (!snapshot.trainNo.equals(trainNo, true) || snapshot.journeyEpochDay != day ||
+            snapshot.sourceKind != SourceKind.PROVIDER_NTES)
+            return@withContext SourceProbe(null,
+                "NTES report did not match the selected train, run date, and live source")
+        val reportedRoute = snapshot.reportedRoute
+            ?: return@withContext SourceProbe(null,
+                "NTES did not provide a verified route for this run")
+        if (!reportedRoute.trainNo.equals(trainNo, true) ||
+            !RunRouteSelection.covers(reportedRoute, fromCode, toCode))
+            return@withContext SourceProbe(null,
+                "NTES route does not match the selected ordered journey")
+        val checkedAt = System.currentTimeMillis()
+        val railMinute = ((RailTime.istEpochDay(checkedAt) - day) * RailTime.MINUTES_PER_DAY +
+            RailTime.istMinuteOfDay(checkedAt)).toInt()
+        val answer = PositionEngine.locate(PositionEngine.Request(
+            route = reportedRoute, snapshot = snapshot, nowRailMinute = railMinute,
+            nowMillis = checkedAt,
+        ))
+        SourceProbe(Live(reportedRoute, answer, listOf("PROVIDER_NTES=hit"), day,
+            notes = listOf("Direct NTES running-status probe; no cache or timetable fallback"),
+            sourceName = provider.sourceName), null)
     }
 
     /** User-requested, independent erail status probe. Never falls back to NTES or a file. */

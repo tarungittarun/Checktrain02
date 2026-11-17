@@ -40,6 +40,7 @@ import `in`.opentrack.india.alarm.AlertTrigger
 import `in`.opentrack.india.alarm.JourneyAlarmConfig
 import `in`.opentrack.india.alarm.JourneyAlarmNotifications
 import `in`.opentrack.india.alarm.JourneyAlarmPolicy
+import `in`.opentrack.india.alarm.JourneyAlarmPositionGate
 import `in`.opentrack.india.alarm.JourneyAlarmSchedule
 import `in`.opentrack.india.alarm.JourneyAlarmRouteSelection
 import `in`.opentrack.india.alarm.JourneyAlarmService
@@ -758,8 +759,8 @@ class TrainActivity : AppCompatActivity() {
             initialFeedback = config.feedback,
             initialRepeatIntervalSeconds = config.repeatIntervalSeconds,
             initialIntervalMinutes = config.intervalMinutes,
-            note = "Fresh station report first · published timetable reminder only if no qualifying report arrives.",
-            details = "Station events must be fresh and match this train, run date and ordered route. The direct .in feed must echo the selected run date and both route endpoints; website cards and cached comparisons never trigger alerts. Successful checks stay silent. If all qualified source attempts fail to return usable data, one silent notification is sent for that outage and cleared on recovery. Ping/vibration can be one-shot or repeat at the selected interval. Ring continues until turned off; Snooze pauses any style for 2 minutes. Android background limits can delay checks.",
+            note = "Current station is rechecked with fresh NTES/WIMT evidence when you set the alert. A passed timetable time alone does not disqualify an upcoming stop.",
+            details = "Only fresh, route- and run-matched NTES or direct WIMT .in reports can confirm station events. The .in feed must echo this run date and both route endpoints. eRail, website claims, cached comparisons and timetable-only times never trigger an arrival alert. A one-time scheduled reminder does not stop monitoring; the final alert waits for a qualifying station event. Successful checks stay quiet. If neither source returns fresh, usable data, one silent notice is sent per continuous failure streak and cleared on recovery. Ping/vibration can be one-shot or repeat at the selected interval. Ring continues until turned off; Snooze pauses any final alert for 2 minutes. Android background limits can delay checks.",
             stations = stations,
             initialStationCode = config.toCode,
         )
@@ -804,14 +805,8 @@ class TrainActivity : AppCompatActivity() {
                     journeyEndMinute = scheduled,
                     createdAtMillis = now,
                 )
-                val dueAt = JourneyAlarmSchedule.dueAtMillis(selectedConfig)
-                if (dueAt != null && dueAt <= now) {
-                    AlertDialog.Builder(this)
-                        .setTitle("Station time has passed")
-                        .setMessage("The published timetable time for ${stop.name} is too close or has passed. Choose a later stop; no immediate, misleading alert was created.")
-                        .setPositiveButton("Close", null).show().also(::paintBatteryDialog)
-                    return@setOnClickListener
-                }
+                // Schedule clocks do not decide whether a stop is still ahead. The direct
+                // current-run position check below gates arming, including after a delay.
                 dialog.dismiss()
                 requestNotificationAccess {
                     if (!alertChannelAvailable(selected.feedback)) {
@@ -894,32 +889,22 @@ class TrainActivity : AppCompatActivity() {
                     scheduledMinute = selectedMinute,
                     journeyEndMinute = monitorTo.arrivalMin ?: monitorTo.departureMin,
                 )
-                val dueAt = JourneyAlarmSchedule.dueAtMillis(verifiedConfig)
-                if (dueAt != null && dueAt <= System.currentTimeMillis()) {
-                    AlertDialog.Builder(this@TrainActivity)
-                        .setTitle("Selected lead time has passed")
-                        .setMessage("The published timetable time for ${config.triggerName} is too close or has passed for this lead. Choose a later station or a shorter lead; no immediate, misleading alert was created.")
-                        .setPositiveButton("Close", null).show().also(::paintBatteryDialog)
-                    return@launch
-                }
-
-                var baseline = JourneyAlarmPolicy.Baseline()
-                if (config.trigger != AlertTrigger.PHONE_DISTANCE) {
-                    // Use only the screen's already-received answer here. A duplicate provider
-                    // ladder delayed arming and repeated network work; the independent foreground
-                    // monitor performs its own fresh source checks after it starts.
-                    lastUi?.let { current ->
-                        baseline = JourneyAlarmPolicy.baseline(
-                            verifiedConfig, current.route, current.answer)
-                    }
-                    if (baseline.seq >= config.triggerSeq) {
-                        val eventMinute = baseline.eventMinute
-                        val detail = if (eventMinute != null)
-                            "A current running-status reply already places train ${config.trainNo} at or beyond ${config.triggerName} (${RailTime.formatRailMinute(eventMinute)}). To avoid replaying an old event, no alert was armed. Choose a later trigger or distance instead."
-                        else "The current running-status reply is already at or beyond ${config.triggerName}, but its event time is unknown. No alert was armed. Choose a later trigger or distance instead."
+                val eligibility = JourneyAlarmPositionGate.verifyUpcoming(
+                    repo, verifiedConfig, monitorRoute)
+                val baseline = when (eligibility) {
+                    is JourneyAlarmPolicy.SetupEligibility.Upcoming -> eligibility.baseline
+                    is JourneyAlarmPolicy.SetupEligibility.Reached -> {
+                        val source = eligibility.source.displayName
                         AlertDialog.Builder(this@TrainActivity)
-                            .setTitle("Trigger already reached")
-                            .setMessage(detail)
+                            .setTitle("Selected stop already reached")
+                            .setMessage("$source reports train ${config.trainNo} at or beyond ${config.triggerName} (reported at ${RailTime.formatClockSeconds(eligibility.evidenceAtMillis)} IST). No alert was armed. Choose a later stop.")
+                            .setPositiveButton("Close", null).show().also(::paintBatteryDialog)
+                        return@launch
+                    }
+                    is JourneyAlarmPolicy.SetupEligibility.Unavailable -> {
+                        AlertDialog.Builder(this@TrainActivity)
+                            .setTitle("Current position not verified")
+                            .setMessage("${eligibility.detail}\n\nNo alert was armed. Refresh the live status and try again; a timetable time alone cannot prove that the stop is ahead.")
                             .setPositiveButton("Close", null).show().also(::paintBatteryDialog)
                         return@launch
                     }

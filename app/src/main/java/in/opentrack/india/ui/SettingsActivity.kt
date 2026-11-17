@@ -87,8 +87,8 @@ class SettingsActivity : AppCompatActivity() {
             initialFeedback = prefs.defaultAlertFeedback,
             initialRepeatIntervalSeconds = prefs.defaultAlertRepeatIntervalSeconds,
             initialIntervalMinutes = prefs.defaultAlertIntervalMinutes,
-            note = "Choose the upcoming station on each train's route when setting an alert.",
-            details = "Ping or vibration can happen once or repeat at the selected interval; ring continues until turned off. Source checks are silent when usable data is available. One silent warning is sent only after all qualified source attempts fail, and is cleared on recovery.",
+            note = "The selected stop is checked against fresh NTES or direct WIMT evidence when Set is pressed.",
+            details = "Only fresh, route- and run-matched NTES or direct WIMT .in reports can confirm station events. eRail, website claims, cached comparisons and timetable-only values cannot trigger arrival alerts. A scheduled reminder is separate; monitoring continues until a qualifying station event. Successful checks stay quiet. If neither source returns fresh, usable data, one silent notice is sent per continuous failure streak and cleared on recovery. Ping or vibration can happen once or repeat at the selected interval; ring continues until turned off. Android background limits can delay checks.",
             stationUnavailableSummary = "Station is selected per journey from the upcoming-stop list.",
         )
         binding.alertDefaultsEditor.addView(editor.view)

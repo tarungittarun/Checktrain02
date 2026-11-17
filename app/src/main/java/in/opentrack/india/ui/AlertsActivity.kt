@@ -19,6 +19,7 @@ import `in`.opentrack.india.alarm.AlertState
 import `in`.opentrack.india.alarm.AlertTrigger
 import `in`.opentrack.india.alarm.JourneyAlarmConfig
 import `in`.opentrack.india.alarm.JourneyAlarmNotifications
+import `in`.opentrack.india.alarm.JourneyAlarmPositionGate
 import `in`.opentrack.india.alarm.JourneyAlarmRouteSelection
 import `in`.opentrack.india.alarm.JourneyAlarmSchedule
 import `in`.opentrack.india.alarm.JourneyAlarmService
@@ -314,8 +315,8 @@ class AlertsActivity : AppCompatActivity() {
             initialFeedback = prefs.defaultAlertFeedback,
             initialRepeatIntervalSeconds = prefs.defaultAlertRepeatIntervalSeconds,
             initialIntervalMinutes = prefs.defaultAlertIntervalMinutes,
-            note = "Starting choices for new alerts. Select the upcoming station on each train's route.",
-            details = "Station checks use only fresh, route-matched NTES/eRail reports and the direct .in live-status feed, which must match the run date and both route endpoints. Successful checks stay silent. A silent status notification is sent only when all qualified source attempts fail to return usable data, then cleared on recovery. Timetable reminders are labeled separately from source reports. Ping/vibration can be one-shot or repeat; ring continues until turned off. Android background limits can delay checks.",
+            note = "Starting choices for new alerts. The selected stop is checked against current NTES/WIMT position evidence when Set is pressed.",
+            details = "Alert monitoring uses only fresh, run- and route-matched NTES or direct WIMT .in reports; the .in source must match the run date and both route endpoints. eRail, website claims, cached comparisons and timetable-only values cannot trigger an arrival. A one-time scheduled reminder leaves monitoring armed; the final alert requires a qualifying station event. Successful checks stay quiet. If neither source returns fresh, usable data, one silent notice is sent per continuous failure streak and cleared on recovery. Ping/vibration can be one-shot or repeat; ring continues until turned off. Android background limits can delay checks.",
             stationUnavailableSummary = "Station is chosen per journey from its upcoming stops.",
         )
         val scroll = ScrollView(this).apply {
@@ -371,7 +372,7 @@ class AlertsActivity : AppCompatActivity() {
             initialRepeatIntervalSeconds = c.repeatIntervalSeconds,
             initialIntervalMinutes = c.intervalMinutes,
             note = "Only this alert changes. Successful source checks stay quiet; check status and timing stay here.",
-            details = "Station events qualify only when fresh NTES/eRail or direct .in data matches this train, run and ordered route. The .in feed must echo the run date and both route endpoints. Timetable reminders are clearly labeled and are not live ETAs. If every qualified source attempt fails to return usable data, one silent notice is sent for the outage and cleared on recovery. Ping/vibration can be one-shot or repeat; ring continues until turned off. Snooze pauses any style for 2 minutes.",
+            details = "Station events qualify only when fresh, direct NTES or WIMT .in data matches this train, run and ordered route. The .in feed must echo the run date and both route endpoints. eRail, website claims, caches and timetable-only values cannot trigger arrival alerts. A scheduled reminder is separate and monitoring continues until a qualifying station event. Only when neither source returns fresh, usable data does one silent notice appear for a continuous failure streak; it clears on recovery. Ping/vibration can be one-shot or repeat; ring continues until turned off. Snooze pauses any final alert for 2 minutes.",
             stations = stations,
             initialStationCode = currentStationCode,
             stationUnavailableSummary = stationHint,
@@ -388,15 +389,16 @@ class AlertsActivity : AppCompatActivity() {
             .setPositiveButton("Save changes", null)
             .create()
         dialog.setOnShowListener {
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                val selected = editor.read() ?: return@setOnClickListener
+            val saveButton = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+            saveButton.setOnClickListener click@{
+                val selected = editor.read() ?: return@click
                 val stop = selected.station?.takeIf { route != null }
                 val now = System.currentTimeMillis()
                 if (stop != null && c.trigger != AlertTrigger.PHONE_DISTANCE &&
                     stop.arrivalMin == null && stop.departureMin == null) {
                     Toast.makeText(this, "This station has no published timetable time.",
                         Toast.LENGTH_LONG).show()
-                    return@setOnClickListener
+                    return@click
                 }
                 val changed = if (stop != null) {
                     val trigger = if (c.trigger == AlertTrigger.PHONE_DISTANCE)
@@ -426,19 +428,65 @@ class AlertsActivity : AppCompatActivity() {
                     leadSeconds = if (c.trigger == AlertTrigger.PHONE_DISTANCE) c.leadSeconds else 0,
                     createdAtMillis = now,
                 )
-                val stationChanged = stop != null && !stop.code.equals(currentStationCode, true)
-                val due = JourneyAlarmSchedule.dueAtMillis(changed)
-                if (stationChanged && due != null && due <= now) {
-                    Toast.makeText(this,
-                        "That station's timetable time has passed. Choose a later stop.",
-                        Toast.LENGTH_LONG).show()
-                    return@setOnClickListener
+                val currentSeq = if (c.trigger == AlertTrigger.PREVIOUS_STOP_REPORT)
+                    c.triggerSeq else c.toSeq
+                val stationChanged = stop != null &&
+                    (!stop.code.equals(currentStationCode, true) || stop.seq != currentSeq)
+
+                fun persist(configToSave: JourneyAlarmConfig) {
+                    if (JourneyAlarmStore.replaceConfig(this@AlertsActivity, snapshot.id, configToSave)) {
+                        JourneyAlarmNotifications.cancelAlert(this@AlertsActivity, snapshot.id)
+                        JourneyAlarmService.reconfigure(this@AlertsActivity)
+                        dialog.dismiss()
+                        Toast.makeText(this@AlertsActivity, "Alert updated", Toast.LENGTH_SHORT).show()
+                    } else Toast.makeText(this@AlertsActivity,
+                        "The alert changed before these settings could be saved.", Toast.LENGTH_LONG).show()
                 }
-                if (JourneyAlarmStore.replaceConfig(this, snapshot.id, changed)) {
-                    JourneyAlarmNotifications.cancelAlert(this, snapshot.id)
-                    JourneyAlarmService.reconfigure(this)
-                    dialog.dismiss()
-                    Toast.makeText(this, "Alert updated", Toast.LENGTH_SHORT).show()
+
+                if (!stationChanged || route == null) {
+                    persist(changed)
+                    return@click
+                }
+                saveButton.isEnabled = false
+                saveButton.text = "Checking position…"
+                lifecycleScope.launch {
+                    try {
+                        val repo = (application as App).repository()
+                        val eligibility = JourneyAlarmPositionGate.verifyUpcoming(repo, changed, route)
+                        val verified = when (eligibility) {
+                            is `in`.opentrack.india.alarm.JourneyAlarmPolicy.SetupEligibility.Upcoming ->
+                                changed.copy(baselineSeq = eligibility.baseline.seq,
+                                    baselineEventMinute = eligibility.baseline.eventMinute)
+                            is `in`.opentrack.india.alarm.JourneyAlarmPolicy.SetupEligibility.Reached -> {
+                                AlertDialog.Builder(this@AlertsActivity)
+                                    .setTitle("Selected stop already reached")
+                                    .setMessage("${eligibility.source.displayName} reports train ${c.trainNo} at or beyond ${eligibility.station} (${RailTime.formatClockSeconds(eligibility.evidenceAtMillis)} IST). No changes were saved.")
+                                    .setPositiveButton("Close", null).show().also(::paintBatteryDialog)
+                                return@launch
+                            }
+                            is `in`.opentrack.india.alarm.JourneyAlarmPolicy.SetupEligibility.Unavailable -> {
+                                AlertDialog.Builder(this@AlertsActivity)
+                                    .setTitle("Current position not verified")
+                                    .setMessage("${eligibility.detail}\n\nNo changes were saved. Refresh the live status and try again.")
+                                    .setPositiveButton("Close", null).show().also(::paintBatteryDialog)
+                                return@launch
+                            }
+                        }
+                        if (!dialog.isShowing || isFinishing) return@launch
+                        persist(verified)
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                        throw cancelled
+                    } catch (failure: Exception) {
+                        AlertDialog.Builder(this@AlertsActivity)
+                            .setTitle("Could not verify current position")
+                            .setMessage("${failure.javaClass.simpleName}: ${failure.message.orEmpty().take(180)}\n\nNo changes were saved.")
+                            .setPositiveButton("Close", null).show().also(::paintBatteryDialog)
+                    } finally {
+                        if (dialog.isShowing) {
+                            saveButton.isEnabled = true
+                            saveButton.text = "Save changes"
+                        }
+                    }
                 }
             }
         }

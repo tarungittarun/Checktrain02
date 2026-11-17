@@ -11,6 +11,12 @@ import java.util.Locale
 
 /** Arrival triggers deliberately accept evidence, not a screen refresh or a timetable prediction. */
 object JourneyAlarmPolicy {
+    /** Alert evidence is deliberately narrower than the app's tracking-source list. */
+    enum class AlertEvidenceSource(val displayName: String) {
+        NTES("NTES running status"),
+        WIMT("WIMT .in live-status feed"),
+    }
+
     sealed class Decision {
         data class Waiting(val detail: String) : Decision()
         data class Fire(val title: String, val detail: String, val evidenceAtMillis: Long) : Decision()
@@ -45,9 +51,10 @@ object JourneyAlarmPolicy {
 
     fun baseline(config: JourneyAlarmConfig, route: TrainRoute,
                  answer: PositionEngine.Answer,
-                 nowMillis: Long = System.currentTimeMillis()): Baseline {
+                 nowMillis: Long = System.currentTimeMillis(),
+                 source: AlertEvidenceSource = AlertEvidenceSource.NTES): Baseline {
         if (!routeMatches(config, route) || answer.unresolved || answer.held ||
-            answer.position.provenance !in LIVE_EVENT_SOURCES ||
+            !sourceMatches(source, answer.position.provenance) ||
             answer.position.ageSeconds > PositionEngine.STALE_MS / 1_000L ||
             answer.position.feedAgeSeconds?.let {
                 it > SourceFreshness.STALE_AFTER_MS / 1_000L
@@ -69,17 +76,117 @@ object JourneyAlarmPolicy {
         return Baseline(stop.seq, minute)
     }
 
+    sealed class SetupEligibility {
+        data class Upcoming(
+            val baseline: Baseline,
+            val currentStation: String,
+            val source: AlertEvidenceSource,
+        ) : SetupEligibility()
+        data class Reached(
+            val station: String,
+            val evidenceAtMillis: Long,
+            val source: AlertEvidenceSource,
+        ) : SetupEligibility()
+        data class Unavailable(
+            val detail: String,
+            val source: AlertEvidenceSource? = null,
+        ) : SetupEligibility()
+    }
+
+    /**
+     * A station is selectable only when a direct, fresh NTES or WIMT report places the train
+     * strictly before it on the exact selected route. Timetable time is intentionally absent
+     * from this decision: a delayed train can still be approaching a stop whose schedule passed.
+     */
+    fun setupEligibility(
+        config: JourneyAlarmConfig,
+        route: TrainRoute,
+        answer: PositionEngine.Answer,
+        nowMillis: Long,
+        source: AlertEvidenceSource,
+    ): SetupEligibility {
+        if (!routeMatches(config, route))
+            return SetupEligibility.Unavailable("The live report does not match the selected train and ordered journey.")
+        val position = answer.position
+        if (!sourceMatches(source, position.provenance))
+            return SetupEligibility.Unavailable("Only direct NTES or WIMT running-status reports can verify the current station.")
+        if (answer.unresolved || answer.held)
+            return SetupEligibility.Unavailable("The live report cannot be placed reliably on this route.")
+        if (position.ageSeconds !in 0..(PositionEngine.STALE_MS / 1_000L))
+            return SetupEligibility.Unavailable("The running-status reply is stale; refresh and try again.")
+        if (position.feedAgeSeconds?.let { it !in 0..(PositionEngine.STALE_MS / 1_000L) } == true)
+            return SetupEligibility.Unavailable("The source update is stale; refresh and try again.")
+        val feedStamp = position.feedStampMillis
+        if (source == AlertEvidenceSource.WIMT && feedStamp == null)
+            return SetupEligibility.Unavailable("WIMT did not provide a source-update time for this run.")
+        if (feedStamp != null && (feedStamp > nowMillis || nowMillis - feedStamp > PositionEngine.STALE_MS))
+            return SetupEligibility.Unavailable("The source update is stale or in the future.")
+
+        val anchorCode = answer.anchorStopCode
+            ?: return SetupEligibility.Unavailable("The live report names no current route station.")
+        val anchors = route.stops.filter { it.code.equals(anchorCode, true) }
+        if (anchors.size != 1)
+            return SetupEligibility.Unavailable("The reported station is missing or ambiguous on this route.")
+        val anchor = anchors.first()
+        if (position.anchorSeq != anchor.seq)
+            return SetupEligibility.Unavailable("The reported station sequence conflicts with the selected route.")
+        val anchorFields = fieldsAt(answer, anchor.code)
+            ?: return SetupEligibility.Unavailable("The live report has no observed time at ${anchor.name}.")
+        val anchorMinute = anchorFields.actualDepartureMin ?: anchorFields.actualArrivalMin
+            ?: return SetupEligibility.Unavailable("The live report has no observed time at ${anchor.name}.")
+        val anchorAt = RailTime.railMinuteToEpochMillis(config.originEpochDay, anchorMinute)
+        val anchorAge = SourceFreshness.ageMillis(anchorAt, nowMillis)
+            ?: return SetupEligibility.Unavailable("The reported station-event time is unknown or in the future.")
+        if (anchorAge > PositionEngine.STALE_MS)
+            return SetupEligibility.Unavailable("The last observed station event is stale; refresh and try again.")
+        if (feedStamp != null && feedStamp < anchorAt)
+            return SetupEligibility.Unavailable("The source update predates the reported station event.")
+
+        val targetCode = if (config.trigger == AlertTrigger.PHONE_DISTANCE) config.toCode
+            else config.triggerCode
+        val targetSeq = if (config.trigger == AlertTrigger.PHONE_DISTANCE) config.toSeq
+            else config.triggerSeq
+        val target = route.stops.firstOrNull { it.code.equals(targetCode, true) }
+            ?.takeIf { it.seq == targetSeq }
+            ?: return SetupEligibility.Unavailable("The selected stop no longer matches this route.")
+        if (route.stops.count { it.code.equals(target.code, true) } > 1)
+            return SetupEligibility.Unavailable("${target.name} appears more than once on this route; the live report cannot identify this visit safely.")
+
+        // A fresh source can contain a target-station event even if its headline anchor is
+        // inconsistent. Never allow that contradiction to arm a duplicate or already-reached alert.
+        val targetFields = fieldsAt(answer, target.code)
+        val targetMinute = targetFields?.let { it.actualDepartureMin ?: it.actualArrivalMin }
+        if (targetMinute != null) {
+            val targetAt = RailTime.railMinuteToEpochMillis(config.originEpochDay, targetMinute)
+            if (targetAt <= nowMillis) {
+                val targetAge = SourceFreshness.ageMillis(targetAt, nowMillis)
+                if (targetAge != null && targetAge <= PositionEngine.STALE_MS &&
+                    (feedStamp == null || feedStamp >= targetAt))
+                    return SetupEligibility.Reached(target.name, targetAt, source)
+                return SetupEligibility.Unavailable("The source report contains an old or inconsistent event at ${target.name}; refresh before setting this alert.")
+            }
+        }
+        if (anchor.seq >= target.seq)
+            return SetupEligibility.Reached(anchor.name, anchorAt, source)
+
+        return SetupEligibility.Upcoming(
+            baseline(config, route, answer, nowMillis, source),
+            currentStation = anchor.name,
+            source = source,
+        )
+    }
+
     fun stationEvent(config: JourneyAlarmConfig, route: TrainRoute,
                      answer: PositionEngine.Answer, nowMillis: Long,
                      sourceDisplayName: String? = null,
-                     allowOnScheduleActual: Boolean = false): Decision {
+                     source: AlertEvidenceSource = AlertEvidenceSource.NTES): Decision {
         if (config.trigger == AlertTrigger.PHONE_DISTANCE)
             return Decision.Waiting("Waiting for phone location near ${config.toName}")
         if (!routeMatches(config, route))
             return Decision.Waiting("The available route does not match this selected journey")
         val position = answer.position
-        if (position.provenance !in LIVE_EVENT_SOURCES || answer.unresolved || answer.held)
-            return Decision.Waiting("Waiting for a fresh route-matched running-status event")
+        if (!sourceMatches(source, position.provenance) || answer.unresolved || answer.held)
+            return Decision.Waiting("Waiting for a fresh route-matched NTES or WIMT running-status event")
         if (position.ageSeconds > PositionEngine.STALE_MS / 1_000L)
             return Decision.Waiting("The running-status reply is old; waiting for a newer one")
         if (position.feedAgeSeconds?.let { it > SourceFreshness.STALE_AFTER_MS / 1_000L } == true)
@@ -97,12 +204,10 @@ object JourneyAlarmPolicy {
         val anchorAt = anchorMinute?.let { RailTime.railMinuteToEpochMillis(config.originEpochDay, it) }
         val anchorAge = SourceFreshness.ageMillis(anchorAt, nowMillis)
         val anchorEventFresh = anchorAge != null && anchorAge <= PositionEngine.STALE_MS
-        if (anchorMinute != null && anchorEventFresh && anchor.seq > config.toSeq)
-            return Decision.Missed(
-                "A fresh source report is already past ${config.toName}; no arrival alarm was sent.",
-                anchorAt!!,
-            )
 
+        // Inspect the selected stop's own reported event before concluding that the train has
+        // passed the destination. A source may report the target's actual time while its current
+        // anchor is already a later stop; that target event must still produce the final alert.
         val target = route.stops.firstOrNull { it.code.equals(config.triggerCode, true) }
             ?: return Decision.Waiting("The selected trigger station is not on this route")
         if (target.seq != config.triggerSeq || target.seq > config.toSeq)
@@ -115,13 +220,12 @@ object JourneyAlarmPolicy {
                 "No actual arrival or departure time at ${target.name}")
         val scheduled = if (fields.actualDepartureMin != null) target.departureMin
             else target.arrivalMin
-        // Generic erail replies that exactly echo the timetable may not be actuals. The direct
-        // .in alert caller can opt in only after its parser has required actual-labelled fields,
-        // echoed run date and both route endpoints, plus a fresh source-update stamp.
-        if (position.provenance == SourceKind.PROVIDER && !allowOnScheduleActual &&
+        // A schedule-matching cell from the generic provider is not a confirmed event. WIMT
+        // may use it only after its direct probe has matched run date, endpoints and fresh stamp.
+        if (source != AlertEvidenceSource.WIMT && position.provenance == SourceKind.PROVIDER &&
             scheduled != null && minute == scheduled)
             return waitOrMiss(anchor, anchorAt, anchorEventFresh, config,
-                "The erail time at ${target.name} matches the timetable; it may be a schedule echo")
+                "The provider time at ${target.name} matches the timetable; it may be a schedule echo")
 
         val eventAt = RailTime.railMinuteToEpochMillis(config.originEpochDay, minute)
         val age = SourceFreshness.ageMillis(eventAt, nowMillis)
@@ -165,10 +269,10 @@ object JourneyAlarmPolicy {
      */
     fun hasUsableSourceData(config: JourneyAlarmConfig, route: TrainRoute,
                             answer: PositionEngine.Answer, nowMillis: Long,
-                            allowOnScheduleActual: Boolean = false): Boolean {
+                            source: AlertEvidenceSource = AlertEvidenceSource.NTES): Boolean {
         if (config.trigger == AlertTrigger.PHONE_DISTANCE || !routeMatches(config, route)) return false
         val position = answer.position
-        if (position.provenance !in LIVE_EVENT_SOURCES || answer.unresolved || answer.held ||
+        if (!sourceMatches(source, position.provenance) || answer.unresolved || answer.held ||
             position.ageSeconds > PositionEngine.STALE_MS / 1_000L ||
             position.feedAgeSeconds?.let { it > SourceFreshness.STALE_AFTER_MS / 1_000L } == true ||
             position.feedStampMillis?.let { it > nowMillis } == true) return false
@@ -177,9 +281,8 @@ object JourneyAlarmPolicy {
         val fields = fieldsAt(answer, anchor.code) ?: return false
         val minute = fields.actualDepartureMin ?: fields.actualArrivalMin ?: return false
         val scheduled = if (fields.actualDepartureMin != null) anchor.departureMin else anchor.arrivalMin
-        // Generic erail schedule echoes do not count as usable actual data. The WIMT caller may
-        // opt in only after its parser requires actual-labelled fields, run date, endpoints and stamp.
-        if (position.provenance == SourceKind.PROVIDER && !allowOnScheduleActual &&
+        // Schedule-matching clocks count only from the strictly qualified, direct WIMT source.
+        if (source != AlertEvidenceSource.WIMT && position.provenance == SourceKind.PROVIDER &&
             scheduled != null && minute == scheduled) return false
         val eventAt = RailTime.railMinuteToEpochMillis(config.originEpochDay, minute)
         val age = SourceFreshness.ageMillis(eventAt, nowMillis) ?: return false
@@ -226,7 +329,9 @@ object JourneyAlarmPolicy {
 
     fun sourceLabel(source: SourceKind): String = when (source) {
         SourceKind.PROVIDER_NTES -> "NTES running status"
-        SourceKind.PROVIDER -> "erail running-status feed"
+        // SourceKind.PROVIDER is deliberately shared by WIMT and other adapters; only the
+        // direct alert probe carries enough provenance to name WIMT. Never infer eRail here.
+        SourceKind.PROVIDER -> "Unidentified live provider"
         else -> source.label
     }
 
@@ -253,5 +358,9 @@ object JourneyAlarmPolicy {
                     "${config.triggerName}. No alarm was sent. $reason", anchorAt)
         else Decision.Waiting(reason)
 
-    private val LIVE_EVENT_SOURCES = setOf(SourceKind.PROVIDER_NTES, SourceKind.PROVIDER)
+    private fun sourceMatches(source: AlertEvidenceSource, provenance: SourceKind): Boolean =
+        when (source) {
+            AlertEvidenceSource.NTES -> provenance == SourceKind.PROVIDER_NTES
+            AlertEvidenceSource.WIMT -> provenance == SourceKind.PROVIDER
+        }
 }

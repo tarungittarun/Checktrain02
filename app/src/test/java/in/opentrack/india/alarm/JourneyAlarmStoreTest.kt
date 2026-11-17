@@ -96,6 +96,44 @@ class JourneyAlarmStoreTest {
         assertTrue(!JourneyAlarmStore.find(context, id)!!.checkFailed)
     }
 
+    @Test fun scheduledReminderKeepsAlertArmedAndOutageWarningIsOnePerFailureStreak() {
+        val created = `in`.opentrack.india.core.RailTime.railMinuteToEpochMillis(20_751L, 700)
+        val configured = config(createdAt = created).copy(
+            scheduledMinute = 755, leadSeconds = 60, journeyEndMinute = 1_500)
+        val id = JourneyAlarmStore.arm(context, configured)
+        val dueAt = JourneyAlarmSchedule.dueAtMillis(configured)!!
+        assertTrue(!JourneyAlarmStore.find(context, id)!!.scheduledReminderSent)
+
+        val firstFailure = JourneyAlarmStore.updateArmedCheck(context, id, configured,
+            "No usable NTES/WIMT data", dueAt, null, hasUsableSourceData = false)!!
+        val repeatedFailure = JourneyAlarmStore.updateArmedCheck(context, id, configured,
+            "Still no usable NTES/WIMT data", dueAt + 5_000L, null,
+            hasUsableSourceData = false)!!
+        assertTrue(firstFailure.outageStarted)
+        assertTrue(!repeatedFailure.outageStarted)
+        assertTrue(repeatedFailure.snapshot.checkFailed)
+
+        val recovered = JourneyAlarmStore.updateArmedCheck(context, id, configured,
+            "Fresh NTES report", dueAt + 10_000L, "NTES running status",
+            hasUsableSourceData = true)!!
+        assertTrue(recovered.recovered)
+        val newFailure = JourneyAlarmStore.updateArmedCheck(context, id, configured,
+            "Another continuous outage", dueAt + 15_000L, null,
+            hasUsableSourceData = false)!!
+        assertTrue(newFailure.outageStarted)
+
+        val reminder = JourneyAlarmStore.markScheduledReminderSent(context, id, configured,
+            "Scheduled reminder sent · still monitoring", dueAt + 20_000L)
+        assertNotNull(reminder)
+        assertTrue(reminder!!.scheduledReminderSent)
+        assertNull(JourneyAlarmStore.markScheduledReminderSent(context, id, configured,
+            "Duplicate reminder", dueAt + 25_000L))
+        val persisted = JourneyAlarmStore.find(context, id)!!
+        assertEquals(AlertState.ARMED, persisted.state)
+        assertTrue(persisted.scheduledReminderSent)
+        assertTrue(persisted.checkFailed)
+    }
+
     @Test fun dueTimeUsesTheSelectedTimetableMinuteAndConfiguredSeconds() {
         val scheduled = config().copy(scheduledMinute = 755, leadSeconds = 137)
         assertEquals(`in`.opentrack.india.core.RailTime.railMinuteToEpochMillis(
@@ -120,10 +158,21 @@ class JourneyAlarmStoreTest {
     }
 
     @Test fun expiryUsesTheSelectedDestinationRatherThanTheTrainTerminal() {
-        val selectedEnd = config().copy(scheduledMinute = 755, journeyEndMinute = 820)
+        val selectedEnd = config().copy(
+            createdAtMillis = `in`.opentrack.india.core.RailTime.railMinuteToEpochMillis(20_751L, 700),
+            scheduledMinute = 755, journeyEndMinute = 820)
         assertEquals(`in`.opentrack.india.core.RailTime.railMinuteToEpochMillis(
             selectedEnd.originEpochDay, 820) + JourneyAlarmSchedule.RUN_END_GRACE_MILLIS,
             JourneyAlarmSchedule.expiryAtMillis(selectedEnd))
+    }
+
+    @Test fun anAlertSetAfterScheduleGetsAGraceWindowToMonitorTheDelayedStop() {
+        val createdAt = `in`.opentrack.india.core.RailTime.railMinuteToEpochMillis(20_751L, 1_100)
+        val delayed = config(createdAt = createdAt).copy(
+            scheduledMinute = 755, journeyEndMinute = 820)
+
+        assertEquals(createdAt + JourneyAlarmSchedule.RUN_END_GRACE_MILLIS,
+            JourneyAlarmSchedule.expiryAtMillis(delayed))
     }
 
     @Test fun aSourceAndTimerRaceCanOnlyTransitionAnAlertOnce() {

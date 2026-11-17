@@ -39,7 +39,6 @@ class JourneyAlarmService : Service() {
     /** Accessed on the service/main thread; each alert has its own poll and deadline jobs. */
     private val monitorJobs = mutableMapOf<Int, Job>()
     private val monitorConfigs = mutableMapOf<Int, JourneyAlarmConfig>()
-    private val dueJobs = mutableMapOf<Int, Job>()
     private val expiryJobs = mutableMapOf<Int, Job>()
     private val repeatJobs = mutableMapOf<Int, Job>()
     private val repeatConfigs = mutableMapOf<Int, Pair<JourneyAlarmConfig, AlertState>>()
@@ -53,7 +52,6 @@ class JourneyAlarmService : Service() {
         val route: TrainRoute? = null,
     )
     private data class TimedSourceBatch(val atMillis: Long, val batch: SourceBatch)
-    private data class TimedErailProbe(val atMillis: Long, val probe: RailRepository.SourceProbe)
     private data class TimedWimtProbe(val atMillis: Long, val probe: RailRepository.SourceProbe)
     private data class CheckResult(
         val decision: JourneyAlarmPolicy.Decision,
@@ -65,8 +63,6 @@ class JourneyAlarmService : Service() {
     )
     private val sourceLocks = ConcurrentHashMap<String, Mutex>()
     private val sourceCache = ConcurrentHashMap<String, TimedSourceBatch>()
-    private val erailLocks = ConcurrentHashMap<String, Mutex>()
-    private val erailCache = ConcurrentHashMap<String, TimedErailProbe>()
     private val wimtLocks = ConcurrentHashMap<String, Mutex>()
     private val wimtCache = ConcurrentHashMap<String, TimedWimtProbe>()
 
@@ -127,13 +123,9 @@ class JourneyAlarmService : Service() {
                 job.cancel()
                 monitorJobs.remove(id)
                 monitorConfigs.remove(id)
-                dueJobs.remove(id)?.cancel()
                 expiryJobs.remove(id)?.cancel()
             }
         }
-        dueJobs.toMap().forEach { (id, job) -> if (id !in armed) {
-            job.cancel(); dueJobs.remove(id)
-        } }
         expiryJobs.toMap().forEach { (id, job) -> if (id !in armed) {
             job.cancel(); expiryJobs.remove(id)
         } }
@@ -283,11 +275,8 @@ class JourneyAlarmService : Service() {
                         break
                     }
                     val dueAt = JourneyAlarmSchedule.dueAtMillis(config)
-                    if (dueAt != null && now >= dueAt) {
-                        fireScheduled(initial, dueAt)
-                        break
-                    }
-                    // Do not begin a slow network ladder just before a known scheduled reminder.
+                    // Wake at the reminder boundary, then check both qualified sources first.
+                    // A real station event at or before schedule wins without a schedule ping.
                     if (dueAt != null && dueAt - now in 1..2_000L) {
                         delay(dueAt - now)
                         continue
@@ -341,25 +330,29 @@ class JourneyAlarmService : Service() {
                                 snapshot.checkFailed -> "Recovered · $detail"
                                 else -> detail
                             }
-                            val updated = JourneyAlarmStore.updateArmed(this@JourneyAlarmService,
-                                id, config, status, checkedAtMillis = System.currentTimeMillis(),
+                            val checkedAt = System.currentTimeMillis()
+                            val transition = JourneyAlarmStore.updateArmedCheck(
+                                this@JourneyAlarmService, id, config, status,
+                                checkedAtMillis = checkedAt,
                                 lastSourceLabel = check.receivedSources.takeIf { check.hasUsableSourceData },
-                                checkFailed = noUsableSource)
-                            if (!updated) break
-                            val saved = JourneyAlarmStore.find(this@JourneyAlarmService, id)
-                            if (noUsableSource && !snapshot.checkFailed && saved != null &&
-                                saved.state == AlertState.ARMED && saved.config == config && saved.checkFailed) {
+                                hasUsableSourceData = check.hasUsableSourceData,
+                            ) ?: break
+                            if (transition.outageStarted) {
                                 JourneyAlarmNotifications.checkWarning(this@JourneyAlarmService,
-                                    saved, failureText.ifBlank {
-                                        "No qualified source returned fresh, usable data after its request retries."
+                                    transition.snapshot, failureText.ifBlank {
+                                        "Neither NTES nor WIMT supplied fresh, usable station-event data."
                                     })
                                 val afterWarning = JourneyAlarmStore.find(this@JourneyAlarmService, id)
                                 if (afterWarning == null || afterWarning.state != AlertState.ARMED ||
                                     afterWarning.config != config || !afterWarning.checkFailed)
                                     JourneyAlarmNotifications.cancelCheckWarning(this@JourneyAlarmService, id)
-                            } else if (!noUsableSource && snapshot.checkFailed) {
+                            } else if (transition.recovered) {
                                 JourneyAlarmNotifications.cancelCheckWarning(this@JourneyAlarmService, id)
                             }
+                            val dueAtForReminder = JourneyAlarmSchedule.dueAtMillis(config)
+                            if (dueAtForReminder != null && checkedAt >= dueAtForReminder &&
+                                !transition.snapshot.scheduledReminderSent)
+                                sendScheduledReminder(initial, dueAtForReminder)
                             withContext(Dispatchers.Main) { refreshForegroundNotification() }
                             val afterCheck = JourneyAlarmStore.find(this@JourneyAlarmService, id)
                             if (afterCheck?.state != AlertState.ARMED || afterCheck.config != config) break
@@ -404,20 +397,9 @@ class JourneyAlarmService : Service() {
             JourneyAlarmSchedule.RUN_END_GRACE_MILLIS
     }
 
-    /** Deadline jobs run separately from provider requests so a slow source cannot delay the alarm. */
+    /** Run expiry remains independent from provider requests; scheduled reminders require a live check first. */
     private fun scheduleDeadlineJobs(initial: JourneyAlarmSnapshot, expiryAt: Long) {
         val id = initial.id
-        val dueAt = JourneyAlarmSchedule.dueAtMillis(initial.config)
-        if (dueAt != null && dueJobs[id]?.isActive != true) {
-            val dueJob = scope.launch(start = CoroutineStart.LAZY) {
-                val wait = (dueAt - System.currentTimeMillis()).coerceAtLeast(0L)
-                if (wait > 0L) delay(wait)
-                fireScheduled(initial, dueAt)
-                withContext(Dispatchers.Main) { reconcile() }
-            }
-            dueJobs[id] = dueJob
-            dueJob.start()
-        }
         if (expiryJobs[id]?.isActive != true) {
             val expiryJob = scope.launch(start = CoroutineStart.LAZY) {
                 val wait = (expiryAt - System.currentTimeMillis()).coerceAtLeast(0L)
@@ -438,7 +420,6 @@ class JourneyAlarmService : Service() {
         val details = mutableListOf<String>()
         val deferredTerminals = mutableListOf<JourneyAlarmPolicy.SourceDecision>()
         var hasUsableSourceData = false
-        var ntesReport: RailRepository.Live? = null
 
         // Check the first source immediately; Fire is returned without waiting for slower sources.
         // A Missed verdict is deferred: another available source may still report the selected stop.
@@ -447,10 +428,12 @@ class JourneyAlarmService : Service() {
             received += label
             val checkedAt = System.currentTimeMillis()
             val sourceUsable = JourneyAlarmPolicy.hasUsableSourceData(
-                config, live.route, live.answer, checkedAt)
+                config, live.route, live.answer, checkedAt,
+                source = JourneyAlarmPolicy.AlertEvidenceSource.NTES)
             hasUsableSourceData = hasUsableSourceData || sourceUsable
             val decision = JourneyAlarmPolicy.stationEvent(
-                config, live.route, live.answer, checkedAt, sourceDisplayName = label)
+                config, live.route, live.answer, checkedAt, sourceDisplayName = label,
+                source = JourneyAlarmPolicy.AlertEvidenceSource.NTES)
             when (decision) {
                 is JourneyAlarmPolicy.Decision.Fire -> return CheckResult(
                     decision, sourceLabel = label,
@@ -460,35 +443,11 @@ class JourneyAlarmService : Service() {
                     deferredTerminals += JourneyAlarmPolicy.SourceDecision(label, decision)
                 is JourneyAlarmPolicy.Decision.Waiting -> details += "$label: ${decision.detail}"
             }
-            if (live.provenance == SourceKind.PROVIDER_NTES) ntesReport = live
         }
 
-        ntesReport?.let { first ->
-            val independent = sharedErailProbe(repo, config, first.route)
-            independent.live?.let { erail ->
-                val label = erail.sourceName ?: JourneyAlarmPolicy.sourceLabel(erail.provenance)
-                received += label
-                val checkedAt = System.currentTimeMillis()
-                val sourceUsable = JourneyAlarmPolicy.hasUsableSourceData(
-                    config, erail.route, erail.answer, checkedAt)
-                hasUsableSourceData = hasUsableSourceData || sourceUsable
-                when (val decision = JourneyAlarmPolicy.stationEvent(
-                    config, erail.route, erail.answer, checkedAt, sourceDisplayName = label)) {
-                    is JourneyAlarmPolicy.Decision.Fire -> return CheckResult(
-                        decision, sourceLabel = label,
-                        receivedSources = received.distinct().joinToString(" + "),
-                        failures = failures.distinct(), hasUsableSourceData = true)
-                    is JourneyAlarmPolicy.Decision.Missed ->
-                        deferredTerminals += JourneyAlarmPolicy.SourceDecision(label, decision)
-                    is JourneyAlarmPolicy.Decision.Waiting -> details += "$label: ${decision.detail}"
-                }
-            } ?: independent.failure?.let(failures::add)
-        }
-
-        // The direct .in feed is a distinct live source from the .org.in page/cache and Google's
-        // WIMT app. Accept it only when it explicitly echoes the selected run date, both endpoints,
-        // and a fresh upstream stamp. It is checked last so faster NTES/eRail triggers are not held up.
-        val route = batch.route ?: batch.reports.firstOrNull()?.route ?: ntesReport?.route
+        // Direct WIMT is checked independently from NTES. Its probe must echo this run date,
+        // both selected route endpoints, and a fresh upstream stamp; no website or cache is used.
+        val route = batch.route ?: batch.reports.firstOrNull()?.route
         if (route != null) {
             val wimt = sharedWimtProbe(repo, config, route)
             wimt.live?.let { live ->
@@ -496,11 +455,13 @@ class JourneyAlarmService : Service() {
                 received += label
                 val checkedAt = System.currentTimeMillis()
                 val sourceUsable = JourneyAlarmPolicy.hasUsableSourceData(
-                    config, live.route, live.answer, checkedAt, allowOnScheduleActual = true)
+                    config, live.route, live.answer, checkedAt,
+                    source = JourneyAlarmPolicy.AlertEvidenceSource.WIMT)
                 hasUsableSourceData = hasUsableSourceData || sourceUsable
                 when (val decision = JourneyAlarmPolicy.stationEvent(
                     config, live.route, live.answer, checkedAt,
-                    sourceDisplayName = label, allowOnScheduleActual = true)) {
+                    sourceDisplayName = label,
+                    source = JourneyAlarmPolicy.AlertEvidenceSource.WIMT)) {
                     is JourneyAlarmPolicy.Decision.Fire -> return CheckResult(
                         decision, sourceLabel = label,
                         receivedSources = received.distinct().joinToString(" + "),
@@ -556,31 +517,6 @@ class JourneyAlarmService : Service() {
         }
     }
 
-    private suspend fun sharedErailProbe(repo: RailRepository, config: JourneyAlarmConfig,
-                                         route: `in`.opentrack.india.model.TrainRoute): RailRepository.SourceProbe {
-        val key = sourceKey(config)
-        val now = System.currentTimeMillis()
-        erailCache[key]?.takeIf { now - it.atMillis in 0..SOURCE_CACHE_MILLIS }
-            ?.let { return it.probe }
-        val mutex = erailMutex(key)
-        return mutex.withLock {
-            val lockedNow = System.currentTimeMillis()
-            erailCache[key]?.takeIf { lockedNow - it.atMillis in 0..SOURCE_CACHE_MILLIS }
-                ?.let { return@withLock it.probe }
-            val probe = try {
-                repo.probeErailStatus(config.trainNo, route, config.originEpochDay)
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (failure: Exception) {
-                RailRepository.SourceProbe(null,
-                    "erail source check failed (${failure.javaClass.simpleName})")
-            }
-            erailCache[key] = TimedErailProbe(System.currentTimeMillis(), probe)
-            trimErailCache()
-            probe
-        }
-    }
-
     private suspend fun sharedWimtProbe(repo: RailRepository, config: JourneyAlarmConfig,
                                         route: TrainRoute): RailRepository.SourceProbe {
         val key = sourceKey(config)
@@ -614,10 +550,6 @@ class JourneyAlarmService : Service() {
         sourceLocks[key] ?: Mutex().also { sourceLocks[key] = it }
     }
 
-    private fun erailMutex(key: String): Mutex = erailLocks[key] ?: synchronized(erailLocks) {
-        erailLocks[key] ?: Mutex().also { erailLocks[key] = it }
-    }
-
     private fun wimtMutex(key: String): Mutex = wimtLocks[key] ?: synchronized(wimtLocks) {
         wimtLocks[key] ?: Mutex().also { wimtLocks[key] = it }
     }
@@ -627,13 +559,6 @@ class JourneyAlarmService : Service() {
         sourceCache.entries.sortedBy { it.value.atMillis }
             .take(sourceCache.size - SOURCE_CACHE_LIMIT)
             .forEach { sourceCache.remove(it.key, it.value) }
-    }
-
-    private fun trimErailCache() {
-        if (erailCache.size <= SOURCE_CACHE_LIMIT) return
-        erailCache.entries.sortedBy { it.value.atMillis }
-            .take(erailCache.size - SOURCE_CACHE_LIMIT)
-            .forEach { erailCache.remove(it.key, it.value) }
     }
 
     private fun trimWimtCache() {
@@ -646,35 +571,42 @@ class JourneyAlarmService : Service() {
     private suspend fun fetchSourceBatch(repo: RailRepository,
                                          config: JourneyAlarmConfig): SourceBatch = withContext(Dispatchers.IO) {
         val failures = mutableListOf<String>()
-        val route = runCatching {
-            repo.savedSchedule(config.trainNo, config.fromCode, config.toCode, config.originEpochDay)
-                ?: repo.route(config.trainNo)
-        }.getOrNull()
-        val live = try {
-            repo.live(config.trainNo, config.fromCode, config.toCode,
-                config.originEpochDay, previous = null, fallbackRoute = route,
-                allowOverride = false, includeLocation = false)
+        val route = try {
+            val saved = repo.savedSchedule(config.trainNo, config.fromCode,
+                config.toCode, config.originEpochDay)
+            val bundled = repo.route(config.trainNo)
+            JourneyAlarmRouteSelection.firstMatching(config.trainNo, config.fromCode,
+                config.toCode, saved, bundled)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
-            failures += "NTES/erail request failed (${failure.javaClass.simpleName})"
+            failures += "Could not load a route for the NTES/WIMT alert check (${failure.javaClass.simpleName})"
             null
         }
-        if (live == null) {
-            if (failures.isEmpty()) failures += "No route-checked NTES/erail report was received"
+        if (route == null) {
+            if (failures.isEmpty()) failures += "No route matches the selected train and ordered journey"
             return@withContext SourceBatch(emptyList(), failures.distinct(),
-                System.currentTimeMillis(), route)
+                System.currentTimeMillis(), null)
         }
-        failures += live.notes.filter { it.isNotBlank() }
-        val selectedProviderHit = live.tried.any {
-            it == "PROVIDER_NTES=hit" || it == "PROVIDER=hit"
+
+        val probe = try {
+            repo.probeNtesStatus(config.trainNo, route, config.originEpochDay,
+                config.fromCode, config.toCode)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            RailRepository.SourceProbe(null,
+                "NTES alert check failed (${failure.javaClass.simpleName})")
         }
-        val liveProviderKind = live.provenance == SourceKind.PROVIDER_NTES ||
-            live.provenance == SourceKind.PROVIDER
-        val candidate = if (selectedProviderHit && liveProviderKind) listOf(live) else emptyList()
-        if (candidate.isEmpty() && failures.isEmpty())
-            failures += "No fresh live report was returned by NTES or erail"
-        SourceBatch(candidate, failures.distinct(), System.currentTimeMillis(), live.route)
+        val report = probe.live?.takeIf {
+            it.sourceName == "NTES running status" &&
+                it.provenance == SourceKind.PROVIDER_NTES &&
+                it.originEpochDay == config.originEpochDay
+        }
+        if (report == null) failures += probe.failure
+            ?: "NTES did not return a fresh, dated, route-matched running-status report"
+        SourceBatch(if (report == null) emptyList() else listOf(report), failures.distinct(),
+            System.currentTimeMillis(), route)
     }
 
     private suspend fun checkPhoneDistance(repo: RailRepository,
@@ -718,19 +650,23 @@ class JourneyAlarmService : Service() {
             hasUsableSourceData = usableFix)
     }
 
-    private suspend fun fireScheduled(initial: JourneyAlarmSnapshot, dueAtMillis: Long) {
+    private suspend fun sendScheduledReminder(initial: JourneyAlarmSnapshot, dueAtMillis: Long) {
         val config = initial.config
-        val stationTime = config.scheduledMinute?.let { RailTime.formatRailMinute(it) } ?: "unknown"
-        val reminderDetail = if (config.leadSeconds > 0)
-            "The published timetable lists ${config.toName} at $stationTime. This reminder was set " +
-                "${config.leadSeconds} seconds before that timetable time; it is not a live ETA or a source-reported arrival."
-        else "The published timetable lists ${config.toName} at $stationTime. This is a timetable reminder, not a live ETA or a source-reported arrival."
-        val due = JourneyAlarmPolicy.Decision.Fire(
-            title = "Scheduled reminder · ${config.toName}",
-            detail = reminderDetail,
-            evidenceAtMillis = dueAtMillis,
-        )
-        fire(initial, due, evidenceSourceLabel = null)
+        val sentAt = System.currentTimeMillis()
+        val status = "Scheduled reminder sent · monitoring continues for a fresh report at ${config.toName}"
+        val saved = JourneyAlarmStore.markScheduledReminderSent(
+            this, initial.id, config, status, sentAt) ?: return
+        withContext(Dispatchers.Main) {
+            val latest = JourneyAlarmStore.find(this@JourneyAlarmService, initial.id)
+                ?: return@withContext
+            if (latest.state != AlertState.ARMED || latest.config != config ||
+                !latest.scheduledReminderSent) return@withContext
+            androidx.core.app.NotificationManagerCompat.from(this@JourneyAlarmService).notify(
+                initial.id, JourneyAlarmNotifications.scheduledReminder(
+                    this@JourneyAlarmService, saved, dueAtMillis))
+            refreshForegroundNotification()
+        }
+        Diary.get()?.log("ARRIVAL_ALERT", "${config.trainNo} scheduled reminder sent; monitor remains ARMED")
     }
 
     private suspend fun fire(initial: JourneyAlarmSnapshot,
@@ -858,12 +794,10 @@ class JourneyAlarmService : Service() {
 
     override fun onDestroy() {
         monitorJobs.values.toList().forEach { it.cancel() }
-        dueJobs.values.toList().forEach { it.cancel() }
         expiryJobs.values.toList().forEach { it.cancel() }
         repeatJobs.values.toList().forEach { it.cancel() }
         monitorJobs.clear()
         monitorConfigs.clear()
-        dueJobs.clear()
         expiryJobs.clear()
         repeatJobs.clear()
         repeatConfigs.clear()

@@ -100,11 +100,9 @@ internal object JourneyAlarmNotifications {
             AlertFeedback.RING_UNTIL_STOPPED -> RING_CHANNEL
         }
         val snoozed = snapshot.snoozedUntilMillis > System.currentTimeMillis()
-        val title = when {
-            config.feedback == AlertFeedback.RING_UNTIL_STOPPED -> "Train ${config.trainNo} · ring alarm"
-            config.feedback == AlertFeedback.VIBRATION -> "Train ${config.trainNo} · vibration alert"
-            else -> "Train ${config.trainNo} · ping alert"
-        }
+        val title = if (config.trigger == AlertTrigger.PHONE_DISTANCE)
+            "Train ${config.trainNo} · near ${config.toName}"
+        else "Train ${config.trainNo} · ${config.triggerName} reported"
         val detail = buildString {
             append(snapshot.status)
             if (snoozed) append("\nSnoozed · resumes around ")
@@ -113,11 +111,11 @@ internal object JourneyAlarmNotifications {
             else when (config.feedback) {
                 AlertFeedback.NOTIFICATION -> append(
                     if (config.repeatIntervalSeconds == JourneyAlarmSchedule.REPEAT_ONCE)
-                        "\nOne ping sent · Turn off or Snooze 2 min"
+                        "\nOne ping · Turn off or Snooze 2 min"
                     else "\nRepeats every ${repeatLabel(config.repeatIntervalSeconds)} · Turn off or Snooze 2 min")
                 AlertFeedback.VIBRATION -> append(
                     if (config.repeatIntervalSeconds == JourneyAlarmSchedule.REPEAT_ONCE)
-                        "\nOne vibration sent · Turn off or Snooze 2 min"
+                        "\nOne vibration · Turn off or Snooze 2 min"
                     else "\nRepeats every ${repeatLabel(config.repeatIntervalSeconds)} · Turn off or Snooze 2 min")
                 AlertFeedback.RING_UNTIL_STOPPED -> append("\nRings until turned off · Turn off or Snooze 2 min")
             }
@@ -151,15 +149,47 @@ internal object JourneyAlarmNotifications {
         return builder.build()
     }
 
+    /** A one-time timetable ping; unlike a final alert it leaves the source monitor ARMED. */
+    fun scheduledReminder(
+        context: Context,
+        snapshot: JourneyAlarmSnapshot,
+        dueAtMillis: Long,
+    ): Notification {
+        val config = snapshot.config
+        val timetableTime = config.scheduledMinute?.let {
+            `in`.opentrack.india.core.RailTime.formatRailMinute(it)
+        } ?: "not published"
+        val message = "Timetable: $timetableTime · no qualifying report at ${config.toName} yet. Monitoring continues."
+        val builder = NotificationCompat.Builder(context, NOTIFICATION_CHANNEL)
+            .setSmallIcon(R.drawable.ic_notification_train)
+            .setContentTitle("Scheduled reminder · ${config.toName}")
+            .setContentText("Train ${config.trainNo} · $message")
+            .setStyle(NotificationCompat.BigTextStyle().bigText(
+                "Train ${config.trainNo}\n$message\nThis is a timetable reminder, not a live ETA."))
+            .setContentIntent(openAlertsForAlert(context, snapshot.id))
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setAutoCancel(true)
+            .setOnlyAlertOnce(true)
+            .setShowWhen(true)
+            .setWhen(dueAtMillis)
+            .addAction(R.drawable.ic_notification_train, "Stop alert", serviceAction(context,
+                JourneyAlarmService.ACTION_CANCEL, snapshot.id, snapshot.id))
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O)
+            builder.setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION))
+        return builder.build()
+    }
+
     /** Terminal missed notices are quiet status, never an arrival sound. */
     fun triggered(context: Context, snapshot: JourneyAlarmSnapshot, title: String,
                   detail: String, missed: Boolean = false) {
         val notification = NotificationCompat.Builder(context, MISSED_CHANNEL)
             .setSmallIcon(R.drawable.ic_notification_train)
-            .setContentTitle(if (missed) "Arrival alert · not reported in time" else "Train ${snapshot.config.trainNo} · $title")
-            .setContentText(detail)
+            .setContentTitle(if (missed)
+                "Train ${snapshot.config.trainNo} · ${snapshot.config.triggerName} not reported"
+                else "Train ${snapshot.config.trainNo} · $title")
+            .setContentText(detail.take(180))
             .setStyle(NotificationCompat.BigTextStyle().bigText(detail))
-            .setContentIntent(openAlerts(context))
+            .setContentIntent(openAlertsForAlert(context, snapshot.id))
             .setCategory(NotificationCompat.CATEGORY_STATUS)
             .setAutoCancel(true)
             .setOnlyAlertOnce(true)
@@ -175,11 +205,11 @@ internal object JourneyAlarmNotifications {
         val message = detail.take(500)
         val notification = NotificationCompat.Builder(context, CHECK_WARNING_CHANNEL)
             .setSmallIcon(R.drawable.ic_notification_train)
-            .setContentTitle("Arrival alert check issue · train ${config.trainNo}")
-            .setContentText(message)
+            .setContentTitle("Train ${config.trainNo} · live checks unavailable")
+            .setContentText("No usable NTES or WIMT data · alert remains armed")
             .setStyle(NotificationCompat.BigTextStyle().bigText(
-                "$message\nThe alert remains armed. TrackTrain will retry at its configured interval."))
-            .setContentIntent(openAlerts(context))
+                "$message\nNo fresh, usable station-event data; monitoring continues at the configured interval."))
+            .setContentIntent(openAlertsForAlert(context, snapshot.id))
             .setCategory(NotificationCompat.CATEGORY_STATUS)
             .setAutoCancel(true)
             .setOnlyAlertOnce(true)

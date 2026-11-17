@@ -1,11 +1,16 @@
 package `in`.opentrack.india.e2e
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.Until
+import `in`.opentrack.india.alarm.AlertFeedback
 import `in`.opentrack.india.alarm.AlertState
+import `in`.opentrack.india.alarm.AlertTrigger
+import `in`.opentrack.india.alarm.JourneyAlarmConfig
 import `in`.opentrack.india.alarm.JourneyAlarmService
 import `in`.opentrack.india.alarm.JourneyAlarmStore
+import `in`.opentrack.india.core.RailTime
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -43,6 +48,43 @@ class TravellerAcceptanceTest {
             E2E.all(E2E.res("hitNo")).any { it.text.orEmpty().contains("12627") })
         assertTrue("Track on the result did not open a route", E2E.openTrackFromFirstResult())
         assertEquals("Track opened a DIFFERENT train from the ticket", "12627", E2E.text("trainNo"))
+    }
+
+    /** The source gate is intentionally strict, so offline acceptance cannot create a live alert.
+     * This explicit local fixture lets the same profile still exercise Alerts' management controls;
+     * its status is labeled CI fixture and is never treated as train evidence. */
+    private fun seedCiJourneyAlert(context: android.content.Context = E2E.context()): Int {
+        var trainNo = ""
+        var fromCode = ""
+        var toCode = ""
+        var originDay = 0L
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            val activity = androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry
+                .getInstance().getActivitiesInStage(androidx.test.runner.lifecycle.Stage.RESUMED)
+                .firstOrNull { it.javaClass.name.endsWith(".TrainActivity") }
+                ?: throw AssertionError("The selected train screen was not resumed for the CI fixture")
+            val intent = activity.intent
+            trainNo = intent.getStringExtra("trainNo").orEmpty()
+            fromCode = intent.getStringExtra("fromCode").orEmpty()
+            toCode = intent.getStringExtra("toCode").orEmpty()
+            originDay = intent.getLongExtra("originEpochDay", RailTime.todayEpochDay())
+        }
+        assertTrue("The CI alert fixture could not read the selected journey",
+            trainNo == "12627" && fromCode.isNotBlank() && toCode.isNotBlank() && fromCode != toCode)
+        val config = JourneyAlarmConfig(
+            trainNo = trainNo, trainName = "CI lifecycle fixture",
+            fromCode = fromCode, toCode = toCode, toName = toCode,
+            toSeq = 2, trigger = AlertTrigger.DESTINATION_REPORT,
+            triggerCode = toCode, triggerName = toCode, triggerSeq = 2,
+            distanceKm = 0, feedback = AlertFeedback.VIBRATION,
+            intervalMinutes = 7, repeatIntervalSeconds = 15, originEpochDay = originDay,
+            baselineSeq = 0, baselineEventMinute = null,
+            createdAtMillis = System.currentTimeMillis(),
+        )
+        val id = JourneyAlarmStore.arm(context, config)
+        JourneyAlarmStore.update(context, id, AlertState.ARMED,
+            "CI fixture · local alert only; no source evidence", checkFailed = false)
+        return id
     }
 
     private fun findTextContains(text: String, timeoutMs: Long): androidx.test.uiautomator.UiObject2? {
@@ -580,24 +622,51 @@ class TravellerAcceptanceTest {
             tapTextContains("Source and reliability details"))
         assertTrue("Routine usable-data checks are not explicitly quiet",
             revealTextContains("Successful checks stay silent", "alertDialogScroll"))
-        assertTrue("Outage warning is not limited to a failed retry/source sequence",
-            revealTextContains("all qualified source attempts fail to return usable data",
+        assertTrue("Alert evidence is not limited to fresh NTES and direct WIMT reports",
+            revealTextContains("Only fresh, route- and run-matched NTES or direct WIMT .in reports",
                 "alertDialogScroll"))
-        assertTrue("The outage warning is not described as a single silent notification",
-            revealTextContains("one silent notification is sent for that outage",
+        assertTrue("The outage notice is not limited to one per continuous failure streak",
+            revealTextContains("One silent notice is sent per continuous failure streak",
                 "alertDialogScroll"))
         E2E.shotRequired("alert-source-warning-copy")
 
         assertTrue("Set alert action is missing", tapTextContains("Set alert"))
         allowPermissionIfPrompted(firstPromptWaitMs = 8_000L)
-        val saved = E2E.ui.wait(Until.hasObject(By.text("Alert on")), E2E.NETWORK_MS) ||
-            E2E.ui.wait(Until.hasObject(By.text("Alert active")), E2E.LOCAL_MS)
-        if (!saved) E2E.shotDiagnostic("alert-save-did-not-arm")
-        assertTrue("Set alert did not save or start: '${E2E.text("arrivalAlert", 300)}'",
-            saved)
-        assertTrue("Saved alert control is not visible on the journey",
+        val context = E2E.context()
+        var saved = false
+        var positionUnavailable = false
+        var stopAlreadyReached = false
+        val resultDeadline = System.currentTimeMillis() + E2E.NETWORK_MS
+        while (System.currentTimeMillis() < resultDeadline &&
+            !saved && !positionUnavailable && !stopAlreadyReached) {
+            saved = E2E.ui.findObject(By.text("Alert on")) != null ||
+                E2E.ui.findObject(By.text("Alert active")) != null
+            positionUnavailable = E2E.ui.findObject(By.text("Current position not verified")) != null
+            stopAlreadyReached = E2E.ui.findObject(By.text("Selected stop already reached")) != null
+            if (!saved && !positionUnavailable && !stopAlreadyReached) Thread.sleep(100)
+        }
+        if (positionUnavailable || stopAlreadyReached) {
+            val activeForTrain = JourneyAlarmStore.readAll(context).any {
+                it.config.trainNo == "12627" && it.state in setOf(
+                    AlertState.ARMED, AlertState.ALERTING, AlertState.RINGING)
+            }
+            assertTrue("The live-position gate showed a refusal but still armed an alert", !activeForTrain)
+            assertTrue("The live-position gate did not explain that no alert was armed",
+                E2E.ui.findObject(By.textContains("No alert was armed")) != null)
+            if (E2E.flag("offline"))
+                assertTrue("Offline setup did not fail closed when no live position source was available",
+                    positionUnavailable)
+            E2E.shotDiagnostic("alert-setup-position-refused")
+            assertTrue("The live-position refusal could not be dismissed", tapTextContains("Close"))
+            seedCiJourneyAlert(context)
+            saved = E2E.ui.wait(Until.hasObject(By.text("Alert on")), E2E.LOCAL_MS)
+        }
+        if (!saved) E2E.shotDiagnostic("alert-setup-result-unknown")
+        assertTrue("Set alert neither armed with qualified position evidence nor refused safely: " +
+            "'${E2E.text("arrivalAlert", 300)}'", saved)
+        assertTrue("Saved or fixture alert control is not visible on the journey",
             visibleResource("arrivalAlert"))
-        E2E.shotRequired("alert-saved-on-journey")
+        E2E.shotRequired("alert-journey-active")
 
         // The master Alerts page is the single place to review status and timing for quiet checks.
         assertTrue("Saved alert actions could not be opened", E2E.tap("arrivalAlert"))
@@ -660,9 +729,11 @@ class TravellerAcceptanceTest {
             revealTextContains("1 · Upcoming station", "alertDialogScroll", up = false))
         E2E.shotRequired("alert-active-edit-options")
         assertTrue("Cancel did not close the active alert editor", tapTextContains("Cancel"))
+        assertTrue("Cancel did not return to the active Alerts list",
+            E2E.ui.wait(Until.hasObject(By.textContains("ACTIVE ALERTS")), E2E.LOCAL_MS))
 
         // Reopen setup via Add another and prove the Alerts defaults feed the journey editor.
-        E2E.ui.pressBack()
+        assertTrue("Alerts back control is missing", E2E.tap("back"))
         assertTrue("Returning from Alerts lost the selected journey",
             E2E.ui.wait(Until.hasObject(E2E.res("arrivalAlert")), E2E.NETWORK_MS))
         assertTrue("Saved journey alert could not be reopened", E2E.tap("arrivalAlert"))
@@ -689,7 +760,6 @@ class TravellerAcceptanceTest {
         assertTrue("Manage alerts was not offered for the armed alert", tapTextContains("Manage alerts"))
         assertTrue("The alert did not return to the management page",
             E2E.ui.wait(Until.hasObject(By.textContains("ACTIVE ALERTS")), E2E.LOCAL_MS))
-        val context = E2E.context()
         val armed = JourneyAlarmStore.readAll(context).firstOrNull {
             it.config.trainNo == "12627" && it.state in setOf(
                 AlertState.ARMED, AlertState.ALERTING, AlertState.RINGING)
@@ -739,7 +809,7 @@ class TravellerAcceptanceTest {
         assertTrue("Stopped alert status is not visible in Alerts history",
             revealTextContains("Stopped or cancelled", "alertsScroll"))
         E2E.shotRequired("alert-cancelled-history")
-        E2E.ui.pressBack()
+        assertTrue("Alerts back control is missing after stopping the alert", E2E.tap("back"))
         assertTrue("Turn off did not return to the journey screen",
             E2E.ui.wait(Until.hasObject(E2E.res("arrivalAlert")), E2E.NETWORK_MS))
         assertEquals("Alert", E2E.text("arrivalAlert"))
