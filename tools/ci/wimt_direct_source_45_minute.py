@@ -181,12 +181,9 @@ def _event_clock_is_current(
         return run_start <= event < latest and event <= latest_now
 
     clock = roster.parse_clock(row.get(text_key))
+    # A bare HH:mm is only admissible when the same WIMT response supplies its schedule anchor;
+    # never borrow a timetable clock to turn an unanchored source value into an actual event.
     anchor = roster.parse_clock(row.get(schedule_key))
-    station = roster.station_code(roster.first_nonblank(row, "station_code"))
-    if anchor is None and station == candidate.get("sourceStationCode"):
-        anchor = int(candidate["scheduledDepartureMinute"])
-    if anchor is None and station == candidate.get("destinationStationCode"):
-        anchor = int(candidate["scheduledArrivalMinute"])
     if clock is None or anchor is None:
         return False
     minute = roster.align_clock(clock, anchor)
@@ -296,19 +293,21 @@ def assess_response(candidate: dict[str, Any], response: SourceResponse) -> dict
     rows = doc.get("days_schedule")
     if isinstance(rows, list):
         result["sourceScheduleRowCount"] = sum(isinstance(row, dict) for row in rows)
+    echoed_train = roster.first_nonblank(doc, "train_no", "train_number", "trainNo")
+    result["trainNumberMatched"] = echoed_train is None or echoed_train == str(candidate["trainNo"])
     current_station = _current_station(doc)
     result["currentStationCodeClaim"] = current_station
     result["currentStationClaimPresent"] = current_station is not None
     result["sourceActualStopRowCount"] = _actual_stop_rows(doc, candidate, now)
+    result["protocolChecksPassed"] = (
+        result["trainNumberMatched"] and result["runDateMatched"] and
+        result["routeMatched"] and isinstance(rows, list) and len(rows) > 0
+    )
 
-    try:
-        protocol = roster.validate_reply(candidate, int(response.status), response.body, now)
-        result["protocolChecksPassed"] = protocol.get("accepted") is True
-        result["scheduleEndpointTimesMatched"] = protocol.get("scheduleEndpointTimesMatched") is True
-    except roster.ProbeFailure as error:
-        result["protocolFailure"] = error.code
-        result["failureReasons"].append(error.code)
-
+    if not result["trainNumberMatched"]:
+        result["failureReasons"].append("train_number_not_matched")
+    if not isinstance(rows, list) or not rows:
+        result["failureReasons"].append("source_schedule_rows_missing")
     if not result["runDateMatched"]:
         result["failureReasons"].append("run_date_not_matched")
     if not result["routeMatched"]:
@@ -321,7 +320,8 @@ def assess_response(candidate: dict[str, Any], response: SourceResponse) -> dict
         result["failureReasons"].append("no_current_source_reported_actual_stop_clock")
 
     result["runningStatusQualified"] = (
-        result["runDateMatched"] and result["routeMatched"] and result["freshSourceStamp"] and
+        result["trainNumberMatched"] and result["runDateMatched"] and
+        result["routeMatched"] and result["freshSourceStamp"] and
         result["currentStationClaimPresent"] and result["sourceActualStopRowCount"] > 0
     )
     result["qualified"] = (
@@ -402,7 +402,12 @@ def observe_candidate(
     check_points_present = recorded_minutes == expected_minutes
     duration_met = elapsed >= duration_minutes * 60
     all_qualified = bool(samples) and all(sample.get("qualified") is True for sample in samples)
-    passed = duration_met and check_points_present and all_qualified and not missed_checkpoints
+    same_run_route = len({
+        (item.get("trainNo"), item.get("runDate"), item.get("route"))
+        for item in samples
+    }) == 1
+    passed = (duration_met and check_points_present and all_qualified and
+              not missed_checkpoints and same_run_route)
     return {
         "startedAtUtc": started_at,
         "endedAtUtc": now().astimezone(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),
@@ -427,12 +432,6 @@ def observe_candidate(
         },
         "passed": passed,
     }
-
-
-def _recent_timetable(dataset: dict[str, Any]) -> bool:
-    age = dataset.get("timetableAgeDays")
-    return (dataset.get("timetableFreshness") == "recent" and isinstance(age, int)
-            and not isinstance(age, bool) and 0 <= age <= 90)
 
 
 def _select_live_candidate(
@@ -481,6 +480,7 @@ def _select_live_candidate(
 def _summary(result: dict[str, Any]) -> str:
     observation = result.get("observation") or {}
     checks = observation.get("checks") or {}
+    timetable = result.get("timetableSelectionMetadata") or {}
     lines = [
         "# 45-minute direct WIMT `.in` source observation",
         "",
@@ -490,6 +490,7 @@ def _summary(result: dict[str, Any]) -> str:
         "- Exact source: `https://whereismytrain.in/cache/live_status`.",
         "- This source is distinct from `.org.in`, the WIMT web-cache path, NTES, eRail, and the Google WIMT Android app.",
         "- Timetable candidates were used only to find a likely run; only a fresh, matching WIMT `.in` reply could start the timed observation.",
+        f"- Candidate timetable metadata (selection only, not live evidence): freshness **{timetable.get('timetableFreshness') or 'unknown'}**, age **{timetable.get('timetableAgeDays') if timetable.get('timetableAgeDays') is not None else 'unknown'} days**.",
         f"- Train: **{result.get('trainNo') or 'not selected'}**; run date: **{result.get('runDate') or 'not selected'}**; route: **{result.get('route') or 'not selected'}**",
         f"- Elapsed after initial qualifying response: **{observation.get('durationMinutes', 0)} / 45 minutes**",
         f"- Checkpoints: **{len(observation.get('samples', []))}** at 0, 5, …, 45 minutes where recorded.",
@@ -580,13 +581,13 @@ def run_observation(
             "runDaysVintage", "dataTrust", "knownRunDayCandidates",
         )
     }
-    if not _recent_timetable(dataset):
-        result["selectionStopReason"] = "timetable_vintage_not_recent"
-        result["timetableSelectionMetadata"]["candidateCount"] = len(candidates)
+    result["timetableSelectionMetadata"]["candidateCount"] = len(candidates)
+    if not candidates:
+        result["selectionStopReason"] = "no_schedule_active_candidate"
         event({"event": "selection_stopped", "reason": result["selectionStopReason"]})
     else:
-        # Prefer scheduled-active trains with the longest scheduled time remaining, but never
-        # treat that schedule as live evidence; the direct WIMT response is the admission gate.
+        # The timetable is only a train/date/route discovery hint, regardless of its vintage.
+        # Only a qualifying direct WIMT `.in` response can establish current source status.
         candidates.sort(key=lambda item: (
             0 if item.get("scheduleEligibility") == "scheduled-active-now" else 1,
             -float(item.get("scheduledMinutesRemainingAtSelection", 0)),

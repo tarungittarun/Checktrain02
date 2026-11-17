@@ -98,7 +98,7 @@ class DirectSourceObserverTests(unittest.TestCase):
         self.assertFalse(sample["freshSourceStamp"])
         self.assertFalse(sample["runningStatusQualified"])
         self.assertFalse(sample["qualified"])
-        self.assertIn("source_stamp_stale", sample["failureReasons"])
+        self.assertIn("source_stamp_not_fresh", sample["failureReasons"])
 
     def test_eta_or_missing_actual_clock_does_not_qualify_as_running(self):
         eta = direct.assess_response(self.candidate, self.response(actual=True, source="eta"))
@@ -221,11 +221,11 @@ class DirectSourceObserverTests(unittest.TestCase):
                 );
             """)
             db.executemany("INSERT INTO meta(k,v) VALUES(?,?)", [
-                ("timetable_age_days", "1"),
-                ("timetable_freshness", "recent"),
-                ("timetable_vintage", "2026-10-11"),
-                ("source_vintage", "2026-10-11"),
-                ("run_days_vintage", "2026-10-11"),
+                ("timetable_age_days", "200"),
+                ("timetable_freshness", "stale"),
+                ("timetable_vintage", "2026-03-26"),
+                ("source_vintage", "2026-03-26"),
+                ("run_days_vintage", "2026-03-26"),
                 ("data_trust", "fixture"),
             ])
             db.execute("INSERT INTO trains VALUES(?,?,?,?,?,?)",
@@ -248,10 +248,10 @@ class DirectSourceObserverTests(unittest.TestCase):
                     "curStn": candidate["sourceStationCode"],
                     "days_schedule": [
                         {"station_code": candidate["sourceStationCode"],
-                         "sch_departure_time": "08:00", "departed": True,
+                         "sch_departure_time": "08:15", "departed": True,
                          "actual_departure_time": "08:05", "source": "status"},
                         {"station_code": candidate["destinationStationCode"],
-                         "sch_arrival_time": "23:59", "source": "eta"},
+                         "sch_arrival_time": "23:50", "source": "eta"},
                     ],
                 }).encode("utf-8")
                 return direct.SourceResponse(
@@ -269,6 +269,8 @@ class DirectSourceObserverTests(unittest.TestCase):
             self.assertTrue(saved["passed"])
             self.assertEqual("direct-source-only", saved["mode"])
             self.assertEqual("12627", saved["trainNo"])
+            self.assertEqual("stale", saved["timetableSelectionMetadata"]["timetableFreshness"])
+            self.assertEqual(200, saved["timetableSelectionMetadata"]["timetableAgeDays"])
             self.assertEqual(45.0, saved["observation"]["durationMinutes"])
             self.assertEqual(10, sum('"event": "observation_sample"' in line for line in trace))
             self.assertTrue((output / "report.md").is_file())
