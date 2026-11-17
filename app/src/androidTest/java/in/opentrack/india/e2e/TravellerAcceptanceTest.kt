@@ -777,7 +777,7 @@ class TravellerAcceptanceTest {
         JourneyAlarmService.reconfigure(context)
         assertTrue("Fired in-app alert did not show Turn off",
             findTextContains("Turn off", E2E.LOCAL_MS) != null)
-        val snoozeDescription = "Snooze 2 min · train ${armed.config.trainNo} · alert ${armed.id}"
+        val snoozeDescription = "Snooze dialog · train ${armed.config.trainNo} · alert ${armed.id}"
         assertTrue("Fired in-app alert did not show its alert-scoped snooze action",
             E2E.ui.wait(Until.hasObject(By.desc(snoozeDescription)), E2E.LOCAL_MS))
         E2E.shotRequired("alert-in-app-action-controls")
