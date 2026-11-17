@@ -30,6 +30,8 @@ class DiagnoseCampaignEvidenceTests(unittest.TestCase):
             "probesAttempted": 60,
             "stopReason": "probe_cap_reached",
             "rejectionCounts": {"http_503": 59},
+            "timetable": {"knownRunDayCandidates": 400, "timetableVintage": "2026-10-10",
+                          "timetableFreshness": "fresh"},
         }))
         slot = self.slot / "slot-01"
         (slot / "assignment.json").write_text(json.dumps({"trainNo": "12089", "runDate": "12-10-2026"}))
@@ -71,6 +73,8 @@ class DiagnoseCampaignEvidenceTests(unittest.TestCase):
         result = summarize(self.roster, self.slot)
         self.assertEqual(1, result["roster"]["eligibleCount"])
         self.assertEqual(60, result["roster"]["probesAttempted"])
+        self.assertEqual(400, result["roster"]["knownRunDayCandidates"])
+        self.assertEqual({"http_503": 59}, result["roster"]["rejectionCounts"])
         self.assertEqual("AssertionError: only 40 receipts", result["slot"]["failure"])
         self.assertEqual(46, result["slot"]["autoOnSamples"])
         self.assertEqual(40, result["slot"]["minuteRefreshReceipts"])

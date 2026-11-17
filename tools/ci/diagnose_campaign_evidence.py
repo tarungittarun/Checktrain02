@@ -125,6 +125,9 @@ def summarize(roster_root: Path | None, slot_root: Path) -> dict[str, Any]:
             "probesAttempted": roster.get("probesAttempted"),
             "stopReason": roster.get("stopReason"),
             "rejectionCounts": roster.get("rejectionCounts", {}),
+            "knownRunDayCandidates": (roster.get("timetable") or {}).get("knownRunDayCandidates"),
+            "timetableVintage": (roster.get("timetable") or {}).get("timetableVintage"),
+            "timetableFreshness": (roster.get("timetable") or {}).get("timetableFreshness"),
         },
         "slot": {
             "status": result.get("status", "android-result" if result_path else "result-unavailable"),
@@ -177,7 +180,9 @@ def render_markdown(value: dict[str, Any]) -> str:
         "",
         f"- Roster: **{roster['eligibleCount']}/{roster['requiredSlots']}** eligible; "
         f"status `{roster['status']}`; probes `{roster['probesAttempted']}`; "
-        f"stop reason `{roster['stopReason']}`.",
+        f"stop reason `{roster['stopReason']}`; candidate pool `{roster['knownRunDayCandidates']}`; "
+        f"timetable `{roster['timetableVintage']}` (`{roster['timetableFreshness']}`).",
+        f"- Direct-source rejection counts: `{roster['rejectionCounts']}`.",
         f"- Slot: **{slot['status']}**, passed `{slot['passed']}`, train `{slot['trainNo']}`, "
         f"run date `{slot['runDate']}`.",
         f"- Failure/reason: `{slot['failure'] or 'none recorded'}`.",
@@ -223,7 +228,10 @@ def main() -> int:
     print(markdown, end="")
     compact = (
         f"roster={value['roster']['eligibleCount']}/{value['roster']['requiredSlots']} "
-        f"probes={value['roster']['probesAttempted']} stop={value['roster']['stopReason']}; "
+        f"probes={value['roster']['probesAttempted']} stop={value['roster']['stopReason']} "
+        f"pool={value['roster']['knownRunDayCandidates']} vintage={value['roster']['timetableVintage']} "
+        f"freshness={value['roster']['timetableFreshness']} "
+        f"rejects={value['roster']['rejectionCounts']}; "
         f"slotStatus={value['slot']['status']} passed={value['slot']['passed']} "
         f"runner={value['slot']['runnerExit']} okMarker={value['slot']['instrumentationOkMarkerPresent']} "
         f"failMarker={value['slot']['instrumentationFailureMarkerPresent']} "
