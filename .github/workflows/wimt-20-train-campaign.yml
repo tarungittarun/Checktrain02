@@ -1,0 +1,236 @@
+name: wimt-20-train-45-minute-campaign
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wimt-20-train-campaign-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Build APKs and verify a distinct live roster
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: true
+      - name: Initialize honest fallback roster
+        run: |
+          mkdir -p campaign-roster campaign-apks
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          Path('campaign-roster/roster.json').write_text(json.dumps({
+              'schemaVersion': 1,
+              'campaign': 'wimt-20-train-45-minute-emulator-campaign',
+              'status': 'PREPARATION_FAILED',
+              'requiredSlots': 20,
+              'eligibleCount': 0,
+              'assignments': [],
+              'stopReason': 'roster preparation did not complete',
+          }, indent=2) + '\n', encoding='utf-8')
+          PY
+      - name: Offline campaign-script tests and workflow validation
+        run: |
+          python3 tools/ci/test_select_wimt_campaign_roster.py
+          python3 tools/ci/test_verify_campaign_assignment.py
+          python3 tools/ci/test_prepare_campaign_slot.py
+          python3 tools/ci/check_workflows.py
+          python3 -m py_compile \
+            tools/ci/select_wimt_campaign_roster.py \
+            tools/ci/verify_campaign_assignment.py \
+            tools/ci/prepare_campaign_slot.py \
+            tools/ci/build_wimt_20_train_campaign_pdf.py \
+            tools/ci/test_build_wimt_20_train_campaign_pdf.py
+          bash -n tools/ci/run_train_campaign_device.sh
+      - name: Generate the current timetable asset in CI
+        run: bash tools/ci/prepare_asset.sh
+      - name: Build and test the exact debug APK pair in CI
+        run: |
+          ./gradlew --no-daemon :app:testDebugUnitTest :app:assembleDebug \
+            :app:assembleDebugAndroidTest --stacktrace
+          cp app/build/outputs/apk/debug/app-debug.apk campaign-apks/app-debug.apk
+          cp app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk \
+            campaign-apks/app-debug-androidTest.apk
+          sha256sum campaign-apks/*.apk | tee campaign-apks/sha256.txt
+      - name: Select up to 20 distinct, fresh, scheduled WIMT .in assignments
+        if: always()
+        run: |
+          if [ -f app/src/main/assets/ref/refdb.dbgz ]; then
+            python3 tools/ci/select_wimt_campaign_roster.py \
+              --db app/src/main/assets/ref/refdb.dbgz \
+              --output campaign-roster/roster.json \
+              --min-candidates 20 \
+              --max-probes 60
+          else
+            echo '::warning::No generated timetable asset; preserving PREPARATION_FAILED roster.'
+          fi
+      - name: Publish roster status to the run summary
+        if: always()
+        run: |
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          from pathlib import Path
+          roster = json.loads(Path('campaign-roster/roster.json').read_text(encoding='utf-8'))
+          print('### Campaign preflight')
+          print()
+          print(f"- Roster status: **{roster.get('status', 'unknown')}**")
+          print(f"- Distinct eligible assignments: **{roster.get('eligibleCount', 0)}/20**")
+          print(f"- Direct WIMT .in probes: **{roster.get('probesAttempted', 0)}**")
+          print('- Website/cache responses are not used as live train evidence.')
+          PY
+      - name: Upload the unique roster
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: campaign-roster
+          path: campaign-roster/
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Upload the same-run APK pair
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: campaign-apks
+          path: campaign-apks/
+          if-no-files-found: warn
+          retention-days: 30
+
+  emulator:
+    name: Emulator observation · slot ${{ matrix.slot }}
+    needs: [prepare]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 105
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        slot: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Download the preflight roster
+        if: always()
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: campaign-roster
+          path: campaign-roster
+      - name: Download the exact APK pair built for this run
+        if: always()
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: campaign-apks
+          path: campaign-apks
+      - name: Resolve this slot without assigning duplicates
+        id: slot
+        if: always()
+        env:
+          PREPARE_RESULT: ${{ needs.prepare.result }}
+          CAMPAIGN_SLOT: ${{ matrix.slot }}
+        run: |
+          python3 tools/ci/prepare_campaign_slot.py \
+            --roster campaign-roster/roster.json \
+            --prepare-result "$PREPARE_RESULT" \
+            --slot "$CAMPAIGN_SLOT" \
+            --evidence-dir "campaign-evidence/slot-$(printf '%02d' "$CAMPAIGN_SLOT")"
+      - name: Run this train on one isolated emulator for 45 minutes
+        if: steps.slot.outputs.run_emulator == 'true'
+        env:
+          CAMPAIGN_SLOT: ${{ matrix.slot }}
+          CAMPAIGN_EVIDENCE_DIR: ${{ steps.slot.outputs.evidence_dir }}
+          CAMPAIGN_ASSIGNMENT: ${{ steps.slot.outputs.evidence_dir }}/assignment.json
+          CAMPAIGN_APP_APK: campaign-apks/app-debug.apk
+          CAMPAIGN_TEST_APK: campaign-apks/app-debug-androidTest.apk
+        run: bash tools/ci/run_train_campaign_device.sh
+      - name: Upload this slot's assignment, minute observations and screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wimt-20-train-campaign-slot-${{ matrix.slot }}
+          path: campaign-evidence/
+          if-no-files-found: warn
+          retention-days: 30
+
+  report:
+    name: Consolidate observations into the campaign PDF
+    needs: [prepare, emulator]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install the PDF renderer
+        run: python3 -m pip install --disable-pip-version-check --quiet reportlab==4.2.5
+      - name: Verify the report builder using offline synthetic evidence
+        run: python3 tools/ci/test_build_wimt_20_train_campaign_pdf.py
+      - name: Download the roster
+        if: always()
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: campaign-roster
+          path: campaign-aggregate/roster
+      - name: Download the 20 matrix-slot evidence artifacts
+        if: always()
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wimt-20-train-campaign-slot-*
+          path: campaign-aggregate/slots
+          merge-multiple: true
+      - name: Create the detailed consolidated PDF and summaries
+        if: always()
+        run: |
+          mkdir -p campaign-report
+          if [ ! -s campaign-aggregate/roster/roster.json ]; then
+            mkdir -p campaign-aggregate/roster
+            python3 - <<'PY'
+          import json
+          from pathlib import Path
+          Path('campaign-aggregate/roster/roster.json').write_text(json.dumps({
+              'schemaVersion': 1,
+              'campaign': 'wimt-20-train-45-minute-emulator-campaign',
+              'status': 'PREPARATION_OR_ARTIFACT_UNAVAILABLE',
+              'requiredSlots': 20,
+              'eligibleCount': 0,
+              'assignments': [],
+              'stopReason': 'the preparation roster artifact was unavailable',
+          }, indent=2) + '\n', encoding='utf-8')
+          PY
+          fi
+          python3 tools/ci/build_wimt_20_train_campaign_pdf.py \
+            --roster campaign-aggregate/roster/roster.json \
+            --slots-dir campaign-aggregate/slots \
+            --output-pdf "campaign-report/wimt-20-train-campaign-${GITHUB_RUN_ID}.pdf" \
+            --output-json campaign-report/report.json \
+            --output-markdown campaign-report/report.md
+          cat campaign-report/report.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload the final PDF and consolidated result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wimt-20-train-campaign-report-${{ github.run_id }}
+          path: campaign-report/
+          if-no-files-found: warn
+          retention-days: 90
