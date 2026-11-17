@@ -171,7 +171,7 @@ internal object JourneyAlarmNotifications {
             `in`.opentrack.india.core.RailTime.formatClockSeconds(it)
         }
         val message = "Timetable: $timetableTime · no qualifying $eventName report yet at " +
-            "$station. Delay is not confirmed; monitoring continues."
+            "$station. Delay is not confirmed. Monitoring continues."
         val checkTime = checkedAt?.let { "Checked at $it IST." } ?: "Monitoring continues."
         val builder = NotificationCompat.Builder(context, SCHEDULED_CHANNEL)
             .setSmallIcon(R.drawable.ic_notification_train)

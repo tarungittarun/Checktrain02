@@ -777,8 +777,9 @@ class TravellerAcceptanceTest {
         JourneyAlarmService.reconfigure(context)
         assertTrue("Fired in-app alert did not show Turn off",
             findTextContains("Turn off", E2E.LOCAL_MS) != null)
-        assertTrue("Fired in-app alert did not show Snooze 2 min",
-            findTextContains("Snooze 2 min", E2E.LOCAL_MS) != null)
+        val snoozeDescription = "Snooze 2 min · train ${armed.config.trainNo} · alert ${armed.id}"
+        assertTrue("Fired in-app alert did not show its alert-scoped snooze action",
+            E2E.ui.wait(Until.hasObject(By.desc(snoozeDescription)), E2E.LOCAL_MS))
         E2E.shotRequired("alert-in-app-action-controls")
 
         val notificationManager = context.getSystemService(android.app.NotificationManager::class.java)
@@ -796,18 +797,22 @@ class TravellerAcceptanceTest {
             .mapNotNull { it.title?.toString() }
         assertTrue("Notification shade is missing Turn off", "Turn off" in notificationActions)
         assertTrue("Notification shade is missing Snooze 2 min", "Snooze 2 min" in notificationActions)
-        assertTrue("Snooze action could not be used in the in-app alert surface",
-            tapTextContains("Snooze 2 min"))
+        val snoozeAction = E2E.ui.wait(Until.findObject(By.desc(snoozeDescription)), E2E.LOCAL_MS)
+        assertTrue("Alert-scoped snooze action could not be found", snoozeAction != null)
+        snoozeAction!!.click()
+        E2E.ui.waitForIdle()
         val snoozed = JourneyAlarmStore.find(context, armed.id)
             ?: throw AssertionError("Snoozed alert disappeared from the store")
-        assertTrue("Snooze did not persist a two-minute resume time",
-            snoozed.snoozedUntilMillis > System.currentTimeMillis() &&
-                snoozed.snoozedUntilMillis <= System.currentTimeMillis() + 121_000L)
+        val checkedAt = System.currentTimeMillis()
+        assertTrue("Snooze did not persist a two-minute resume time: state=${snoozed.state}, " +
+            "deadline=${snoozed.snoozedUntilMillis}, now=$checkedAt",
+            snoozed.snoozedUntilMillis > checkedAt &&
+                snoozed.snoozedUntilMillis <= checkedAt + 121_000L)
         E2E.shotRequired("alert-snoozed-state")
         assertTrue("Snoozed alert card lost its Turn off control",
             revealTextContains("Turn off", "alertsScroll"))
-        assertTrue("Snoozed alert card lost its Snooze 2 min control",
-            revealTextContains("Snooze 2 min", "alertsScroll"))
+        assertTrue("Snoozed alert card lost its alert-scoped Snooze 2 min control",
+            E2E.ui.wait(Until.hasObject(By.desc(snoozeDescription)), E2E.LOCAL_MS))
         E2E.shotRequired("alert-active-action-controls")
         assertTrue("Turn off could not stop the active alert",
             tapTextContains("Turn off"))

@@ -224,6 +224,8 @@ class AlertsActivity : AppCompatActivity() {
                     })
                     val snooze = actionButton("Snooze 2 min") {
                         JourneyAlarmService.snooze(this@AlertsActivity, snapshot.id)
+                    }.apply {
+                        contentDescription = "Snooze 2 min · train ${config.trainNo} · alert ${snapshot.id}"
                     }
                     actions.addView(snooze, LinearLayout.LayoutParams(0, -2, 1f))
                 }

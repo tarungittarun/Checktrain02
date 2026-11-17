@@ -222,8 +222,10 @@ class JourneyAlarmPolicyTest {
         assertTrue("a qualifying early arrival must sound immediately: $decision",
             decision is JourneyAlarmPolicy.Decision.Fire)
         val fired = decision as JourneyAlarmPolicy.Decision.Fire
-        assertTrue(fired.detail.contains("reports arrival at Kengeri 10:58"))
-        assertEquals(now(658), fired.evidenceAtMillis)
+        assertTrue("early evidence should name the selected arrival: ${fired.detail}",
+            fired.detail.contains("arrival at Kengeri"))
+        assertEquals("the notice must be tied to the reported 10:58 arrival, before 11:00",
+            now(658), fired.evidenceAtMillis)
     }
 
     @Test fun destinationDepartureWithoutArrivalIsUsableButCannotSoundArrivalAlert() {
