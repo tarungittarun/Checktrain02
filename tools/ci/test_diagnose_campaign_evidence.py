@@ -64,7 +64,9 @@ class DiagnoseCampaignEvidenceTests(unittest.TestCase):
         (slot / "instrumentation.txt").write_text(
             "INSTRUMENTATION_STATUS_CODE: -2\n"
             "java.lang.AssertionError: only 40 receipts\nFAILURES!!!\n"
+            "INSTRUMENTATION_CODE: -1\n"
         )
+        (slot / "runner-exit.txt").write_text("instrumentationExitCode=1\n")
 
         result = summarize(self.roster, self.slot)
         self.assertEqual(1, result["roster"]["eligibleCount"])
@@ -74,6 +76,9 @@ class DiagnoseCampaignEvidenceTests(unittest.TestCase):
         self.assertEqual(40, result["slot"]["minuteRefreshReceipts"])
         self.assertEqual([], result["slot"]["missingMinutes"])
         self.assertTrue(any("FAILURES!!!" in line for line in result["slot"]["instrumentationSignals"]))
+        self.assertEqual("instrumentationExitCode=1", result["slot"]["runnerExit"])
+        self.assertTrue(result["slot"]["instrumentationFailureMarkerPresent"])
+        self.assertIn("INSTRUMENTATION_CODE: -1", result["slot"]["instrumentationTail"][-1])
         markdown = render_markdown(result)
         self.assertIn("1/20", markdown)
         self.assertIn("not proof of train movement or GPS", markdown)

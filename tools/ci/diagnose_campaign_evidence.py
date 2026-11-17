@@ -78,10 +78,22 @@ def summarize(roster_root: Path | None, slot_root: Path) -> dict[str, Any]:
     assignment_path = first_file(slot_root, "assignment.json")
     observations_path = first_file(slot_root, "observations.jsonl")
     instrumentation_path = first_file(slot_root, "instrumentation.txt")
+    runner_exit_path = first_file(slot_root, "runner-exit.txt")
     roster = read_json(roster_path)
     result = read_json(result_path)
     assignment = read_json(assignment_path)
     observations, malformed = read_observations(observations_path)
+    try:
+        instrumentation_lines = instrumentation_path.read_text(
+            encoding="utf-8", errors="replace"
+        ).splitlines() if instrumentation_path else []
+    except OSError:
+        instrumentation_lines = []
+    try:
+        runner_exit = runner_exit_path.read_text(encoding="utf-8", errors="replace").strip() \
+            if runner_exit_path else "unavailable"
+    except OSError:
+        runner_exit = "unavailable"
 
     minutes = sorted({
         minute for item in observations
@@ -115,8 +127,12 @@ def summarize(roster_root: Path | None, slot_root: Path) -> dict[str, Any]:
             "rejectionCounts": roster.get("rejectionCounts", {}),
         },
         "slot": {
-            "status": result.get("status", "result-unavailable"),
+            "status": result.get("status", "android-result" if result_path else "result-unavailable"),
             "passed": result.get("passed"),
+            "runnerExit": runner_exit,
+            "instrumentationOkMarkerPresent": any("OK (1 test)" in line for line in instrumentation_lines),
+            "instrumentationFailureMarkerPresent": any("FAILURES!!!" in line for line in instrumentation_lines),
+            "instrumentationTail": [line[:500] for line in instrumentation_lines[-30:]],
             "trainNo": result.get("trainNo", assignment.get("trainNo")),
             "runDate": result.get("runDate", assignment.get("runDate")),
             "failure": result.get("failure") or result.get("reason"),
@@ -147,6 +163,7 @@ def summarize(roster_root: Path | None, slot_root: Path) -> dict[str, Any]:
             "assignment": assignment_path is not None,
             "observations": observations_path is not None,
             "instrumentation": instrumentation_path is not None,
+            "runnerExit": runner_exit_path is not None,
         },
     }
     return diagnostic
@@ -164,6 +181,9 @@ def render_markdown(value: dict[str, Any]) -> str:
         f"- Slot: **{slot['status']}**, passed `{slot['passed']}`, train `{slot['trainNo']}`, "
         f"run date `{slot['runDate']}`.",
         f"- Failure/reason: `{slot['failure'] or 'none recorded'}`.",
+        f"- Runner status: `{slot['runnerExit']}`; instrumentation `OK (1 test)` marker "
+        f"`{slot['instrumentationOkMarkerPresent']}`; `FAILURES!!!` marker "
+        f"`{slot['instrumentationFailureMarkerPresent']}`.",
         f"- Duration: `{slot['durationMs']}` ms; observations `{slot['observationCount']}/"
         f"{slot['expectedObservationCount']}`; minute range `{slot['minuteRange']}`; "
         f"missing minutes `{slot['missingMinutes']}`.",
@@ -205,6 +225,8 @@ def main() -> int:
         f"roster={value['roster']['eligibleCount']}/{value['roster']['requiredSlots']} "
         f"probes={value['roster']['probesAttempted']} stop={value['roster']['stopReason']}; "
         f"slotStatus={value['slot']['status']} passed={value['slot']['passed']} "
+        f"runner={value['slot']['runnerExit']} okMarker={value['slot']['instrumentationOkMarkerPresent']} "
+        f"failMarker={value['slot']['instrumentationFailureMarkerPresent']} "
         f"train={value['slot']['trainNo']} failure={value['slot']['failure']}; "
         f"observations={value['slot']['observationCount']}/{value['slot']['expectedObservationCount']} "
         f"receipts={value['slot']['minuteRefreshReceipts']}/45 "
@@ -212,6 +234,8 @@ def main() -> int:
         f"screens={value['slot']['screenPresentSamples']}/46"
     )
     print(f"::notice title=Previous campaign evidence::{annotation_escape(compact)}")
+    log_tail = " | ".join(value["slot"]["instrumentationTail"][-20:]) or "no instrumentation output"
+    print(f"::notice title=Prior instrumentation tail::{annotation_escape(log_tail[:6000])}")
     return 0
 
 
