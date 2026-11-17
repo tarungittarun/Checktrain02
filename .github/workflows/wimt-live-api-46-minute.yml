@@ -1,0 +1,118 @@
+name: wimt-single-train-46-minute-observation
+
+on:
+  # One explicit, opt-in installed-APK run. A push marker is used because manual dispatch
+  # is not available until a workflow file reaches the repository's default branch.
+  push:
+    branches:
+      - 'arena/6f68e526-checktrain02'
+    paths:
+      - .github/workflows/wimt-live-api-46-minute.yml
+      - app/src/androidTest/java/in/opentrack/india/e2e/WimtLiveApiSoakTest.kt
+      - app/src/main/java/in/opentrack/india/remote/WimtLiveProvider.kt
+      - app/src/main/java/in/opentrack/india/ui/TrainActivity.kt
+      - tools/ci/run_wimt_live_api_soak.sh
+      - tools/ci/wimt_live_api_46_minute_report.py
+      - tools/ci/test_wimt_live_api_46_minute_report.py
+      - tools/ci/build_wimt_live_api_46_minute_pdf.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wimt-single-train-46-minute-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  single-train-observation:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[wimt-live-api-46]'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 85
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: true
+
+      - name: Offline report, source and workflow checks
+        run: |
+          python3 tools/ci/test_wimt_live_api_46_minute_report.py
+          python3 tools/ci/wimt_live_api_soak_report.py --self-test
+          python3 tools/ci/check_workflows.py
+          python3 tools/ci/check_kotlin_balance.py app/src
+          python3 -m py_compile \
+            tools/ci/wimt_live_api_46_minute_report.py \
+            tools/ci/build_wimt_live_api_46_minute_pdf.py \
+            tools/ci/test_wimt_live_api_46_minute_report.py
+          bash -n tools/ci/run_wimt_live_api_soak.sh
+
+      - name: Rebuild the bundled timetable asset from current upstream branches
+        run: bash tools/ci/prepare_asset.sh
+
+      - name: Run unit tests and build the exact app and instrumentation APKs in CI
+        run: |
+          ./gradlew --no-daemon :app:testDebugUnitTest \
+            :app:assembleDebug :app:assembleDebugAndroidTest --stacktrace
+
+      - name: Preserve the exact APK pair used for this observation
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wimt-one-train-46-minute-apks-${{ github.run_id }}
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Install APKs and observe one current WIMT-reported train for 46 minutes
+        id: live_observation
+        env:
+          WIMT_LIVE_SOAK_MINUTES: '46'
+          WIMT_LIVE_SOAK_EVIDENCE_DIR: wimt-one-train-46-minute-evidence
+        run: bash tools/ci/run_wimt_live_api_soak.sh
+
+      - name: Consolidate the bounded source result and genuine app evidence
+        if: always()
+        run: |
+          evidence=wimt-one-train-46-minute-evidence
+          mkdir -p "$evidence/screens"
+          [ -s "$evidence/instrumentation.txt" ] || : > "$evidence/instrumentation.txt"
+          [ -s "$evidence/soak-trace.txt" ] || : > "$evidence/soak-trace.txt"
+          [ -s "$evidence/runner-exit.txt" ] || printf 'instrumentationExitCode=-1\n' > "$evidence/runner-exit.txt"
+          python3 tools/ci/wimt_live_api_46_minute_report.py "$evidence" \
+            || echo '::notice::The strict one-train 46-minute evidence gate did not pass; inspect the report and retained evidence.'
+          if [ -s "$evidence/report.md" ]; then
+            cat "$evidence/report.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Build PDF only from genuine installed-app screenshots
+        if: always()
+        run: |
+          python3 -m pip install --disable-pip-version-check --quiet reportlab==4.2.5
+          if python3 tools/ci/build_wimt_live_api_46_minute_pdf.py \
+               wimt-one-train-46-minute-evidence \
+               "wimt-one-train-46-minute-evidence/wimt-one-train-46-minute-${GITHUB_RUN_ID}.pdf"; then
+            echo 'A PDF was created from the report and app-window captures with matching app hierarchies.' \
+              >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'No screenshot PDF: genuine app-window screenshots and matching hierarchies were unavailable.' \
+              >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload the 46-minute trace, report and screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wimt-one-train-46-minute-evidence-${{ github.run_id }}
+          path: wimt-one-train-46-minute-evidence/
+          if-no-files-found: warn
+          retention-days: 30

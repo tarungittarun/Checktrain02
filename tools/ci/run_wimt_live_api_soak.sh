@@ -1,8 +1,23 @@
 #!/usr/bin/env bash
 # Install the exact APKs, require fresh WIMT .in clocks in the UI, then run the opt-in
-# selected-source one-minute refresh regression for exactly 240 minutes.
+# selected-source one-minute refresh regression for an explicitly allowed duration.
 set -euo pipefail
 OUT=${WIMT_LIVE_SOAK_EVIDENCE_DIR:-wimt-live-api-soak-evidence}
+SOAK_MINUTES=${WIMT_LIVE_SOAK_MINUTES:-240}
+case "$SOAK_MINUTES" in
+  46)
+    TEST_METHOD=selectedWimtAutoRefreshRemainsStableFor46Minutes
+    TEST_TIMEOUT_SECONDS=3600
+    ;;
+  240)
+    TEST_METHOD=selectedWimtAutoRefreshRemainsStableFor240Minutes
+    TEST_TIMEOUT_SECONDS=17400
+    ;;
+  *)
+    echo "Unsupported opt-in WIMT soak duration: $SOAK_MINUTES (allowed: 46, 240)" >&2
+    exit 2
+    ;;
+esac
 mkdir -p "$OUT/screens"
 : > "$OUT/instrumentation.txt"
 : > "$OUT/device-log.txt"
@@ -13,13 +28,21 @@ finish() {
   export PATH="${ANDROID_HOME:-/usr/local/lib/android/sdk}/platform-tools:$PATH"
   for name in \
       wimt-soak-before wimt-soak-start wimt-soak-start-details \
+      wimt-soak-15m wimt-soak-15m-details \
+      wimt-soak-30m wimt-soak-30m-details \
+      wimt-soak-45m wimt-soak-45m-details \
+      wimt-soak-46m wimt-soak-46m-details \
       wimt-soak-60m wimt-soak-60m-details \
       wimt-soak-120m wimt-soak-120m-details \
       wimt-soak-180m wimt-soak-180m-details \
       wimt-soak-240m wimt-soak-240m-details \
       wimt-soak-auto-enable-failed wimt-soak-final-even-on-failure; do
-    adb exec-out run-as in.opentrack.india cat "files/evidence/$name.png" \
-      > "$OUT/screens/$name.png" 2>/dev/null || rm -f "$OUT/screens/$name.png"
+    for extension in png xml; do
+      path="files/evidence/$name.$extension"
+      destination="$OUT/screens/$name.$extension"
+      adb exec-out run-as in.opentrack.india cat "$path" \
+        > "$destination" 2>/dev/null || rm -f "$destination"
+    done
   done
   adb exec-out run-as in.opentrack.india cat files/evidence/wimt-soak-results.txt \
     > "$OUT/soak-trace.txt" 2>/dev/null || : > "$OUT/soak-trace.txt"
@@ -63,12 +86,13 @@ cmp app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk /tmp/wimt-
 rm -f /tmp/wimt-soak-installed.apk /tmp/wimt-soak-installed-test.apk
 adb shell pm clear in.opentrack.india
 adb logcat -c
-# The instrumented test itself requires fresh, run/date/route-matched WIMT .in clocks
-# before it enables Auto. A refusal stops subsequent source polling rather than retrying it.
+# The installed-app test requires a fresh, run/date/route-matched WIMT .in response before Auto.
+# The 46-minute mode also requires a current-station field claim at start and each details checkpoint.
+# A refusal stops further selected-source polling rather than retrying it.
 set +e
-timeout --signal=TERM --kill-after=60 17400s adb shell am instrument -w \
-  -e class in.opentrack.india.e2e.WimtLiveApiSoakTest#selectedWimtAutoRefreshRemainsStableFor240Minutes \
-  -e soak_minutes 240 \
+timeout --signal=TERM --kill-after=60 "${TEST_TIMEOUT_SECONDS}s" adb shell am instrument -w \
+  -e class "in.opentrack.india.e2e.WimtLiveApiSoakTest#$TEST_METHOD" \
+  -e soak_minutes "$SOAK_MINUTES" \
   in.opentrack.india.test/androidx.test.runner.AndroidJUnitRunner \
   > "$OUT/instrumentation.txt" 2>&1
 rc=$?
