@@ -19,6 +19,7 @@ import `in`.opentrack.india.domain.RouteBetween
 import `in`.opentrack.india.domain.Suggestion
 import `in`.opentrack.india.domain.TrackModel
 import `in`.opentrack.india.model.SourceKind
+import `in`.opentrack.india.model.LiveStopFields
 import `in`.opentrack.india.model.StopRow
 import `in`.opentrack.india.model.TrainPosition
 import `in`.opentrack.india.model.TrainRoute
@@ -2091,6 +2092,19 @@ class LiveViewModel(
         ((RailTime.istEpochDay(now) - originEpochDay) * RailTime.MINUTES_PER_DAY +
             RailTime.istMinuteOfDay(now)).toInt()
 
+    /** Age of the newest station event clock, not the response/feed update timestamp. */
+    private fun latestActualEventAgeMillis(
+        perStop: Map<String, LiveStopFields>, route: TrainRoute, now: Long,
+    ): Long? {
+        val routeCodes = route.stops.map { it.code.uppercase() }.toSet()
+        return perStop.asSequence().filter { (code, _) -> code.uppercase() in routeCodes }
+            .flatMap { (_, fields) ->
+                listOfNotNull(fields.actualArrivalMin, fields.actualDepartureMin).asSequence()
+            }.map { minute -> RailTime.railMinuteToEpochMillis(originEpochDay, minute) }
+            .filter { it > 0L && it <= now }
+            .maxOrNull()?.let { now - it }
+    }
+
     private fun buildUi(
         route: TrainRoute, answer: PositionEngine.Answer, tried: List<String>,
         notes: List<String> = emptyList(),
@@ -2325,9 +2339,17 @@ class LiveViewModel(
         val ntesActualCount = answer.perStop.values.count {
             it.actualArrivalMin != null || it.actualDepartureMin != null
         }
+        // A just-fetched response can still contain an old last stop event. Keep
+        // transport/fetch freshness separate from the clock of the newest station event.
+        val ntesLatestEventAge = latestActualEventAgeMillis(answer.perStop, route, now)
+        val ntesEventDetail = ntesLatestEventAge?.let { age ->
+            val label = SourceFreshness.label(now - age, now)
+            if (age >= SourceFreshness.STALE_AFTER_MS) "latest stop event stale: $label"
+            else "latest stop event: $label"
+        } ?: "latest stop event age unknown"
         val sourceNames = linkedMapOf(
             "NTES (official)" to (if (answer.position.provenance == SourceKind.PROVIDER_NTES && ntesActualCount > 0)
-                "live" to "$ntesActualCount stops with actual minutes"
+                "live" to "$ntesActualCount stops with actual minutes · $ntesEventDetail"
                 else if (answer.position.provenance == SourceKind.CACHED && ntesActualCount > 0)
                 "last-known" to "$ntesActualCount saved stops; not live"
                 else "none" to "no per-stop actuals on this device"),
@@ -2352,7 +2374,16 @@ class LiveViewModel(
                         "upstream update stamp is ahead; not counted fresh yet"
                     else -> "upstream update stamp is stale; position not current"
                 }
+                val wimtLatestAge = wimtSnapshot?.let {
+                    latestActualEventAgeMillis(it.perStop, route, now)
+                }
+                val wimtEventDetail = wimtLatestAge?.let { age ->
+                    val label = SourceFreshness.label(now - age, now)
+                    if (age >= SourceFreshness.STALE_AFTER_MS) "latest stop event stale: $label"
+                    else "latest stop event: $label"
+                } ?: "latest stop event age unknown"
                 state to ((manualWimtDetail ?: evidence.detail) + " · " + freshness +
+                    " · " + wimtEventDetail +
                     " · update stamp is not movement, GPS or independent train verification")
             } ?: ("none" to "manual check available; `.in` live-status feed not checked yet")),
             WimtCandidate.SOURCE to (wimtCandidate?.let {

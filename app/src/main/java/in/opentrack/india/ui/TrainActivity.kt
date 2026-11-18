@@ -1308,6 +1308,7 @@ class TrainActivity : AppCompatActivity() {
                             (12 * density).toInt(), (12 * density).toInt())
                         textSize = 14f
                         text = "● ${TrackingSources.label(name)} · ${indicator.label}" +
+                            (SourceIndicator.eventAgeLabel(detail)?.let { " · event $it" } ?: "") +
                             (SourceIndicator.seconds(detail)?.let { " · $it" } ?: "")
                         setTextColor(getColor(sourceColor(indicator.tone)))
                     }

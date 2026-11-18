@@ -11,6 +11,12 @@ object SourceIndicator {
     data class Indicator(val tone: Tone, val label: String)
 
     fun of(name: String, state: String, detail: String): Indicator = when {
+        name in setOf(TrackingSources.OFFICIAL, TrackingSources.WIMT) &&
+            detail.contains("latest stop event stale:") ->
+            Indicator(Tone.OLD, "last stop event · stale")
+        name in setOf(TrackingSources.OFFICIAL, TrackingSources.WIMT) &&
+            state == "live" && detail.contains("latest stop event age unknown") ->
+            Indicator(Tone.CANDIDATE, "event age unknown")
         name == WimtCandidate.SOURCE && state in setOf("live", "comparison", "candidate") ->
             Indicator(Tone.CANDIDATE, "web cache · unverified")
         name == TrackingSources.WIMT && state == "live" ->
@@ -41,6 +47,11 @@ object SourceIndicator {
         detail.contains("run is not active") -> Indicator(Tone.UNAVAILABLE, "train not running")
         else -> Indicator(Tone.UNAVAILABLE, "no usable stop report")
     }
+
+    /** Event-clock age is distinct from the age of the HTTP check or update stamp. */
+    fun eventAgeLabel(detail: String): String? =
+        Regex("latest stop event(?: stale)?: ([^·]+)").find(detail)
+            ?.groupValues?.get(1)?.trim()?.takeIf { it.isNotEmpty() }
 
     /** A short elapsed seconds figure, not the age of the website's last stop or page clock. */
     fun seconds(detail: String): String? = Regex("checked in (\\d+) ms").find(detail)

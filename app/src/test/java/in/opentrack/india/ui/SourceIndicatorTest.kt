@@ -83,6 +83,25 @@ class SourceIndicatorTest {
             SourceIndicator.of(TrackingSources.WIMT, "unverified", "no source update clock").tone)
     }
 
+    @Test fun freshFetchDoesNotMakeAnOldLatestStopEventLookFreshInThePicker() {
+        val staleDetail = "5 stops with actual minutes · latest stop event stale: 55m old · checked in 220 ms"
+        for (source in listOf(TrackingSources.OFFICIAL, TrackingSources.WIMT)) {
+            val indicator = SourceIndicator.of(source, "live", staleDetail)
+            assertEquals(SourceIndicator.Tone.OLD, indicator.tone)
+            assertEquals("last stop event · stale", indicator.label)
+        }
+        assertEquals("55m old", SourceIndicator.eventAgeLabel(staleDetail))
+        assertEquals("12m old", SourceIndicator.eventAgeLabel(
+            "latest stop event: 12m old · upstream update stamp is fresh"))
+        assertEquals(null, SourceIndicator.eventAgeLabel("HTTP response received just now"))
+        assertEquals(SourceIndicator.Tone.READY,
+            SourceIndicator.of(TrackingSources.OFFICIAL, "live",
+                "5 stops with actual minutes · latest stop event: 12m old").tone)
+        assertEquals(SourceIndicator.Tone.CANDIDATE,
+            SourceIndicator.of(TrackingSources.OFFICIAL, "live",
+                "5 stops with actual minutes · latest stop event age unknown").tone)
+    }
+
     @Test fun wimtRunningStatusNeedsFreshMatchedCurrentStationAndAnActualStopRow() {
         fun evidence(
             runDateMatched: Boolean? = true,
