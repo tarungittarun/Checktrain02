@@ -20,7 +20,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write # post the redacted reliability report to the exact commit
 
 concurrency:
   group: wimt-live-api-60-minute-reliability-${{ github.ref }}
@@ -89,6 +89,8 @@ jobs:
 
       - name: Summarize reliability without promoting source claims to verified movement
         if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           evidence=wimt-one-running-train-60-minute-evidence
           mkdir -p "$evidence/screens"
@@ -105,7 +107,15 @@ jobs:
           fi
           if [ -s "$evidence/report.md" ]; then
             cat "$evidence/report.md" >> "$GITHUB_STEP_SUMMARY"
+            gh api -X POST "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
+              -F body=@"$evidence/report.md" >/dev/null || \
+              echo '::warning::Could not post the redacted reliability report comment'
           fi
+          for log in boot.txt instrumentation.txt runner-exit.txt; do
+            if [ -s "$evidence/$log" ]; then
+              { echo "## Diagnostic: $log"; echo '```'; tail -n 60 "$evidence/$log"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
           exit "$report_status"
 
       - name: Upload the redacted reliability trace and genuine app evidence
