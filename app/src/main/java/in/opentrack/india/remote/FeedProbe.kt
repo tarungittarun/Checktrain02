@@ -6,6 +6,7 @@ import `in`.opentrack.india.core.Http
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
+import org.json.JSONObject
 
 /**
  * A bounded request experiment, run on the device, after the live feed refuses us.
@@ -65,7 +66,8 @@ object FeedProbe {
     private const val BROWSER_TIMEOUT = 8_000
     internal const val MAX_TRIES = 17  // every variant, controls included - a probe that ran out of tries
                                     // before its own control host is a probe that proves nothing
-    private const val TOTAL_BUDGET = 201_000 // four settled page reads lead (rstrain text ~13 s,
+    private const val IRCTC_BETA_BUDGET = 35_000
+    private const val TOTAL_BUDGET = 236_000 // IRCTC beta's own page/search (35 s) plus four settled page reads lead (rstrain text ~13 s,
     // desktop ~10 s, rstrain dom ~10 s, the human-sequence read 20 s + taps + 15 s, 48 s cap) plus
     // the researched gateway POSTs, two mirror reads, and the official app's gateway root; the rest
     // skip with reported lines
@@ -633,6 +635,40 @@ object FeedProbe {
             val out = ArrayList<Result>(tries.size)
             try {
             val started = System.currentTimeMillis()
+            // Ask the actual CRIS-branded passenger page to perform its own search. This is the first
+            // discriminator for the user's discovery: the page owns its headers/session/body, and we
+            // capture its real POST response instead of sending another guessed GET or envelope. It is
+            // diagnostics only; it cannot change the source shown to the traveller.
+            if (!cancelRequested && System.currentTimeMillis() - started + IRCTC_BETA_BUDGET <= TOTAL_BUDGET) {
+                val t0 = System.currentTimeMillis()
+                val beta = IrctcBetaPageProbe.search(trainNo)
+                val ms = System.currentTimeMillis() - t0
+                val root = (beta as? Http.Result.Ok)?.let { runCatching { JSONObject(it.body) }.getOrNull() }
+                val capture = root?.optJSONObject("capturedRequest")
+                val response = capture?.optString("responseBody").orEmpty()
+                val responseJson = if (response.isBlank()) null else
+                    NtesWire.unwrapJson(response) ?: runCatching { JSONObject(response) }.getOrNull()
+                val requestBody = capture?.optString("requestBody").orEmpty()
+                val requestJson = if (requestBody.isBlank()) null else
+                    runCatching { JSONObject(requestBody) }.getOrNull()
+                val visible = root?.optString("visibleText").orEmpty()
+                val summary = when (beta) {
+                    is Http.Result.Ok -> if (capture == null) {
+                        "page answered ${visible.length}B but no ntesData request was captured"
+                    } else {
+                        "${capture.optString("method")} ${capture.optString("url").substringAfter("irctc.co.in").take(100)} " +
+                            "HTTP ${capture.optInt("status", -1)} request=${requestBody.length}B" +
+                            (requestJson?.let { " requestShape=${NtesWire.shapeOf(it, 3)}" } ?: "") +
+                            " response=${response.length}B" +
+                            (responseJson?.let { " responseShape=${NtesWire.shapeOf(it, 3)}" } ?: " non-JSON-response")
+                    }
+                    is Http.Result.Failed -> "page probe ${beta.kind} ${beta.message}"
+                }
+                val excerpt = visible.take(350).replace('\n', ' ')
+                out += Result("irctc-beta-page", summary, excerpt, ms)
+                Diary.get()?.log("PROBE") { "IRCTC beta page: $summary" +
+                    (if (excerpt.isBlank()) "" else " | page=" + excerpt) }
+            }
             for (v in tries) {
                 if (cancelRequested) {
                     out += Result(v.name, "skipped (a refresh was asked for - the diagnostic yields)", "", 0L)

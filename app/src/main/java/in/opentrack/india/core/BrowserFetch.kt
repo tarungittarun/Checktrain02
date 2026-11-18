@@ -324,6 +324,12 @@ object BrowserFetch {
         taps: List<String>,
         postTapWaitMillis: Int,
         totalBudgetMillis: Int,
+        /** Optionally fill a visible text input whose placeholder/label contains this hint. */
+        inputHint: String? = null,
+        /** The bounded value to enter before tapping [taps]. */
+        inputValue: String? = null,
+        /** If set, capture that same-page fetch/XHR's body, status and response for this exact path suffix. */
+        capturePathSuffix: String? = null,
     ): Http.Result {
         val ctx = appContext ?: return Http.Result.Failed(
             Http.Result.Kind.HTTP, "BrowserFetch not initialised (no application context)",
@@ -350,7 +356,7 @@ object BrowserFetch {
                                                 "AFTER-TAPS page is at " + (loc ?: "?")
                                             }
                                         }
-                                        val expr = "(function(){var out=(document.body?document.body.innerText:'');" +
+                                        val visibleText = "(function(){var out=(document.body?document.body.innerText:'');" +
                                             "var f=document.querySelectorAll('iframe');" +
                                             "for(var i=0;i<f.length&&i<3;i++){" +
                                             "try{var d=f[i].contentDocument;" +
@@ -358,6 +364,9 @@ object BrowserFetch {
                                             "else{out=out+' ||IFRAME['+i+']|| unreachable';}}" +
                                             "catch(e){out=out+' ||IFRAME['+i+']|| cross-origin';}}" +
                                             "return out.substring(0,24000);})()"
+                                        val expr = if (capturePathSuffix.isNullOrBlank()) visibleText else
+                                            "JSON.stringify({visibleText:$visibleText,capturedRequest:" +
+                                                "(window.__otrPageCapture||null)})"
                                         v.evaluateJavascript(expr) { raw ->
                                             if (settled.compareAndSet(false, true)) {
                                                 runCatching {
@@ -403,7 +412,70 @@ object BrowserFetch {
                                         )
                                     }
                                 }
-                                main.postDelayed({ if (!settled.get()) runCatching { tapAt(0) } }, settleMillis.toLong())
+                                fun fillThenTap() {
+                                    val hint = inputHint
+                                    val value = inputValue
+                                    if (hint.isNullOrBlank() || value == null) {
+                                        runCatching { tapAt(0) }
+                                        return
+                                    }
+                                    val capture = capturePathSuffix?.takeIf { it.isNotBlank() }?.let { suffix ->
+                                        val path = JSONObject.quote(suffix)
+                                        "(function(){var suffix=$path;window.__otrPageCapture=null;" +
+                                            "function matches(u){try{var x=new URL(u,location.href);return x.origin===location.origin&&x.pathname.endsWith(suffix)}catch(e){return false}}" +
+                                            "function save(m,u,b,h,st,ty,r){window.__otrPageCapture={url:u,method:m," +
+                                            "requestBody:(typeof b==='string'?b:'').slice(0,64000)," +
+                                            "requestHeaderNames:(h||[]).slice(0,40),status:st,contentType:ty," +
+                                            "responseBody:(r||'').slice(0,120000)}}" +
+                                            "var oldFetch=window.fetch;if(oldFetch)window.fetch=function(input,init){" +
+                                            "var u=typeof input==='string'?input:(input&&input.url)||'';" +
+                                            "var m=(init&&init.method)||'GET',b=init&&init.body,h=[];" +
+                                            "try{h=Array.from(new Headers(init&&init.headers||{}).keys())}catch(e){}" +
+                                            "var hit=matches(u);return oldFetch.apply(this,arguments).then(function(r){" +
+                                            "if(hit)r.clone().text().then(function(t){save(m,u,b,h,r.status," +
+                                            "r.headers.get('content-type')||'',t)});return r})};" +
+                                            "var p=XMLHttpRequest.prototype,open=p.open,set=p.setRequestHeader,send=p.send;" +
+                                            "p.open=function(m,u){this.__otrMeta={m:m,u:new URL(u,location.href).href,b:'',h:[]};" +
+                                            "return open.apply(this,arguments)};" +
+                                            "p.setRequestHeader=function(k,v){if(this.__otrMeta)this.__otrMeta.h.push(k);" +
+                                            "return set.apply(this,arguments)};" +
+                                            "p.send=function(b){var x=this,q=this.__otrMeta;" +
+                                            "if(q&&matches(q.u)){q.b=typeof b==='string'?b:'';" +
+                                            "x.addEventListener('loadend',function(){var r='';try{r=x.responseType==='json'?" +
+                                            "JSON.stringify(x.response):x.responseText}catch(e){};" +
+                                            "save(q.m,q.u,q.b,q.h,x.status,x.getResponseHeader('content-type')||'',r)})}" +
+                                            "return send.apply(this,arguments)}})();"
+                                    }.orEmpty()
+                                    val js = "(function(){var norm=function(s){return (s||'').toLowerCase();};" +
+                                        "var hint=" + JSONObject.quote(hint) + ";var value=" +
+                                        JSONObject.quote(value) + ";" +
+                                        "var ins=document.querySelectorAll('input:not([type=hidden]),textarea');" +
+                                        "for(var i=0;i<ins.length;i++){var e=ins[i];" +
+                                        "var label=(e.getAttribute('placeholder')||'')+' '+" +
+                                        "(e.getAttribute('aria-label')||'')+' '+(e.getAttribute('name')||'');" +
+                                        "if(!norm(label).includes(norm(hint))||!e.getClientRects().length)continue;" +
+                                        "e.focus();var p=e.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;" +
+                                        "var d=Object.getOwnPropertyDescriptor(p,'value');" +
+                                        "if(d&&d.set)d.set.call(e,value);else e.value=value;" +
+                                        "e.dispatchEvent(new Event('input',{bubbles:true}));" +
+                                        "e.dispatchEvent(new Event('change',{bubbles:true}));return 'filled';}" +
+                                        "return 'input-not-found';})()"
+                                    v.evaluateJavascript(capture + js) { result ->
+                                        Diary.get()?.log("BROWSER") {
+                                            "FILL[$hint] -> " + (result ?: "null")
+                                        }
+                                        // Let the page's own controlled-input handler settle before its
+                                        // normal Search button is tapped; the page, not this app, makes
+                                        // the live-status request and supplies its real payload/headers.
+                                        main.postDelayed(
+                                            { if (!settled.get()) runCatching { tapAt(0) } }, 500L,
+                                        )
+                                    }
+                                }
+                                main.postDelayed(
+                                    { if (!settled.get()) runCatching { fillThenTap() } },
+                                    settleMillis.toLong(),
+                                )
                             }
 
                             override fun onReceivedError(
