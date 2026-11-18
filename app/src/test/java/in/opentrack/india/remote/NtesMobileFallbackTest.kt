@@ -57,6 +57,38 @@ class NtesMobileFallbackTest {
         assertNull("a rejected estimate cannot anchor delay", safe.rows[3].delayDep)
     }
 
+    @Test
+    fun `on-time delay cannot accompany an accepted twelve-minute-late ETA on screen`() {
+        // Both cells are plausible if checked independently: the ETA is a past clock,
+        // twelve minutes after schedule, within the old -10..+180 window. But this same
+        // source row says "On Time". A separate coherent TK row qualifies the run, so the
+        // contradictory YPR cell must still be rejected at the per-row gate.
+        val doc = JSONObject("""{"TrainNo":"20651","StartDate":"13-Oct-2026","LUPDT":"17:10 13-Oct","STNS":[
+            {"SC":"SBC","STA":"Source","STD":"Source/15:00 13-Oct","ETA":"Source","ETD":"Source/15:00 13-Oct","DARR":"On Time","DDEP":"On Time"},
+            {"SC":"YPR","STA":"15:10 13-Oct","STD":"15:12 13-Oct","ETA":"15:22 13-Oct","ETD":"15:12 13-Oct","DARR":"On Time","DDEP":"On Time"},
+            {"SC":"TK","STA":"16:00 13-Oct","STD":"16:02 13-Oct","ETA":"16:20 13-Oct","ETD":"16:22 13-Oct","DARR":"20","DDEP":"20"},
+            {"SC":"TTR","STA":"17:00 13-Oct","STD":"17:02 13-Oct","ETA":"17:20 13-Oct","ETD":"17:22 13-Oct","DARR":"20","DDEP":"20"}
+        ]}""")
+        assertTrue(NtesMobileFallback.matchesRun(doc, "20651", day, "SBC", "TTR"))
+        val parsed = NtesWire.parse(doc.toString())!!
+        val stamp = NtesMobileFallback.updateMillis(doc, day)!!
+        val stamped = parsed.copy(feedStampMillis = stamp)
+        val safe = NtesMobileFallback.trustedRows(stamped, route(), day,
+            RailTime.railMinuteToEpochMillis(day, 17 * 60 + 11))
+        assertNull("contradictory YPR arrival must not become an actual", safe.rows[1].actArr)
+        assertNull("its contradictory On Time delay must not survive either", safe.rows[1].delayArr)
+        assertEquals("independent, agreeing TK actual remains usable", 16 * 60 + 20,
+            safe.rows[2].actArr)
+        assertEquals(20, safe.rows[2].delayArr)
+        val displayed = NtesAdapter.toSnapshot(safe, "20651", day)!!
+        assertNull(displayed.perStop["YPR"]?.actualArrivalMin)
+        assertNull(displayed.perStop["YPR"]?.delayArrivalMin)
+        assertEquals(16 * 60 + 20, displayed.perStop["TK"]?.actualArrivalMin)
+        assertEquals(20, displayed.perStop["TK"]?.delayArrivalMin)
+        assertEquals("feed's update time is preserved independently of event times",
+            stamp, displayed.feedStampMillis)
+    }
+
     /** The first three STNS entries and LUPDT are transcribed from the owner's R54 diary.
      * The capture contained 29 rows, but no full payload; this is a partial, not a fake
      * 29-stop fixture. In particular it contains NO TrainNo or StartDate header. */

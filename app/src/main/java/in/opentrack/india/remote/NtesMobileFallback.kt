@@ -205,16 +205,20 @@ internal object NtesMobileFallback {
         return parsed.copy(rows = parsed.rows.map { row ->
             val stop = byCode[row.code] ?: return@map row.copy(
                 actArr = null, actDep = null, delayArr = null, delayDep = null, departed = null)
-            fun keep(clock: Int?, schedule: Int?): Int? {
-                if (clock == null || schedule == null) return null
+            fun keep(clock: Int?, schedule: Int?, reportedDelay: Int?): Int? {
+                if (clock == null || schedule == null || reportedDelay == null) return null
                 val aligned = RailTime.alignClock(clock, schedule) ?: return null
-                return aligned.takeIf { it - schedule in -10..180 && aligned <= nowRail + 2 &&
+                val delta = aligned - schedule
+                // A changed ETA/ETD is not an observed minute merely because it is in the
+                // past and has some delay text. Require the source's same-stop delay to agree
+                // with the clock-vs-schedule delta; otherwise two contradictory source fields
+                // would be rendered together as a confident actual and delay.
+                if (delta != reportedDelay) return null
+                return aligned.takeIf { delta in -10..180 && aligned <= nowRail + 2 &&
                     aligned >= origin - 10 }
             }
-            // ETA/ETD can be predictions. An associated published stop delay is required
-            // before a changed time is even eligible for the past-stop clock checks.
-            val arr = if (row.delayArr != null) keep(row.actArr, stop.arrivalMin) else null
-            val dep = if (row.delayDep != null) keep(row.actDep, stop.departureMin) else null
+            val arr = keep(row.actArr, stop.arrivalMin, row.delayArr)
+            val dep = keep(row.actDep, stop.departureMin, row.delayDep)
             row.copy(actArr = arr, actDep = dep,
                 delayArr = row.delayArr.takeIf { arr != null },
                 delayDep = row.delayDep.takeIf { dep != null },
