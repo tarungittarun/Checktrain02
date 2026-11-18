@@ -58,10 +58,15 @@ jobs:
       - name: Build the current offline route asset
         run: bash tools/ci/prepare_asset.sh
 
-      - name: Run unit tests and build the exact app and instrumentation APKs
+      - name: Build the exact app and instrumentation APKs
+        # The push-triggered android workflow runs the complete unit-test partitions independently.
+        # This job builds the installable pair used by the real 60-minute emulator observation.
         run: |
-          ./gradlew --no-daemon :app:testDebugUnitTest \
-            :app:assembleDebug :app:assembleDebugAndroidTest --stacktrace
+          mkdir -p wimt-one-running-train-60-minute-evidence
+          set -o pipefail
+          ./gradlew --no-daemon :app:assembleDebug \
+            :app:assembleDebugAndroidTest --stacktrace 2>&1 | \
+            tee wimt-one-running-train-60-minute-evidence/build.log
 
       - name: Preserve the APK pair used by this run
         if: success()
@@ -87,6 +92,9 @@ jobs:
         run: |
           evidence=wimt-one-running-train-60-minute-evidence
           mkdir -p "$evidence/screens"
+          if [ -s "$evidence/build.log" ]; then
+            { echo '## APK build diagnostic tail'; echo '```'; tail -n 100 "$evidence/build.log"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          fi
           [ -s "$evidence/instrumentation.txt" ] || : > "$evidence/instrumentation.txt"
           [ -s "$evidence/soak-trace.txt" ] || : > "$evidence/soak-trace.txt"
           [ -s "$evidence/runner-exit.txt" ] || printf 'instrumentationExitCode=-1\n' > "$evidence/runner-exit.txt"
