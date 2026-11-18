@@ -1247,33 +1247,23 @@ class LiveViewModel(
         website: TimedSourceEvent?): Boolean = official != null && website != null &&
         SourceRecency.officialIsNewer(official.ageMillis, website.ageMillis)
 
-    /** Prefer run-bound actuals; a selected website can separately provide its own
-     * labelled past-card timeline when the official request genuinely fails.
-     * A newer HTML page clock never outranks an older train event by itself. */
+    /** Automatic source fallback is limited to run-bound NTES or direct WIMT `.in` actuals.
+     * Unqualified websites and comparison-only mirrors never become the traveller's selected source. */
     private fun bestAvailableSource(ui: Ui, rejected: String): String? =
-        listOf("NTES (official)", TrackingSources.WIMT, RunningStatusMirror.SOURCE,
-            ConfirmTktMirror.SOURCE, "erail").firstOrNull { name ->
+        listOf(TrackingSources.OFFICIAL, TrackingSources.WIMT).firstOrNull { name ->
             name != rejected && ui.sourceStates[name]?.first == "live" &&
                 SourceEvidencePolicy.primaryActuals(name,
                     runIdentified = if (name == TrackingSources.WIMT)
                         ui.wimtLiveEvidence?.let { it.runDateMatched == true && it.routeMatched == true } == true
                     else true,
                     verifiedStopMinutes = when (name) {
-                        "NTES (official)" -> ui.answer.position.provenance == SourceKind.PROVIDER_NTES &&
+                        TrackingSources.OFFICIAL -> ui.answer.position.provenance == SourceKind.PROVIDER_NTES &&
                             ui.answer.perStop.values.any { it.actualArrivalMin != null || it.actualDepartureMin != null }
                         TrackingSources.WIMT -> ui.wimtLiveEvidence?.let {
                             it.freshSourceUpdate && it.actualStopCount > 0
                         } == true
-                        RunningStatusMirror.SOURCE, ConfirmTktMirror.SOURCE ->
-                            freshShift() && mirrorStops[name].orEmpty().isNotEmpty()
-                        "erail" -> manualErail != null &&
-                            System.currentTimeMillis() - manualErailAt in 0L..PositionEngine.STALE_MS
                         else -> false
                     })
-        } ?: PublicPageChecks.ORG.takeIf { name ->
-            name != rejected && WebsiteReportDisplay.usable(ui.sourceStates[name]?.first,
-                ui.publicSourceAnswered[name] == true, ui.orgWebsiteReport,
-                ui.orgWebsiteSiteClocks)
         }
 
     private suspend fun refreshBody(previous: TrainPosition?) {

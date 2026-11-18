@@ -23,12 +23,20 @@ case "$SOAK_MINUTES" in
     TEST_METHOD=selectedWimtAutoRefreshRemainsStableFor46Minutes
     TEST_TIMEOUT_SECONDS=3600
     ;;
+  60)
+    TEST_METHOD=selectedWimtAppRemainsObservableEvery30SecondsFor60Minutes
+    TEST_TIMEOUT_SECONDS=4200
+    if [ "$OBSERVATION_INTERVAL_SECONDS" != 30 ]; then
+      echo "60-minute installed-app observation requires a 30-second sample interval" >&2
+      exit 2
+    fi
+    ;;
   240)
     TEST_METHOD=selectedWimtAutoRefreshRemainsStableFor240Minutes
     TEST_TIMEOUT_SECONDS=17400
     ;;
   *)
-    echo "Unsupported opt-in WIMT soak duration: $SOAK_MINUTES (allowed: 30, 46, 240)" >&2
+    echo "Unsupported opt-in WIMT soak duration: $SOAK_MINUTES (allowed: 30, 46, 60, 240)" >&2
     exit 2
     ;;
 esac

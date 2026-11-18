@@ -20,16 +20,17 @@ class RefreshTargetPolicyTest {
 
     @Test fun firstSurveyRefusalDisplaysAlreadyAvailableOfficialTimesWithoutChangingManualTarget() {
         assertEquals(official, RefreshTargetPolicy.afterWebsiteSurvey(site, false, true))
-        assertEquals(site, RefreshTargetPolicy.target(official, site, auto = false))
+        assertEquals("a retired website preference is normalized to NTES",
+            official, RefreshTargetPolicy.target(official, site, auto = false))
         assertEquals(official, RefreshTargetPolicy.target(official, site, auto = true))
         assertEquals(site, RefreshTargetPolicy.afterWebsiteSurvey(site, false, false))
         assertEquals(site, RefreshTargetPolicy.afterWebsiteSurvey(site, true, true))
         assertEquals(official, RefreshTargetPolicy.afterWebsiteSurvey(official, false, true))
     }
 
-    @Test fun manualRefreshKeepsTheSavedProviderIdentityAfterOfficialFallback() {
-        assertEquals(site, RefreshTargetPolicy.target(official, site, auto = false))
-        assertEquals(site, RefreshTargetPolicy.target(site, site, auto = false))
+    @Test fun retiredWebsitePreferenceNeverReactivatesWebsiteOnRefresh() {
+        assertEquals(official, RefreshTargetPolicy.target(official, site, auto = false))
+        assertEquals(official, RefreshTargetPolicy.target(site, site, auto = false))
         assertEquals(TrackingSources.WIMT, RefreshTargetPolicy.target(
             official, TrackingSources.WIMT, auto = false))
         assertEquals("an experimental cache preference must not become a `.org.in` request",
@@ -47,9 +48,9 @@ class RefreshTargetPolicyTest {
         assertEquals(official, RefreshTargetPolicy.target(null, null, auto = false))
     }
 
-    @Test fun comparisonHintSwitchesOnlyToTheOtherNamedSource() {
+    @Test fun comparisonHintOnlyLetsLegacyWebsiteSelectionExitToNtes() {
         assertEquals(official, RefreshTargetPolicy.alternateSourceTarget(site))
-        assertEquals(site, RefreshTargetPolicy.alternateSourceTarget(official))
+        assertNull(RefreshTargetPolicy.alternateSourceTarget(official))
         assertNull(RefreshTargetPolicy.alternateSourceTarget(TrackingSources.WIMT))
     }
 

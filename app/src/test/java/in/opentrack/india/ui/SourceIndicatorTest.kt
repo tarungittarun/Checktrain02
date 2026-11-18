@@ -8,9 +8,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SourceIndicatorTest {
-    @Test fun pickerKeepsDirectWimtFeedWebsiteAndNtesAsSeparateSources() {
-        assertEquals(listOf(TrackingSources.OFFICIAL, TrackingSources.WIMT, PublicPageChecks.ORG),
+    @Test fun pickerKeepsOnlyDatedNtesAndDirectWimtFeedAsUserSources() {
+        assertEquals(listOf(TrackingSources.OFFICIAL, TrackingSources.WIMT),
             TrackingSources.options)
+        assertFalse("undated website cards are not a selectable live source",
+            TrackingSources.options.contains(PublicPageChecks.ORG))
         assertEquals("WIMT .in live-status feed", TrackingSources.label(TrackingSources.WIMT))
         assertEquals("Where Is My Train · website", TrackingSources.label(PublicPageChecks.ORG))
         assertEquals("WIMT web cache · experimental",
@@ -19,7 +21,8 @@ class SourceIndicatorTest {
         // Exact provider keys stay distinct; the nonselectable cache and separate Google phone
         // app are never silently relabelled as the `.org.in` website or direct `.in` API.
         assertEquals(TrackingSources.WIMT, TrackingSources.valid(TrackingSources.WIMT))
-        assertEquals(PublicPageChecks.ORG, TrackingSources.valid(PublicPageChecks.ORG))
+        assertEquals("old website preferences fall back to qualified NTES, not a site request",
+            TrackingSources.OFFICIAL, TrackingSources.valid(PublicPageChecks.ORG))
         assertEquals(TrackingSources.OFFICIAL, TrackingSources.valid(WimtCandidate.SOURCE))
         assertEquals(TrackingSources.OFFICIAL, TrackingSources.valid("WIMT phone app"))
     }

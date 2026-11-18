@@ -1223,8 +1223,8 @@ class TrainActivity : AppCompatActivity() {
     }
 
     /**
-     * The source dropdown offers NTES and the WIMT .org.in website. The independent .in live feed
-     * and web cache keep their own evidence paths but are not separate user choices. Rebuilt only
+     * The source dropdown offers only NTES and the direct WIMT .in feed. Website and web-cache
+     * observations remain separate diagnostics, not selectable traveller sources. Rebuilt only
      * when the visible option set changes, so a re-selection never fights the observer.
      */
     private fun sourceColor(tone: SourceIndicator.Tone): Int = when (tone) {
@@ -1237,7 +1237,7 @@ class TrainActivity : AppCompatActivity() {
 
     private fun sourcePickerDescription(selectedSource: String?): String =
         "Selected ${TrackingSources.label(TrackingSources.valid(selectedSource))}. " +
-            "Choose NTES, the direct WIMT .in live-status feed, or the distinct WIMT .org.in website. " +
+            "Choose NTES or the direct WIMT .in live-status feed. " +
             "Long press for time and source details."
 
     private fun renderSourceChips(ui: LiveViewModel.Ui) {
@@ -1264,8 +1264,11 @@ class TrainActivity : AppCompatActivity() {
         // Spinner's own accessibility text can be empty on Android even when its
         // painted child says WIMT. Expose the *selected* source to TalkBack too.
         binding.sourceSpinner.contentDescription = sourcePickerDescription(ui.activeSource)
-        binding.refresh.contentDescription = if (vm.refreshTarget(auto = false) != ui.activeSource)
-            "Retry selected website first; NTES currently shown as fallback. Drag to move in lower half"
+        val refreshTarget = vm.refreshTarget(auto = false)
+        val displayedSource = TrackingSources.valid(ui.activeSource)
+        binding.refresh.contentDescription = if (refreshTarget != displayedSource)
+            "Retry ${TrackingSources.label(refreshTarget)} first; " +
+                "${TrackingSources.label(displayedSource)} currently shown as fallback. Drag to move in lower half"
         else "Refresh selected source; drag to move in lower half"
         if (names.isEmpty()) return
         // State updates recolor the existing adapter. Rebuilding the Spinner for every

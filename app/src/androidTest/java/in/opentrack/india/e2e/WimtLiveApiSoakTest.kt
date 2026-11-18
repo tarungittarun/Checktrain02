@@ -360,6 +360,16 @@ class WimtLiveApiSoakTest {
     }
 
     @Test
+    fun selectedWimtAppRemainsObservableEvery30SecondsFor60Minutes() {
+        runSelectedWimtAutoRefreshSoak(
+            requiredDurationMinutes = 60L,
+            requireCurrentStation = true,
+            observationIntervalSeconds = 30L,
+            continuePassivelyAfterSourceFailure = true,
+        )
+    }
+
+    @Test
     fun selectedWimtAutoRefreshRemainsStableFor240Minutes() {
         runSelectedWimtAutoRefreshSoak(240L, requireCurrentStation = false)
     }
@@ -385,8 +395,10 @@ class WimtLiveApiSoakTest {
         assertEquals("instrumentation observation interval must match the selected test",
             observationIntervalSeconds, requestedObservationInterval)
         if (observationIntervalSeconds > 0L) {
-            assertTrue("20-second observation mode is restricted to the 30-minute test",
-                requiredDurationMinutes == 30L && observationIntervalSeconds == 20L)
+            assertTrue("supported high-cadence modes are 30 minutes / 20 seconds and " +
+                "60 minutes / 30 seconds",
+                (requiredDurationMinutes == 30L && observationIntervalSeconds == 20L) ||
+                    (requiredDurationMinutes == 60L && observationIntervalSeconds == 30L))
         }
         val durationMs = durationMinutes * 60_000L
         val observationIntervalMs = observationIntervalSeconds * 1_000L

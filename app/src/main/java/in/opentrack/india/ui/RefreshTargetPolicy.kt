@@ -3,8 +3,8 @@ package `in`.opentrack.india.ui
 import `in`.opentrack.india.v2.mirror.PublicPageChecks
 
 /** Displayed fallback is not a new source choice. A deliberate Refresh retries the traveller's
- * saved non-NTES source before NTES; the opt-in timer stays on the displayed fallback after refusal,
- * rather than repeating a failed request every minute. Choosing NTES explicitly makes it first again. */
+ * saved admitted source before NTES; retired website preferences normalize to NTES. The opt-in
+ * timer stays on the displayed fallback after refusal rather than repeating a failed request. */
 object RefreshTargetPolicy {
     /** The initial background survey must not ask the website for an NTES view. */
     fun surveyWebsite(active: String?, alreadyChecked: Boolean): Boolean =
@@ -26,15 +26,13 @@ object RefreshTargetPolicy {
         siteEventAgeMillis != null && siteEventAgeMillis >= SourceFreshness.STALE_AFTER_MS &&
             SourceRecency.officialIsNewer(officialEventAgeMillis, siteEventAgeMillis)
 
-    /** The summary card can switch only between the two sources it actually compares. */
-    fun alternateSourceTarget(displayed: String?): String? = when (displayed) {
-        PublicPageChecks.ORG -> TrackingSources.OFFICIAL
-        TrackingSources.OFFICIAL -> PublicPageChecks.ORG
-        else -> null
-    }
+    /** The traveler-facing summary may leave a legacy website selection for NTES, but never
+     * offers the unqualified website as an alternative to an admitted source. */
+    fun alternateSourceTarget(displayed: String?): String? =
+        if (displayed == PublicPageChecks.ORG) TrackingSources.OFFICIAL else null
 
     fun target(displayed: String?, preferred: String?, auto: Boolean): String {
-        val active = displayed ?: TrackingSources.OFFICIAL
+        val active = TrackingSources.valid(displayed)
         val saved = TrackingSources.valid(preferred)
         return if (!auto && active == TrackingSources.OFFICIAL && saved != TrackingSources.OFFICIAL)
             saved else active

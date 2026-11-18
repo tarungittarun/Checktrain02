@@ -4,19 +4,18 @@ import `in`.opentrack.india.remote.WimtLiveProvider
 import `in`.opentrack.india.v2.mirror.PublicPageChecks
 import `in`.opentrack.india.v2.mirror.WimtCandidate
 
-/** Preferences use exact source keys, never shortened display names.
- * The direct WIMT `.in` JSON feed and the `.org.in` website are distinct user-facing sources.
- * The experimental web-cache candidate and Google's WIMT phone app are not aliases for either. */
+/** User-selectable sources are limited to dated NTES and direct WIMT `.in` live-status reports.
+ * The `.org.in` website and experimental web-cache remain separate diagnostics, not user sources. */
 object TrackingSources {
     const val OFFICIAL = "NTES (official)"
     const val WIMT = WimtLiveProvider.SOURCE_NAME
-    val options = listOf(OFFICIAL, WIMT, PublicPageChecks.ORG)
+    val options = listOf(OFFICIAL, WIMT)
 
     enum class PickerAction { IGNORE, REFRESH, SELECT }
 
     /** A dropdown choice is a user action even when it arrives through Accessibility or UiAutomator
-     * rather than MotionEvent. Direct `.in` and public-page selections always make a fresh request;
-     * cached comparison state must never suppress the traveller's explicit choice. */
+     * rather than MotionEvent. The direct `.in` source always makes a fresh request; cached
+     * comparison state cannot suppress the traveller's explicit choice. */
     fun pickerAction(name: String, active: String?, state: String?): PickerAction = when {
         name == active -> PickerAction.IGNORE
         name == WIMT || name in PublicPageChecks.names -> PickerAction.REFRESH
@@ -36,10 +35,10 @@ object TrackingSources {
     fun valid(name: String?): String {
         val source = name ?: return OFFICIAL
         return when (source) {
-            OFFICIAL, WIMT, PublicPageChecks.ORG -> source
-            // The experimental cache is not a selectable source. An old cache preference must
-            // fall back to NTES, not silently turn into a request to the unrelated `.org.in` site.
-            WimtCandidate.SOURCE -> OFFICIAL
+            OFFICIAL, WIMT -> source
+            // Unqualified website/cache preferences are no longer selected for travellers.
+            // Normalize them to NTES, never alias them to the direct WIMT `.in` feed.
+            PublicPageChecks.ORG, WimtCandidate.SOURCE -> OFFICIAL
             else -> OFFICIAL
         }
     }
