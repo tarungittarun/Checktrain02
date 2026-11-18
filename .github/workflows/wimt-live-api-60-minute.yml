@@ -107,8 +107,20 @@ jobs:
           fi
           if [ -s "$evidence/report.md" ]; then
             cat "$evidence/report.md" >> "$GITHUB_STEP_SUMMARY"
+            {
+              cat "$evidence/report.md"
+              for log in boot.txt instrumentation.txt runner-exit.txt; do
+                if [ -s "$evidence/$log" ]; then
+                  echo
+                  echo "## Diagnostic: $log"
+                  echo '```'
+                  tail -n 40 "$evidence/$log"
+                  echo '```'
+                fi
+              done
+            } > /tmp/wimt-60-report-comment.md
             gh api -X POST "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
-              -F body=@"$evidence/report.md" >/dev/null || \
+              -f body="$(cat /tmp/wimt-60-report-comment.md)" >/dev/null || \
               echo '::warning::Could not post the redacted reliability report comment'
           fi
           for log in boot.txt instrumentation.txt runner-exit.txt; do
