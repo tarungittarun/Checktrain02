@@ -38,9 +38,9 @@ class RefreshTargetPolicyTest {
                 official, WimtCandidate.SOURCE, auto = false))
     }
 
-    @Test fun automaticRefreshDoesNotHammerARefusingWebsiteAfterFallback() {
+    @Test fun automaticRefreshNormalizesRetiredWebsiteSelectionToNtes() {
         assertEquals(official, RefreshTargetPolicy.target(official, site, auto = true))
-        assertEquals(site, RefreshTargetPolicy.target(site, site, auto = true))
+        assertEquals(official, RefreshTargetPolicy.target(site, site, auto = true))
     }
 
     @Test fun explicitOfficialChoiceStaysOfficialAndDoesNotRetryWebsite() {
