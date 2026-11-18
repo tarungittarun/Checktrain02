@@ -15,7 +15,7 @@ on:
       - 'tools/ci/irctc_beta_browser_check.py'
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: irctc-beta-browser-check-${{ github.ref }}
@@ -51,6 +51,17 @@ jobs:
               echo 'Report contains request/response schema and allowlisted train-status fields only.';
               echo '```json'; cat irctc-beta-result.json; echo '```';
             } >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Publish redacted result where it can be read without the Actions log host
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -f irctc-beta-result.json ]; then
+            { echo '### IRCTC beta browser result (redacted)';
+              echo '```json'; cat irctc-beta-result.json; echo '```'; } > irctc-result-comment.md
+            gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/comments" \
+              -F body=@irctc-result-comment.md > /dev/null
           fi
       - uses: actions/upload-artifact@v4
         if: always()

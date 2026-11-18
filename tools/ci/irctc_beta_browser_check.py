@@ -8,6 +8,7 @@ import base64
 import json
 import os
 import re
+import shutil
 import sys
 import time
 from urllib.parse import parse_qsl, urlparse
@@ -183,6 +184,10 @@ def capture(train_number):
     from selenium.webdriver.support.ui import WebDriverWait
 
     options = Options()
+    chrome_binary = shutil.which("google-chrome") or shutil.which("chromium") or shutil.which("chromium-browser")
+    if not chrome_binary:
+        raise RuntimeError("Chrome/Chromium binary not installed on this runner")
+    options.binary_location = chrome_binary
     options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
@@ -203,92 +208,102 @@ def capture(train_number):
             driver.get(PAGE_URL)
         except Exception as exc:
             navigation_error = f"{type(exc).__name__}: {str(exc)[:180]}"
+        interaction_error = None
         try:
-            WebDriverWait(driver, 20).until(lambda d: d.execute_script("return document.readyState") in ("interactive", "complete"))
-        except Exception:
-            pass
-        page_title = driver.title[:160]
-        form_info = driver.execute_script("""return Array.from(document.querySelectorAll('input')).slice(0,12).map(e=>({
-          type:e.type||'', placeholder:(e.getAttribute('placeholder')||'').slice(0,100),
-          ariaLabel:(e.getAttribute('aria-label')||'').slice(0,100), visible:!!e.getClientRects().length
-        }));""")
-        candidates = driver.find_elements(By.CSS_SELECTOR, "input")
-        target = None
-        for element in candidates:
-            if not element.is_displayed():
-                continue
-            label = " ".join([element.get_attribute("placeholder") or "", element.get_attribute("aria-label") or ""])
-            if re.search(r"train\s*(number|name)", label, re.I):
-                target = element
-                break
-        if target is None:
-            target = next((e for e in candidates if e.is_displayed() and (e.get_attribute("type") or "text") in ("text", "search")), None)
-        if target is None:
-            raise RuntimeError("visible train search input not found")
-        # Keep page bootstrap traffic separate, but include any suggestions plus the Search request.
-        try:
-            driver.get_log("performance")
-        except Exception:
-            pass
-        target.clear()
-        target.send_keys(train_number)
-        search = driver.execute_script("""return Array.from(document.querySelectorAll('button,[role=button],input[type=submit]'))
-          .find(e=>!!e.getClientRects().length && ((e.innerText||e.value||'').trim().toLowerCase()==='search')) || null;""")
-        if search is None:
-            raise RuntimeError("visible Search control not found")
-        driver.execute_script("arguments[0].click()", search)
-
-        def consume_events():
-            nonlocal document_status
-            target_event = False
-            for row in driver.get_log("performance"):
-                try:
-                    message = json.loads(row["message"])["message"]
-                    method = message.get("method")
-                    params = message.get("params", {})
-                    rid = params.get("requestId")
-                    if method == "Network.requestWillBeSent":
-                        req = params.get("request", {})
-                        url = req.get("url", "")
-                        if is_target(url):
-                            target_event = True
-                            requests.setdefault(rid, {"requestId": rid})
-                            item = requests[rid]
-                            item.update({"url": url, "method": req.get("method"), "postData": req.get("postData"),
-                                         "hasPostData": req.get("hasPostData", False),
-                                         "requestHeaders": req.get("headers", {})})
-                    elif rid in requests and method == "Network.requestWillBeSentExtraInfo":
-                        target_event = True
-                        requests[rid]["requestHeaders"] = params.get("headers", requests[rid].get("requestHeaders", {}))
-                    elif rid in requests and method == "Network.responseReceived":
-                        target_event = True
-                        requests[rid]["response"] = params.get("response", {})
-                    elif rid in requests and method == "Network.responseReceivedExtraInfo":
-                        target_event = True
-                        requests[rid]["extraResponseStatus"] = params.get("statusCode")
-                        requests[rid]["extraResponseHeaders"] = params.get("headers", {})
-                    elif rid in requests and method == "Network.loadingFinished":
-                        target_event = True
-                        requests[rid]["loadingFinished"] = True
-                    elif method == "Network.responseReceived" and params.get("type") == "Document":
-                        response = params.get("response", {})
-                        if urlparse(response.get("url", "")).netloc.lower() == HOST:
-                            document_status = response.get("status")
-                except (KeyError, TypeError, ValueError):
+            try:
+                WebDriverWait(driver, 20).until(lambda d: d.execute_script("return document.readyState") in ("interactive", "complete"))
+            except Exception:
+                pass
+            page_title = driver.title[:160]
+            form_info = driver.execute_script("""return Array.from(document.querySelectorAll('input')).slice(0,12).map(e=>({
+              type:e.type||'', placeholder:(e.getAttribute('placeholder')||'').slice(0,100),
+              ariaLabel:(e.getAttribute('aria-label')||'').slice(0,100), visible:!!e.getClientRects().length
+            }));""")
+            candidates = driver.find_elements(By.CSS_SELECTOR, "input")
+            target = None
+            for element in candidates:
+                if not element.is_displayed():
                     continue
-            return target_event
+                label = " ".join([element.get_attribute("placeholder") or "", element.get_attribute("aria-label") or ""])
+                if re.search(r"train\s*(number|name)", label, re.I):
+                    target = element
+                    break
+            if target is None:
+                target = next((e for e in candidates if e.is_displayed() and (e.get_attribute("type") or "text") in ("text", "search")), None)
+            if target is None:
+                raise RuntimeError("visible train search input not found")
+            # Keep page bootstrap traffic separate, but include any suggestions plus the Search request.
+            try:
+                driver.get_log("performance")
+            except Exception:
+                pass
+            target.clear()
+            target.send_keys(train_number)
+            search = driver.execute_script("""return Array.from(document.querySelectorAll('button,[role=button],input[type=submit]'))
+              .find(e=>!!e.getClientRects().length && ((e.innerText||e.value||'').trim().toLowerCase()==='search')) || null;""")
+            if search is None:
+                raise RuntimeError("visible Search control not found")
+            driver.execute_script("arguments[0].click()", search)
 
-        deadline = time.monotonic() + 30
-        last_target_event = time.monotonic()
-        while time.monotonic() < deadline:
-            if consume_events():
-                last_target_event = time.monotonic()
-            if any(item.get("loadingFinished") for item in requests.values()) and \
-                    time.monotonic() - last_target_event >= 1.5:
-                break
-            time.sleep(0.25)
-        page_title = driver.title[:160]
-        page_text = driver.find_element(By.TAG_NAME, "body").text[:2_000]
+            def consume_events():
+                nonlocal document_status
+                target_event = False
+                for row in driver.get_log("performance"):
+                    try:
+                        message = json.loads(row["message"])["message"]
+                        method = message.get("method")
+                        params = message.get("params", {})
+                        rid = params.get("requestId")
+                        if method == "Network.requestWillBeSent":
+                            req = params.get("request", {})
+                            url = req.get("url", "")
+                            if is_target(url):
+                                target_event = True
+                                requests.setdefault(rid, {"requestId": rid})
+                                item = requests[rid]
+                                item.update({"url": url, "method": req.get("method"), "postData": req.get("postData"),
+                                             "hasPostData": req.get("hasPostData", False),
+                                             "requestHeaders": req.get("headers", {})})
+                        elif rid in requests and method == "Network.requestWillBeSentExtraInfo":
+                            target_event = True
+                            requests[rid]["requestHeaders"] = params.get("headers", requests[rid].get("requestHeaders", {}))
+                        elif rid in requests and method == "Network.responseReceived":
+                            target_event = True
+                            requests[rid]["response"] = params.get("response", {})
+                        elif rid in requests and method == "Network.responseReceivedExtraInfo":
+                            target_event = True
+                            requests[rid]["extraResponseStatus"] = params.get("statusCode")
+                            requests[rid]["extraResponseHeaders"] = params.get("headers", {})
+                        elif rid in requests and method == "Network.loadingFinished":
+                            target_event = True
+                            requests[rid]["loadingFinished"] = True
+                        elif method == "Network.responseReceived" and params.get("type") == "Document":
+                            response = params.get("response", {})
+                            if urlparse(response.get("url", "")).netloc.lower() == HOST:
+                                document_status = response.get("status")
+                    except (KeyError, TypeError, ValueError):
+                        continue
+                return target_event
+
+            deadline = time.monotonic() + 30
+            last_target_event = time.monotonic()
+            while time.monotonic() < deadline:
+                if consume_events():
+                    last_target_event = time.monotonic()
+                if any(item.get("loadingFinished") for item in requests.values()) and \
+                        time.monotonic() - last_target_event >= 1.5:
+                    break
+                time.sleep(0.25)
+        except Exception as exc:
+            interaction_error = f"{type(exc).__name__}: {str(exc)[:180]}"
+        try:
+            page_title = driver.title[:160]
+        except Exception:
+            page_title = ""
+        try:
+            page_text = driver.find_element(By.TAG_NAME, "body").text[:2_000]
+        except Exception:
+            page_text = ""
         try:
             driver.save_screenshot(screenshot_path)
         except Exception:
@@ -309,6 +324,7 @@ def capture(train_number):
             "visiblePageText": " ".join(page_text.split())[:2_000],
             "formInputs": form_info,
             "navigationError": navigation_error,
+            "interactionError": interaction_error,
             "endpointRequests": captured,
             "screenshot": screenshot_path,
             "safety": {
