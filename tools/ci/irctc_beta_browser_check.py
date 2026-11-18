@@ -198,6 +198,7 @@ def capture(train_number):
     driver.execute_cdp_cmd("Network.enable", {})
     requests = {}
     document_status = None
+    document_url = None
     page_title = ""
     page_text = ""
     form_info = []
@@ -232,11 +233,26 @@ def capture(train_number):
                 target = next((e for e in candidates if e.is_displayed() and (e.get_attribute("type") or "text") in ("text", "search")), None)
             if target is None:
                 raise RuntimeError("visible train search input not found")
-            # Keep page bootstrap traffic separate, but include any suggestions plus the Search request.
+            # Preserve the actual page-load status before clearing bootstrap traffic; this distinguishes a
+            # public-page WAF refusal from a form-selector bug without keeping raw DevTools events.
             try:
-                driver.get_log("performance")
+                for row in driver.get_log("performance"):
+                    try:
+                        message = json.loads(row["message"])["message"]
+                        if message.get("method") != "Network.responseReceived":
+                            continue
+                        params = message.get("params", {})
+                        response = params.get("response", {})
+                        if (params.get("type") == "Document" and
+                                urlparse(response.get("url", "")).netloc.lower() == HOST):
+                            document_status = response.get("status")
+                            parsed_url = urlparse(response.get("url", ""))
+                            document_url = f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path}"
+                    except (KeyError, TypeError, ValueError):
+                        continue
             except Exception:
                 pass
+            # Include any suggestions plus the Search request, but not page bootstrap traffic.
             target.clear()
             target.send_keys(train_number)
             search = driver.execute_script("""return Array.from(document.querySelectorAll('button,[role=button],input[type=submit]'))
@@ -246,7 +262,7 @@ def capture(train_number):
             driver.execute_script("arguments[0].click()", search)
 
             def consume_events():
-                nonlocal document_status
+                nonlocal document_status, document_url
                 target_event = False
                 for row in driver.get_log("performance"):
                     try:
@@ -281,6 +297,8 @@ def capture(train_number):
                             response = params.get("response", {})
                             if urlparse(response.get("url", "")).netloc.lower() == HOST:
                                 document_status = response.get("status")
+                                parsed_url = urlparse(response.get("url", ""))
+                                document_url = f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path}"
                     except (KeyError, TypeError, ValueError):
                         continue
                 return target_event
@@ -301,6 +319,12 @@ def capture(train_number):
         except Exception:
             page_title = ""
         try:
+            if document_url is None:
+                parsed_url = urlparse(driver.current_url)
+                document_url = f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path}"
+        except Exception:
+            pass
+        try:
             page_text = driver.find_element(By.TAG_NAME, "body").text[:2_000]
         except Exception:
             page_text = ""
@@ -309,7 +333,10 @@ def capture(train_number):
         except Exception:
             screenshot_path = None
         captured = [response_shape(item, driver) for item in requests.values()][:8]
-        verdict = ("NO_NTESDATA_REQUEST_CAPTURED" if not captured else
+        page_lower = (page_title + " " + page_text).lower()
+        verdict = ("IRCTC_PAGE_ACCESS_DENIED" if not captured and "access denied" in page_lower else
+                   "BROWSER_CHALLENGE" if not captured and "checking your browser" in page_lower else
+                   "NO_NTESDATA_REQUEST_CAPTURED" if not captured else
                    "NTESDATA_POST_2XX_CAPTURED" if any(x.get("request", {}).get("method") == "POST" and
                        isinstance(x.get("status"), (int, float)) and 200 <= x["status"] < 300 for x in captured) else
                    "NTESDATA_POST_CAPTURED_NON_2XX" if any(x.get("request", {}).get("method") == "POST" for x in captured) else
@@ -320,6 +347,7 @@ def capture(train_number):
             "trainNumber": train_number,
             "client": "one clean headless Chrome session on GitHub Actions; no login or user cookies",
             "documentHttpStatus": document_status,
+            "documentUrl": document_url,
             "pageTitle": page_title,
             "visiblePageText": " ".join(page_text.split())[:2_000],
             "formInputs": form_info,
