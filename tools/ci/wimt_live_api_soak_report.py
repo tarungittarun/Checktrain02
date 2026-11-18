@@ -1,0 +1,378 @@
+#!/usr/bin/env python3
+"""Redacted evidence report for the installed-app 240-minute WIMT .in soak.
+
+Only bounded counts, response bytes, HTTP status, allowlisted parser-outcome classes, and
+run/route/freshness booleans are published. The source response body, request URL, headers,
+cookies and stop identifiers are never copied.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import struct
+from pathlib import Path
+
+DURATION_MS = 240 * 60 * 1000
+PROVENANCE = (
+    "This test observes the selected WIMT .in source's own response and the installed app's "
+    "rendered table. These are source-reported clocks, not independently verified railway "
+    "actuals, train movement, GPS, provider permission, the Google WIMT phone app, or the "
+    "owner's Android phone. The endpoint may itself be server-cached."
+)
+
+
+def fields(line: str) -> dict[str, str]:
+    return dict(re.findall(r"([A-Za-z][A-Za-z0-9]*)=([^\s]+)", line))
+
+
+def number(data: dict[str, str], key: str, default: int = 0) -> int:
+    try:
+        return int(data.get(key, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
+def truth(data: dict[str, str], key: str) -> bool:
+    return data.get(key, "").lower() == "true"
+
+
+def optional_truth(data: dict[str, str], key: str) -> bool | None:
+    value = data.get(key, "").lower()
+    return True if value == "true" else False if value == "false" else None
+
+
+def valid_png(path: Path) -> bool:
+    try:
+        with path.open("rb") as stream:
+            header = stream.read(24)
+        if len(header) != 24 or header[:8] != b"\x89PNG\r\n\x1a\n":
+            return False
+        width, height = struct.unpack(">II", header[16:24])
+        return width > 0 and height > 0 and path.stat().st_size > 1000
+    except OSError:
+        return False
+
+
+def build_report(directory: Path) -> dict:
+    trace_path = directory / "soak-trace.txt"
+    if not trace_path.is_file():
+        trace_path = directory / "wimt-soak-results.txt"
+    trace = trace_path.read_text(encoding="utf-8", errors="replace") if trace_path.is_file() else ""
+    lines = trace.splitlines()
+    initial_line = next((line for line in lines if "WIMT_SOAK_INITIAL " in line), "")
+    auto_enable_line = next((line for line in lines if "WIMT_SOAK_AUTO_ENABLE " in line), "")
+    started_line = next((line for line in lines if "WIMT_SOAK_STARTED " in line), "")
+    summary_line = next((line for line in reversed(lines) if "WIMT_SOAK_SUMMARY " in line), "")
+    initial = fields(initial_line)
+    response_class = initial.get("responseClass", "not recorded")
+    if response_class not in {
+        "HTTP_STATUS_UNKNOWN", "HTTP_200_NO_QUALIFIED_ROWS", "HTTP_200_SOURCE_ROWS_PRESENT",
+    } and not re.fullmatch(r"HTTP_[1-5][0-9]{2}", response_class):
+        response_class = "unrecognized"
+    parser_outcome = initial.get("parserOutcome", "not recorded")
+    if parser_outcome not in {
+        "RUN_DATE_MISMATCH", "ROUTE_MISMATCH", "TRAIN_MISMATCH", "INVALID_JSON",
+        "NO_SCHEDULE_ARRAY", "RESPONSE_TOO_LARGE", "RUN_DATE_NOT_ECHOED",
+        "ROUTE_NOT_FULLY_ECHOED", "PARSED_ZERO_SOURCE_ACTUAL_STOPS",
+        "ZERO_QUALIFIED_SOURCE_ROWS", "SOURCE_ROWS_PRESENT",
+    }:
+        parser_outcome = "unrecognized"
+    initial_response_bytes = number(initial, "responseBytes", -1)
+    auto_enable = fields(auto_enable_line)
+    started = fields(started_line)
+    summary = fields(summary_line)
+
+    instrumentation_path = directory / "instrumentation.txt"
+    instrumentation = instrumentation_path.read_text(
+        encoding="utf-8", errors="replace") if instrumentation_path.is_file() else ""
+    instrumentation_passed = "OK (1 test)" in instrumentation and "FAILURES!!!" not in instrumentation
+    runner_exit_path = directory / "runner-exit.txt"
+    runner_exit = None
+    if runner_exit_path.is_file():
+        try:
+            runner_exit = int(fields(runner_exit_path.read_text(encoding="utf-8")).get(
+                "instrumentationExitCode", ""))
+        except (TypeError, ValueError):
+            runner_exit = None
+    boot_path = directory / "boot.txt"
+    boot_log = boot_path.read_text(encoding="utf-8", errors="replace").lower() if boot_path.is_file() else ""
+
+    captured = sorted(
+        str(path.relative_to(directory))
+        for path in (directory / "screens").glob("*.png")
+        if valid_png(path)
+    ) if (directory / "screens").is_dir() else []
+
+    initial_ok = (
+        initial.get("httpStatus") == "200"
+        and truth(initial, "runDateMatched")
+        and truth(initial, "routeMatched")
+        and truth(initial, "fresh")
+        and number(initial, "rows") > 0
+        and number(initial, "cells") > 0
+        and truth(initial, "selected")
+        and truth(initial, "disclosed")
+        and truth(initial, "accepted")
+    )
+    duration_ms = number(summary, "durationMs")
+    cycles = number(summary, "cycles")
+    missed = number(summary, "missedReceipts")
+    http_failures = number(summary, "httpFailures")
+    unqualified = number(summary, "unqualifiedSamples")
+    selected_losses = number(summary, "selectedLosses")
+    auto_off = truth(summary, "autoOff")
+    full_duration = truth(summary, "fullDuration") and duration_ms >= DURATION_MS
+    final_selected = truth(summary, "finalSelected")
+
+    checks = {
+        "initialStrictFreshInAppAcceptance": initial_ok,
+        "full240MinuteDuration": full_duration,
+        "atLeast230OneMinuteReceipts": cycles >= 230,
+        "atMost10MissedReceiptSlots": missed <= 10,
+        "noHttpFailures": http_failures == 0,
+        "noUnqualifiedRunRouteSamples": unqualified == 0,
+        "selectedWimtNeverLost": selected_losses == 0 and final_selected,
+        "autoVerifiedOffAtEnd": auto_off,
+        "instrumentationPassed": instrumentation_passed and runner_exit == 0,
+    }
+    passed = all(checks.values())
+    failure_stage = "PASS" if passed else "SETUP_OR_DEVICE_TEST_NOT_COMPLETED"
+    if not passed:
+        if "emulator did not finish booting" in boot_log or "needs hardware acceleration" in boot_log:
+            failure_stage = "EMULATOR_BOOT_FAILED"
+        elif runner_exit == 3:
+            failure_stage = "EMULATOR_SETUP_FAILED"
+        elif initial_line and not initial_ok:
+            failure_stage = "INITIAL_WIMT_IN_APP_GATE_FAILED"
+        elif initial_line and not started_line:
+            if auto_enable_line and not truth(auto_enable, "enabled"):
+                failure_stage = "AUTO_ENABLE_FAILED"
+            elif auto_enable_line:
+                failure_stage = "SOAK_START_TRACE_MISSING"
+            else:
+                failure_stage = "AUTO_ENABLE_OR_SOAK_START_FAILED"
+        elif started_line and not summary_line:
+            failure_stage = "SOAK_INTERRUPTED_BEFORE_FINAL_SUMMARY"
+        elif summary_line and not full_duration:
+            failure_stage = "SOAK_ENDED_BEFORE_240_MINUTES"
+        elif summary_line:
+            failure_stage = "SOAK_ACCEPTANCE_ASSERTION_FAILED"
+        elif runner_exit is not None:
+            failure_stage = "INSTRUMENTED_DEVICE_TEST_FAILED_BEFORE_INITIAL_GATE"
+    failed_checks = [name for name, ok in checks.items() if not ok]
+    failure_summary = "All required checks passed." if passed else "; ".join(failed_checks)
+    if not passed and failure_stage == "INITIAL_WIMT_IN_APP_GATE_FAILED":
+        failure_summary = (
+            "Initial WIMT in-app gate failed: "
+            f"HTTP={initial.get('httpStatus', 'not recorded')}, "
+            f"run-date-match={truth(initial, 'runDateMatched')}, "
+            f"route-match={truth(initial, 'routeMatched')}, "
+            f"fresh={truth(initial, 'fresh')}, rows={number(initial, 'rows')}, "
+            f"visible-cells={number(initial, 'cells')}, "
+            f"selected={truth(initial, 'selected')}, "
+            f"provenance-disclosed={truth(initial, 'disclosed')}, "
+            f"response-class={response_class}, parser-outcome={parser_outcome}, "
+            f"response-bytes={initial_response_bytes if initial_response_bytes >= 0 else 'unknown'}"
+        )
+    elif not passed and failure_stage == "EMULATOR_BOOT_FAILED":
+        failure_summary = "The emulator did not boot; no installed-app WIMT claim was made."
+    elif not passed and failure_stage == "EMULATOR_SETUP_FAILED":
+        failure_summary = "Emulator setup failed before the installed-app test could run."
+    elif not passed and failure_stage == "AUTO_ENABLE_FAILED":
+        failure_summary = (
+            "Opt-in Auto was not confirmed ON before the soak started: "
+            f"control-revealed={auto_enable.get('revealed', 'not recorded')}, "
+            f"initial-checked={auto_enable.get('initialChecked', 'not recorded')}, "
+            f"reset-tap={auto_enable.get('resetTap', 'not recorded')}, "
+            f"checked-after-reset={auto_enable.get('checkedAfterReset', 'not recorded')}, "
+            f"enable-tap={auto_enable.get('enableTap', 'not recorded')}, "
+            f"enable-retry-tap={auto_enable.get('enableRetryTap', 'not recorded')}, "
+            f"checked-after-enable={auto_enable.get('checkedAfterEnable', 'not recorded')}"
+        )
+    elif not passed and failure_stage == "SOAK_START_TRACE_MISSING":
+        failure_summary = "Auto was observed ON, but the test did not record the soak start."
+    elif not passed and failure_stage == "INSTRUMENTED_DEVICE_TEST_FAILED_BEFORE_INITIAL_GATE":
+        failure_summary = "The instrumented app test failed before it recorded the initial WIMT gate."
+
+    result = {
+        "verdict": "PASS_240_MINUTE_INSTALLED_APP_WIMT_SOAK" if passed else
+            "FAIL_OR_INCOMPLETE_240_MINUTE_INSTALLED_APP_WIMT_SOAK",
+        "passed": passed,
+        "failureStage": failure_stage,
+        "failureSummary": failure_summary,
+        "requiredDurationMinutes": 240,
+        "durationMs": duration_ms if summary else None,
+        "durationMinutes": round(duration_ms / 60_000, 2) if summary else None,
+        "initial": {
+            "accepted": initial_ok,
+            "httpStatus": initial.get("httpStatus"),
+            "runDateMatched": truth(initial, "runDateMatched"),
+            "routeMatched": truth(initial, "routeMatched"),
+            "freshSourceStamp": truth(initial, "fresh"),
+            "sourceRows": number(initial, "rows"),
+            "visibleWimtAttributedCells": number(initial, "cells"),
+            "responseClass": response_class,
+            "parserOutcome": parser_outcome,
+            "responseBytes": initial_response_bytes if initial_response_bytes >= 0 else None,
+            "selectedSource": truth(initial, "selected"),
+            "provenanceDisclosed": truth(initial, "disclosed"),
+        },
+        "autoEnable": {
+            "diagnosticCaptured": bool(auto_enable_line),
+            "controlRevealed": optional_truth(auto_enable, "revealed"),
+            "initialChecked": optional_truth(auto_enable, "initialChecked"),
+            "resetTap": auto_enable.get("resetTap"),
+            "checkedAfterReset": optional_truth(auto_enable, "checkedAfterReset"),
+            "enableTap": auto_enable.get("enableTap"),
+            "enableRetryTap": auto_enable.get("enableRetryTap"),
+            "checkedAfterEnable": optional_truth(auto_enable, "checkedAfterEnable"),
+            "enabled": optional_truth(auto_enable, "enabled"),
+        },
+        "autoRefresh": {
+            "receiptCycles": cycles,
+            "missedReceiptSlots": missed,
+            "detailSamples": number(summary, "detailSamples"),
+            "freshSamples": number(summary, "freshSamples"),
+            "nonFreshSamples": number(summary, "nonFreshSamples"),
+            "httpFailures": http_failures,
+            "unqualifiedSamples": unqualified,
+            "selectedSourceLosses": selected_losses,
+            "sourceFailureReason": summary.get("sourceFailureReason", "not recorded"),
+            "stoppedAfterSourceFailure": truth(summary, "autoStoppedAfterSourceFailure"),
+            "finalSourceStillWimt": final_selected,
+            "autoOffVerified": auto_off,
+        },
+        "checks": checks,
+        "instrumentationPassed": instrumentation_passed,
+        "instrumentationExitCode": runner_exit,
+        "capturedAppScreenshots": captured,
+        "provenance": PROVENANCE,
+    }
+
+    (directory / "result.json").write_text(
+        json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    lines_out = [
+        "# WIMT .in · 240-minute installed-app regression",
+        "",
+        f"**Verdict:** `{result['verdict']}`",
+        f"**Failure stage:** `{failure_stage}`",
+        f"**Diagnostic:** {failure_summary}",
+        "",
+        "## Result",
+        "",
+        f"- Duration: {result['durationMinutes'] if summary else 'not recorded'} minutes "
+        f"(required: 240)",
+        f"- Initial strict in-app acceptance: {'PASS' if initial_ok else 'FAIL / not established'}",
+        f"- One-minute refresh receipts: {cycles} (minimum: 230); missed slots: {missed}",
+        f"- Auto before soak: initially `{auto_enable.get('initialChecked', 'not recorded')}`; "
+        f"confirmed ON `{auto_enable.get('enabled', 'not recorded')}`",
+        f"- Detailed response samples: {number(summary, 'detailSamples')}",
+        f"- Fresh source-stamp samples: {number(summary, 'freshSamples')}; "
+        f"non-fresh or unknown: {number(summary, 'nonFreshSamples')}",
+        f"- HTTP failures: {http_failures}; unqualified samples: {unqualified}",
+        f"- Selected-source losses: {selected_losses}; "
+        f"final WIMT selection: {final_selected}",
+        f"- Auto verified off at end: {auto_off}",
+        f"- Instrumentation: {'PASS' if instrumentation_passed and runner_exit == 0 else 'FAIL / incomplete'}",
+        f"- Source stop reason: `{summary.get('sourceFailureReason', 'not recorded')}`",
+        "",
+        "## Acceptance checks",
+        "",
+    ]
+    for name, ok in checks.items():
+        lines_out.append(f"- {'PASS' if ok else 'FAIL'} — {name}")
+    lines_out.extend(["", "## In-app screenshots", ""])
+    if captured:
+        lines_out.extend(f"- `{name}`" for name in captured)
+    else:
+        lines_out.append("No valid in-app screenshots were recovered; none are fabricated.")
+    lines_out.extend(["", "## Provenance limits", "", PROVENANCE, ""])
+    (directory / "report.md").write_text("\n".join(lines_out), encoding="utf-8")
+    return result
+
+
+def self_test() -> None:
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        directory = Path(tmp)
+        directory.mkdir(exist_ok=True)
+        (directory / "screens").mkdir()
+        initial = (
+            "WIMT_SOAK_INITIAL httpStatus=200 responseBytes=4321 "
+            "runDateMatched=true routeMatched=true fresh=true rows=11 cells=4 "
+            "responseClass=HTTP_200_SOURCE_ROWS_PRESENT parserOutcome=SOURCE_ROWS_PRESENT "
+            "selected=true disclosed=true accepted=true"
+        )
+        summary = (
+            "WIMT_SOAK_SUMMARY durationMs=14400000 cycles=240 missedReceipts=0 "
+            "detailSamples=25 freshSamples=2 nonFreshSamples=23 unqualifiedSamples=0 "
+            "httpFailures=0 selectedLosses=0 autoStoppedAfterSourceFailure=false "
+            "sourceFailureReason=none fullDuration=true finalSelected=true autoOff=true"
+        )
+        (directory / "soak-trace.txt").write_text(
+            initial + "\nWIMT_SOAK_STARTED durationMinutes=240\n" + summary + "\n",
+            encoding="utf-8")
+        (directory / "instrumentation.txt").write_text("OK (1 test)\n", encoding="utf-8")
+        (directory / "runner-exit.txt").write_text("instrumentationExitCode=0\n", encoding="utf-8")
+        result = build_report(directory)
+        assert result["passed"]
+        assert result["autoRefresh"]["nonFreshSamples"] == 23
+        assert result["initial"]["parserOutcome"] == "SOURCE_ROWS_PRESENT"
+        initial_failed = (
+            "WIMT_SOAK_INITIAL httpStatus=200 responseBytes=321 "
+            "runDateMatched=false routeMatched=false fresh=false rows=0 cells=0 "
+            "responseClass=HTTP_200_NO_QUALIFIED_ROWS parserOutcome=RUN_DATE_MISMATCH "
+            "selected=true disclosed=true accepted=false"
+        )
+        (directory / "soak-trace.txt").write_text(initial_failed + "\n", encoding="utf-8")
+        (directory / "runner-exit.txt").write_text("instrumentationExitCode=1\n", encoding="utf-8")
+        result = build_report(directory)
+        assert not result["passed"]
+        assert result["durationMs"] is None
+        assert result["failureStage"] == "INITIAL_WIMT_IN_APP_GATE_FAILED"
+        assert "HTTP=200" in result["failureSummary"]
+        assert "parser-outcome=RUN_DATE_MISMATCH" in result["failureSummary"]
+        assert "response-bytes=321" in result["failureSummary"]
+        unrecognized = initial_failed.replace(
+            "responseClass=HTTP_200_NO_QUALIFIED_ROWS", "responseClass=TRAIN_12345"
+        ).replace("parserOutcome=RUN_DATE_MISMATCH", "parserOutcome=TRAIN_12345")
+        (directory / "soak-trace.txt").write_text(unrecognized + "\n", encoding="utf-8")
+        result = build_report(directory)
+        assert result["initial"]["responseClass"] == "unrecognized"
+        assert result["initial"]["parserOutcome"] == "unrecognized"
+        assert "TRAIN_12345" not in result["failureSummary"]
+        auto_failure = (
+            "WIMT_SOAK_INITIAL httpStatus=200 runDateMatched=true routeMatched=true "
+            "fresh=true rows=13 cells=3 selected=true disclosed=true accepted=true\n"
+            "WIMT_SOAK_AUTO_ENABLE revealed=true initialChecked=false resetTap=not-needed "
+            "checkedAfterReset=false enableTap=true enableRetryTap=true "
+            "checkedAfterEnable=false enabled=false\n"
+        )
+        (directory / "soak-trace.txt").write_text(auto_failure, encoding="utf-8")
+        result = build_report(directory)
+        assert not result["passed"]
+        assert result["failureStage"] == "AUTO_ENABLE_FAILED"
+        assert "checked-after-enable=false" in result["failureSummary"]
+        assert result["autoEnable"]["controlRevealed"] is True
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("evidence_dir", nargs="?", type=Path)
+    parser.add_argument("--self-test", action="store_true")
+    args = parser.parse_args()
+    if args.self_test:
+        self_test()
+        print("WIMT 240-minute soak report self-test: PASS")
+        return 0
+    if args.evidence_dir is None:
+        parser.error("evidence_dir is required unless --self-test is used")
+    result = build_report(args.evidence_dir)
+    print(json.dumps({"verdict": result["verdict"], "passed": result["passed"]}, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,0 +1,140 @@
+name: wimt-single-running-train-60-minute-reliability
+
+on:
+  # Deliberately opt-in: a marked push starts one installed-app source reliability observation.
+  push:
+    branches:
+      - 'arena/6f68e526-checktrain02'
+    paths:
+      - .github/workflows/wimt-live-api-60-minute.yml
+      - app/src/androidTest/java/in/opentrack/india/e2e/WimtLiveApiSoakTest.kt
+      - app/src/main/java/in/opentrack/india/ui/LiveViewModel.kt
+      - app/src/main/java/in/opentrack/india/ui/TrackingSources.kt
+      - app/src/main/java/in/opentrack/india/ui/RefreshTargetPolicy.kt
+      - app/src/main/java/in/opentrack/india/ui/TrainActivity.kt
+      - app/src/test/java/in/opentrack/india/ui/SourceIndicatorTest.kt
+      - app/src/test/java/in/opentrack/india/ui/RefreshTargetPolicyTest.kt
+      - tools/ci/run_wimt_live_api_soak.sh
+      - tools/ci/wimt_live_api_60_minute_report.py
+      - tools/ci/test_wimt_live_api_60_minute_report.py
+  workflow_dispatch:
+
+permissions:
+  contents: write # post the redacted reliability report to the exact commit
+
+concurrency:
+  group: wimt-live-api-60-minute-reliability-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  installed-app-source-reliability:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[wimt-live-api-60]'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: true
+
+      - name: Offline reliability-report, source-policy and workflow tests
+        run: |
+          python3 tools/ci/test_wimt_live_api_60_minute_report.py
+          python3 tools/ci/test_wimt_live_api_46_minute_report.py
+          python3 tools/ci/check_workflows.py
+          python3 tools/ci/check_kotlin_balance.py app/src
+          python3 -m py_compile \
+            tools/ci/wimt_live_api_60_minute_report.py \
+            tools/ci/test_wimt_live_api_60_minute_report.py
+          bash -n tools/ci/run_wimt_live_api_soak.sh
+
+      - name: Build the current offline route asset
+        run: bash tools/ci/prepare_asset.sh
+
+      - name: Build the exact app and instrumentation APKs
+        # The push-triggered android workflow runs the complete unit-test partitions independently.
+        # This job builds the installable pair used by the real 60-minute emulator observation.
+        run: |
+          mkdir -p wimt-one-running-train-60-minute-evidence
+          set -o pipefail
+          ./gradlew --no-daemon :app:assembleDebug \
+            :app:assembleDebugAndroidTest --stacktrace 2>&1 | \
+            tee wimt-one-running-train-60-minute-evidence/build.log
+
+      - name: Preserve the APK pair used by this run
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wimt-one-running-train-60-minute-apks-${{ github.run_id }}
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Install app and observe a source-qualified running train for 60 minutes
+        id: observation
+        env:
+          WIMT_LIVE_SOAK_MINUTES: '60'
+          WIMT_LIVE_SOAK_OBSERVATION_INTERVAL_SECONDS: '30'
+          WIMT_LIVE_SOAK_EVIDENCE_DIR: wimt-one-running-train-60-minute-evidence
+        run: bash tools/ci/run_wimt_live_api_soak.sh
+
+      - name: Summarize reliability without promoting source claims to verified movement
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          evidence=wimt-one-running-train-60-minute-evidence
+          mkdir -p "$evidence/screens"
+          if [ -s "$evidence/build.log" ]; then
+            { echo '## APK build diagnostic tail'; echo '```'; tail -n 100 "$evidence/build.log"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          [ -s "$evidence/instrumentation.txt" ] || : > "$evidence/instrumentation.txt"
+          [ -s "$evidence/soak-trace.txt" ] || : > "$evidence/soak-trace.txt"
+          [ -s "$evidence/runner-exit.txt" ] || printf 'instrumentationExitCode=-1\n' > "$evidence/runner-exit.txt"
+          report_status=0
+          if ! python3 tools/ci/wimt_live_api_60_minute_report.py "$evidence"; then
+            report_status=1
+            echo '::error::The strict 60-minute reliability gate did not pass; source responses remain unverified claims.'
+          fi
+          if [ -s "$evidence/report.md" ]; then
+            cat "$evidence/report.md" >> "$GITHUB_STEP_SUMMARY"
+            {
+              cat "$evidence/report.md"
+              for log in boot.txt instrumentation.txt runner-exit.txt; do
+                if [ -s "$evidence/$log" ]; then
+                  echo
+                  echo "## Diagnostic: $log"
+                  echo '```'
+                  tail -n 40 "$evidence/$log"
+                  echo '```'
+                fi
+              done
+            } > /tmp/wimt-60-report-comment.md
+            gh api -X POST "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
+              -f body="$(cat /tmp/wimt-60-report-comment.md)" >/dev/null || \
+              echo '::warning::Could not post the redacted reliability report comment'
+          fi
+          for log in boot.txt instrumentation.txt runner-exit.txt; do
+            if [ -s "$evidence/$log" ]; then
+              { echo "## Diagnostic: $log"; echo '```'; tail -n 60 "$evidence/$log"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+          exit "$report_status"
+
+      - name: Upload the redacted reliability trace and genuine app evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wimt-one-running-train-60-minute-evidence-${{ github.run_id }}
+          path: wimt-one-running-train-60-minute-evidence/
+          if-no-files-found: warn
+          retention-days: 30

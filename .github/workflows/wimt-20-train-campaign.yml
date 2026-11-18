@@ -1,0 +1,485 @@
+name: wimt-20-train-45-minute-campaign
+
+on:
+  # workflow_dispatch is available after this file reaches the repository's default branch.
+  # On this PR branch, narrow campaign-only paths trigger runs without firing on unrelated pushes.
+  push:
+    branches:
+      - 'arena/6f68e526-checktrain02'
+    paths:
+      - .github/workflows/wimt-20-train-campaign.yml
+      - app/src/androidTest/java/in/opentrack/india/e2e/TrainCampaignObservationTest.kt
+      - tools/ci/select_wimt_campaign_roster.py
+      - tools/ci/verify_campaign_assignment.py
+      - tools/ci/prepare_campaign_slot.py
+      - tools/ci/run_train_campaign_device.sh
+      - tools/ci/build_wimt_20_train_campaign_pdf.py
+      - tools/ci/test_build_wimt_20_train_campaign_pdf.py
+      - tools/ci/diagnose_campaign_evidence.py
+      - tools/ci/test_diagnose_campaign_evidence.py
+      - tools/ci/test_select_wimt_campaign_roster.py
+      - tools/ci/test_verify_campaign_assignment.py
+      - tools/ci/test_prepare_campaign_slot.py
+      - tools/ci/verify_campaign_roster.py
+      - tools/ci/test_verify_campaign_roster.py
+      - tools/ci/verify_campaign_runner_result.py
+      - tools/ci/test_verify_campaign_runner_result.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wimt-20-train-campaign-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Refresh and gate a distinct live roster before building APKs
+    outputs:
+      eligible_count: ${{ steps.final_roster.outputs.eligible_count }}
+      apk_build_result: ${{ steps.build_apks.outcome }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: true
+      - name: Initialize honest fallback roster
+        run: |
+          mkdir -p campaign-roster campaign-apks
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          fallback = {
+              'schemaVersion': 1,
+              'campaign': 'wimt-20-train-45-minute-emulator-campaign',
+              'status': 'PREPARATION_FAILED',
+              'requiredSlots': 20,
+              'eligibleCount': 0,
+              'assignments': [],
+              'stopReason': 'roster preparation did not complete',
+          }
+          serialized = json.dumps(fallback, indent=2) + '\n'
+          Path('campaign-roster/roster.json').write_text(serialized, encoding='utf-8')
+          Path('campaign-roster/early-roster.json').write_text(serialized, encoding='utf-8')
+          PY
+      - name: Offline campaign-script tests and workflow validation
+        id: offline_checks
+        run: |
+          python3 tools/ci/test_select_wimt_campaign_roster.py
+          python3 tools/ci/test_verify_campaign_assignment.py
+          python3 tools/ci/test_prepare_campaign_slot.py
+          python3 tools/ci/test_diagnose_campaign_evidence.py
+          python3 tools/ci/test_verify_campaign_roster.py
+          python3 tools/ci/test_verify_campaign_runner_result.py
+          python3 tools/ci/check_workflows.py
+          python3 -m py_compile \
+            tools/ci/select_wimt_campaign_roster.py \
+            tools/ci/verify_campaign_assignment.py \
+            tools/ci/prepare_campaign_slot.py \
+            tools/ci/diagnose_campaign_evidence.py \
+            tools/ci/test_diagnose_campaign_evidence.py \
+            tools/ci/verify_campaign_roster.py \
+            tools/ci/test_verify_campaign_roster.py \
+            tools/ci/verify_campaign_runner_result.py \
+            tools/ci/test_verify_campaign_runner_result.py \
+            tools/ci/build_wimt_20_train_campaign_pdf.py \
+            tools/ci/test_build_wimt_20_train_campaign_pdf.py
+          bash -n tools/ci/run_train_campaign_device.sh
+      - name: Rebuild the timetable asset from the current upstream default branches
+        id: refresh_asset
+        run: |
+          rm -f app/src/main/assets/ref/refdb.dbgz
+          PREFDB_FORCE=1 bash tools/ci/prepare_asset.sh
+      - name: Probe and validate an early roster before spending time on APK builds
+        id: early_roster
+        if: always()
+        env:
+          OFFLINE_RESULT: ${{ steps.offline_checks.outcome }}
+          ASSET_RESULT: ${{ steps.refresh_asset.outcome }}
+        run: |
+          eligible_count=0
+          if [ "$OFFLINE_RESULT" = "success" ] && \
+             [ "$ASSET_RESULT" = "success" ] && \
+             [ -s app/src/main/assets/ref/refdb.dbgz ]; then
+            selection_rc=0
+            python3 tools/ci/select_wimt_campaign_roster.py \
+              --db app/src/main/assets/ref/refdb.dbgz \
+              --output campaign-roster/early-roster.json \
+              --min-candidates 20 \
+              --max-probes 60 || selection_rc=$?
+            if [ "$selection_rc" -eq 0 ] && [ -s campaign-roster/early-roster.json ]; then
+              validation_rc=0
+              python3 tools/ci/verify_campaign_roster.py \
+                --roster campaign-roster/early-roster.json \
+                --output campaign-roster/early-validation.json || validation_rc=$?
+              if [ "$validation_rc" -eq 0 ]; then
+                eligible_count=20
+              else
+                echo '::notice::Early WIMT .in scan did not admit a complete, recent, distinct roster; APK build will be skipped.'
+              fi
+            else
+              echo '::warning::Early roster selection failed; APK build will be skipped.'
+            fi
+          else
+            echo '::warning::Offline checks, fresh timetable rebuild, or asset availability failed; no cached timetable is used for roster admission.'
+          fi
+          echo "eligible_count=$eligible_count" >> "$GITHUB_OUTPUT"
+      - name: Build and test the exact debug APK pair in CI
+        id: build_apks
+        if: steps.early_roster.outputs.eligible_count == '20' && steps.early_roster.outcome == 'success' && steps.offline_checks.outcome == 'success' && steps.refresh_asset.outcome == 'success'
+        run: |
+          ./gradlew --no-daemon :app:testDebugUnitTest :app:assembleDebug \
+            :app:assembleDebugAndroidTest --stacktrace
+          cp app/build/outputs/apk/debug/app-debug.apk campaign-apks/app-debug.apk
+          cp app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk \
+            campaign-apks/app-debug-androidTest.apk
+          sha256sum campaign-apks/*.apk | tee campaign-apks/sha256.txt
+      - name: Refresh and validate the direct-source roster immediately before emulator dispatch
+        id: final_roster
+        if: always()
+        env:
+          EARLY_ELIGIBLE: ${{ steps.early_roster.outputs.eligible_count }}
+          BUILD_RESULT: ${{ steps.build_apks.outcome }}
+          OFFLINE_RESULT: ${{ steps.offline_checks.outcome }}
+          ASSET_RESULT: ${{ steps.refresh_asset.outcome }}
+        run: |
+          eligible_count=0
+          if [ "$EARLY_ELIGIBLE" = "20" ] && \
+             [ "$BUILD_RESULT" = "success" ] && \
+             [ "$OFFLINE_RESULT" = "success" ] && \
+             [ "$ASSET_RESULT" = "success" ] && \
+             [ -s app/src/main/assets/ref/refdb.dbgz ]; then
+            selection_rc=0
+            python3 tools/ci/select_wimt_campaign_roster.py \
+              --db app/src/main/assets/ref/refdb.dbgz \
+              --output campaign-roster/final-selected-roster.json \
+              --min-candidates 20 \
+              --max-probes 60 || selection_rc=$?
+            if [ "$selection_rc" -eq 0 ] && [ -s campaign-roster/final-selected-roster.json ]; then
+              python3 - <<'PY'
+          import json
+          from pathlib import Path
+          final_path = Path('campaign-roster/final-selected-roster.json')
+          early_path = Path('campaign-roster/early-roster.json')
+          early = json.loads(early_path.read_text(encoding='utf-8'))
+          validation_path = Path('campaign-roster/early-validation.json')
+          early_validation = json.loads(validation_path.read_text(encoding='utf-8')) if validation_path.exists() else {}
+          final = json.loads(final_path.read_text(encoding='utf-8'))
+          final['initialPreflight'] = {
+              key: early.get(key) for key in
+              ('status', 'eligibleCount', 'probesAttempted', 'generatedAtUtc', 'stopReason')
+          }
+          final['initialPreflight']['validation'] = early_validation
+          final['candidateRosterEligibleCount'] = final.get('eligibleCount', 0)
+          final['finalPreflightStatus'] = 'VALIDATED_READY_PENDING_GATE'
+          final_path.write_text(json.dumps(final, indent=2, sort_keys=True) + chr(10), encoding='utf-8')
+          PY
+              validation_rc=0
+              python3 tools/ci/verify_campaign_roster.py \
+                --roster campaign-roster/final-selected-roster.json \
+                --output campaign-roster/final-validation.json || validation_rc=$?
+              if [ "$validation_rc" -eq 0 ]; then
+                python3 - <<'PY'
+          import json
+          from pathlib import Path
+          selected = json.loads(Path('campaign-roster/final-selected-roster.json').read_text(encoding='utf-8'))
+          selected['finalPreflightStatus'] = 'VALIDATED_READY'
+          Path('campaign-roster/roster.json').write_text(
+              json.dumps(selected, indent=2, sort_keys=True) + chr(10), encoding='utf-8')
+          PY
+                eligible_count=20
+              else
+                python3 - <<'PY'
+          import json
+          from pathlib import Path
+          selected_path = Path('campaign-roster/final-selected-roster.json')
+          validation_path = Path('campaign-roster/final-validation.json')
+          selected = json.loads(selected_path.read_text(encoding='utf-8'))
+          validation = json.loads(validation_path.read_text(encoding='utf-8'))
+          rejected = dict(selected)
+          rejected['candidateRosterEligibleCount'] = selected.get('eligibleCount', 0)
+          rejected['status'] = 'FINAL_PREFLIGHT_REJECTED'
+          rejected['eligibleCount'] = 0
+          rejected['assignments'] = []
+          rejected['finalPreflightStatus'] = 'REJECTED'
+          rejected['finalValidation'] = validation
+          rejected['stopReason'] = 'The final candidate roster failed strict freshness/distinctness/window validation; no emulator was dispatched.'
+          Path('campaign-roster/roster.json').write_text(
+              json.dumps(rejected, indent=2, sort_keys=True) + chr(10), encoding='utf-8')
+          PY
+                echo '::notice::The immediately-pre-dispatch WIMT .in scan failed strict validation; no emulator job will launch.'
+              fi
+            else
+              python3 - <<'PY'
+          import json
+          from pathlib import Path
+          early_path = Path('campaign-roster/early-roster.json')
+          early = json.loads(early_path.read_text(encoding='utf-8')) if early_path.exists() else {}
+          failed = {
+              'schemaVersion': 1,
+              'campaign': early.get('campaign', 'wimt-20-train-45-minute-emulator-campaign'),
+              'status': 'FINAL_PREFLIGHT_FAILED',
+              'requiredSlots': 20,
+              'eligibleCount': 0,
+              'assignments': [],
+              'stopReason': 'The immediately-pre-dispatch direct-source roster selection failed; no emulator was dispatched.',
+              'timetable': early.get('timetable', {}),
+              'rejectionCounts': early.get('rejectionCounts', {}),
+              'sourceIdentity': early.get('sourceIdentity', {}),
+              'finalPreflightStatus': 'FAILED',
+              'initialPreflight': {
+                  key: early.get(key) for key in
+                  ('status', 'eligibleCount', 'probesAttempted', 'generatedAtUtc', 'stopReason')
+              },
+          }
+          failed['initialPreflight']['validation'] = early_validation
+          failed['initialPreflightValidation'] = early_validation
+          Path('campaign-roster/roster.json').write_text(
+              json.dumps(failed, indent=2, sort_keys=True) + chr(10), encoding='utf-8')
+          PY
+              echo '::warning::Final roster selection failed; no emulator job will launch.'
+            fi
+          else
+            python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          early_path = Path('campaign-roster/early-roster.json')
+          early = json.loads(early_path.read_text(encoding='utf-8')) if early_path.exists() else {}
+          validation_path = Path('campaign-roster/early-validation.json')
+          early_validation = json.loads(validation_path.read_text(encoding='utf-8')) if validation_path.exists() else {}
+          early_eligible = os.environ.get('EARLY_ELIGIBLE', '0')
+          build_result = os.environ.get('BUILD_RESULT', 'unknown')
+          offline_result = os.environ.get('OFFLINE_RESULT', 'unknown')
+          asset_result = os.environ.get('ASSET_RESULT', 'unknown')
+          if early.get('status') == 'READY' and early_eligible == '20' and build_result == 'failure':
+              status = 'APK_BUILD_FAILED_AFTER_EARLY_PREFLIGHT'
+              reason = 'APK build/test failed after the valid early roster; final live preflight was not run.'
+          elif early.get('status') == 'READY' and early_eligible != '20':
+              status = 'EARLY_PREFLIGHT_REJECTED'
+              reason = 'The selector returned 20 rows, but strict fresh-roster validation failed; no APK or emulator was dispatched.'
+          else:
+              status = early.get('status', 'PREPARATION_FAILED')
+              reason = ('Early preflight did not admit 20 trains, so APK building and final preflight were skipped; '
+                        f'offline={offline_result}, timetable_refresh={asset_result}.')
+          final = {
+              'schemaVersion': 1,
+              'campaign': early.get('campaign', 'wimt-20-train-45-minute-emulator-campaign'),
+              'status': status,
+              'requiredSlots': 20,
+              'eligibleCount': 0,
+              'candidateRosterEligibleCount': early.get('eligibleCount', 0),
+              'assignments': [],
+              'stopReason': reason,
+              'timetable': early.get('timetable', {}),
+              'rejectionCounts': early.get('rejectionCounts', {}),
+              'sourceIdentity': early.get('sourceIdentity', {}),
+              'eligibilityRule': early.get('eligibilityRule', 'not established'),
+              'finalPreflightStatus': 'NOT_RUN',
+              'initialPreflight': {
+                  key: early.get(key) for key in
+                  ('status', 'eligibleCount', 'probesAttempted', 'generatedAtUtc', 'stopReason')
+              },
+          }
+          final['initialPreflight']['validation'] = early_validation
+          final['initialPreflightValidation'] = early_validation
+          Path('campaign-roster/roster.json').write_text(
+              json.dumps(final, indent=2, sort_keys=True) + chr(10), encoding='utf-8')
+          PY
+          fi
+          echo "eligible_count=$eligible_count" >> "$GITHUB_OUTPUT"
+      - name: Publish final roster vintage and source rejection counts
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          roster = json.loads(Path('campaign-roster/roster.json').read_text(encoding='utf-8'))
+          table = roster.get('timetable') or {}
+          initial = roster.get('initialPreflight') or {}
+          schedule_rejections = table.get('scheduleFilterRejections') or {}
+          live_rejections = roster.get('rejectionCounts') or {}
+          lines = [
+              '### Final campaign preflight', '',
+              f"- Final roster status: **{roster.get('status', 'unknown')}**",
+              f"- Validated dispatch assignments: **{roster.get('eligibleCount', 0)}/20**",
+              f"- Final selected candidates awaiting validation: **{roster.get('candidateRosterEligibleCount', roster.get('eligibleCount', 0))}/20**",
+              f"- Initial admission scan: **{initial.get('eligibleCount', 0)}/20** ({initial.get('status', 'not recorded')}; {initial.get('probesAttempted', 0)} probes)",
+              f"- Final direct WIMT .in probes: **{roster.get('probesAttempted', 0)}/{roster.get('maxProbes', 60)}**",
+              f"- Timetable vintage/freshness: **{table.get('timetableVintage') or 'unknown'} / {table.get('timetableFreshness', 'unknown')}** "
+              f"({table.get('timetableAgeDays', 'unknown')} days)",
+              f"- Known scheduled candidate pool: **{table.get('knownRunDayCandidates', 'unknown')}**",
+              f"- Timetable filter rejections: `{json.dumps(schedule_rejections, sort_keys=True)}`",
+              f"- WIMT .in probe rejections: `{json.dumps(live_rejections, sort_keys=True)}`",
+              f"- Stop reason: `{roster.get('stopReason')}`",
+              '- Schedule eligibility and source-stamp checks do not independently verify movement or GPS.',
+              '- WIMT .org.in, NTES, eRail, WIMT web cache, and Google WIMT remain distinct sources.',
+          ]
+          summary = os.environ.get('GITHUB_STEP_SUMMARY')
+          if summary:
+              with open(summary, 'a', encoding='utf-8') as stream:
+                  stream.write(chr(10).join(lines) + chr(10))
+          message = (f"final_eligible={roster.get('eligibleCount', 0)}/20 "
+                     f"initial={initial.get('eligibleCount', 0)}/20 "
+                     f"vintage={table.get('timetableVintage') or 'unknown'} "
+                     f"freshness={table.get('timetableFreshness', 'unknown')} "
+                     f"schedule_rejections={json.dumps(schedule_rejections, sort_keys=True)} "
+                     f"live_rejections={json.dumps(live_rejections, sort_keys=True)}")
+          print('::notice title=Final campaign preflight::' + message)
+          PY
+      - name: Upload the unique roster
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: campaign-roster
+          path: campaign-roster/
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Upload the same-run APK pair
+        if: always() && steps.build_apks.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: campaign-apks
+          path: campaign-apks/
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Block emulator dispatch unless the final roster and APK build both pass
+        if: always() && (steps.final_roster.outputs.eligible_count != '20' || steps.build_apks.outcome != 'success')
+        run: |
+          echo "::error::Final pre-dispatch roster admitted ${{ steps.final_roster.outputs.eligible_count }}/20 trains and APK build outcome was ${{ steps.build_apks.outcome }}; no emulator job may launch."
+          exit 1
+
+  emulator:
+    name: Emulator observation · slot ${{ matrix.slot }}
+    needs: [prepare]
+    if: ${{ needs.prepare.result == 'success' && needs.prepare.outputs.eligible_count == '20' && needs.prepare.outputs.apk_build_result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 105
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        slot: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Download the preflight roster
+        if: always()
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: campaign-roster
+          path: campaign-roster
+      - name: Download the exact APK pair built for this run
+        if: always()
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: campaign-apks
+          path: campaign-apks
+      - name: Resolve this slot without assigning duplicates
+        id: slot
+        if: always()
+        env:
+          PREPARE_RESULT: ${{ needs.prepare.result }}
+          CAMPAIGN_SLOT: ${{ matrix.slot }}
+        run: |
+          python3 tools/ci/prepare_campaign_slot.py \
+            --roster campaign-roster/roster.json \
+            --prepare-result "$PREPARE_RESULT" \
+            --slot "$CAMPAIGN_SLOT" \
+            --evidence-dir "campaign-evidence/slot-$(printf '%02d' "$CAMPAIGN_SLOT")"
+      - name: Run this train on one isolated emulator for 45 minutes
+        if: steps.slot.outputs.run_emulator == 'true'
+        env:
+          CAMPAIGN_SLOT: ${{ matrix.slot }}
+          CAMPAIGN_EVIDENCE_DIR: ${{ steps.slot.outputs.evidence_dir }}
+          CAMPAIGN_ASSIGNMENT: ${{ steps.slot.outputs.evidence_dir }}/assignment.json
+          CAMPAIGN_APP_APK: campaign-apks/app-debug.apk
+          CAMPAIGN_TEST_APK: campaign-apks/app-debug-androidTest.apk
+        run: bash tools/ci/run_train_campaign_device.sh
+      - name: Upload this slot's assignment, minute observations and screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wimt-20-train-campaign-slot-${{ matrix.slot }}
+          path: campaign-evidence/
+          if-no-files-found: warn
+          retention-days: 30
+
+  report:
+    name: Consolidate observations into the campaign PDF
+    needs: [prepare, emulator]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install the PDF renderer
+        run: python3 -m pip install --disable-pip-version-check --quiet reportlab==4.2.5
+      - name: Verify the report builder using offline synthetic evidence
+        run: python3 tools/ci/test_build_wimt_20_train_campaign_pdf.py
+      - name: Download the roster
+        if: always()
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: campaign-roster
+          path: campaign-aggregate/roster
+      - name: Download the 20 matrix-slot evidence artifacts
+        if: always()
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wimt-20-train-campaign-slot-*
+          path: campaign-aggregate/slots
+          merge-multiple: true
+      - name: Create the detailed consolidated PDF and summaries
+        if: always()
+        run: |
+          mkdir -p campaign-report
+          if [ ! -s campaign-aggregate/roster/roster.json ]; then
+            mkdir -p campaign-aggregate/roster
+            python3 - <<'PY'
+          import json
+          from pathlib import Path
+          Path('campaign-aggregate/roster/roster.json').write_text(json.dumps({
+              'schemaVersion': 1,
+              'campaign': 'wimt-20-train-45-minute-emulator-campaign',
+              'status': 'PREPARATION_OR_ARTIFACT_UNAVAILABLE',
+              'requiredSlots': 20,
+              'eligibleCount': 0,
+              'assignments': [],
+              'stopReason': 'the preparation roster artifact was unavailable',
+          }, indent=2) + '\n', encoding='utf-8')
+          PY
+          fi
+          python3 tools/ci/build_wimt_20_train_campaign_pdf.py \
+            --roster campaign-aggregate/roster/roster.json \
+            --slots-dir campaign-aggregate/slots \
+            --output-pdf "campaign-report/wimt-20-train-campaign-${GITHUB_RUN_ID}.pdf" \
+            --output-json campaign-report/report.json \
+            --output-markdown campaign-report/report.md
+          cat campaign-report/report.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload the final PDF and consolidated result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wimt-20-train-campaign-report-${{ github.run_id }}
+          path: campaign-report/
+          if-no-files-found: warn
+          retention-days: 30

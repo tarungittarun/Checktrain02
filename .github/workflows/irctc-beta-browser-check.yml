@@ -1,0 +1,74 @@
+name: irctc-beta-browser-check
+
+on:
+  workflow_dispatch:
+    inputs:
+      train_number:
+        description: One train number to search in the public IRCTC beta page
+        required: true
+        default: '12089'
+        type: string
+  push:
+    branches: ['arena/6f68e526-checktrain02']
+    paths:
+      - '.github/workflows/irctc-beta-browser-check.yml'
+      - 'tools/ci/irctc_beta_browser_check.py'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: irctc-beta-browser-check-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  browser-check:
+    name: One clean-browser IRCTC beta search
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      IRCTC_TRAIN_NUMBER: ${{ github.event.inputs.train_number || '12089' }}
+      IRCTC_REPORT_PATH: irctc-beta-result.json
+      IRCTC_SCREENSHOT_PATH: irctc-beta-page.png
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Selenium
+        run: python -m pip install --disable-pip-version-check selenium==4.27.1
+      - name: Check redaction and endpoint matching offline
+        run: python tools/ci/irctc_beta_browser_check.py --self-test
+      - name: Search once in the public IRCTC beta page
+        run: python tools/ci/irctc_beta_browser_check.py
+      - name: Publish bounded browser report
+        if: always()
+        run: |
+          if [ -f irctc-beta-result.json ]; then
+            {
+              echo '## IRCTC beta browser check';
+              echo 'One clean Chrome session; no login, cookie import, challenge solving, or request replay.';
+              echo 'Report contains request/response schema and allowlisted train-status fields only.';
+              echo '```json'; cat irctc-beta-result.json; echo '```';
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Publish redacted result where it can be read without the Actions log host
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -f irctc-beta-result.json ]; then
+            { echo '### IRCTC beta browser result (redacted)';
+              echo '```json'; cat irctc-beta-result.json; echo '```'; } > irctc-result-comment.md
+            gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/comments" \
+              -F body=@irctc-result-comment.md > /dev/null
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: irctc-beta-browser-${{ github.run_id }}
+          path: |
+            irctc-beta-result.json
+            irctc-beta-page.png
+          if-no-files-found: warn
+          retention-days: 7

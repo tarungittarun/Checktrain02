@@ -1,0 +1,507 @@
+package `in`.opentrack.india.v2.mirror
+
+import `in`.opentrack.india.core.Diary
+import `in`.opentrack.india.core.Http
+import `in`.opentrack.india.core.RailTime
+import `in`.opentrack.india.core.WebsiteCardMarkup
+import `in`.opentrack.india.model.TrainRoute
+import `in`.opentrack.india.v2.contract.TrainIdentity
+import org.json.JSONObject
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.text.ParsePosition
+import java.util.Locale
+import java.util.TimeZone
+import java.security.MessageDigest
+
+/** Manual public-source comparisons. A freshly published station claim is NOT an observed
+ * station event, a departure minute or GPS. The caller must keep these distinctions on screen. */
+object PublicPageChecks {
+    const val RAIL_YATRI = "RailYatri"
+    const val IXIGO = "ixigo page"
+    const val ORG = "whereismytrain.org.in (website)"
+    val names = listOf(RAIL_YATRI, IXIGO, ORG)
+
+    data class StationClaim(val code: String, val status: String, val updateAt: Long, val upstream: String)
+    data class Result(
+        val detail: String, val checkedAt: Long,
+        /** Requested train number appears in the returned text; not a populated source timeline. */
+        val pageAnswered: Boolean,
+        val stationClaim: StationClaim? = null,
+        /** The other website's labelled, past-card station claims. Not independently verified Act. */
+        val orgReport: OrgWebsiteStatus.Report? = null,
+        /** True only when a fresh page label and route-matched card clocks were parsed.
+         * Separate from HTTP/page response success and from a qualifying event row. */
+        val orgContentParsed: Boolean = false,
+        /** A later page card that was excluded from Actual/position, with its reason. */
+        val orgQualificationNote: String? = null,
+        /** Page excerpts for comparison only. Never feed these into Act or position. */
+        val lines: Map<String, String> = emptyMap(),
+        /** The website's printed publication label; never a station-event timestamp. */
+        val pageUpdateLabel: String? = null,
+        /** Transport evidence, not event freshness. A short digest compares repeated bodies
+         * without persisting HTML or cookies in the diagnostic diary. */
+        val responseBytes: Int = 0,
+        val responseDigest: String? = null,
+        val fromHttpCache: Boolean = false,
+        /** POC only: inspection of the SAME .org.in page for a visible next-point km label.
+         * Diagnostic, never an admitted position or a second provider request. */
+        val orgDistanceProbe: String? = null,
+        /** Visible .org.in cards retained even when no station claim qualifies as a report. */
+        val orgSiteCards: List<OrgWebsiteStatus.SiteCardClaim> = emptyList(),
+        /** Fresh website page matched to the live train identity but detached from a conflicting timetable. */
+        val orgDetachedPageClaim: OrgWebsiteStatus.DetachedPageClaim? = null,
+        /** The site's page update time, distinct from this app's response receipt and any event. */
+        val orgSitePageUpdatedAt: Long? = null,
+        val orgSitePageClockHasSeconds: Boolean = false,
+        /** Route-matched website comparison clocks, never used as event or position evidence. */
+        val orgSiteClocks: Map<String, OrgWebsiteStatus.SiteClocks> = emptyMap(),
+        /** Bounded website endpoints and selected timetable endpoints for failure diagnosis. */
+        val orgPageEndpoints: OrgWebsiteStatus.PageEndpoints? = null,
+        val orgSelectedRouteFromCode: String? = null,
+        val orgSelectedRouteToCode: String? = null,
+        /** Selected route size at the instant the single website reply was parsed. */
+        val orgSelectedRouteStopCount: Int? = null,
+        /** Stable parser outcome category; distinct from transport/page-answer status. */
+        val orgParserState: String = "NOT_RUN",
+        /** Structural card containers found before station/timetable qualification. */
+        val orgParsedCardContainers: Int = 0,
+        /** True only when visible site text explicitly names the selected origin date. */
+        val orgRunDateMatched: Boolean = false,
+        /** Canonical date parsed from the visible run-date label, if it was unambiguous. */
+        val orgPageRunDate: String? = null,
+        /** Safe diagnostic state: ABSENT, MATCH, MISMATCH, INVALID_OR_AMBIGUOUS, or CACHED. */
+        val orgRunDateState: String = "ABSENT",
+        /** Bounded/redacted live-DOM shape, never raw HTML or a body excerpt. */
+        val orgPageShapeReceipt: String? = null,
+    )
+
+    /** Explain a missing destination in a returned website timeline without treating its
+     * publication clock (or any comparison excerpt) as a train arrival/position. */
+    fun websiteGap(result: Result?, destination: String): String? {
+        if (result?.pageAnswered != true) return null
+        result.orgDetachedPageClaim?.let { detached ->
+            val event = detached.event?.let { claim ->
+                " Site claims ${claim.kind.label} at ${claim.stationName ?: claim.stationCode} " +
+                    "(${claim.stationCode}) ${RailTime.formatRailMinute(claim.minute)}; its page schedule is " +
+                    "${RailTime.formatRailMinute(claim.pageScheduleMinute)}."
+            } ?: " No distinct, fresh past-card clock pair qualified as a site event claim."
+            return "Website route ${detached.websiteFromCode}→${detached.websiteToCode} matches " +
+                "live identity from ${detached.identitySource}, but selected timetable is " +
+                "${detached.selectedRouteFromCode}→${detached.selectedRouteToCode}. Detached site cards " +
+                "are comparison claims only; they are not attached to timetable rows, actuals, or position." +
+                event
+        }
+        val parserNote = when (result.orgParserState) {
+            "SELECTED_ROUTE_UNAVAILABLE" -> {
+                val count = result.orgSelectedRouteStopCount
+                "The .org.in page answered, but the selected timetable route has " +
+                    (count?.let { "$it stop(s)" } ?: "too few stops") +
+                    "; no route-matched site rows were attached. Timetable shown."
+            }
+            "RUN_DATE_MISMATCH" ->
+                "The .org.in page's visible run date does not match the selected origin date; " +
+                    "its station cards were not attached to this run."
+            "ROUTE_ENDPOINT_MISMATCH" ->
+                "The .org.in page endpoints do not match the selected timetable; " +
+                    "its station cards were not attached to this route."
+            "RUN_DAY_MISMATCH" ->
+                "The selected train is not scheduled for this origin day; no site event was admitted."
+            "ORIGIN_SCHEDULE_MISSING" ->
+                "The selected timetable has no origin departure time; the website run window cannot be verified."
+            "RUN_WINDOW_UNVERIFIED" ->
+                "The website has no date selector and the selected origin run is not unambiguously active."
+            "SITE_RUN_INACTIVE" ->
+                "The website reports that this train run is not active; no station event was admitted."
+            "PAGE_CLOCK_INVALID_OR_STALE" ->
+                "The website update clock is missing, future, or too old to qualify a new stop claim."
+            "NO_QUALIFIED_SITE_EVENT" ->
+                "Site cards were parsed, but no past-marked, schedule-paired stop claim qualified for this run."
+            else -> null
+        }
+        if (parserNote != null) return parserNote
+        if (!result.orgContentParsed) return null
+        if (result.orgReport != null || result.lines.isEmpty() ||
+            result.lines.keys.any { it.equals(destination, true) }) return null
+        val lastDisplayed = result.lines.keys.last()
+        val update = result.pageUpdateLabel?.let { "Page updated $it; " }.orEmpty()
+        return "${update}website has no $destination arrival row. Last displayed: $lastDisplayed " +
+            "(comparison only); position unknown. This is not the phone app."
+    }
+
+    fun url(name: String, number: String, originDay: Long, now: Long): String? {
+        if (!number.matches(Regex("[0-9]{5}"))) return null
+        return when (name) {
+            RAIL_YATRI -> {
+                val offset = RailTime.istEpochDay(now) - originDay
+                if (offset !in 0L..2L) null else
+                    "https://livestatus.railyatri.in/api/v3/train_eta_data/$number/$offset.json" +
+                        "?start_day=$offset&user_id=-1&device_type_id=4&change_name=seo_train_name" +
+                        "&lat=&lng=&claim_on_train=false"
+            }
+            IXIGO -> "https://www.ixigo.com/trains/$number/running-status"
+            ORG -> "https://whereismytrain.org.in/?trainNo=$number"
+            else -> null
+        }
+    }
+
+    private data class SelectedRunDate(val label: String, val day: Long?)
+
+    private val runDateLabel = Regex(
+        "(?i)\\b(?:Selected\\s+date|Running\\s+status\\s+(?:for|on)|" +
+            "Run\\s+date|Train\\s+date|Journey\\s+date|Date\\s+of\\s+journey)\\s*[:–—-]?\\s*" +
+            "(\\d{4}[-/.]\\d{1,2}[-/.]\\d{1,2}|" +
+            "\\d{1,2}[-/.]\\d{1,2}[-/.]\\d{4}|" +
+            "\\d{1,2}(?:st|nd|rd|th)?\\s+[A-Za-z]{3,9},?\\s+\\d{4}|" +
+            "[A-Za-z]{3,9}\\s+\\d{1,2}(?:st|nd|rd|th)?,?\\s+\\d{4})")
+
+    private fun parseRunDateDay(value: String): Long? {
+        // Live status pages commonly mix British/US month order, punctuation and ordinal
+        // suffixes. Normalize only those presentation characters, then use strict date
+        // parsing; an impossible or ambiguous date remains unverified.
+        val normalized = value.trim()
+            .replace(Regex("(?i)(\\d{1,2})(?:st|nd|rd|th)\\b")) { it.groupValues[1] }
+            .replace(Regex(",\\s*"), " ")
+            .replace(Regex("\\s+"), " ")
+        val formats = listOf("d-M-yyyy", "d/M/yyyy", "d.M.yyyy", "yyyy-M-d", "yyyy/M/d",
+            "yyyy.M.d", "d MMM yyyy", "d MMMM yyyy", "MMM d yyyy", "MMMM d yyyy")
+        return formats.firstNotNullOfOrNull { pattern ->
+            val parser = SimpleDateFormat(pattern, Locale.ENGLISH).apply {
+                isLenient = false
+                timeZone = TimeZone.getTimeZone("UTC")
+            }
+            val position = ParsePosition(0)
+            val parsed = parser.parse(normalized, position)
+            if (parsed != null && position.index == normalized.length)
+                parsed.time / 86_400_000L else null
+        }
+    }
+
+    /** A page clock is never a date. Only a visible, labelled calendar date may match the run. */
+    private fun selectedRunDate(visibleText: String): SelectedRunDate? {
+        val matches = runDateLabel.findAll(visibleText).take(8).toList()
+        if (matches.isEmpty()) return null
+        val values = matches.map { it.groupValues[1].trim() }
+        val days = values.map(::parseRunDateDay)
+        val oneDay = days.distinct().singleOrNull()
+        return SelectedRunDate(values.first(), oneDay.takeIf { days.all { day -> day != null } })
+    }
+
+    private fun isoRunDate(day: Long): String = SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).apply {
+        timeZone = TimeZone.getTimeZone("UTC")
+    }.format(Date(day * 86_400_000L))
+
+    /** One request per explicit website check. A refusal is never a cue to retry; the
+     * transport's separate IPv4 recovery still applies to a broken socket, not HTTP 403. */
+    internal fun retriesFor(name: String): Int = 0
+
+    /** Identify as this app, not a Chrome session we do not have. Ordinary HTTP caching is
+     * allowed; a page publication clock is still never an observed train-event clock. */
+    internal fun headersFor(name: String): Map<String, String> = when (name) {
+        // Standard English content negotiation for the site's English station
+        // labels; this remains an honest TrackTrain GET, not a browser identity.
+        ORG -> mapOf("Accept" to "text/html", "Accept-Language" to "en-IN,en;q=0.8")
+        else -> mapOf("User-Agent" to "Mozilla/5.0 (Linux; Android 13; Mobile) Chrome/120 Safari/537.36",
+            "Accept" to if (name == RAIL_YATRI) "application/json" else "text/html",
+            "Cache-Control" to "no-cache", "Pragma" to "no-cache")
+    }
+
+    fun fetch(http: Http, name: String, number: String, originDay: Long, now: Long,
+              source: String? = null, destination: String? = null,
+              knownCodes: Set<String> = emptySet(), route: TrainRoute? = null,
+              mapRoute: TrainRoute? = null,
+              expectedIdentity: TrainIdentity? = null): Result =
+        fetch(name, number, originDay, now, source, destination, knownCodes, route, mapRoute,
+            expectedIdentity = expectedIdentity,
+            responseClock = { System.currentTimeMillis() }) { url ->
+            http.get(url, timeoutMillis = 4_000, retries = retriesFor(name), budgetMillis = 4_000,
+                headers = headersFor(name), allowCachedOnFailure = name != ORG,
+                followRedirects = name != ORG)
+        }
+
+    /** Transport seam: a source choice always requests its own URL. An HTTP fallback cache may
+     * show an old comparison, but cannot produce a fresh station claim. */
+    internal fun fetch(name: String, number: String, originDay: Long, now: Long,
+        source: String? = null, destination: String? = null,
+        knownCodes: Set<String> = emptySet(), route: TrainRoute? = null,
+        mapRoute: TrainRoute? = null,
+        expectedIdentity: TrainIdentity? = null,
+        responseClock: () -> Long = { now }, get: (String) -> Http.Result): Result {
+        val url = url(name, number, originDay, now)
+            ?: return Result("Run outside the available 0–2 day query window; no request made.", now, false)
+        val reply = get(url)
+        return parseReply(name, reply, number, originDay, source, destination, knownCodes,
+            route, mapRoute, expectedIdentity, responseClock())
+    }
+
+    /** Parse a completed transport reply after route/identity context is ready; never refetch the page. */
+    internal fun parseReply(name: String, reply: Http.Result, number: String, originDay: Long,
+        source: String? = null, destination: String? = null,
+        knownCodes: Set<String> = emptySet(), route: TrainRoute? = null,
+        mapRoute: TrainRoute? = null, expectedIdentity: TrainIdentity? = null,
+        responseAtMillis: Long): Result = when (reply) {
+        is Http.Result.Failed -> Result(
+            "Request failed: ${reply.kind} · ${reply.message.take(90)}; no position.",
+            responseAtMillis, false)
+        is Http.Result.Ok -> {
+            val bytes = reply.body.toByteArray(Charsets.UTF_8)
+            val digest = MessageDigest.getInstance("SHA-256").digest(bytes).take(8)
+                .joinToString("") { "%02x".format(it) }
+            val answer = parse(name, reply.body, number, originDay, responseAtMillis,
+                source, destination, knownCodes, route, mapRoute, expectedIdentity)
+                .copy(responseBytes = bytes.size, responseDigest = digest,
+                    fromHttpCache = reply.fromCache)
+            if (reply.fromCache) answer.copy(
+                detail = "Cached HTTP body (${reply.ageMillis / 60_000} min old); " +
+                    answer.detail + " No fresh observation.", pageAnswered = false,
+                stationClaim = null, orgReport = null, orgContentParsed = false,
+                orgQualificationNote = null, orgDetachedPageClaim = null,
+                orgDistanceProbe = "cached HTTP page; no same-page distance accepted",
+                orgSiteCards = emptyList(), orgSitePageUpdatedAt = null,
+                orgSitePageClockHasSeconds = false, orgSiteClocks = emptyMap(),
+                orgPageEndpoints = null, orgParsedCardContainers = 0,
+                orgRunDateMatched = false, orgPageRunDate = null, orgRunDateState = "CACHED",
+                orgParserState = "CACHED_BODY")
+            else answer
+        }
+    }
+
+    fun parse(name: String, body: String, number: String, originDay: Long, now: Long,
+              source: String? = null, destination: String? = null,
+              knownCodes: Set<String> = emptySet(), route: TrainRoute? = null,
+              mapRoute: TrainRoute? = null,
+              expectedIdentity: TrainIdentity? = null): Result = when (name) {
+        RAIL_YATRI -> railYatri(body, number, originDay, now, source, destination, knownCodes)
+        IXIGO, ORG -> page(name, body, number, originDay, now, knownCodes, route, mapRoute,
+            expectedIdentity)
+        else -> Result("Unknown check; no position.", now, false)
+    }
+
+    private fun railYatri(body: String, number: String, originDay: Long, now: Long,
+                          source: String?, destination: String?, knownCodes: Set<String>): Result {
+        val doc = runCatching { JSONObject(body) }.getOrNull()
+            ?: return Result("RailYatri: response is not a status object; no position.", now, false)
+        val date = SimpleDateFormat("yyyy-MM-dd", Locale.ENGLISH).apply {
+            timeZone = TimeZone.getTimeZone("UTC")
+        }.format(Date(originDay * 86_400_000L))
+        val returnedNumber = doc.optString("train_number")
+        val returnedDate = doc.optString("train_start_date")
+        val upstream = doc.optString("data_from").ifBlank { "unspecified" }
+        val code = doc.optString("current_station_code").uppercase(Locale.ROOT)
+        val status = when (doc.optString("status").uppercase(Locale.ROOT)) {
+            "D" -> "departed"
+            "A" -> "arrived"
+            else -> doc.optString("status").take(18).ifBlank { "not supplied" }
+        }
+        val stamp = doc.optString("update_time")
+        val stampMillis = runCatching {
+            SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z", Locale.ENGLISH).apply { isLenient = false }
+                .parse(stamp)?.time
+        }.getOrNull()
+        val age = stampMillis?.let { now - it }
+        val identity = "returned $returnedNumber / origin $returnedDate (requested $number / $date)"
+        val clock = if (stamp.isBlank()) "no update clock" else "update clock $stamp (NOT a station event time)"
+        val claim = if (code.matches(Regex("[A-Z0-9]{1,6}"))) "$code $status" else "no station claim"
+        val sameRoute = source != null && destination != null &&
+            doc.optString("source").equals(source, true) &&
+            doc.optString("destination").equals(destination, true)
+        val verdict = when {
+            !doc.optBoolean("success") -> "provider reports failure"
+            returnedNumber != number || returnedDate != date -> "wrong train/origin run"
+            age == null || age !in 0L..300_000L -> "clock absent, future or >5 min old"
+            !sameRoute -> "route not verified against selected timetable"
+            code !in knownCodes || status !in setOf("arrived", "departed") -> "no route-matched station/status claim"
+            else -> "same-run station claim, not an observed event"
+        }
+        val stationClaim = if (verdict.startsWith("same-run"))
+            StationClaim(code, status, stampMillis!!, upstream) else null
+        return Result("RailYatri: $identity · upstream $upstream · root claims $claim · $clock; $verdict. " +
+            "ETA/ETD and timetable rows are not Act; not onboard GPS.", now, true, stationClaim)
+    }
+
+    private fun page(name: String, body: String, number: String, originDay: Long, now: Long,
+                     knownCodes: Set<String>, route: TrainRoute?, mapRoute: TrainRoute?,
+                     expectedIdentity: TrainIdentity?): Result {
+        val parseStartedNanos = System.nanoTime()
+        // Only the visible DOM may identify the train, run date, or station data. Mask
+        // script/style/comment content first: SEO JSON is not a rendered source answer.
+        val visibleDocument = WebsiteCardMarkup.visiblePageMarkup(body)
+        val visibleMarkup = visibleDocument.html
+        val visible = (if (name == ORG) OrgWebsiteStatus.visibleText(visibleDocument)
+            else RunningStatusMirror.stripTags(visibleMarkup)
+                .replace("&nbsp;", " ", ignoreCase = true)
+                .replace("&#160;", " ", ignoreCase = true)
+                .replace(Regex("\\s+"), " ").trim()).take(120_000)
+        val visibleReadyNanos = System.nanoTime()
+        val title = if (name == IXIGO) "ixigo" else "whereismytrain.org.in"
+        if (!Regex("(?i)\\b${Regex.escape(number)}\\b").containsMatchIn(visible))
+            return Result("$title: returned visible page did not identify train $number; no position.",
+                now, false).copy(orgPageShapeReceipt = if (name == ORG)
+                    OrgWebsiteStatus.pageStructureReceipt(body) else null)
+        val date = SimpleDateFormat("dd-MM-yyyy", Locale.ENGLISH).apply {
+            timeZone = TimeZone.getTimeZone("UTC")
+        }.format(Date(originDay * 86_400_000L))
+        // The selected-run label belongs in the train header, not in card clocks/footer text.
+        val runDate = selectedRunDate(visible.substringBefore("Journey Timeline", visible).take(4_000))
+        val selected = runDate?.label
+        val selectedDay = runDate?.day
+        val runDateMatchesSelected = runDate != null && selectedDay == originDay
+        val runDateState = when {
+            runDate == null -> "ABSENT"
+            selectedDay == null -> "INVALID_OR_AMBIGUOUS"
+            runDateMatchesSelected -> "MATCH"
+            else -> "MISMATCH"
+        }
+        val status = when {
+            Regex("(?i)\\b(?:yet to start|hasn.t started)\\b").containsMatchIn(visible) -> "yet to start"
+            Regex("(?i)\\b(?:reached destination|run complete)\\b").containsMatchIn(visible) -> "reached destination"
+            else -> "no unambiguous run status in visible page"
+        }
+        val updated = Regex("(?i)\\bLast\\s+Updated\\s*:\\s*(\\d{1,2}:\\d{2}(?::\\d{2})?\\s*(?:AM|PM)?)")
+            .find(visible)?.groupValues?.get(1)?.trim()
+        // The .org.in page actually returned a 29-stop timeline on the owner's phone. Show
+        // what it printed beside static rows; do not call those clock tokens observed events.
+        val timeline = if (name == ORG) visible.substringAfter("Journey Timeline", visible) else visible
+        val matches = Regex("\\(([A-Z0-9]{1,6})\\)").findAll(timeline).take(300).toList()
+        val lines = linkedMapOf<String, String>()
+        for ((i, m) in matches.withIndex()) {
+            val code = m.groupValues[1]
+            if (code !in knownCodes || code in lines) continue
+            val end = matches.getOrNull(i + 1)?.range?.first ?: timeline.length
+            val excerpt = timeline.substring(m.range.last + 1, end.coerceAtMost(m.range.last + 141))
+                .replace(Regex("\\s+"), " ").trim()
+            if (!Regex("(?i)\\b(?:ARRIVAL|DEPARTURE)\\b").containsMatchIn(excerpt)) continue
+            lines[code] = "Page shows $code: ${excerpt.take(115)} · NOT dated Act"
+        }
+        val returned = selected?.let { "page-selected $it" } ?: "page does not identify a selected origin date"
+        val wrong = selected != null && !runDateMatchesSelected
+        val orgPageDocument = if (name == ORG && route != null)
+            OrgWebsiteStatus.prepareDocument(visibleDocument, visible) else null
+        val cardTreeReadyNanos = System.nanoTime()
+        val parsedOrg = if (name == ORG && route != null && !wrong)
+            OrgWebsiteStatus.parse(orgPageDocument!!, number, originDay, now, route, mapRoute,
+                expectedIdentity) else null
+        // A visible route/date conflict can still expose the site's literal cards under
+        // Source details, but never align them to this run or attach them to timetable rows.
+        val runDateMismatchCards = if (name == ORG && wrong && route != null)
+            OrgWebsiteStatus.displayOnlyCardsForMatchedRoute(orgPageDocument!!, route)
+            else emptyList()
+        // A route-matched page may still be shown as a comparison when its run date is
+        // absent. Do not silently turn an inferred timetable day into verified provenance.
+        val org = parsedOrg?.let { parsed -> parsed.copy(
+            report = if (runDateMatchesSelected) parsed.report?.copy(originInferred = false)
+                else parsed.report,
+            detachedPageClaim = parsed.detachedPageClaim?.copy(
+                runDateMatched = runDateMatchesSelected))
+        }
+        val displayOnlySiteCards = when {
+            org?.detachedPageClaim != null -> org.detachedPageClaim.siteCards
+            org?.siteCards?.isNotEmpty() == true -> org.siteCards
+            else -> runDateMismatchCards
+        }
+        val orgParserState = when {
+            name != ORG -> "NOT_ORG"
+            wrong -> "RUN_DATE_MISMATCH"
+            route == null -> "SELECTED_ROUTE_MISSING"
+            parsedOrg == null -> "NOT_RUN"
+            org?.detachedPageClaim != null -> "DETACHED_ROUTE_DIAGNOSTIC"
+            org?.report != null -> "SITE_REPORT"
+            parsedOrg.reason.startsWith("selected train/route unavailable") ->
+                "SELECTED_ROUTE_UNAVAILABLE"
+            parsedOrg.reason.startsWith("website endpoints") -> "ROUTE_ENDPOINT_MISMATCH"
+            parsedOrg.reason.contains("does not run on this origin day") -> "RUN_DAY_MISMATCH"
+            parsedOrg.reason.contains("origin departure timetable missing") ->
+                "ORIGIN_SCHEDULE_MISSING"
+            parsedOrg.reason.contains("not unambiguously active") -> "RUN_WINDOW_UNVERIFIED"
+            parsedOrg.reason.contains("reports this run is not active") -> "SITE_RUN_INACTIVE"
+            parsedOrg.reason.contains("update clock missing") -> "PAGE_CLOCK_INVALID_OR_STALE"
+            parsedOrg.reason.startsWith("no past-marked") -> "NO_QUALIFIED_SITE_EVENT"
+            else -> "UNQUALIFIED"
+        }
+        // HTTP 200, a matching number somewhere in the markup, or a partial text
+        // timeline is not selected-run data. Only a fresh, route-matched site page
+        // can populate the selected timetable's website columns. A separate detached
+        // claim is kept for discrepancy diagnosis, but is not accepted content.
+        val orgContentParsed = name != ORG || org?.let {
+            it.pageUpdatedAt != null && it.siteCards.isNotEmpty() && it.siteClocks.isNotEmpty()
+        } == true
+        val orgContentNote = when {
+            name != ORG -> ""
+            org?.detachedPageClaim != null ->
+                " · site route matches live identity but conflicts with selected timetable; " +
+                    "detached cards are diagnostic only and do not qualify this selected run"
+            !orgContentParsed && displayOnlySiteCards.isNotEmpty() ->
+                " · visible route cards are retained for comparison only; the selected date/run gate " +
+                    "did not qualify a site event or current position"
+            !orgContentParsed ->
+                " · returned body did not produce a fresh route-matched station-card clock; " +
+                    "HTTP success or partial text is not accepted as populated selected-run data"
+            else -> ""
+        }
+        val sourceParseReadyNanos = System.nanoTime()
+        val distanceProbe = if (name == ORG && route != null && org?.detachedPageClaim == null)
+            OrgWebsiteDistanceProbe.inspectVisibleText(visible, org?.report, route, mapRoute) else null
+        val distanceProbeReadyNanos = System.nanoTime()
+        val distanceNote = distanceProbe?.let { finding ->
+            finding.candidate?.let { p ->
+                "site printed ${p.remainingKm} km to ${p.nextCode} after ${p.fromCode}; " +
+                    "mapped ${p.legKm} km segment, ${(p.fraction * 100).toInt()}% schematic; " +
+                    "unverified candidate, NOT shown as live position"
+            } ?: finding.reason
+        }
+        val runLabel = when {
+            org?.report != null && runDateMatchesSelected ->
+                "site explicitly selected $date, matching the active timetable run"
+            org?.report != null && selected == null ->
+                "site has no date selector; mapped to the active selected run by timetable"
+            else -> returned
+        }
+        if (name == ORG) {
+            val beforeResultNanos = System.nanoTime()
+            fun ms(from: Long, to: Long) = (to - from).coerceAtLeast(0L) / 1_000_000L
+            Diary.get()?.log("ORG_PARSE") {
+                "visible=${ms(parseStartedNanos, visibleReadyNanos)}ms " +
+                    "cardTree=${ms(visibleReadyNanos, cardTreeReadyNanos)}ms " +
+                    "qualification=${ms(cardTreeReadyNanos, sourceParseReadyNanos)}ms " +
+                    "distance=${ms(sourceParseReadyNanos, distanceProbeReadyNanos)}ms " +
+                    "result=${ms(distanceProbeReadyNanos, beforeResultNanos)}ms " +
+                    "total=${ms(parseStartedNanos, beforeResultNanos)}ms " +
+                    "cards=${orgPageDocument?.cards?.size ?: 0} rows=${org?.report?.rows?.size ?: 0}"
+            }
+        }
+        return Result("$title: train $number · $runLabel (requested origin $date) · $status" +
+            (updated?.let { " · page update label $it" } ?: "") +
+            "; " + (org?.reason ?: if (wrong) "wrong origin run" else "no event-level dated observation") +
+            (org?.qualificationNote?.let { " · Unqualified later card: $it" } ?: "") +
+            ". ${lines.size} displayed station excerpts for comparison" +
+            (if (org?.report != null) "; source-marked past rows are website claims, NOT independently verified Act/GPS."
+                else "; NOT Act or measured position.") +
+            (if (name == ORG) " not Google's WIMT phone app." else "") +
+            orgContentNote +
+            (distanceNote?.let { " Same-page distance probe: $it; no extra request." } ?: ""),
+            now, true, orgReport = org?.report, orgContentParsed = orgContentParsed,
+            orgQualificationNote = org?.qualificationNote, lines = lines,
+            pageUpdateLabel = if (name == ORG) updated else null,
+            orgDistanceProbe = distanceNote,
+            orgSiteCards = displayOnlySiteCards,
+            orgDetachedPageClaim = org?.detachedPageClaim,
+            orgSitePageUpdatedAt = org?.report?.pageUpdatedAt ?: org?.pageUpdatedAt
+                ?: org?.detachedPageClaim?.pageUpdatedAt,
+            orgSitePageClockHasSeconds = name == ORG && updated?.let {
+                Regex("\\d{1,2}:\\d{2}:\\d{2}").containsMatchIn(it)
+            } == true,
+            orgSiteClocks = org?.siteClocks.orEmpty(),
+            orgPageEndpoints = org?.pageEndpoints,
+            orgSelectedRouteFromCode = route?.srcCode?.uppercase(Locale.ROOT),
+            orgSelectedRouteToCode = route?.dstCode?.uppercase(Locale.ROOT),
+            orgSelectedRouteStopCount = route?.stops?.size,
+            orgParserState = orgParserState,
+            orgParsedCardContainers = org?.parsedCardContainers ?: 0,
+            orgRunDateMatched = name == ORG && runDateMatchesSelected,
+            orgPageRunDate = if (name == ORG) selectedDay?.let(::isoRunDate) else null,
+            orgRunDateState = if (name == ORG) runDateState else "ABSENT",
+            // Shape diagnosis is expensive and useful only when the live DOM did not qualify.
+            orgPageShapeReceipt = if (name == ORG && !orgContentParsed)
+                OrgWebsiteStatus.pageStructureReceipt(body) else null)
+    }
+}

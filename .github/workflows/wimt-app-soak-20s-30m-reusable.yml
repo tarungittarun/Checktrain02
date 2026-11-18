@@ -1,0 +1,102 @@
+name: WIMT installed-app observation · reusable
+
+on:
+  workflow_call:
+    inputs:
+      train_no:
+        description: 'Distinct fixed train number assigned to this installed-app workflow'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  installed-app-soak:
+    name: Installed app · train ${{ inputs.train_no }} · 30 min / 20 s
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: true
+
+      - name: Offline report, distinct-train workflow and source checks
+        run: |
+          python3 tools/ci/wimt_app_20s_30m_report.py --self-test
+          python3 tools/ci/test_wimt_app_20s_30m_workflows.py
+          python3 tools/ci/check_workflows.py
+          python3 tools/ci/check_kotlin_balance.py app/src
+          python3 -m py_compile \
+            tools/ci/wimt_app_20s_30m_report.py \
+            tools/ci/test_wimt_app_20s_30m_workflows.py
+          bash -n tools/ci/run_wimt_live_api_soak.sh
+
+      - name: Generate the offline timetable asset for the APK
+        run: bash tools/ci/prepare_asset.sh
+
+      - name: Run unit tests and build the exact app and instrumentation APKs in CI
+        run: |
+          ./gradlew --no-daemon :app:testDebugUnitTest \
+            :app:assembleDebug :app:assembleDebugAndroidTest --stacktrace
+
+      - name: Preserve the exact APK pair used by this installed-app test
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wimt-app-soak-apks-train-${{ inputs.train_no }}-${{ github.run_id }}
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Install the APK and observe this train every 20 seconds for 30 minutes
+        id: installed_app_test
+        env:
+          WIMT_LIVE_SOAK_MINUTES: '30'
+          WIMT_LIVE_SOAK_TRAIN_NO: ${{ inputs.train_no }}
+          WIMT_LIVE_SOAK_OBSERVATION_INTERVAL_SECONDS: '20'
+          WIMT_LIVE_SOAK_EVIDENCE_DIR: wimt-app-soak-evidence-train-${{ inputs.train_no }}
+        run: bash tools/ci/run_wimt_live_api_soak.sh
+
+      - name: Build redacted report from installed-app evidence
+        if: always()
+        env:
+          TEST_OUTCOME: ${{ steps.installed_app_test.outcome }}
+          TRAIN_NO: ${{ inputs.train_no }}
+        run: |
+          evidence="wimt-app-soak-evidence-train-${TRAIN_NO}"
+          mkdir -p "$evidence/screens"
+          [ -s "$evidence/instrumentation.txt" ] || : > "$evidence/instrumentation.txt"
+          [ -s "$evidence/soak-trace.txt" ] || : > "$evidence/soak-trace.txt"
+          [ -s "$evidence/runner-exit.txt" ] || printf 'instrumentationExitCode=-1\n' > "$evidence/runner-exit.txt"
+          python3 tools/ci/wimt_app_20s_30m_report.py "$evidence"
+          cat "$evidence/report.md" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$TEST_OUTCOME" = success ]; then
+            python3 - "$evidence/result.json" "$TRAIN_NO" <<'PY'
+          import json, re, sys
+          from pathlib import Path
+          result = json.loads(Path(sys.argv[1]).read_text(encoding='utf-8'))
+          expected_train = sys.argv[2]
+          if result.get('passed') is not True or result.get('trainNo') != expected_train:
+              raise SystemExit('the installed-app test passed without matching 30-minute, 20-second, source-qualified evidence')
+          PY
+          fi
+
+      - name: Upload APK provenance, redacted stats and genuine app captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wimt-app-soak-20s-30m-train-${{ inputs.train_no }}-${{ github.run_id }}
+          path: wimt-app-soak-evidence-train-${{ inputs.train_no }}/
+          if-no-files-found: warn
+          retention-days: 30

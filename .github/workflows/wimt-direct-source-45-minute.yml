@@ -1,0 +1,76 @@
+name: wimt-direct-source-45-minute-observation
+
+on:
+  push:
+    branches:
+      - 'arena/6f68e526-checktrain02'
+    paths:
+      - .github/workflows/wimt-direct-source-45-minute.yml
+      - tools/ci/wimt_direct_source_45_minute.py
+      - tools/ci/test_wimt_direct_source_45_minute.py
+      - tools/ci/select_wimt_campaign_roster.py
+      - tools/ci/prepare_asset.sh
+      - tools/build_refdb.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wimt-direct-source-45-minute-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  direct-source-observation:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[wimt-direct-source-45]'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Offline observer tests and workflow checks (no provider request)
+        run: |
+          python3 tools/ci/test_wimt_direct_source_45_minute.py
+          python3 tools/ci/test_select_wimt_campaign_roster.py
+          python3 tools/ci/check_workflows.py
+          python3 -m py_compile \
+            tools/ci/wimt_direct_source_45_minute.py \
+            tools/ci/test_wimt_direct_source_45_minute.py \
+            tools/ci/select_wimt_campaign_roster.py
+
+      - name: Prepare the current offline timetable for candidate discovery only
+        run: bash tools/ci/prepare_asset.sh
+
+      - name: Observe one source-qualified train from WIMT .in for 45 minutes
+        id: direct_observation
+        timeout-minutes: 55
+        run: |
+          mkdir -p wimt-direct-source-45-minute-evidence
+          python3 tools/ci/wimt_direct_source_45_minute.py \
+            --db app/src/main/assets/ref/refdb.dbgz \
+            --output wimt-direct-source-45-minute-evidence
+
+      - name: Publish the direct-source result
+        if: always()
+        run: |
+          evidence=wimt-direct-source-45-minute-evidence
+          mkdir -p "$evidence"
+          if [ -s "$evidence/report.md" ]; then
+            cat "$evidence/report.md" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo '# 45-minute direct WIMT .in source observation' >> "$GITHUB_STEP_SUMMARY"
+            echo >> "$GITHUB_STEP_SUMMARY"
+            echo '**NO VERIFIED 45-MINUTE OBSERVATION:** the observer did not produce a completed report. No app or emulator test is implied.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload the redacted source trace and report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wimt-direct-source-45-minute-evidence-${{ github.run_id }}
+          path: wimt-direct-source-45-minute-evidence/
+          if-no-files-found: warn
+          retention-days: 30
