@@ -1,6 +1,10 @@
 package `in`.opentrack.india.remote
 
 import `in`.opentrack.india.core.RailTime
+import `in`.opentrack.india.domain.TrackModel
+import `in`.opentrack.india.model.SourceKind
+import `in`.opentrack.india.model.StopStatus
+import `in`.opentrack.india.model.TrainPosition
 import `in`.opentrack.india.model.StopRow
 import `in`.opentrack.india.model.TrainRoute
 import org.json.JSONObject
@@ -87,6 +91,26 @@ class NtesMobileFallbackTest {
         assertEquals(20, displayed.perStop["TK"]?.delayArrivalMin)
         assertEquals("feed's update time is preserved independently of event times",
             stamp, displayed.feedStampMillis)
+
+        // TrackModel is the row-value model bound by the screen's timetable adapter.
+        // Check that a rejected source cell falls back to Sch while the concordant
+        // source cell stays in the reported column with its own delay.
+        val model = TrackModel.build(route(), TrainPosition(
+            anchorSeq = 3, nextSeq = 4, fraction = 0f, kmAlong = 0f,
+            status = StopStatus.DEPARTED, etaNextMinute = null, delayMinutes = 20,
+            remainingMin = null, provenance = SourceKind.PROVIDER_NTES,
+            confidence = TrainPosition.Confidence.HIGH, ageSeconds = 0,
+            feedStampMillis = stamp,
+        ), displayed.perStop, 17 * 60 + 11, 1, 4, day, null)
+        val ypr = model.rows.first { it.code == "YPR" }
+        val tk = model.rows.first { it.code == "TK" }
+        assertEquals(TrackModel.MinuteSource.SCHEDULE, ypr.source)
+        assertEquals(15 * 60 + 10, ypr.showArr)
+        assertNull(ypr.delay)
+        assertEquals(TrackModel.MinuteSource.REPORTED, tk.source)
+        assertEquals(16 * 60 + 20, tk.showArr)
+        assertEquals(16 * 60 + 22, tk.showDep)
+        assertEquals(20, tk.delay)
     }
 
     /** The first three STNS entries and LUPDT are transcribed from the owner's R54 diary.
