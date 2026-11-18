@@ -1476,13 +1476,13 @@ class TrainActivity : AppCompatActivity() {
             "$selectedSiteHeadline. ${WebsiteReportDisplay.firstGlanceBadge(report)}; " +
                 WebsiteReportDisplay.firstGlanceCaution(report) + "."
         } else null
-        wimtIntermediateEvent?.let { event ->
-            val clock = RailTime.formatRailMinute(event.eventMinute)
-            binding.headline.text = "WIMT intermediate event · ${event.name} · $clock"
+        wimtIntermediateEvent?.let { intermediateReport ->
+            val clock = RailTime.formatRailMinute(intermediateReport.eventMinute)
+            binding.headline.text = "WIMT intermediate event · ${intermediateReport.name} · $clock"
             binding.headline.contentDescription =
-                "WIMT .in source-reported intermediate event at ${event.name} (${event.code}), " +
-                    "$clock, ${TableMarker.elapsedLabel(event.ageMillis)} old, between " +
-                    "${event.precedingHalt} and ${event.followingHalt}. It is not a scheduled " +
+                "WIMT .in source-reported intermediate event at ${intermediateReport.name} (${intermediateReport.code}), " +
+                    "$clock, ${TableMarker.elapsedLabel(intermediateReport.ageMillis)} old, between " +
+                    "${intermediateReport.precedingHalt} and ${intermediateReport.followingHalt}. It is not a scheduled " +
                     "route stop or GPS; present position is unknown."
         }
         binding.routeHeadActual.text = if (WebsiteReportDisplay.selected(ui.activeSource))
@@ -2194,12 +2194,12 @@ class TrainActivity : AppCompatActivity() {
                 }
             }
             ui.activeSource == TrackingSources.WIMT && wimtIntermediateEvent != null -> {
-                val event = wimtIntermediateEvent
-                val clock = RailTime.formatRailMinute(event.eventMinute)
-                binding.age.text = "WIMT intermediate · ${event.code} · $elapsed · $clock"
+                val intermediateReport = wimtIntermediateEvent
+                val clock = RailTime.formatRailMinute(intermediateReport.eventMinute)
+                binding.age.text = "WIMT intermediate · ${intermediateReport.code} · $elapsed · $clock"
                 binding.age.contentDescription = "WIMT .in source-reported intermediate event at " +
-                    "${event.name} (${event.code}), $clock, $elapsed, between " +
-                    "${event.precedingHalt} and ${event.followingHalt}. This is not a " +
+                    "${intermediateReport.name} (${intermediateReport.code}), $clock, $elapsed, between " +
+                    "${intermediateReport.precedingHalt} and ${intermediateReport.followingHalt}. This is not a " +
                     "scheduled route stop or GPS; present position is unknown."
             }
             ui.activeSource == TrackingSources.WIMT && timedHalt != null && elapsed != null -> {
