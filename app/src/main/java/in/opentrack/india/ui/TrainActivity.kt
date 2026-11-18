@@ -1382,6 +1382,10 @@ class TrainActivity : AppCompatActivity() {
         val wimtRows = ui.sourceLines[`in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE].orEmpty()
         val wimtLiveRows = ui.sourceLines[TrackingSources.WIMT].orEmpty()
         val wimtLiveEvidence = ui.wimtLiveEvidence
+        val wimtIntermediateEvent = if (ui.activeSource == TrackingSources.WIMT)
+            WimtIntermediateDisplay.newerEvent(ui.wimtIntermediate, ui.route, vm.originDate,
+                latestReportedRouteEventAt(m.rows, vm.originDate, System.currentTimeMillis()),
+                System.currentTimeMillis()) else null
         val wimtLiveSummary = when {
             wimtLiveEvidence == null -> "WIMT .in not checked · timetable shown."
             wimtLiveEvidence.runDateMatched != true || wimtLiveEvidence.routeMatched != true ->
@@ -1441,6 +1445,12 @@ class TrainActivity : AppCompatActivity() {
                 "Site cards are comparison only · run date unverified."
             selectedWebsite && (selectedPending || checkingSelectedWebsite) -> "Checking website…"
             selectedWebsite -> "No qualifying site event · timetable shown."
+            ui.activeSource == TrackingSources.WIMT && wimtIntermediateEvent != null ->
+                "WIMT intermediate ${wimtIntermediateEvent.name} (${wimtIntermediateEvent.code}) " +
+                    "· ${RailTime.formatClock(wimtIntermediateEvent.eventAtMillis)} " +
+                    "· ${TableMarker.elapsedLabel(wimtIntermediateEvent.ageMillis)} old " +
+                    "· between ${wimtIntermediateEvent.precedingHalt} and " +
+                    "${wimtIntermediateEvent.followingHalt}; not a scheduled halt or GPS position."
             ui.activeSource == TrackingSources.WIMT -> wimtLiveSummary
             showingWimtRows ->
                 "WIMT web cache · ${wimtRows.size} time row(s), unverified."
@@ -1466,6 +1476,15 @@ class TrainActivity : AppCompatActivity() {
             "$selectedSiteHeadline. ${WebsiteReportDisplay.firstGlanceBadge(report)}; " +
                 WebsiteReportDisplay.firstGlanceCaution(report) + "."
         } else null
+        wimtIntermediateEvent?.let { event ->
+            val clock = RailTime.formatRailMinute(event.eventMinute)
+            binding.headline.text = "WIMT intermediate event · ${event.name} · $clock"
+            binding.headline.contentDescription =
+                "WIMT .in source-reported intermediate event at ${event.name} (${event.code}), " +
+                    "$clock, ${TableMarker.elapsedLabel(event.ageMillis)} old, between " +
+                    "${event.precedingHalt} and ${event.followingHalt}. It is not a scheduled " +
+                    "route stop or GPS; present position is unknown."
+        }
         binding.routeHeadActual.text = if (WebsiteReportDisplay.selected(ui.activeSource))
             "WEBSITE" else "ACTUAL"
         binding.heroEyebrow.text = when {
@@ -2039,6 +2058,15 @@ class TrainActivity : AppCompatActivity() {
         else -> "Source checked. Open Info for details."
     }
 
+    private fun latestReportedRouteEventAt(
+        rows: List<TrackModel.Stop>, originEpochDay: Long, now: Long,
+    ): Long? = rows.asSequence()
+        .filter { it.source == TrackModel.MinuteSource.REPORTED }
+        .flatMap { row -> listOfNotNull(row.showArr, row.showDep).asSequence() }
+        .map { RailTime.railMinuteToEpochMillis(originEpochDay, it) }
+        .filter { it > 0L && it <= now }
+        .maxOrNull()
+
     private fun updateTableMarker(ui: LiveViewModel.Ui) {
         val rows = ui.model.rows
         val fromOfficial = ui.activeSource in listOf("NTES (official)", "erail", "last known",
@@ -2080,12 +2108,20 @@ class TrainActivity : AppCompatActivity() {
         } ?: if (fromOfficial) (timedHalt?.showDep ?: timedHalt?.showArr)?.let {
             RailTime.railMinuteToEpochMillis(vm.originDate, it)
         } else null
-        stopAdapter.legAgeSeconds = eventAt?.takeIf { it <= now }?.let { (now - it) / 1_000L }
+        val wimtIntermediateEvent = if (ui.activeSource == TrackingSources.WIMT)
+            WimtIntermediateDisplay.newerEvent(ui.wimtIntermediate, ui.route, vm.originDate,
+                latestReportedRouteEventAt(rows, vm.originDate, now), now) else null
+        if (wimtIntermediateEvent != null) stopAdapter.haltMarker = null
+        // The intermediate event has no corresponding scheduled row/leg, so do not
+        // move a marker or paint an elapsed-train icon onto the preceding commercial stop.
+        stopAdapter.legAgeSeconds = if (wimtIntermediateEvent == null)
+            eventAt?.takeIf { it <= now }?.let { (now - it) / 1_000L } else null
         // The primary age line used to freeze at e.g. "6 min ago" while a static
         // website/NTES event remained unchanged. A refresh is a receipt, NOT a new
         // station event: age the original event locally, also at the last halt where
         // there is no next leg on which to draw an inline icon.
-        val elapsed = eventAt?.takeIf { it <= now }?.let {
+        val displayedEventAt = wimtIntermediateEvent?.eventAtMillis ?: eventAt
+        val elapsed = displayedEventAt?.takeIf { it <= now }?.let {
             TableMarker.elapsedLabel(now - it) + " ago"
         }
         when {
@@ -2157,6 +2193,15 @@ class TrainActivity : AppCompatActivity() {
                         "reported stop ${timedHalt.name} at $clock; current delay unknown"
                 }
             }
+            ui.activeSource == TrackingSources.WIMT && wimtIntermediateEvent != null -> {
+                val event = wimtIntermediateEvent
+                val clock = RailTime.formatRailMinute(event.eventMinute)
+                binding.age.text = "WIMT intermediate · ${event.code} · $elapsed · $clock"
+                binding.age.contentDescription = "WIMT .in source-reported intermediate event at " +
+                    "${event.name} (${event.code}), $clock, $elapsed, between " +
+                    "${event.precedingHalt} and ${event.followingHalt}. This is not a " +
+                    "scheduled route stop or GPS; present position is unknown."
+            }
             ui.activeSource == TrackingSources.WIMT && timedHalt != null && elapsed != null -> {
                 val minute = (timedHalt.showDep ?: timedHalt.showArr)!!
                 val clock = RailTime.formatRailMinute(minute)
@@ -2191,10 +2236,9 @@ class TrainActivity : AppCompatActivity() {
                 }
             }
         }
-        val freshnessEventAt = if (ui.activeSource == TrackingSources.WIMT && eventAt == null)
-            ui.wimtIntermediate?.eventMinute?.let {
-                RailTime.railMinuteToEpochMillis(vm.originDate, it)
-            } else eventAt
+        // Freshness follows the displayed source event. A validated intermediate event
+        // can be newer than the preceding scheduled stop, but never moves that stop's marker.
+        val freshnessEventAt = displayedEventAt
         val stale = SourceFreshness.isStale(freshnessEventAt, now)
         binding.age.setTextColor(getColor(if (stale) R.color.late else R.color.text3))
         if (stale && WebsiteReportDisplay.selected(ui.activeSource) &&
