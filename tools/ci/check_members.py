@@ -82,7 +82,8 @@ singleOrNull indexOfLast findAll range firstNotNullOfOrNull removeAt
 lastModified openOutputStream toByteArray registerForActivityResult clear text
 packageName contentResolver connect takeLast log
 removeFirst addLast appendText appendBytes readBytes copyOfRange versionName lastUpdateTime getPackageInfo packageManager getLinkProperties hasTransport hasCapability getNetworkCapabilities activeNetwork mkdirs resume install tailLabels exportName rotationPlan getAllByName hostAddress getSharedPreferences putString putInt
-length getString getOrNull edit toInt toFloat coerceIn coerceAtLeast coerceAtMost delete lastOrNull
+# Java's BufferedReader.readLine and Thread.join in the loopback transport test; JDK methods, not app APIs.
+length getString getOrNull edit toInt toFloat coerceIn coerceAtLeast coerceAtMost delete lastOrNull readLine join
 groupValues exists applicationContext lineTo moveTo rewind toEpochDay parentFile toIntOrNull takeIf str
 removeAllViews bool responseCode isFile absolutePath withIndex second accuracy latitude longitude
 submitList postValue year monthValue dayOfMonth dayOfWeek inv add getBoolean renameTo copyTo readText
