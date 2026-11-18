@@ -220,19 +220,6 @@ def capture(train_number):
               type:e.type||'', placeholder:(e.getAttribute('placeholder')||'').slice(0,100),
               ariaLabel:(e.getAttribute('aria-label')||'').slice(0,100), visible:!!e.getClientRects().length
             }));""")
-            candidates = driver.find_elements(By.CSS_SELECTOR, "input")
-            target = None
-            for element in candidates:
-                if not element.is_displayed():
-                    continue
-                label = " ".join([element.get_attribute("placeholder") or "", element.get_attribute("aria-label") or ""])
-                if re.search(r"train\s*(number|name)", label, re.I):
-                    target = element
-                    break
-            if target is None:
-                target = next((e for e in candidates if e.is_displayed() and (e.get_attribute("type") or "text") in ("text", "search")), None)
-            if target is None:
-                raise RuntimeError("visible train search input not found")
             # Preserve the actual page-load status before clearing bootstrap traffic; this distinguishes a
             # public-page WAF refusal from a form-selector bug without keeping raw DevTools events.
             try:
@@ -252,6 +239,19 @@ def capture(train_number):
                         continue
             except Exception:
                 pass
+            candidates = driver.find_elements(By.CSS_SELECTOR, "input")
+            target = None
+            for element in candidates:
+                if not element.is_displayed():
+                    continue
+                label = " ".join([element.get_attribute("placeholder") or "", element.get_attribute("aria-label") or ""])
+                if re.search(r"train\s*(number|name)", label, re.I):
+                    target = element
+                    break
+            if target is None:
+                target = next((e for e in candidates if e.is_displayed() and (e.get_attribute("type") or "text") in ("text", "search")), None)
+            if target is None:
+                raise RuntimeError("visible train search input not found")
             # Include any suggestions plus the Search request, but not page bootstrap traffic.
             target.clear()
             target.send_keys(train_number)
