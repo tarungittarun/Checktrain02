@@ -19,11 +19,17 @@ The test drives the installed app through its visible UI and accessibility tree.
 
 A fresh, run/date/route-matched WIMT response with source-reported actual stop rows, visible WIMT-attributed cells, a current-station claim, and the app-side running-status qualification is required before Auto can be enabled. If that initial gate fails, the test records the failure, verifies Auto is OFF, and continues the 30-minute observation passively. If an Auto refresh later fails, loses qualification, or misses its expected receipt, it disables Auto and continues passive UI sampling. It does not keep retrying a refused or unqualified source just to complete the timer. Such a run is a **completed observation but a failed WIMT acceptance**, not a pass.
 
+## Source reliability and diagnostics
+
+The selected `.in` GET advertises ordinary gzip support and safely decompresses before parsing, with the existing 1 MB cap applied to decoded content. The request has bounded 8-second connect and 12-second read timeouts. It makes at most one retry for transient socket/DNS/TLS/IO failures or HTTP 500/502/503/504; it respects numeric or HTTP-date `Retry-After` up to 10 seconds. HTTP 403/429, other 4xx responses, and redirects are not retried or followed. The existing Auto network cadence remains one minute; this bounded recovery does not create a 20-second polling loop.
+
+The APK emits structured, body-free `WimtLiveProvider` logcat entries for request start, response headers, body read, retries, parser outcome and final qualification. Timings separate DNS/connect/TLS/response-header wait (combined by Android's `HttpURLConnection`), body read, parse, and total duration. Entries include status, bytes, encoding, server date, retry reason/count, run/route match, source-stamp age/freshness, source actual-row count and current-station presence; request URLs, headers, cookies and raw response bodies are deliberately excluded. The installed-app CI runner saves these entries with the instrumentation logs. On a device, enable **Settings → diagnostic log** before reproducing and use its Save/Share action afterward; these entries join the user's private on-device Diary and are not uploaded automatically.
+
 ## Captured metrics
 
 Each 20-second trace row includes target and actual elapsed time, sampling jitter, whether WIMT remains selected, visible WIMT-attributed cell count, source-row visibility, a bounded source-summary class, Auto state, refresh receipt time and result class, tracking-screen/foreground visibility, and (at start and five-minute marks) Android `dumpsys meminfo` total PSS and `dumpsys cpuinfo` process percentage where available. The in-app source-details captures add HTTP status, response size, parser outcome, run/date and route matching, freshness classification, source row/cell counts, current-station claim, running-status qualification, and disclosure status. The final report summarizes receipt counts and intervals, missed slots, observation timing, memory, screenshots, source failures and the exact workflow train.
 
-Artifacts contain the in-app trace, device log, APK-install checksum proof, instrumentation output, original screenshots/accessibility hierarchies, and a redacted `report.md`/`result.json`. Raw response bodies, request URLs/headers, and unrestricted source text are not copied into the report.
+Artifacts contain the in-app trace, filtered device log (`WimtLiveProvider`, instrumentation and Android runtime errors), APK-install checksum proof, instrumentation output, original screenshots/accessibility hierarchies, and a redacted `report.md`/`result.json`. Raw response bodies, request URLs/headers, and unrestricted source text are not copied into the report.
 
 ## Existing evidence and unresolved issue
 

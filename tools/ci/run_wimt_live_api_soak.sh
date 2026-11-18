@@ -62,7 +62,8 @@ finish() {
   done
   adb exec-out run-as in.opentrack.india cat files/evidence/wimt-soak-results.txt \
     > "$OUT/soak-trace.txt" 2>/dev/null || : > "$OUT/soak-trace.txt"
-  adb logcat -d -s WimtLiveApiSoak:I > "$OUT/device-log.txt" 2>/dev/null || true
+  adb logcat -d -v threadtime -s \
+    WimtLiveProvider:I WimtLiveApiSoak:I AndroidRuntime:E > "$OUT/device-log.txt" 2>/dev/null || true
   if ! grep -q 'OK (1 test)' "$OUT/instrumentation.txt" || \
       grep -q 'FAILURES!!!' "$OUT/instrumentation.txt" || \
       grep -q 'INSTRUMENTATION_FAILED' "$OUT/instrumentation.txt"; then

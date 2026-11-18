@@ -1,5 +1,6 @@
 package `in`.opentrack.india.remote
 
+import `in`.opentrack.india.core.Diary
 import `in`.opentrack.india.core.RailTime
 import `in`.opentrack.india.model.LiveSnapshot
 import `in`.opentrack.india.model.LiveStopFields
@@ -7,11 +8,18 @@ import `in`.opentrack.india.model.SourceKind
 import `in`.opentrack.india.model.StopRow
 import `in`.opentrack.india.model.StopStatus
 import `in`.opentrack.india.model.TrainRoute
+import android.util.Log
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
+import java.io.IOException
 import java.net.HttpURLConnection
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 import java.net.URL
 import java.text.ParsePosition
+import java.util.concurrent.atomic.AtomicLong
+import java.util.zip.GZIPInputStream
+import javax.net.ssl.SSLException
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -27,6 +35,12 @@ object WimtLiveProvider {
 
     const val SOURCE_NAME = "WIMT .in live-status feed"
     private const val ENDPOINT = "https://whereismytrain.in/cache/live_status"
+    private const val LOG_TAG = "WimtLiveProvider"
+    private const val CONNECT_TIMEOUT_MS = 8_000
+    private const val READ_TIMEOUT_MS = 12_000
+    private const val MAX_TRANSIENT_ATTEMPTS = 2
+    private const val MAX_RETRY_AFTER_SECONDS = 10
+    private val requestSequence = AtomicLong(0L)
     // Identify this app honestly. Do not copy browser/WebView or hidden WIMT app identifiers.
     private const val USER_AGENT = "TrackTrain/1.0 (Android; selected WIMT source)"
     private const val MAX_RESPONSE_BYTES = 1_000_000
@@ -44,6 +58,16 @@ object WimtLiveProvider {
         val responseBytes: Int? = body?.toByteArray(Charsets.UTF_8)?.size,
         /** Wall-clock time when the complete response body arrived; test seams may omit it. */
         val receivedAtMillis: Long? = null,
+        /** Monotonic stage timings; header time includes DNS, connect, TLS and response headers. */
+        val headerWaitMillis: Long? = null,
+        val bodyReadMillis: Long? = null,
+        val contentType: String? = null,
+        val contentEncoding: String? = null,
+        val serverDate: String? = null,
+        val retryAfterSeconds: Int? = null,
+        val failureClass: String? = null,
+        val attemptCount: Int = 1,
+        val retryReason: String? = null,
     )
 
     fun hasFreshSourceUpdate(result: WimtResult, nowMillis: Long): Boolean =
@@ -105,6 +129,21 @@ object WimtLiveProvider {
         val currentStationCode: String? = null,
         /** True only when both response endpoints were echoed and matched this timetable. */
         val routeMatched: Boolean? = null,
+        val parseDiagnostics: ParseDiagnostics = ParseDiagnostics(),
+    )
+
+    /** Counts only; deliberately excludes raw source values and response-body fragments. */
+    data class ParseDiagnostics(
+        val scheduleRows: Int = 0,
+        val malformedRows: Int = 0,
+        val rowsMissingStationCode: Int = 0,
+        val etaRows: Int = 0,
+        val actualClockFieldsPresent: Int = 0,
+        val actualStopRowsAccepted: Int = 0,
+        val rejectedInvertedDepartures: Int = 0,
+        val currentStationRowFound: Boolean = false,
+        val sourceStampFieldPresent: Boolean = false,
+        val sourceStampParsed: Boolean = false,
     )
 
     fun fetch(
@@ -113,8 +152,8 @@ object WimtLiveProvider {
         originEpochDay: Long,
         nowMillis: Long = System.currentTimeMillis(),
         stationNameLookup: ((String) -> String?)? = null,
-    ): WimtResult = fetch(trainNo, route, originEpochDay, nowMillis, stationNameLookup) { url ->
-        request(url)
+    ): WimtResult = fetchInternal(trainNo, route, originEpochDay, nowMillis, stationNameLookup) { url, id ->
+        request(url, id)
     }
 
     /** Injectable wire boundary for JVM tests; production uses one ordinary Android GET. */
@@ -125,79 +164,330 @@ object WimtLiveProvider {
         nowMillis: Long,
         stationNameLookup: ((String) -> String?)?,
         get: (String) -> WireReply,
+    ): WimtResult = fetchInternal(trainNo, route, originEpochDay, nowMillis,
+        stationNameLookup) { url, _ -> get(url) }
+
+    private fun fetchInternal(
+        trainNo: String,
+        route: TrainRoute,
+        originEpochDay: Long,
+        nowMillis: Long,
+        stationNameLookup: ((String) -> String?)?,
+        get: (String, String) -> WireReply,
     ): WimtResult {
+        val requestId = requestSequence.incrementAndGet()
         if (!trainNo.matches(Regex("[0-9]{4,5}")) || !route.trainNo.equals(trainNo, true)) {
+            emit("request_rejected", "id=$requestId category=TRAIN_OR_ROUTE_MISMATCH")
             return WimtResult(null, "WIMT request train number does not match the loaded timetable")
         }
-        if (route.stops.isEmpty()) return WimtResult(null, "No timetable stops available for WIMT")
-        val dayStr = formatRunDate(originEpochDay) ?: return WimtResult(null, "Invalid WIMT run date")
+        if (route.stops.isEmpty()) {
+            emit("request_rejected", "id=$requestId category=EMPTY_TIMETABLE_STOPS trainNo=$trainNo")
+            return WimtResult(null, "No timetable stops available for WIMT")
+        }
+        val dayStr = formatRunDate(originEpochDay) ?: run {
+            emit("request_rejected", "id=$requestId category=INVALID_RUN_DATE trainNo=$trainNo")
+            return WimtResult(null, "Invalid WIMT run date")
+        }
+        val requestStartedNanos = System.nanoTime()
+        emit("request_start", "id=$requestId trainNo=$trainNo runDate=$dayStr " +
+            "route=${route.srcCode}-${route.dstCode} timeoutConnectMs=$CONNECT_TIMEOUT_MS " +
+            "timeoutReadMs=$READ_TIMEOUT_MS")
         val url = requestUrl(trainNo, dayStr)
         val wire = try {
-            get(url)
+            get(url, requestId.toString())
         } catch (e: Exception) {
-            WireReply(null, null, e.message?.take(160) ?: "Network connection failed")
+            val failureClass = classifyTransportFailure(e)
+            WireReply(null, null, failureClass, failureClass = failureClass)
         }
+        val elapsedMs = elapsedMillis(requestStartedNanos)
         if (wire.status != HttpURLConnection.HTTP_OK) {
             val detail = wire.detail.ifBlank { "WIMT server returned HTTP ${wire.status ?: "unknown"}" }
+            emit("request_complete", requestLogFields(requestId, wire, elapsedMs) +
+                " outcome=${wire.failureClass ?: httpOutcome(wire.status)}")
             return WimtResult(null, detail, responseCode = wire.status, responseBytes = wire.responseBytes)
         }
-        val body = wire.body ?: return WimtResult(null,
-            wire.detail.ifBlank { "WIMT returned an empty response" },
-            responseCode = wire.status, responseBytes = wire.responseBytes)
-        if (body.toByteArray(Charsets.UTF_8).size > MAX_RESPONSE_BYTES) {
+        val body = wire.body ?: run {
+            val detail = wire.detail.ifBlank { "WIMT returned an empty response" }
+            emit("request_complete", requestLogFields(requestId, wire, elapsedMs) +
+                " outcome=${wire.failureClass ?: "EMPTY_BODY"}")
+            return WimtResult(null, detail, responseCode = wire.status, responseBytes = wire.responseBytes)
+        }
+        val bodyBytes = body.toByteArray(Charsets.UTF_8).size
+        if (bodyBytes > MAX_RESPONSE_BYTES) {
+            emit("request_complete", requestLogFields(requestId, wire, elapsedMs) +
+                " outcome=RESPONSE_TOO_LARGE decodedBytes=$bodyBytes")
             return WimtResult(null, "WIMT response exceeded $MAX_RESPONSE_BYTES bytes",
-                responseCode = wire.status, responseBytes = wire.responseBytes ?: body.toByteArray(Charsets.UTF_8).size)
+                responseCode = wire.status, responseBytes = wire.responseBytes ?: bodyBytes)
         }
         // Freshness details must use the response receipt clock, not the time before a slow GET.
         // Keep the injected test seam deterministic when it does not supply a receipt timestamp.
         val responseNowMillis = wire.receivedAtMillis ?: nowMillis
-        val parsed = parse(body, trainNo, route, originEpochDay, responseNowMillis, stationNameLookup)
-        return parsed.copy(responseCode = wire.status,
-            responseBytes = wire.responseBytes ?: body.toByteArray(Charsets.UTF_8).size)
+        val parseStartedNanos = System.nanoTime()
+        val parsed = try {
+            parse(body, trainNo, route, originEpochDay, responseNowMillis, stationNameLookup)
+        } catch (e: Exception) {
+            val category = "PARSER_EXCEPTION"
+            emit("parse_failure", "id=$requestId category=$category exception=${e.javaClass.simpleName}")
+            WimtResult(null, "WIMT response could not be parsed (${e.javaClass.simpleName})")
+        }
+        val parseElapsedMs = elapsedMillis(parseStartedNanos)
+        val finalResult = parsed.copy(responseCode = wire.status,
+            responseBytes = wire.responseBytes ?: bodyBytes)
+        val sourceRowCount = finalResult.snapshot?.perStop?.count { (_, fields) ->
+            fields.actualArrivalMin != null || fields.actualDepartureMin != null
+        } ?: 0
+        emit("request_complete", requestLogFields(requestId, wire, elapsedMs) +
+            " outcome=${parseOutcome(finalResult)} parseMs=$parseElapsedMs " +
+            "runDateMatched=${finalResult.runDateMatched ?: "unknown"} " +
+            "routeMatched=${finalResult.routeMatched ?: "unknown"} sourceRows=$sourceRowCount " +
+            "currentStationPresent=${!finalResult.currentStationCode.isNullOrBlank()} " +
+            "scheduleRows=${finalResult.parseDiagnostics.scheduleRows} " +
+            "malformedRows=${finalResult.parseDiagnostics.malformedRows} " +
+            "rowsMissingStationCode=${finalResult.parseDiagnostics.rowsMissingStationCode} " +
+            "etaRows=${finalResult.parseDiagnostics.etaRows} " +
+            "actualClockFields=${finalResult.parseDiagnostics.actualClockFieldsPresent} " +
+            "acceptedActualRows=${finalResult.parseDiagnostics.actualStopRowsAccepted} " +
+            "invertedDeparturesRejected=${finalResult.parseDiagnostics.rejectedInvertedDepartures} " +
+            "currentStationRowFound=${finalResult.parseDiagnostics.currentStationRowFound} " +
+            "sourceStampField=${finalResult.parseDiagnostics.sourceStampFieldPresent} " +
+            "sourceStampParsed=${finalResult.parseDiagnostics.sourceStampParsed} " +
+            "sourceStampAgeMs=${finalResult.snapshot?.feedStampMillis?.let { responseNowMillis - it } ?: "unknown"} " +
+            "fresh=${hasFreshSourceUpdate(finalResult, responseNowMillis)}")
+        return finalResult
     }
 
-    internal fun request(url: String): WireReply {
+    internal fun request(url: String): WireReply =
+        request(url, "net-${requestSequence.incrementAndGet()}")
+
+    private fun request(url: String, requestId: String): WireReply {
+        var last = WireReply(null, null, "request was not attempted", failureClass = "NOT_ATTEMPTED")
+        var retryReason: String? = null
+        for (attempt in 1..MAX_TRANSIENT_ATTEMPTS) {
+            if (attempt > 1) {
+                val retryDelay = retryDelayMillis(last)
+                emit("retry", "attempt=$attempt previous=${retryReason ?: "transient_failure"} " +
+                    "delayMs=$retryDelay status=${last.status ?: "none"}")
+                try {
+                    Thread.sleep(retryDelay)
+                } catch (_: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    return last.copy(failureClass = "INTERRUPTED", retryReason = retryReason,
+                        attemptCount = attempt - 1)
+                }
+            }
+            last = requestOnce(url, attempt, requestId)
+            if (attempt == MAX_TRANSIENT_ATTEMPTS || !isRetryable(last)) {
+                return last.copy(attemptCount = attempt, retryReason = retryReason)
+            }
+            retryReason = last.failureClass ?: "HTTP_${last.status}"
+        }
+        return last.copy(attemptCount = MAX_TRANSIENT_ATTEMPTS, retryReason = retryReason)
+    }
+
+    /** One bounded network attempt. No redirect, refusal, response body or request URL is logged. */
+    private fun requestOnce(url: String, attempt: Int, requestId: String): WireReply {
         var connection: HttpURLConnection? = null
-        return try {
+        var phase = "open_connection"
+        val startedNanos = System.nanoTime()
+        var headerWaitMillis: Long? = null
+        var bodyStartedNanos: Long? = null
+        var status: Int? = null
+        var contentType: String? = null
+        var contentEncoding: String? = null
+        var serverDate: String? = null
+        var retryAfterSeconds: Int? = null
+        try {
             val conn = URL(url).openConnection() as HttpURLConnection
             connection = conn
-            conn.connectTimeout = 5_000
-            conn.readTimeout = 7_000
+            conn.connectTimeout = CONNECT_TIMEOUT_MS
+            conn.readTimeout = READ_TIMEOUT_MS
             conn.requestMethod = "GET"
             conn.instanceFollowRedirects = false
             conn.useCaches = false
-            // Match this app's declared TrackTrain identity rather than impersonating a browser;
-            // do not send copied cookies, hidden WIMT app identifiers, or challenge-evasion headers.
+            // Send only ordinary, documented negotiation headers. Never impersonate a browser,
+            // pass cookies, or attempt to bypass a refusal/challenge.
             conn.setRequestProperty("User-Agent", USER_AGENT)
             conn.setRequestProperty("Accept", "application/json")
-            val status = conn.responseCode
-            val stream = if (status in 200..299) conn.inputStream else conn.errorStream
-                ?: return WireReply(null, status, "WIMT server returned HTTP $status (empty response)", 0)
+            conn.setRequestProperty("Accept-Encoding", "gzip")
+            phase = "response_headers_dns_connect_tls"
+            val headersStartedNanos = System.nanoTime()
+            val responseStatus = conn.responseCode
+            status = responseStatus
+            headerWaitMillis = elapsedMillis(headersStartedNanos)
+            contentType = conn.contentType?.take(120)
+            contentEncoding = conn.contentEncoding?.take(40)
+            serverDate = conn.getHeaderField("Date")?.take(80)
+            retryAfterSeconds = parseRetryAfterSeconds(conn.getHeaderField("Retry-After"))
+            if (responseStatus !in 200..299) {
+                runCatching { conn.errorStream?.close() }
+                val reply = WireReply(null, responseStatus,
+                    "WIMT server returned HTTP $responseStatus", responseBytes = null,
+                    receivedAtMillis = System.currentTimeMillis(),
+                    headerWaitMillis = headerWaitMillis, bodyReadMillis = 0L,
+                    contentType = contentType, contentEncoding = contentEncoding,
+                    serverDate = serverDate, retryAfterSeconds = retryAfterSeconds,
+                    failureClass = httpOutcome(responseStatus))
+                emit("http_response", requestLogFields(requestId, reply, elapsedMillis(startedNanos)) +
+                    " attempt=$attempt")
+                return reply
+            }
+            phase = "read_body"
+            bodyStartedNanos = System.nanoTime()
+            val stream = conn.inputStream
+            val decodedStream = if (contentEncoding.equals("gzip", ignoreCase = true))
+                GZIPInputStream(stream) else stream
             val output = ByteArrayOutputStream()
             val buffer = ByteArray(8_192)
             var total = 0
-            stream.use { input ->
+            decodedStream.use { input ->
                 while (true) {
                     val count = input.read(buffer)
                     if (count < 0) break
                     total += count
                     if (total > MAX_RESPONSE_BYTES) {
+                        val elapsed = elapsedMillis(startedNanos)
+                        val bodyElapsed = elapsedMillis(bodyStartedNanos)
                         return WireReply(null, status,
-                            "WIMT response exceeded $MAX_RESPONSE_BYTES bytes", total)
+                            "WIMT response exceeded $MAX_RESPONSE_BYTES bytes", total,
+                            receivedAtMillis = System.currentTimeMillis(),
+                            headerWaitMillis = headerWaitMillis, bodyReadMillis = bodyElapsed,
+                            contentType = contentType, contentEncoding = contentEncoding,
+                            serverDate = serverDate, retryAfterSeconds = retryAfterSeconds,
+                            failureClass = "RESPONSE_TOO_LARGE").also {
+                            emit("http_response", requestLogFields(requestId, it, elapsed) +
+                                " attempt=$attempt outcome=RESPONSE_TOO_LARGE")
+                        }
                     }
                     output.write(buffer, 0, count)
                 }
             }
             val body = output.toString(Charsets.UTF_8.name())
-            WireReply(body, status,
+            val bodyElapsed = elapsedMillis(bodyStartedNanos)
+            val reply = WireReply(body, status,
                 if (body.isEmpty()) "WIMT returned an empty response" else "HTTP $status", total,
-                System.currentTimeMillis())
+                System.currentTimeMillis(), headerWaitMillis, bodyElapsed, contentType,
+                contentEncoding, serverDate, retryAfterSeconds,
+                if (body.isEmpty()) "EMPTY_BODY" else null)
+            emit("http_response", requestLogFields(requestId, reply, elapsedMillis(startedNanos)) +
+                " attempt=$attempt")
+            return reply
         } catch (e: Exception) {
-            WireReply(null, connection?.let { runCatching { it.responseCode }.getOrNull() },
-                e.message?.take(160) ?: "Network connection failed")
+            val failureClass = classifyTransportFailure(e)
+            val bodyElapsed = bodyStartedNanos?.let(::elapsedMillis)
+            val reply = WireReply(null, status,
+                "$failureClass (${e.javaClass.simpleName})", null,
+                System.currentTimeMillis(), headerWaitMillis, bodyElapsed, contentType,
+                contentEncoding, serverDate, retryAfterSeconds, failureClass)
+            emit("network_failure", "phase=$phase attempt=$attempt " +
+                requestLogFields(requestId, reply, elapsedMillis(startedNanos)) +
+                " exception=${e.javaClass.simpleName}")
+            return reply
         } finally {
             connection?.disconnect()
         }
+    }
+
+    private fun isRetryable(reply: WireReply): Boolean = when {
+        reply.status == 429 || reply.status?.let { it in 300..399 || it in 400..499 } == true -> false
+        reply.status == 500 || reply.status == 502 || reply.status == 503 || reply.status == 504 ->
+            reply.retryAfterSeconds == null ||
+                reply.retryAfterSeconds?.let { it <= MAX_RETRY_AFTER_SECONDS } == true
+        reply.status != null -> false
+        reply.failureClass in setOf("DNS_FAILURE", "CONNECT_FAILURE", "TLS_FAILURE",
+            "SOCKET_TIMEOUT", "SOCKET_FAILURE", "IO_FAILURE") -> true
+        else -> false
+    }
+
+    private fun retryDelayMillis(reply: WireReply): Long = when {
+        reply.retryAfterSeconds != null -> reply.retryAfterSeconds.coerceAtMost(
+            MAX_RETRY_AFTER_SECONDS).toLong() * 1_000L
+        reply.status == 500 || reply.status == 502 || reply.status == 503 || reply.status == 504 -> 750L
+        else -> 400L
+    }
+
+    private fun parseRetryAfterSeconds(raw: String?): Int? {
+        val value = raw?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        value.toIntOrNull()?.let { return it.coerceAtLeast(0) }
+        return runCatching {
+            val format = SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss zzz", Locale.US).apply {
+                timeZone = TimeZone.getTimeZone("GMT")
+                isLenient = false
+            }
+            val retryAt = format.parse(value)?.time ?: return null
+            ((retryAt - System.currentTimeMillis()).coerceAtLeast(0L) + 999L) / 1_000L
+        }.getOrNull()?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt()
+    }
+
+    private fun classifyTransportFailure(error: Throwable): String {
+        val chain = generateSequence(error) { it.cause }.take(6).toList()
+        return when {
+            chain.any { it is UnknownHostException } -> "DNS_FAILURE"
+            chain.any { it is SocketTimeoutException } -> "SOCKET_TIMEOUT"
+            chain.any { it is SSLException } -> "TLS_FAILURE"
+            chain.any { it is java.net.ConnectException } -> "CONNECT_FAILURE"
+            chain.any { it is java.net.SocketException } -> "SOCKET_FAILURE"
+            chain.any { it is IOException } -> "IO_FAILURE"
+            else -> "NETWORK_EXCEPTION"
+        }
+    }
+
+    private fun httpOutcome(status: Int?): String {
+        val code = status ?: return "NO_HTTP_RESPONSE"
+        return when {
+            code == 403 -> "HTTP_403_REFUSED"
+            code == 429 -> "HTTP_429_RATE_LIMITED"
+            code in 500..599 -> "HTTP_${code}_SERVER_ERROR"
+            code in 300..399 -> "HTTP_${code}_REDIRECT_NOT_FOLLOWED"
+            code in 400..499 -> "HTTP_${code}_CLIENT_ERROR"
+            else -> "HTTP_${code}_UNEXPECTED"
+        }
+    }
+
+    private fun parseOutcome(result: WimtResult): String {
+        if (result.snapshot == null) {
+            val detail = result.detail.lowercase(Locale.ENGLISH)
+            return when {
+                detail.contains("invalid json") -> "INVALID_JSON"
+                detail.contains("no schedule") -> "MISSING_SCHEDULE_ARRAY"
+                detail.contains("train number did not match") -> "TRAIN_MISMATCH"
+                detail.contains("route endpoints did not match") -> "ROUTE_MISMATCH"
+                detail.contains("run date did not match") -> "RUN_DATE_MISMATCH"
+                detail.contains("response exceeded") -> "RESPONSE_TOO_LARGE"
+                detail.contains("could not be parsed") -> "PARSER_EXCEPTION"
+                detail.contains("timetable stops") -> "NO_TIMETABLE_STOPS"
+                detail.contains("invalid wimt run date") -> "INVALID_REQUEST_DATE"
+                else -> "NO_QUALIFIED_SNAPSHOT"
+            }
+        }
+        return when {
+            result.runDateMatched == false -> "RUN_DATE_MISMATCH"
+            result.routeMatched == false -> "ROUTE_MISMATCH"
+            result.runDateMatched != true -> "RUN_DATE_NOT_ECHOED"
+            result.routeMatched != true -> "ROUTE_NOT_FULLY_ECHOED"
+            result.snapshot.feedStampMillis == null -> "SOURCE_STAMP_MISSING_OR_INVALID"
+            result.snapshot.perStop.values.none {
+                it.actualArrivalMin != null || it.actualDepartureMin != null
+            } -> "ZERO_SOURCE_ACTUAL_STOPS"
+            else -> "SOURCE_ROWS_PRESENT"
+        }
+    }
+
+    private fun elapsedMillis(startedNanos: Long): Long =
+        ((System.nanoTime() - startedNanos).coerceAtLeast(0L)) / 1_000_000L
+
+    private fun requestLogFields(id: Any, reply: WireReply, elapsedMs: Long): String =
+        "id=$id status=${reply.status ?: "none"} totalMs=$elapsedMs " +
+            "headersMs=${reply.headerWaitMillis ?: "unknown"} bodyMs=${reply.bodyReadMillis ?: "unknown"} " +
+            "bytes=${reply.responseBytes ?: "unknown"} encoding=${reply.contentEncoding ?: "identity"} " +
+            "contentType=${reply.contentType?.replace(Regex("[^A-Za-z0-9_./+;-]"), "") ?: "unknown"} " +
+            "retryAfterSeconds=${reply.retryAfterSeconds ?: "none"} attempts=${reply.attemptCount} " +
+            "retryReason=${reply.retryReason ?: "none"} failure=${reply.failureClass ?: "none"} " +
+            "serverDate=${reply.serverDate?.replace(Regex("\\s+"), "_") ?: "unknown"}"
+
+    private fun emit(event: String, fields: String) {
+        val line = "event=$event $fields"
+        runCatching { Log.i(LOG_TAG, line) }
+        runCatching { Diary.get()?.log("WIMT", line) }
     }
 
     fun parse(
@@ -249,6 +539,10 @@ object WimtLiveProvider {
         val rows = root.optJSONArray("days_schedule")
             ?: return WimtResult(null, "No schedule in WIMT response", runDateMatched = runDateMatched,
                 routeMatched = routeMatched)
+        var malformedRows = 0
+        var rowsMissingStationCode = 0
+        var etaRows = 0
+        var actualClockFieldsPresent = 0
 
         val rootCurStnCode = firstNonBlank(root, "curStn")?.uppercase(Locale.ENGLISH).orEmpty()
         val curStnIdx = (0 until rows.length()).firstOrNull { index ->
@@ -280,13 +574,25 @@ object WimtLiveProvider {
         var rejectedInvertedDepartures = 0
 
         for (i in 0 until rows.length()) {
-            val row = rows.optJSONObject(i) ?: continue
-            val code = firstNonBlank(row, "station_code")?.uppercase(Locale.ENGLISH) ?: continue
+            val row = rows.optJSONObject(i)
+            if (row == null) {
+                malformedRows++
+                continue
+            }
+            val code = firstNonBlank(row, "station_code")?.uppercase(Locale.ENGLISH)
+            if (code == null) {
+                rowsMissingStationCode++
+                continue
+            }
+            val isEta = row.optString("source").equals("eta", ignoreCase = true)
+            if (isEta) etaRows++
+            if (listOf("actual_arrival_time", "actual_arrival_tm", "actual_departure_time",
+                    "actual_departure_tm", "actual_arrival_epoch", "actual_departure_epoch")
+                    .any { firstNonBlank(row, it) != null }) actualClockFieldsPresent++
 
             val isCur = code.equals(curStnCode, true) || row.optBoolean("curStn", false)
             // WIMT marks unreached future halts with source: "eta". Also treat every row after
             // its current-station pointer as not reached, even if an ETA tag is omitted.
-            val isEta = row.optString("source").equals("eta", ignoreCase = true)
             val departed = !isEta && row.optBoolean("departed", false)
             val stopOnRoute = route.stops.firstOrNull { it.code.equals(code, true) }
             val stopsFlag = row.optBoolean("stops", true)
@@ -545,6 +851,18 @@ object WimtLiveProvider {
             runDateMatched = runDateMatched,
             currentStationCode = curStnCode.takeIf { it.isNotBlank() },
             routeMatched = routeMatched,
+            parseDiagnostics = ParseDiagnostics(
+                scheduleRows = rows.length(),
+                malformedRows = malformedRows,
+                rowsMissingStationCode = rowsMissingStationCode,
+                etaRows = etaRows,
+                actualClockFieldsPresent = actualClockFieldsPresent,
+                actualStopRowsAccepted = actualCount,
+                rejectedInvertedDepartures = rejectedInvertedDepartures,
+                currentStationRowFound = curStnIdx >= 0,
+                sourceStampFieldPresent = !updateIso.isNullOrBlank(),
+                sourceStampParsed = parsedUpdateMillis != null,
+            ),
         )
     }
 

@@ -741,6 +741,14 @@ class LiveViewModel(
                     checkedAtMillis = now,
                 )
                 manualProbeMs[name] = now - probeStarted
+                Diary.get()?.log("WIMT") {
+                    "event=selected_source_result trainNo=$trainNo elapsedMs=${now - probeStarted} " +
+                        "httpStatus=${result.responseCode ?: "none"} responseBytes=${result.responseBytes ?: "unknown"} " +
+                        "runDateMatched=${result.runDateMatched ?: "unknown"} " +
+                        "routeMatched=${result.routeMatched ?: "unknown"} fresh=$freshUpdate " +
+                        "sourceRows=$actualStopCount currentStationPresent=$hasCurrentStation " +
+                        "responseClass=$state detailClass=${if (acceptedSnapshot == null) "no_snapshot" else "snapshot_parsed"}"
+                }
                 if (select) mirrorActiveSource = name
                 if (select) _mirrorState.postValue("WIMT .in source report: $detail")
                 val latest = _ui.value ?: u

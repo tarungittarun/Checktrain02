@@ -93,6 +93,11 @@ class WimtLiveProviderTest {
         assertEquals(true, result.runDateMatched)
         assertEquals(true, result.routeMatched)
         assertNotNull(result.snapshot)
+        assertEquals(3, result.parseDiagnostics.scheduleRows)
+        assertEquals(3, result.parseDiagnostics.actualClockFieldsPresent)
+        assertEquals(3, result.parseDiagnostics.actualStopRowsAccepted)
+        assertTrue(result.parseDiagnostics.currentStationRowFound)
+        assertTrue(result.parseDiagnostics.sourceStampParsed)
     }
 
     @Test
