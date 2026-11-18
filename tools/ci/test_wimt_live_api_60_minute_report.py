@@ -10,6 +10,8 @@ from pathlib import Path
 
 from wimt_live_api_60_minute_report import build_report
 
+ROOT = Path(__file__).resolve().parents[2]
+
 
 def _chunk(kind: bytes, payload: bytes) -> bytes:
     return struct.pack(">I", len(payload)) + kind + payload + struct.pack(">I", zlib.crc32(kind + payload) & 0xffffffff)
@@ -103,6 +105,12 @@ class Wimt60ReportTests(unittest.TestCase):
             result = build_report(root)
             self.assertFalse(result["passed"])
             self.assertFalse(result["checks"]["60OneMinuteSourceReceiptsAndNoUnqualifiedResponses"])
+
+    def test_optional_train_override_is_omitted_when_blank(self) -> None:
+        runner = (ROOT / "tools/ci/run_wimt_live_api_soak.sh").read_text(encoding="utf-8")
+        self.assertIn('if [ -n "$SOAK_TRAIN_NO" ]; then', runner)
+        self.assertIn('instrument_args+=(-e soak_train_no "$SOAK_TRAIN_NO")', runner)
+        self.assertNotIn('  -e soak_train_no "$SOAK_TRAIN_NO" \\\n', runner)
 
 
 if __name__ == "__main__":

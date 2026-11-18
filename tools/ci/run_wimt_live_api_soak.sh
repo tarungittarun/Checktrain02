@@ -114,13 +114,24 @@ adb logcat -c
 # Existing 46/240-minute modes require fresh WIMT .in rows before Auto. The 30-minute
 # diagnostic records an unqualified initial response, keeps Auto OFF, and continues only passive
 # UI sampling; a qualified response uses the app's normal one-minute Auto cadence. Refusals stop polling.
+instrument_args=(
+  -w
+  -e class "in.opentrack.india.e2e.WimtLiveApiSoakTest#$TEST_METHOD"
+  -e soak_minutes "$SOAK_MINUTES"
+)
+# An empty `-e key ""` is parsed by `am instrument` as a missing argument and shifts the
+# remaining command line (including the instrumentation component), producing `Invalid userId -2`.
+# Omit the optional train override so the test can choose its IST-hour candidate itself.
+if [ -n "$SOAK_TRAIN_NO" ]; then
+  instrument_args+=(-e soak_train_no "$SOAK_TRAIN_NO")
+fi
+instrument_args+=(
+  -e observation_interval_seconds "$OBSERVATION_INTERVAL_SECONDS"
+  in.opentrack.india.test/androidx.test.runner.AndroidJUnitRunner
+)
 set +e
-timeout --signal=TERM --kill-after=60 "${TEST_TIMEOUT_SECONDS}s" adb shell am instrument -w \
-  -e class "in.opentrack.india.e2e.WimtLiveApiSoakTest#$TEST_METHOD" \
-  -e soak_minutes "$SOAK_MINUTES" \
-  -e soak_train_no "$SOAK_TRAIN_NO" \
-  -e observation_interval_seconds "$OBSERVATION_INTERVAL_SECONDS" \
-  in.opentrack.india.test/androidx.test.runner.AndroidJUnitRunner \
+timeout --signal=TERM --kill-after=60 "${TEST_TIMEOUT_SECONDS}s" \
+  adb shell am instrument "${instrument_args[@]}" \
   > "$OUT/instrumentation.txt" 2>&1
 rc=$?
 set -e
