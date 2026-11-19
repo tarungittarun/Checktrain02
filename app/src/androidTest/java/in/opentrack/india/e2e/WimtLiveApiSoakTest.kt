@@ -1043,6 +1043,13 @@ class WimtLiveApiSoakTest {
                     "allowedJitterMs=10000",
                 observationSamples.toLong() == expectedObservationSamples &&
                     missedObservationSlots == 0 && maxObservationJitterMs <= 10_000L)
+            assertTrue(
+                "initial WIMT source response did not qualify; refusing to start Auto: " +
+                    "accepted=$initialGateAccepted autoStarted=$autoStarted " +
+                    "http=${initial.httpStatus ?: "none"} runMatched=${initial.runMatched} " +
+                    "routeMatched=${initial.routeMatched} fresh=${initial.fresh} rows=${initial.rows} " +
+                    "parserOutcome=${initial.parserOutcome} failureReason=${initialFailureReason(initial)}",
+                initialGateAccepted && autoStarted)
             assertTrue("fewer than $requiredReceipts one-minute selected-source receipts: " +
                 "cycles=$cycles misses=$missedReceipts",
                 cycles >= requiredReceipts && missedReceipts <= allowedMissedReceipts)

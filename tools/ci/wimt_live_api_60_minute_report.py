@@ -242,6 +242,19 @@ def build_report(evidence: Path) -> dict:
         "runDate": train.get("runDate"),
         "route": train.get("route"),
         "source": "WIMT .in live-status feed through the installed APK",
+        "initialResponse": {
+            "httpStatus": integer(initial, "httpStatus", -1),
+            "runDateMatched": yes(initial, "runDateMatched"),
+            "routeMatched": yes(initial, "routeMatched"),
+            "fresh": yes(initial, "fresh"),
+            "rows": integer(initial, "rows"),
+            "cells": integer(initial, "cells"),
+            "currentStationClaim": initial.get("currentStationClaim"),
+            "wimtReportsRunning": yes(initial, "wimtReportsRunning"),
+            "parserOutcome": initial.get("parserOutcome", "unknown"),
+            "responseBytes": integer(initial, "responseBytes", -1),
+            "accepted": yes(initial, "accepted"),
+        },
         "durationMinutes": round(duration_ms / 60_000, 2) if summary else None,
         "uiObservationCount": len(observations),
         "expectedUiObservationCount": len(EXPECTED_TARGETS),
@@ -267,6 +280,16 @@ def render_markdown(result: dict) -> str:
         f"- UI samples: {result['uiObservationCount']} / {result['expectedUiObservationCount']} at 30-second targets",
         f"- WIMT .in source refresh receipts: {result['sourceRefreshReceipts']} at the app's one-minute cadence",
         "- These UI samples do not trigger extra network requests.", "",
+        "## Initial installed-app source response", "",
+        f"- HTTP: {result['initialResponse']['httpStatus'] if result['initialResponse']['httpStatus'] >= 0 else 'unknown'}; "
+        f"run/route matched: {result['initialResponse']['runDateMatched']}/{result['initialResponse']['routeMatched']}; "
+        f"fresh: {result['initialResponse']['fresh']}; rows/cells: "
+        f"{result['initialResponse']['rows']}/{result['initialResponse']['cells']}; "
+        f"current-station claim: {result['initialResponse'].get('currentStationClaim') or 'unknown'}; "
+        f"WIMT running-status claim: {result['initialResponse']['wimtReportsRunning']}",
+        f"- Parser outcome: `{result['initialResponse']['parserOutcome']}`; "
+        f"response bytes: {result['initialResponse']['responseBytes'] if result['initialResponse']['responseBytes'] >= 0 else 'unknown'}; "
+        f"initial source gate accepted: {result['initialResponse']['accepted']}", "",
         "## Five-minute WIMT running-status qualification checkpoints", "",
         "| Minute | HTTP | Run/route | Fresh | Current-station claim | Rows | Qualified |",
         "|---:|---:|---|---|---|---:|---|",

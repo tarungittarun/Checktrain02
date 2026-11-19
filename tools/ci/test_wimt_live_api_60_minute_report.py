@@ -41,7 +41,7 @@ def fixture(root: Path, *, missing_target: int | None = None, stale_target: int 
             bad_checkpoint: int | None = None, receipts: int = 60) -> None:
     lines = [
         "WIMT_SOAK_TRAIN trainNo=20652 runDate=12-10-2026 route=SBC_→_TLGP selection=IST-hour-schedule-candidate currentStationRequired=true",
-        "WIMT_SOAK_INITIAL httpStatus=200 responseBytes=512 runDateMatched=true routeMatched=true fresh=true freshnessAccurate=true rows=5 cells=3 selected=true disclosed=true currentStationClaim=YPR wimtReportsRunning=true accepted=true",
+        "WIMT_SOAK_INITIAL httpStatus=200 responseBytes=512 runDateMatched=true routeMatched=true fresh=true freshnessAccurate=true rows=5 cells=3 selected=true disclosed=true currentStationClaim=YPR wimtReportsRunning=true parserOutcome=SOURCE_ROWS_PRESENT accepted=true",
         "WIMT_SOAK_AUTO_ENABLE revealed=true initialChecked=false checkedAfterEnable=true enabled=true",
         "WIMT_SOAK_STARTED durationMinutes=60 autoIntervalMinutes=1 observationIntervalSeconds=30 expectedObservationSamples=121 requireCurrentStation=true runningStatusRequired=true requiredReceipts=60 initialGateAccepted=true autoStarted=true",
     ]
@@ -79,6 +79,8 @@ class Wimt60ReportTests(unittest.TestCase):
             self.assertEqual("20652", result["trainNo"])
             self.assertEqual(121, result["uiObservationCount"])
             self.assertEqual(60, result["sourceRefreshReceipts"])
+            self.assertEqual("SOURCE_ROWS_PRESENT", result["initialResponse"]["parserOutcome"])
+            self.assertTrue(result["initialResponse"]["accepted"])
             self.assertFalse(result["independentlyVerifiedMovement"])
 
     def test_missing_30_second_slot_fails(self) -> None:
@@ -111,6 +113,16 @@ class Wimt60ReportTests(unittest.TestCase):
         self.assertIn('if [ -n "$SOAK_TRAIN_NO" ]; then', runner)
         self.assertIn('instrument_args+=(-e soak_train_no "$SOAK_TRAIN_NO")', runner)
         self.assertNotIn('  -e soak_train_no "$SOAK_TRAIN_NO" \\\n', runner)
+
+    def test_unqualified_initial_source_is_reported_and_not_auto_polled(self) -> None:
+        test = (ROOT / "app/src/androidTest/java/in/opentrack/india/e2e/WimtLiveApiSoakTest.kt")
+        source = test.read_text(encoding="utf-8")
+        gate = source.index('initial WIMT source response did not qualify; refusing to start Auto')
+        receipts = source.index('fewer than $requiredReceipts one-minute selected-source receipts')
+        self.assertLess(gate, receipts)
+        self.assertIn('initialGateAccepted && autoStarted)', source)
+        workflow = (ROOT / ".github/workflows/wimt-live-api-60-minute.yml").read_text(encoding="utf-8")
+        self.assertGreaterEqual(workflow.count("soak-trace.txt"), 2)
 
 
 if __name__ == "__main__":

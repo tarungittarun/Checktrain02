@@ -109,7 +109,7 @@ jobs:
             cat "$evidence/report.md" >> "$GITHUB_STEP_SUMMARY"
             {
               cat "$evidence/report.md"
-              for log in boot.txt instrumentation.txt runner-exit.txt; do
+              for log in boot.txt instrumentation.txt runner-exit.txt soak-trace.txt; do
                 if [ -s "$evidence/$log" ]; then
                   echo
                   echo "## Diagnostic: $log"
@@ -123,7 +123,7 @@ jobs:
               -f body="$(cat /tmp/wimt-60-report-comment.md)" >/dev/null || \
               echo '::warning::Could not post the redacted reliability report comment'
           fi
-          for log in boot.txt instrumentation.txt runner-exit.txt; do
+          for log in boot.txt instrumentation.txt runner-exit.txt soak-trace.txt; do
             if [ -s "$evidence/$log" ]; then
               { echo "## Diagnostic: $log"; echo '```'; tail -n 60 "$evidence/$log"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
             fi
