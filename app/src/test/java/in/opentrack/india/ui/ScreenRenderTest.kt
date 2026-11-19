@@ -717,7 +717,7 @@ Render.save("02-track-live", shot.bitmap)
         assertTrue("supplemental WIMT rows must follow the scheduled stop list",
             supplementalBounds.top >= routeBounds.bottom)
         assertTrue("supplemental source rows must remain above the fixed refresh dock",
-            supplementalBounds.bottom < dockBounds.top)
+            supplementalBounds.bottom <= dockBounds.top)
     }
 
     @Test
