@@ -1467,6 +1467,14 @@ class TrainActivity : AppCompatActivity() {
         binding.sourceSummary.contentDescription = if (canSwitchAlternate)
             "${binding.sourceSummary.text}. Tap to switch to ${TrackingSources.label(alternateSourceTarget!!)}."
             else binding.sourceSummary.text
+        val supplementalWimtRows = if (ui.activeSource == TrackingSources.WIMT &&
+            wimtLiveEvidence?.runDateMatched == true && wimtLiveEvidence.routeMatched == true)
+            WimtSupplementalRows.text(wimtLiveRows, ui.route) else null
+        binding.wimtSupplementalRows.apply {
+            text = supplementalWimtRows.orEmpty()
+            contentDescription = supplementalWimtRows
+            visibility = if (supplementalWimtRows == null) View.GONE else View.VISIBLE
+        }
         val selectedSiteHeadline = ui.orgWebsiteReport?.takeIf { selectedWebsite }?.let { report ->
             val stopName = report.intermediate?.name ?: ui.route.stops.firstOrNull {
                 it.code.equals(report.anchorCode, true)

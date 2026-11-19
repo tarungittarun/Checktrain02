@@ -688,6 +688,39 @@ Render.save("02-track-live", shot.bitmap)
     }
 
     @Test
+    fun wimtOffTimetableStationEventsArePaintedAsClearlySeparateSourceRows() {
+        val supplementary = WimtSupplementalRows.text(linkedMapOf(
+            "HKK" to "HKK · arr 05:39",
+            "HHL" to "HHL · arr 05:53",
+            "KGI" to "KGI · dep 06:02",
+        ), route)!!
+        val shot = Render.render(R.layout.activity_train, widthDp = 393f,
+            heightDp = 780f, textScale = 1.0f) { root ->
+            root.findViewById<TextView>(R.id.sourceSummary).apply {
+                text = "2 WIMT .in stop time(s) · source stamp fresh"
+                visibility = View.VISIBLE
+            }
+            root.findViewById<TextView>(R.id.wimtSupplementalRows).apply {
+                text = supplementary
+                contentDescription = supplementary
+                visibility = View.VISIBLE
+            }
+        }
+        val supplementalBounds = shot.bounds(R.id.wimtSupplementalRows)
+        val routeBounds = shot.bounds(R.id.routeViewport)
+        val dockBounds = shot.bounds(R.id.refreshDock)
+        val text = shot.root.findViewById<TextView>(R.id.wimtSupplementalRows)
+        assertTrue("off-timetable source rows were not painted", supplementalBounds.height() > 0)
+        assertTrue("station/time details were clipped: ${text.text}", text.lineCount >= 4)
+        assertTrue("WIMT rows must be separate from the fixed timetable route",
+            text.text.contains("not scheduled route stops, GPS, or verified position"))
+        assertTrue("supplemental WIMT rows must follow the scheduled stop list",
+            supplementalBounds.top >= routeBounds.bottom)
+        assertTrue("supplemental source rows must remain above the fixed refresh dock",
+            supplementalBounds.bottom < dockBounds.top)
+    }
+
+    @Test
     fun conciseWebsiteGapAndReleasedDockReturnSpaceToTheTable() {
         val shot = Render.render(R.layout.activity_train, widthDp = 393f,
             heightDp = 780f, textScale = 1.15f) { root ->
