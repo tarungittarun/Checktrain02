@@ -1784,21 +1784,11 @@ class TrainActivity : AppCompatActivity() {
         val siteNow = System.currentTimeMillis()
         val selectedWebsiteClocks = websiteClocksFor(ui, ui.model.rows.map { it.code }, siteNow)
         stopAdapter.websiteCardTimes = selectedWebsiteClocks
-        // A separate .org.in comparison caption is only useful when NTES is selected.
-        // A selected website already owns the WEBSITE clock column; neither path writes ACTUAL cells.
-        val websiteCaptionReport = ui.orgWebsiteComparisonReport.takeIf {
-            ui.activeSource == "NTES (official)"
-        }
-        // The selected website's clocks already occupy the right-hand WEBSITE column.
-        // Only show this extra caption when it is a genuinely separate NTES comparison.
-        stopAdapter.websiteComparisonTimes = websiteCaptionReport?.let {
-            WebsiteReportDisplay.displayedClocks(it, vm.originDate,
-                ui.model.rows.map { row -> row.code }, siteNow)
-        }.orEmpty()
-        val websitePageAt = websiteCaptionReport?.pageUpdatedAt ?: ui.orgWebsitePageUpdatedAt
-        stopAdapter.websiteComparisonSaved = websitePageAt?.let {
-            siteNow - it > 300_000L
-        } == true
+        // The .org.in page does not identify the selected run date. Its claimed clocks
+        // are not qualified as actuals, so do not paint them beside selected NTES times.
+        // Keep diagnostics/source details separate; the route table shows only the chosen source.
+        stopAdapter.websiteComparisonTimes = emptyMap()
+        stopAdapter.websiteComparisonSaved = false
         stopAdapter.savedOfficialClocks = if (ui.activeSource == "NTES (official)")
             ui.answer.savedOfficialClocks else emptySet()
         stopAdapter.mappedLegStarts = ui.staticMappedLegStarts

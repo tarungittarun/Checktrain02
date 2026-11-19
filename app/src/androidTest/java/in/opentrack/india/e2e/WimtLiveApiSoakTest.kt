@@ -70,13 +70,23 @@ class WimtLiveApiSoakTest {
     }
 
     private fun visibleWimtSourceCellCount(): Int {
-        val cells = E2E.all(By.res(E2E.PKG, "liveArr")) +
-            E2E.all(By.res(E2E.PKG, "liveDep"))
-        return cells.count {
-            val description = it.contentDescription.orEmpty()
-            description.contains("WIMT .in source-reported", true) &&
-                !description.endsWith("unknown", true)
+        // RecyclerView can replace clock nodes while the source refresh redraws rows.
+        // UiAutomator then throws StaleObjectException between query and property read;
+        // retry a fresh accessibility snapshot instead of aborting before evidence capture.
+        repeat(3) {
+            val count = runCatching {
+                val cells = E2E.all(By.res(E2E.PKG, "liveArr")) +
+                    E2E.all(By.res(E2E.PKG, "liveDep"))
+                cells.count { node ->
+                    val description = node.contentDescription.orEmpty()
+                    description.contains("WIMT .in source-reported", true) &&
+                        !description.endsWith("unknown", true)
+                }
+            }.getOrNull()
+            if (count != null) return count
+            SystemClock.sleep(100L)
         }
+        return 0
     }
 
     /** Read the accessible selected source first; use the painted picker label as a fallback. */

@@ -208,7 +208,7 @@ class InlineRouteRenderTest {
         assertTrue(holder.liveDep.contentDescription.contains("not a current position"))
     }
 
-    @Test fun websitePastTipturFillsOnlyTheLabelledGapBesideNtesNotItsActColumn() {
+    @Test fun undatedWebsitePastTipturDoesNotLeakIntoSelectedNtesRouteRows() {
         val ctx = RuntimeEnvironment.getApplication()
         val adapter = StopAdapter()
         val ttr = TrackModel.Stop(14, "TTR", "Tiptur", 1505, 1506, 1505, 1506, null,
@@ -233,24 +233,21 @@ class InlineRouteRenderTest {
                     mark = `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.SiteCardMark.PAST),
                 "ASK" to `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.SiteClocks(1538, null, false),
                 "RRB" to `in`.opentrack.india.v2.mirror.OrgWebsiteStatus.SiteClocks(1612, 1615, true)))
-        adapter.websiteComparisonTimes = WebsiteReportDisplay.displayedClocks(site, day,
+        val parsedSiteClocks = WebsiteReportDisplay.displayedClocks(site, day,
             listOf("TTR", "ASK", "RRB"), pageAt + 60_000)
-        // A later site timeout/stale page leaves only this separately labelled
-        // historical comparison, never an official Act or a renewed page clock.
-        assertTrue(WebsiteGapUi.caption(ttr, site.siteClocks["TTR"], saved = true)!!
-            .startsWith("Website claim (saved) · arr 01:17"))
+        assertTrue("the parser fixture contains an undated website claim", parsedSiteClocks.containsKey("TTR"))
+        // The production NTES route table deliberately does not receive these claims.
+        adapter.websiteComparisonTimes = emptyMap()
         adapter.haltMarker = TableMarker.Halt("ASK", "Last NTES arrival", false)
         adapter.submitList(listOf(ttr, ask, rrb))
         val past = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
         adapter.onBindViewHolder(past, 0)
         assertEquals("—", past.liveArr.text.toString())
         assertEquals("—", past.liveDep.text.toString())
-        assertEquals("Website claim · arr 01:17 · dep 01:20 · day2",
-            past.websitePastComparison.text.toString())
-        assertFalse(past.websitePastComparison.text.toString().contains("schedule"))
-        assertFalse(past.websitePastComparison.text.toString().contains("status"))
-        assertEquals(View.VISIBLE, past.websitePastComparison.visibility)
-        assertTrue(past.websitePastComparison.contentDescription.contains("Not an NTES actual"))
+        assertEquals("", past.websitePastComparison.text.toString())
+        assertEquals("unqualified website clocks are not shown as live route data",
+            View.GONE, past.websitePastComparison.visibility)
+        assertEquals("", past.websitePastComparison.contentDescription)
         assertEquals(View.GONE, past.trainMarker.visibility)
         val at = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
         adapter.onBindViewHolder(at, 1)
