@@ -136,8 +136,10 @@ class Wimt60ReportTests(unittest.TestCase):
         receipts = source.index('fewer than $requiredReceipts one-minute selected-source receipts')
         self.assertLess(gate, receipts)
         self.assertIn('initialGateAccepted && autoStarted)', source)
+        self.assertIn('continuePassivelyAfterSourceFailure = false', source)
         workflow = (ROOT / ".github/workflows/wimt-live-api-60-minute.yml").read_text(encoding="utf-8")
         self.assertGreaterEqual(workflow.count("soak-trace.txt"), 2)
+        self.assertIn('head -n 80 "$evidence/$log"', workflow)
 
 
 if __name__ == "__main__":

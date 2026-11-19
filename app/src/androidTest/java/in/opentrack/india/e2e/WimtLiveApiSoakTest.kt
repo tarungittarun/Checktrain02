@@ -410,7 +410,9 @@ class WimtLiveApiSoakTest {
             requiredDurationMinutes = 60L,
             requireCurrentStation = true,
             observationIntervalSeconds = 30L,
-            continuePassivelyAfterSourceFailure = true,
+            // Do not burn a 60-minute slot observing timetable-only UI after the
+            // selected source failed the initial run/route/freshness gate.
+            continuePassivelyAfterSourceFailure = false,
         )
     }
 

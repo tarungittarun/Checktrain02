@@ -114,7 +114,14 @@ jobs:
                   echo
                   echo "## Diagnostic: $log"
                   echo '```'
-                  tail -n 40 "$evidence/$log"
+                  if [ "$log" = soak-trace.txt ]; then
+                    echo '### Trace start (train/source selection and first response)'
+                    head -n 80 "$evidence/$log"
+                    echo '### Trace end'
+                    tail -n 40 "$evidence/$log"
+                  else
+                    tail -n 40 "$evidence/$log"
+                  fi
                   echo '```'
                 fi
               done
@@ -125,7 +132,17 @@ jobs:
           fi
           for log in boot.txt instrumentation.txt runner-exit.txt soak-trace.txt; do
             if [ -s "$evidence/$log" ]; then
-              { echo "## Diagnostic: $log"; echo '```'; tail -n 60 "$evidence/$log"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+              {
+                echo "## Diagnostic: $log"
+                echo '```'
+                if [ "$log" = soak-trace.txt ]; then
+                  head -n 40 "$evidence/$log"
+                  tail -n 40 "$evidence/$log"
+                else
+                  tail -n 60 "$evidence/$log"
+                fi
+                echo '```'
+              } >> "$GITHUB_STEP_SUMMARY"
             fi
           done
           exit "$report_status"
