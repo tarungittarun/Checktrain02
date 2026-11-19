@@ -10,6 +10,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
+import java.security.MessageDigest
 import java.util.Calendar
 import java.util.TimeZone
 
@@ -45,6 +46,7 @@ class WimtLiveApiSoakTest {
         val parserOutcome: String,
         val responseBytes: Int?,
         val rows: Int,
+        val eventSnapshot: String?,
         val visibleCells: Int,
         val disclosed: Boolean,
         val currentStationCodeClaim: String?,
@@ -160,6 +162,25 @@ class WimtLiveApiSoakTest {
         }
     }
 
+    /** Hash only the in-app source-reported stop rows, excluding the provider update stamp. */
+    private fun sourceEventSnapshot(details: String): String? {
+        val marker = "Selected WIMT .in source-reported rows ("
+        val start = details.indexOf(marker)
+        if (start < 0) return null
+        val headerEnd = details.indexOf("):", start)
+        if (headerEnd < 0) return null
+        val end = details.indexOf("\nThese are source-reported clocks", headerEnd)
+        if (end < 0) return null
+        val rows = details.substring(headerEnd + 2, end).lineSequence()
+            .map { it.trim().removePrefix("•").trim() }
+            .filter { it.isNotBlank() && !it.startsWith("No source stop clock", true) }
+            .sorted()
+            .joinToString("\n")
+        if (rows.isBlank()) return null
+        val digest = MessageDigest.getInstance("SHA-256").digest(rows.toByteArray())
+        return digest.joinToString("") { it.toUByte().toString(16).padStart(2, '0') }
+    }
+
     /** Selection and clock cells are frozen with the visible table, before opening modal details. */
     private fun sample(
         summary: String,
@@ -227,6 +248,7 @@ class WimtLiveApiSoakTest {
             parserOutcome = parserOutcome,
             responseBytes = responseBytes,
             rows = rows,
+            eventSnapshot = sourceEventSnapshot(details),
             visibleCells = visibleCellsAtTableCapture,
             disclosed = details.contains("not NTES actuals", true) &&
                 details.contains("GPS or movement", true),
@@ -434,6 +456,7 @@ class WimtLiveApiSoakTest {
         var httpFailures = 0
         var selectedLosses = 0
         var detailSamples = 0
+        val sourceEventSnapshots = linkedSetOf<String>()
         var observationSamples = 0
         var missedObservationSlots = 0
         var maxObservationJitterMs = 0L
@@ -571,6 +594,7 @@ class WimtLiveApiSoakTest {
             }
             val initial = sample(summaryAtTableCapture, initialDetails.orEmpty(),
                 selectedAtTableCapture, cellsAtTableCapture)
+            initial.eventSnapshot?.let(sourceEventSnapshots::add)
             detailSamples++
             if (initial.httpStatus != null && initial.httpStatus != 200) httpFailures++
             if (initial.strictFresh) freshSamples++ else nonFreshSamples++
@@ -838,6 +862,7 @@ class WimtLiveApiSoakTest {
                         } else {
                             val measured = sample(measuredSummary, details,
                                 selectedAtTableCapture, cellsAtTableCapture)
+                            measured.eventSnapshot?.let(sourceEventSnapshots::add)
                             detailSamples++
                             if (measured.fresh) freshSamples++ else nonFreshSamples++
                             val currentStationMissing = requireCurrentStation &&
@@ -978,6 +1003,7 @@ class WimtLiveApiSoakTest {
             } else {
                 val final = sample(finalSummary, finalDetails,
                     finalSelectedAtTableCapture, finalCellsAtTableCapture)
+                final.eventSnapshot?.let(sourceEventSnapshots::add)
                 detailSamples++
                 if (final.fresh) freshSamples++ else nonFreshSamples++
                 val finalCurrentStationMissing = requireCurrentStation &&
@@ -1029,6 +1055,7 @@ class WimtLiveApiSoakTest {
                 "runningStatusRequired=$requireCurrentStation " +
                 "wimtRunningStatusChecksPassed=$runningStatusChecksPassed " +
                 "initialGateAccepted=$initialGateAccepted autoStarted=$autoStarted " +
+                "uniqueSourceEventSnapshots=${sourceEventSnapshots.size} " +
                 "observationIntervalSeconds=$observationIntervalSeconds " +
                 "observationSamples=$observationSamples " +
                 "expectedObservationSamples=$expectedObservationSamples " +
@@ -1063,6 +1090,11 @@ class WimtLiveApiSoakTest {
             assertTrue("fewer than $requiredReceipts one-minute selected-source receipts: " +
                 "cycles=$cycles misses=$missedReceipts",
                 cycles >= requiredReceipts && missedReceipts <= allowedMissedReceipts)
+            if (observationIntervalSeconds == 30L) assertTrue(
+                "WIMT actual stop rows never changed across the 60-minute installed-app " +
+                    "observation; fresh response stamps alone are not new train events " +
+                    "(distinct actual-row snapshots=${sourceEventSnapshots.size})",
+                sourceEventSnapshots.size >= 2)
             assertEquals("the app lost the selected WIMT source or tracking screen", 0, selectedLosses)
             assertEquals("WIMT returned an HTTP failure or no qualifying run/route rows", 0,
                 httpFailures + unqualifiedSamples)

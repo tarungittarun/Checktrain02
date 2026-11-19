@@ -38,7 +38,8 @@ def _detail(minute: int | str, *, fresh: bool = True, running: bool = True) -> s
 
 
 def fixture(root: Path, *, missing_target: int | None = None, stale_target: int | None = None,
-            bad_checkpoint: int | None = None, receipts: int = 60) -> None:
+            bad_checkpoint: int | None = None, receipts: int = 60,
+            unique_event_snapshots: int = 13) -> None:
     lines = [
         "WIMT_SOAK_TRAIN trainNo=20652 runDate=12-10-2026 route=SBC_→_TLGP selection=IST-hour-schedule-candidate currentStationRequired=true",
         "WIMT_SOAK_INITIAL httpStatus=200 responseBytes=512 runDateMatched=true routeMatched=true fresh=true freshnessAccurate=true rows=5 cells=3 selected=true disclosed=true currentStationClaim=YPR wimtReportsRunning=true parserOutcome=SOURCE_ROWS_PRESENT accepted=true",
@@ -57,7 +58,7 @@ def fixture(root: Path, *, missing_target: int | None = None, stale_target: int 
                              running=minute != bad_checkpoint))
     lines.append(_detail("final"))
     lines.append(
-        f"WIMT_SOAK_SUMMARY durationMs=3600000 cycles={receipts} requiredReceipts=60 missedReceipts=0 detailSamples=13 freshSamples=13 nonFreshSamples=0 unqualifiedSamples=0 httpFailures=0 selectedLosses=0 autoStoppedAfterSourceFailure=false sourceFailureReason=none fullDuration=true finalSelected=true autoOff=true currentStationRequired=true currentStationChecksPassed=true runningStatusRequired=true wimtRunningStatusChecksPassed=true initialGateAccepted=true autoStarted=true observationIntervalSeconds=30 observationSamples={121 - (1 if missing_target is not None else 0)} expectedObservationSamples=121 missedObservationSlots=0 maxObservationJitterMs=0"
+        f"WIMT_SOAK_SUMMARY durationMs=3600000 cycles={receipts} requiredReceipts=60 missedReceipts=0 detailSamples=13 freshSamples=13 nonFreshSamples=0 unqualifiedSamples=0 httpFailures=0 selectedLosses=0 autoStoppedAfterSourceFailure=false sourceFailureReason=none fullDuration=true finalSelected=true autoOff=true currentStationRequired=true currentStationChecksPassed=true runningStatusRequired=true wimtRunningStatusChecksPassed=true initialGateAccepted=true autoStarted=true uniqueSourceEventSnapshots={unique_event_snapshots} observationIntervalSeconds=30 observationSamples={121 - (1 if missing_target is not None else 0)} expectedObservationSamples=121 missedObservationSlots=0 maxObservationJitterMs=0"
     )
     (root / "soak-trace.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
     (root / "instrumentation.txt").write_text("OK (1 test)\n", encoding="utf-8")
@@ -107,6 +108,14 @@ class Wimt60ReportTests(unittest.TestCase):
             result = build_report(root)
             self.assertFalse(result["passed"])
             self.assertFalse(result["checks"]["60OneMinuteSourceReceiptsAndNoUnqualifiedResponses"])
+
+    def test_fresh_stamps_without_changed_actual_event_rows_fail(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fixture(root, unique_event_snapshots=1)
+            result = build_report(root)
+            self.assertFalse(result["passed"])
+            self.assertFalse(result["checks"]["sourceActualEventRowsChangedAtLeastOnce"])
 
     def test_optional_train_override_is_omitted_when_blank(self) -> None:
         runner = (ROOT / "tools/ci/run_wimt_live_api_soak.sh").read_text(encoding="utf-8")

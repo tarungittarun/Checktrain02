@@ -182,6 +182,7 @@ def build_report(evidence: Path) -> dict:
         cycles >= DURATION_MINUTES
         and integer(summary, "requiredReceipts", -1) >= DURATION_MINUTES
         and integer(summary, "missedReceipts", 999) == 0
+        and integer(summary, "uniqueSourceEventSnapshots", 0) >= 2
         and integer(summary, "httpFailures", 999) == 0
         and integer(summary, "unqualifiedSamples", 999) == 0
         and integer(summary, "selectedLosses", 999) == 0
@@ -200,6 +201,8 @@ def build_report(evidence: Path) -> dict:
         "everyUiObservationShowsSelectedFreshSourceData": ui_samples_ok,
         "observationJitterWithin10SecondsAndNoMissedSlots": jitter_ok,
         "60OneMinuteSourceReceiptsAndNoUnqualifiedResponses": source_checks_ok,
+        "sourceActualEventRowsChangedAtLeastOnce":
+            integer(summary, "uniqueSourceEventSnapshots", 0) >= 2,
         "freshMatchedCurrentStationAndRunningGateAtFiveMinuteCheckpoints": checkpoints_ok,
         "genuineAppWindowCapturesAtStartAnd15MinuteMilestones": screenshots_ok,
         "instrumentationPassed": instrumentation_ok and runner_exit == 0,
@@ -260,6 +263,7 @@ def build_report(evidence: Path) -> dict:
         "expectedUiObservationCount": len(EXPECTED_TARGETS),
         "uiObservationIntervalSeconds": OBSERVATION_SECONDS,
         "sourceRefreshReceipts": cycles,
+        "uniqueSourceEventSnapshots": integer(summary, "uniqueSourceEventSnapshots", 0),
         "sourceRefreshCadenceMinutes": 1,
         "checkpoints": checkpoint_rows,
         "screenshots": screenshots,
@@ -279,6 +283,8 @@ def render_markdown(result: dict) -> str:
         f"- Duration: {result.get('durationMinutes') if result.get('durationMinutes') is not None else 'not recorded'} / 60 minutes",
         f"- UI samples: {result['uiObservationCount']} / {result['expectedUiObservationCount']} at 30-second targets",
         f"- WIMT .in source refresh receipts: {result['sourceRefreshReceipts']} at the app's one-minute cadence",
+        f"- Distinct source-reported actual-row snapshots: {result['uniqueSourceEventSnapshots']} "
+        "(captured at 5-minute details checkpoints; update-stamp changes alone do not count).",
         "- These UI samples do not trigger extra network requests.", "",
         "## Initial installed-app source response", "",
         f"- HTTP: {result['initialResponse']['httpStatus'] if result['initialResponse']['httpStatus'] >= 0 else 'unknown'}; "
