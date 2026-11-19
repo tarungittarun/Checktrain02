@@ -151,6 +151,12 @@ def build_report(evidence: Path) -> dict:
         if item.get("cycle") != "final"
     }
     final_detail = next((item for item in detail_lines if item.get("cycle") == "final"), {})
+    event_update_checkpoints = sorted({
+        integer(item, "elapsedMinutes", -1) for item in detail_lines
+        if yes(item, "eventSnapshotChanged") and integer(item, "elapsedMinutes", -1) >= 0
+    })
+    event_updates_ok = integer(summary, "uniqueSourceEventSnapshots", 0) >= 2 and \
+        bool(event_update_checkpoints)
     checkpoints_ok = set(CHECKPOINTS).issubset(details_by_minute) and all(
         strict_detail(details_by_minute[minute]) for minute in CHECKPOINTS
     ) and strict_detail(final_detail)
@@ -182,7 +188,7 @@ def build_report(evidence: Path) -> dict:
         cycles >= DURATION_MINUTES
         and integer(summary, "requiredReceipts", -1) >= DURATION_MINUTES
         and integer(summary, "missedReceipts", 999) == 0
-        and integer(summary, "uniqueSourceEventSnapshots", 0) >= 2
+        and event_updates_ok
         and integer(summary, "httpFailures", 999) == 0
         and integer(summary, "unqualifiedSamples", 999) == 0
         and integer(summary, "selectedLosses", 999) == 0
@@ -201,8 +207,7 @@ def build_report(evidence: Path) -> dict:
         "everyUiObservationShowsSelectedFreshSourceData": ui_samples_ok,
         "observationJitterWithin10SecondsAndNoMissedSlots": jitter_ok,
         "60OneMinuteSourceReceiptsAndNoUnqualifiedResponses": source_checks_ok,
-        "sourceActualEventRowsChangedAtLeastOnce":
-            integer(summary, "uniqueSourceEventSnapshots", 0) >= 2,
+        "sourceActualEventRowsChangedAtLeastOnce": event_updates_ok,
         "freshMatchedCurrentStationAndRunningGateAtFiveMinuteCheckpoints": checkpoints_ok,
         "genuineAppWindowCapturesAtStartAnd15MinuteMilestones": screenshots_ok,
         "instrumentationPassed": instrumentation_ok and runner_exit == 0,
@@ -220,6 +225,7 @@ def build_report(evidence: Path) -> dict:
         "routeMatched": yes(item, "routeMatched"),
         "fresh": yes(item, "fresh"),
         "currentStationClaim": item.get("currentStationClaim"),
+        "latestEventAge": item.get("latestEventAge", "unknown").replace("_", " "),
         "sourceRows": integer(item, "rows"),
         "wimtReportsRunning": yes(item, "wimtReportsRunning"),
         "qualified": strict_detail(item),
@@ -232,6 +238,7 @@ def build_report(evidence: Path) -> dict:
             "routeMatched": yes(final_detail, "routeMatched"),
             "fresh": yes(final_detail, "fresh"),
             "currentStationClaim": final_detail.get("currentStationClaim"),
+            "latestEventAge": final_detail.get("latestEventAge", "unknown").replace("_", " "),
             "sourceRows": integer(final_detail, "rows"),
             "wimtReportsRunning": yes(final_detail, "wimtReportsRunning"),
             "qualified": strict_detail(final_detail),
@@ -253,6 +260,7 @@ def build_report(evidence: Path) -> dict:
             "rows": integer(initial, "rows"),
             "cells": integer(initial, "cells"),
             "currentStationClaim": initial.get("currentStationClaim"),
+            "latestEventAge": initial.get("latestEventAge", "unknown").replace("_", " "),
             "wimtReportsRunning": yes(initial, "wimtReportsRunning"),
             "parserOutcome": initial.get("parserOutcome", "unknown"),
             "responseBytes": integer(initial, "responseBytes", -1),
@@ -264,6 +272,7 @@ def build_report(evidence: Path) -> dict:
         "uiObservationIntervalSeconds": OBSERVATION_SECONDS,
         "sourceRefreshReceipts": cycles,
         "uniqueSourceEventSnapshots": integer(summary, "uniqueSourceEventSnapshots", 0),
+        "eventUpdateCheckpoints": event_update_checkpoints,
         "sourceRefreshCadenceMinutes": 1,
         "checkpoints": checkpoint_rows,
         "screenshots": screenshots,
@@ -285,6 +294,8 @@ def render_markdown(result: dict) -> str:
         f"- WIMT .in source refresh receipts: {result['sourceRefreshReceipts']} at the app's one-minute cadence",
         f"- Distinct source-reported actual-row snapshots: {result['uniqueSourceEventSnapshots']} "
         "(captured at 5-minute details checkpoints; update-stamp changes alone do not count).",
+        f"- Actual-row changes observed at minute checkpoints: "
+        f"{', '.join(map(str, result['eventUpdateCheckpoints'])) or 'none'}.",
         "- These UI samples do not trigger extra network requests.", "",
         "## Initial installed-app source response", "",
         f"- HTTP: {result['initialResponse']['httpStatus'] if result['initialResponse']['httpStatus'] >= 0 else 'unknown'}; "
@@ -292,17 +303,19 @@ def render_markdown(result: dict) -> str:
         f"fresh: {result['initialResponse']['fresh']}; rows/cells: "
         f"{result['initialResponse']['rows']}/{result['initialResponse']['cells']}; "
         f"current-station claim: {result['initialResponse'].get('currentStationClaim') or 'unknown'}; "
+        f"latest event age: {result['initialResponse']['latestEventAge']}; "
         f"WIMT running-status claim: {result['initialResponse']['wimtReportsRunning']}",
         f"- Parser outcome: `{result['initialResponse']['parserOutcome']}`; "
         f"response bytes: {result['initialResponse']['responseBytes'] if result['initialResponse']['responseBytes'] >= 0 else 'unknown'}; "
         f"initial source gate accepted: {result['initialResponse']['accepted']}", "",
         "## Five-minute WIMT running-status qualification checkpoints", "",
-        "| Minute | HTTP | Run/route | Fresh | Current-station claim | Rows | Qualified |",
-        "|---:|---:|---|---|---|---:|---|",
+        "| Minute | HTTP | Run/route | Fresh source stamp | Latest event age | Current-station claim | Rows | Qualified |",
+        "|---:|---:|---|---|---|---|---:|---|",
     ]
     for item in result["checkpoints"]:
         lines.append(f"| {item['minute']} | {item['httpStatus'] if item['httpStatus'] >= 0 else '—'} | "
                      f"{item['runDateMatched']}/{item['routeMatched']} | {item['fresh']} | "
+                     f"{item.get('latestEventAge', 'unknown')} | "
                      f"{item.get('currentStationClaim') or '—'} | {item['sourceRows']} | {item['qualified']} |")
     lines += ["", "## Acceptance checks", ""]
     lines.extend(f"- {'PASS' if ok else 'FAIL'} — {name}" for name, ok in result["checks"].items())

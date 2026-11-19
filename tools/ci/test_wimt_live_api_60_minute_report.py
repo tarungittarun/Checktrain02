@@ -25,15 +25,17 @@ def _png() -> bytes:
             _chunk(b"IDAT", pixel) + _chunk(b"IEND", b""))
 
 
-def _detail(minute: int | str, *, fresh: bool = True, running: bool = True) -> str:
+def _detail(minute: int | str, *, fresh: bool = True, running: bool = True,
+            event_changed: bool = False) -> str:
     cycle = "final" if minute == "final" else str(minute)
     elapsed = 60 if minute == "final" else int(minute)
     return (
         f"WIMT_SOAK_DETAIL sample=1 cycle={cycle} elapsedMinutes={elapsed} "
         "httpStatus=200 runDateMatched=true routeMatched=true "
         f"fresh={str(fresh).lower()} stale=false freshnessAccurate=true "
-        "rows=5 cells=3 selected=true disclosed=true currentStationClaim=YPR "
-        f"wimtReportsRunning={str(running).lower()}"
+        "rows=5 cells=3 selected=true disclosed=true currentStationClaim=YPR latestEventAge=1_min_ago "
+        f"wimtReportsRunning={str(running).lower()} "
+        f"eventSnapshotChanged={str(event_changed).lower()}"
     )
 
 
@@ -42,7 +44,7 @@ def fixture(root: Path, *, missing_target: int | None = None, stale_target: int 
             unique_event_snapshots: int = 13) -> None:
     lines = [
         "WIMT_SOAK_TRAIN trainNo=20652 runDate=12-10-2026 route=SBC_→_TLGP selection=IST-hour-schedule-candidate currentStationRequired=true",
-        "WIMT_SOAK_INITIAL httpStatus=200 responseBytes=512 runDateMatched=true routeMatched=true fresh=true freshnessAccurate=true rows=5 cells=3 selected=true disclosed=true currentStationClaim=YPR wimtReportsRunning=true parserOutcome=SOURCE_ROWS_PRESENT accepted=true",
+        "WIMT_SOAK_INITIAL httpStatus=200 responseBytes=512 runDateMatched=true routeMatched=true fresh=true freshnessAccurate=true rows=5 cells=3 selected=true disclosed=true currentStationClaim=YPR latestEventAge=1_min_ago wimtReportsRunning=true parserOutcome=SOURCE_ROWS_PRESENT accepted=true",
         "WIMT_SOAK_AUTO_ENABLE revealed=true initialChecked=false checkedAfterEnable=true enabled=true",
         "WIMT_SOAK_STARTED durationMinutes=60 autoIntervalMinutes=1 observationIntervalSeconds=30 expectedObservationSamples=121 requireCurrentStation=true runningStatusRequired=true requiredReceipts=60 initialGateAccepted=true autoStarted=true",
     ]
@@ -55,7 +57,7 @@ def fixture(root: Path, *, missing_target: int | None = None, stale_target: int 
         )
     for minute in range(5, 60, 5):
         lines.append(_detail(minute, fresh=minute != bad_checkpoint,
-                             running=minute != bad_checkpoint))
+                             running=minute != bad_checkpoint, event_changed=minute == 5))
     lines.append(_detail("final"))
     lines.append(
         f"WIMT_SOAK_SUMMARY durationMs=3600000 cycles={receipts} requiredReceipts=60 missedReceipts=0 detailSamples=13 freshSamples=13 nonFreshSamples=0 unqualifiedSamples=0 httpFailures=0 selectedLosses=0 autoStoppedAfterSourceFailure=false sourceFailureReason=none fullDuration=true finalSelected=true autoOff=true currentStationRequired=true currentStationChecksPassed=true runningStatusRequired=true wimtRunningStatusChecksPassed=true initialGateAccepted=true autoStarted=true uniqueSourceEventSnapshots={unique_event_snapshots} observationIntervalSeconds=30 observationSamples={121 - (1 if missing_target is not None else 0)} expectedObservationSamples=121 missedObservationSlots=0 maxObservationJitterMs=0"
@@ -82,7 +84,11 @@ class Wimt60ReportTests(unittest.TestCase):
             self.assertEqual(60, result["sourceRefreshReceipts"])
             self.assertEqual("SOURCE_ROWS_PRESENT", result["initialResponse"]["parserOutcome"])
             self.assertTrue(result["initialResponse"]["accepted"])
+            self.assertEqual("1 min ago", result["initialResponse"]["latestEventAge"])
+            self.assertEqual([5], result["eventUpdateCheckpoints"])
+            self.assertEqual(13, result["uniqueSourceEventSnapshots"])
             self.assertFalse(result["independentlyVerifiedMovement"])
+
 
     def test_missing_30_second_slot_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

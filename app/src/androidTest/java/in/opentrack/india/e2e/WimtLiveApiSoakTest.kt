@@ -50,6 +50,7 @@ class WimtLiveApiSoakTest {
         val visibleCells: Int,
         val disclosed: Boolean,
         val currentStationCodeClaim: String?,
+        val latestEventAgeLabel: String?,
         val runningStatusQualified: Boolean,
     ) {
         val hasCurrentStationClaim: Boolean
@@ -181,6 +182,14 @@ class WimtLiveApiSoakTest {
         return digest.joinToString("") { it.toUByte().toString(16).padStart(2, '0') }
     }
 
+    /** Returns true only when a prior actual-row snapshot existed and the event rows changed. */
+    private fun recordSourceEventSnapshot(sample: Sample, known: MutableSet<String>): Boolean {
+        val fingerprint = sample.eventSnapshot ?: return false
+        val hadBaseline = known.isNotEmpty()
+        val added = known.add(fingerprint)
+        return hadBaseline && added
+    }
+
     /** Selection and clock cells are frozen with the visible table, before opening modal details. */
     private fun sample(
         summary: String,
@@ -236,6 +245,9 @@ class WimtLiveApiSoakTest {
             .find(currentStationClaim)?.groupValues?.get(1)
             ?: Regex("^([A-Z0-9]{2,5})(?:\\s|$|[·;,])", RegexOption.IGNORE_CASE)
                 .find(currentStationClaim)?.groupValues?.get(1)
+        val latestEventAgeLabel = Regex(
+            "latest stop event(?: stale)?: ([^·\\n]+)", RegexOption.IGNORE_CASE)
+            .find(details)?.groupValues?.get(1)?.trim()
         return Sample(
             selected = selectedAtTableCapture,
             httpStatus = status,
@@ -253,6 +265,7 @@ class WimtLiveApiSoakTest {
             disclosed = details.contains("not NTES actuals", true) &&
                 details.contains("GPS or movement", true),
             currentStationCodeClaim = currentStationCode?.uppercase(),
+            latestEventAgeLabel = latestEventAgeLabel,
             runningStatusQualified = details.contains(
                 "WIMT .in app-side running-status qualification: QUALIFIED", true),
         )
@@ -594,7 +607,7 @@ class WimtLiveApiSoakTest {
             }
             val initial = sample(summaryAtTableCapture, initialDetails.orEmpty(),
                 selectedAtTableCapture, cellsAtTableCapture)
-            initial.eventSnapshot?.let(sourceEventSnapshots::add)
+            val initialEventChanged = recordSourceEventSnapshot(initial, sourceEventSnapshots)
             detailSamples++
             if (initial.httpStatus != null && initial.httpStatus != 200) httpFailures++
             if (initial.strictFresh) freshSamples++ else nonFreshSamples++
@@ -622,7 +635,10 @@ class WimtLiveApiSoakTest {
                     "responseClass=${initial.responseClass} parserOutcome=${initial.parserOutcome} " +
                     "selected=${initial.selected} disclosed=${initial.disclosed} " +
                     "currentStationClaim=${initial.currentStationCodeClaim ?: "unknown"} " +
-                    "wimtReportsRunning=${initial.runningStatusQualified} accepted=$initialOk " +
+                    "latestEventAge=${initial.latestEventAgeLabel?.replace(' ', '_') ?: "unknown"} " +
+                    "wimtReportsRunning=${initial.runningStatusQualified} " +
+                    "eventSnapshotPresent=${initial.eventSnapshot != null} " +
+                    "eventSnapshotChanged=$initialEventChanged accepted=$initialOk " +
                     "failureReason=${if (initialOk) "none" else initialFailureReason(initial)}")
             if (!continuePassivelyAfterSourceFailure) {
                 assertTrue("strict fresh WIMT .in source-reported table was not present before the " +
@@ -862,7 +878,8 @@ class WimtLiveApiSoakTest {
                         } else {
                             val measured = sample(measuredSummary, details,
                                 selectedAtTableCapture, cellsAtTableCapture)
-                            measured.eventSnapshot?.let(sourceEventSnapshots::add)
+                            val eventSnapshotChanged = recordSourceEventSnapshot(
+                                measured, sourceEventSnapshots)
                             detailSamples++
                             if (measured.fresh) freshSamples++ else nonFreshSamples++
                             val currentStationMissing = requireCurrentStation &&
@@ -888,7 +905,10 @@ class WimtLiveApiSoakTest {
                                     "rows=${measured.rows} cells=${measured.visibleCells} " +
                                     "selected=${measured.selected} disclosed=${measured.disclosed} " +
                                     "currentStationClaim=${measured.currentStationCodeClaim ?: "unknown"} " +
+                                    "latestEventAge=${measured.latestEventAgeLabel?.replace(' ', '_') ?: "unknown"} " +
                                     "wimtReportsRunning=${measured.runningStatusQualified} " +
+                                    "eventSnapshotChanged=$eventSnapshotChanged " +
+                                    "uniqueEventSnapshots=${sourceEventSnapshots.size} " +
                                     "responseClass=${measured.responseClass} " +
                                     "parserOutcome=${measured.parserOutcome} " +
                                     "responseBytes=${measured.responseBytes ?: "unknown"}")
@@ -1003,7 +1023,7 @@ class WimtLiveApiSoakTest {
             } else {
                 val final = sample(finalSummary, finalDetails,
                     finalSelectedAtTableCapture, finalCellsAtTableCapture)
-                final.eventSnapshot?.let(sourceEventSnapshots::add)
+                val finalEventChanged = recordSourceEventSnapshot(final, sourceEventSnapshots)
                 detailSamples++
                 if (final.fresh) freshSamples++ else nonFreshSamples++
                 val finalCurrentStationMissing = requireCurrentStation &&
@@ -1027,7 +1047,10 @@ class WimtLiveApiSoakTest {
                         "cells=${final.visibleCells} selected=${final.selected} " +
                         "disclosed=${final.disclosed} " +
                         "currentStationClaim=${final.currentStationCodeClaim ?: "unknown"} " +
+                        "latestEventAge=${final.latestEventAgeLabel?.replace(' ', '_') ?: "unknown"} " +
                         "wimtReportsRunning=${final.runningStatusQualified} " +
+                        "eventSnapshotChanged=$finalEventChanged " +
+                        "uniqueEventSnapshots=${sourceEventSnapshots.size} " +
                         "responseClass=${final.responseClass} parserOutcome=${final.parserOutcome} " +
                         "responseBytes=${final.responseBytes ?: "unknown"}")
             }
