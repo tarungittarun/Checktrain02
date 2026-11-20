@@ -33,8 +33,10 @@ class WimtSupplementalRowsTest {
             route = route,
         ).orEmpty()
 
-        assertTrue(text.contains("HHL (HHL) · source event: arr 05:53"))
-        assertTrue(text.contains("HHL (HHL) · source event: arr 05:53 · WIMT schedule: arr 05:30 / dep 05:32"))
+        assertTrue("HHL source event row missing from: $text",
+            text.contains("HHL (HHL) · source event: arr 05:53"))
+        assertTrue("HHL schedule clocks missing or conflated in: $text",
+            text.contains("HHL (HHL) · source event: arr 05:53 · WIMT schedule: arr 05:30 / dep 05:32"))
         assertTrue(text.contains("Kengeri (KGI) · WIMT schedule: arr 06:02"))
         assertTrue(text.contains("Schedule clocks are not events"))
         assertTrue(text.contains("not GPS or verified position"))

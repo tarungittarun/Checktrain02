@@ -32,7 +32,7 @@ object WimtSupplementalRows {
             append("WIMT stations outside this timetable:\n")
             codes.take(MAX_VISIBLE_ROWS).forEach { code ->
                 val schedule = schedules[code]
-                val event = eventRows.entries.firstOrNull { it.key.equals(code, true) }?.value
+                val event = eventRows[code]
                 val name = schedule?.name?.takeIf { it.isNotBlank() && !it.equals(code, true) }
                 append("• ").append(name ?: code).append(" (").append(code).append(")")
                 if (event != null) {

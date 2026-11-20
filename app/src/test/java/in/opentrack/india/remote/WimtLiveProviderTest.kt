@@ -401,7 +401,8 @@ class WimtLiveProviderTest {
         assertEquals(14 * 60 + 32, supplementalSchedule.arrivalMin)
         assertEquals(14 * 60 + 32, supplementalSchedule.departureMin)
         assertTrue(result.stationLines.getValue("KHLL").contains("arr 14:46"))
-        assertTrue(result.stationLines.getValue("KHLL").contains("dep 14:47"))
+        assertFalse("a departure clock without a source-departed flag is not an accepted event",
+            result.stationLines.getValue("KHLL").contains("dep 14:47"))
         assertFalse(route.stops.any { it.code == supplementalSchedule.code })
         assertEquals(14 * 60 + 46, inter.actualMinute)
     }
