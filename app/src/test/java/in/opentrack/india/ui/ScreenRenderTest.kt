@@ -689,15 +689,22 @@ Render.save("02-track-live", shot.bitmap)
 
     @Test
     fun wimtOffTimetableStationEventsArePaintedAsClearlySeparateSourceRows() {
-        val supplementary = WimtSupplementalRows.text(linkedMapOf(
-            "HKK" to "HKK · arr 05:39",
-            "HHL" to "HHL · arr 05:53",
-            "KGI" to "KGI · dep 06:02",
-        ), route)!!
+        val supplementary = WimtSupplementalRows.text(
+            sourceEvents = mapOf("HHL" to "HHL · arr 05:53"),
+            wimtScheduleStops = listOf(
+                StopRow(0, "HHL", "Hirehalli", null, null, null, 333, 335, 1, -1, false),
+                StopRow(0, "KGI", "Kengeri", null, null, null, 362, 363, 1, -1, false),
+            ),
+            route = route,
+        )!!
+        val sourceEvent = SourceEventSummary.Event("BDVT", "Bhadravati", "arrival",
+            5 * 60 + 39, 1_000_000L, 14 * 60_000L)
+        val summary = SourceEventSummary.line("WIMT .in", sourceEvent, 1_840_000L,
+            "feed stamp fresh, not event")
         val shot = Render.render(R.layout.activity_train, widthDp = 393f,
             heightDp = 780f, textScale = 1.0f) { root ->
             root.findViewById<TextView>(R.id.sourceSummary).apply {
-                text = "2 WIMT .in stop time(s) · source stamp fresh"
+                text = summary
                 visibility = View.VISIBLE
             }
             root.findViewById<TextView>(R.id.wimtSupplementalRows).apply {
@@ -710,10 +717,25 @@ Render.save("02-track-live", shot.bitmap)
         val routeBounds = shot.bounds(R.id.routeViewport)
         val dockBounds = shot.bounds(R.id.refreshDock)
         val text = shot.root.findViewById<TextView>(R.id.wimtSupplementalRows)
+        val summaryView = shot.root.findViewById<TextView>(R.id.sourceSummary)
+        val summaryText = summaryView.text.toString()
+        assertEquals("first-glance event and age must remain visible without ellipsis", 0,
+            (0 until summaryView.lineCount).sumOf { summaryView.layout.getEllipsisCount(it) })
+        assertTrue("first-glance summary must show the dated station event", summaryText.contains("BDVT arrival 05:39"))
+        assertTrue("first-glance summary must show event age, not merely a fresh feed stamp", summaryText.contains("14m old"))
+        assertTrue("provider timing must remain separately identified", summaryText.contains("feed stamp fresh, not event"))
         assertTrue("off-timetable source rows were not painted", supplementalBounds.height() > 0)
         assertTrue("station/time details were clipped: ${text.text}", text.lineCount >= 4)
-        assertTrue("WIMT rows must be separate from the fixed timetable route",
-            text.text.contains("not scheduled route stops, GPS, or verified position"))
+        assertTrue("schedule clocks must be labelled separately from event clocks",
+            text.text.contains("WIMT schedule:") && text.text.contains("source event:"))
+        assertTrue("rendered Hirehalli event row is missing its exact source time",
+            text.text.contains("Hirehalli (HHL) · source event: arr 05:53"))
+        assertTrue("rendered Hirehalli schedule clocks are missing or mixed with its event",
+            text.text.contains("WIMT schedule: arr 05:33 / dep 05:35"))
+        assertTrue("rendered Kengeri intermediate schedule row is missing",
+            text.text.contains("Kengeri (KGI) · WIMT schedule: arr 06:02"))
+        assertTrue("supplemental rows must not imply GPS or verified position",
+            text.text.contains("not GPS or verified position"))
         assertTrue("supplemental WIMT rows must follow the scheduled stop list",
             supplementalBounds.top >= routeBounds.bottom)
         assertTrue("supplemental source rows must remain above the fixed refresh dock",

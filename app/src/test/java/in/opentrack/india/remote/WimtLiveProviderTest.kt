@@ -393,6 +393,16 @@ class WimtLiveProviderTest {
         assertEquals("RMGM", inter.precedingHalt)
         assertEquals("KGI", inter.followingHalt)
         assertEquals(14, inter.delayMin)
+
+        // The non-route row's schedule is separately exposed for supplemental UI, while the
+        // actual-time claims remain in stationLines; the row must not become a route position.
+        val supplementalSchedule = result.intermediateStops.single { it.code == "KHLL" }
+        assertEquals("Ketohalli", supplementalSchedule.name)
+        assertEquals(14 * 60 + 32, supplementalSchedule.arrivalMin)
+        assertEquals(14 * 60 + 32, supplementalSchedule.departureMin)
+        assertTrue(result.stationLines.getValue("KHLL").contains("arr 14:46"))
+        assertTrue(result.stationLines.getValue("KHLL").contains("dep 14:47"))
+        assertFalse(route.stops.any { it.code == supplementalSchedule.code })
         assertEquals(14 * 60 + 46, inter.actualMinute)
     }
 

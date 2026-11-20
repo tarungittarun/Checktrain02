@@ -193,6 +193,8 @@ class LiveViewModel(
         /** The selected `.in` live API's own source-reported evidence; never `.org.in` or cache data. */
         val wimtLiveEvidence: WimtLiveEvidence? = null,
         val wimtIntermediate: WimtLiveProvider.WimtIntermediate? = null,
+        /** WIMT schedule-only non-route rows, exposed separately and never merged into TrackModel. */
+        val wimtSupplementalScheduleStops: List<StopRow> = emptyList(),
         /** Same-run, fresh provider station *claim*, never a measured position or Act. */
         val railYatriClaim: PublicPageChecks.StationClaim? = null,
         /** The .org.in site's own past-card claims, not Google's app or verified GPS. */
@@ -2603,6 +2605,8 @@ class LiveViewModel(
             wimtWebPoint = webPoint,
             wimtLiveEvidence = wimtEvidenceForUi,
             wimtIntermediate = wimtIntermediateForUi,
+            wimtSupplementalScheduleStops = if (wimtLiveSelected && wimtIdentityMatched)
+                manualWimtResult?.intermediateStops.orEmpty() else emptyList(),
             railYatriClaim = railClaim,
             orgWebsiteReport = orgReport,
             orgWebsiteRunDateMatched = publicChecks[PublicPageChecks.ORG]?.orgRunDateMatched == true,

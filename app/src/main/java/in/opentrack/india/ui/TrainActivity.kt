@@ -1385,25 +1385,28 @@ class TrainActivity : AppCompatActivity() {
         val wimtRows = ui.sourceLines[`in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE].orEmpty()
         val wimtLiveRows = ui.sourceLines[TrackingSources.WIMT].orEmpty()
         val wimtLiveEvidence = ui.wimtLiveEvidence
+        val summaryNow = System.currentTimeMillis()
+        val latestReportedEvent = SourceEventSummary.latestReported(m.rows, vm.originDate, summaryNow)
         val wimtIntermediateEvent = if (ui.activeSource == TrackingSources.WIMT)
             WimtIntermediateDisplay.newerEvent(ui.wimtIntermediate, ui.route, vm.originDate,
-                latestReportedRouteEventAt(m.rows, vm.originDate, System.currentTimeMillis()),
-                System.currentTimeMillis()) else null
+                latestReportedRouteEventAt(m.rows, vm.originDate, summaryNow), summaryNow) else null
         val wimtLiveSummary = when {
             wimtLiveEvidence == null -> "WIMT .in not checked · timetable shown."
             wimtLiveEvidence.runDateMatched != true || wimtLiveEvidence.routeMatched != true ->
                 "WIMT .in run/route not confirmed · timetable shown."
-            wimtLiveEvidence.actualStopCount > 0 ->
-                "${wimtLiveEvidence.actualStopCount} WIMT .in stop time(s) · " +
-                    (when {
-                        wimtLiveEvidence.freshSourceUpdate -> "source stamp fresh"
-                        wimtLiveEvidence.sourceUpdateAheadByMillis != null -> "source stamp ahead"
-                        else -> "last-known source report"
-                    }) + " · stamp is not event time."
+            wimtLiveEvidence.actualStopCount > 0 -> SourceEventSummary.line(
+                "WIMT .in", latestReportedEvent, summaryNow,
+                when {
+                    wimtLiveEvidence.freshSourceUpdate -> "feed stamp fresh, not event"
+                    wimtLiveEvidence.sourceUpdateAheadByMillis != null -> "feed stamp ahead, not event"
+                    else -> "feed stamp stale or unknown, not event"
+                })
             wimtLiveEvidence.currentStationCode != null ->
                 "WIMT .in field ${wimtLiveEvidence.currentStationCode} · no dated stop time."
             else -> "No dated WIMT .in stop times · timetable shown."
         }
+        val ntesLiveSummary = SourceEventSummary.line(
+            "NTES", latestReportedEvent, summaryNow, "request receipt is not event time")
         // Keep website comparison clocks in source details unless the traveller
         // selected NTES, where a short separate-source caption can be useful.
         val selectedWebsite = WebsiteReportDisplay.selected(ui.activeSource)
@@ -1420,6 +1423,7 @@ class TrainActivity : AppCompatActivity() {
         } else ui.websiteGap != null || ui.alternateSourceHint != null ||
             publicCheck != null && ui.orgWebsiteReport == null ||
             ui.activeSource == TrackingSources.WIMT ||
+            ui.activeSource == TrackingSources.OFFICIAL && latestReportedEvent != null ||
             ui.activeSource == `in`.opentrack.india.v2.mirror.WimtCandidate.SOURCE || mirrorWithoutTimes
         binding.sourceSummary.visibility = if (heroExpanded && sourceSummaryWanted) View.VISIBLE else View.GONE
         val selectedStatus = ui.activeSource?.let { ui.sourceStates[it] }
@@ -1455,6 +1459,7 @@ class TrainActivity : AppCompatActivity() {
                     "· between ${wimtIntermediateEvent.precedingHalt} and " +
                     "${wimtIntermediateEvent.followingHalt}; not a scheduled halt or GPS position."
             ui.activeSource == TrackingSources.WIMT -> wimtLiveSummary
+            ui.activeSource == TrackingSources.OFFICIAL && latestReportedEvent != null -> ntesLiveSummary
             showingWimtRows ->
                 "WIMT web cache · ${wimtRows.size} time row(s), unverified."
             ui.alternateSourceHint != null -> "Another source has a separate station report."
@@ -1469,7 +1474,7 @@ class TrainActivity : AppCompatActivity() {
             else binding.sourceSummary.text
         val supplementalWimtRows = if (ui.activeSource == TrackingSources.WIMT &&
             wimtLiveEvidence?.runDateMatched == true && wimtLiveEvidence.routeMatched == true)
-            WimtSupplementalRows.text(wimtLiveRows, ui.route) else null
+            WimtSupplementalRows.text(wimtLiveRows, ui.wimtSupplementalScheduleStops, ui.route) else null
         binding.wimtSupplementalRows.apply {
             text = supplementalWimtRows.orEmpty()
             contentDescription = supplementalWimtRows
