@@ -7,6 +7,9 @@ import `in`.opentrack.india.R
 import `in`.opentrack.india.domain.RouteBetween
 import `in`.opentrack.india.domain.TrackModel
 import `in`.opentrack.india.model.StopRow
+import `in`.opentrack.india.model.TrainRoute
+import `in`.opentrack.india.remote.OfflineCorridorMap
+import org.json.JSONObject
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertEquals
@@ -1275,6 +1278,80 @@ class InlineRouteRenderTest {
         assertFalse("empty historical leg should not pop a toast or map dialog",
             emptyHolder.row.isClickable)
         assertEquals(0, unavailable)
+    }
+
+    @Test fun train20652KadurToArsikereRendersArchivedPassThroughStationsWithoutTimes() {
+        val ctx = RuntimeEnvironment.getApplication()
+        val json = ctx.assets.open(OfflineCorridorMap.ASSET).bufferedReader().use { it.readText() }
+        val archivedPoints = JSONObject(json).getJSONArray("points")
+        val sourceKm = (0 until archivedPoints.length()).associate { i ->
+            val row = archivedPoints.getJSONArray(i)
+            row.getString(0) to row.getInt(2)
+        }
+        val codes = listOf("TLGP", "SRF", "ANF", "ARU", "KMSI", "SMET", "SME",
+            "BDVT", "TKE", "RRB", "DRU", "ASK", "TTR", "TK", "YPR", "SBC")
+        fun km(code: String): Int? = sourceKm[code]?.let { 512 - it }
+        val distance = codes.map { code -> code to km(code) }.toMap().toMutableMap().apply {
+            // KMSI is absent from the archived route. Keep it as a dated halt but
+            // deliberately leave its two adjoining legs without mapped stations.
+            put("KMSI", (km("ARU")!! + km("SMET")!!) / 2)
+        }
+        val stops = codes.mapIndexed { index, code ->
+            val rowKm = (distance.getValue(code)!! * 372.0 / 369.0).toInt()
+            StopRow(index + 1, code, code, null, null, null,
+                null, null, 0, rowKm, true)
+        }
+        val route = TrainRoute("20652", "TLGP SBC EXP", "TLGP", "Talguppa",
+            "SBC", "Bengaluru", 372, 360, null, null, stops, emptyList())
+        val mapped = OfflineCorridorMap.parse(json, route)
+            ?: error("the exact archived reverse corridor did not validate")
+        val points = RouteBetween.groupedPoints(mapped.route, route)
+        assertEquals(listOf("BLKR", "VNR", "BVR"), points["DRU"].orEmpty().map { it.code })
+
+        val duru = TrackModel.Stop(seq = 11, code = "DRU", name = "Kadur Jn",
+            schedArr = 501, schedDep = 503, showArr = null, showDep = null, delay = null,
+            source = TrackModel.MinuteSource.SCHEDULE, platform = null,
+            state = TrackModel.State.PASSED, isAnchor = false, kmFromOrigin = stops[10].schedKm,
+            kmFromBoard = 0, kmRemaining = 100, showKm = false,
+            isBoarding = false, isAlighting = false, minutesFromNow = null)
+        val arsikere = duru.copy(seq = 12, code = "ASK", name = "Arsikere Jn",
+            schedArr = 530, schedDep = 535, kmFromOrigin = stops[11].schedKm,
+            state = TrackModel.State.NEXT)
+        val adapter = StopAdapter().apply {
+            mapSource = OfflineCorridorMap.SOURCE
+            mappedLegStarts = mapped.mappedLegStarts
+            setRoutePoints(points)
+            submitList(listOf(duru, arsikere))
+        }
+        val holder = adapter.onCreateViewHolder(FrameLayout(ctx), 0)
+        adapter.onBindViewHolder(holder, 0)
+        assertEquals("Show 3 intermediate stations", holder.routeToggle.contentDescription)
+        holder.inlineLegGroup.performClick()
+        adapter.onBindViewHolder(holder, 0)
+        assertEquals("Hide ▴", holder.routeToggle.text.toString())
+        assertTrue(holder.inlineLeg.showLabels)
+        assertEquals(listOf("BLKR", "VNR", "BVR"),
+            holder.inlineLeg.projection!!.points.map { it.code })
+        assertTrue(holder.inlineLeg.contentDescription.contains("BALLEKERE HALT (BLKR)"))
+        assertTrue(holder.inlineLeg.contentDescription.contains("DEVANUR (VNR)"))
+        assertTrue(holder.inlineLeg.contentDescription.contains("BANAVAR (BVR)"))
+        assertTrue("historical map points must not imply reported passage times",
+            holder.inlineLeg.projection!!.points.all {
+                it.passageMinute == null && it.siteArrivalMin == null && it.siteDepartureMin == null
+            })
+        assertTrue(holder.inlineLeg.historicalMap)
+
+        val density = ctx.resources.displayMetrics.density
+        val width = (393 * density).toInt()
+        holder.itemView.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+        holder.itemView.layout(0, 0, holder.itemView.measuredWidth, holder.itemView.measuredHeight)
+        val bitmap = android.graphics.Bitmap.createBitmap(holder.itemView.width,
+            holder.itemView.height, android.graphics.Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(bitmap)
+        canvas.drawColor(ctx.getColor(R.color.surface))
+        holder.itemView.draw(canvas)
+        Render.save("20652-kadur-arsikere-archived-intermediates", bitmap)
     }
 
     @Test fun arrowsHaveOppositeDiagonalTipsAndSourceLightIsStronger() {

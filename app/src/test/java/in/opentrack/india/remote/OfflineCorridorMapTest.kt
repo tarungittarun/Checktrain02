@@ -61,6 +61,55 @@ class OfflineCorridorMapTest {
         assertTrue(groups["TK"].orEmpty().zipWithNext().all { (a, b) -> a.schedKm < b.schedKm })
     }
 
+    private fun official20652(): TrainRoute {
+        val points = JSONObject(json).getJSONArray("points")
+        val sourceKm = (0 until points.length()).associate { i ->
+            val row = points.getJSONArray(i)
+            row.getString(0) to row.getInt(2)
+        }
+        val codes20652 = listOf("TLGP", "SRF", "ANF", "ARU", "KMSI", "SMET", "SME",
+            "BDVT", "TKE", "RRB", "DRU", "ASK", "TTR", "TK", "YPR", "SBC")
+        fun km(code: String): Int? = sourceKm[code]?.let { 512 - it }
+        val kmByCode = codes20652.map { code -> code to km(code) }
+            .toMap().toMutableMap().apply {
+                // The historical map has no KMSI point. The fixture places the dated
+                // halt between its route neighbours; the parser must leave those two
+                // legs unmapped instead of pretending KMSI was in the old corridor.
+                put("KMSI", ((km("ARU")!! + km("SMET")!!) / 2))
+            }
+        val stops = codes20652.mapIndexed { index, code ->
+            val routeKm = (kmByCode.getValue(code)!! * 372.0 / 369.0).toInt()
+            StopRow(index + 1, code, code, null, null, null, null, null,
+                0, routeKm, true)
+        }
+        return TrainRoute("20652", "TLGP SBC EXP", "TLGP", "Talguppa", "SBC",
+            "Bengaluru", 372, 360, null, null, stops, emptyList())
+    }
+
+    @Test fun reverse20652RouteMapsOnlyConsecutiveHaltLegsThatMatchTheArchive() {
+        val route = official20652()
+        val result = OfflineCorridorMap.parse(json, route)
+        assertNotNull("the exact reversed TLGP–SBC corridor should be reusable", result)
+        val map = result!!.route
+        assertNotNull("the expanded route must still match every dated scheduled halt",
+            RouteBetween.withVerifiedHalts(map, route))
+        val groups = RouteBetween.groupedPoints(map, route)
+        assertEquals("Kadur–Arsikere's archived pass-through sequence",
+            listOf("BLKR", "VNR", "BVR"), groups["DRU"].orEmpty().map { it.code })
+        assertEquals(listOf("BALLEKERE HALT", "DEVANUR", "BANAVAR"),
+            groups["DRU"].orEmpty().map { it.name })
+        assertTrue("the formerly missing leg must be marked as mapped",
+            "DRU" in result.mappedLegStarts)
+        assertFalse("the archived map lacks KMSI; don't claim either adjoining leg is mapped",
+            "ARU" in result.mappedLegStarts || "KMSI" in result.mappedLegStarts)
+        assertTrue("historical map points must not invent clocks or actuals",
+            groups["DRU"].orEmpty().all { point ->
+                point.arrivalMin == null && point.departureMin == null &&
+                    point.actualArrivalMin == null && point.actualDepartureMin == null &&
+                    !point.isHalt
+            })
+    }
+
     @Test fun aChangedJunctionDoesNotSilentlyAdoptAnOldPath() {
         val changed = official(codes.toMutableList().apply { add(indexOf("TK") + 1, "NEWJ") })
         val result = OfflineCorridorMap.parse(json, changed)!!
