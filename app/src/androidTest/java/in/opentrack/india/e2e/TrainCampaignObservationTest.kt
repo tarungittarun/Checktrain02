@@ -20,7 +20,8 @@ import java.util.TimeZone
  * The app's optional foreground Auto control remains opt-in in production; this test enables it
  * visibly, samples the accessible screen at minutes 0..45, and verifies Auto is OFF at the end.
  * It does not set an arrival alert, claim background monitoring, or treat a page/feed stamp as a
- * train event. The visible app source is recorded on every observation.
+ * train event. Every sample must expose a fresh NTES event clock from the selected run; update and
+ * request receipts remain separate. The visible app source is recorded on every observation.
  */
 @RunWith(AndroidJUnit4::class)
 class TrainCampaignObservationTest {
@@ -39,6 +40,8 @@ class TrainCampaignObservationTest {
         val sourceSummary: String,
         val sourceLabel: String,
         val sourceDescription: String,
+        val eventDescription: String,
+        val eventTimeQualified: Boolean,
         val receiptClock: String?,
         val receiptDescription: String,
         val newReceiptSincePrevious: Boolean,
@@ -59,6 +62,8 @@ class TrainCampaignObservationTest {
             .put("sourceSummary", sourceSummary)
             .put("sourceLabel", sourceLabel)
             .put("sourceDescription", sourceDescription)
+            .put("eventDescription", eventDescription)
+            .put("eventTimeQualified", eventTimeQualified)
             .put("receiptClock", receiptClock ?: JSONObject.NULL)
             .put("receiptDescription", receiptDescription)
             .put("newReceiptSincePrevious", newReceiptSincePrevious)
@@ -152,7 +157,14 @@ class TrainCampaignObservationTest {
     private fun sample(minute: Int, startedAt: Long, previousReceipt: String?, campaignDir: File): Observation {
         val now = SystemClock.elapsedRealtime()
         val sourceDescription = safeDescription("sourceSpinner")
+        val eventDescription = safeDescription("age")
+        val sampledAt = System.currentTimeMillis()
         val clock = receiptClock(sourceDescription)
+        val train = safeText("trainNo")
+        val date = safeText("runDate")
+        val route = safeText("routeLabel")
+        val eventTimeQualified = SourceEventTimeQualification.ntesEventFresh(
+            sourceDescription, eventDescription, date, train.isNotBlank() && route.isNotBlank(), sampledAt)
         val screenshot = if (minute == 0 || minute == 15 || minute == 30 || minute == 45) {
             captureScreenshot("campaign-minute-${minute.toString().padStart(2, '0')}", campaignDir)
         } else null
@@ -164,15 +176,17 @@ class TrainCampaignObservationTest {
             sampledAtIst = istStamp(),
             screenPresent = present,
             autoEnabled = safeAutoChecked(),
-            trainNo = safeText("trainNo"),
-            runDate = safeText("runDate"),
-            route = safeText("routeLabel"),
+            trainNo = train,
+            runDate = date,
+            route = route,
             headline = safeText("headline"),
             provenance = safeText("provenance"),
             age = safeText("age"),
             sourceSummary = safeText("sourceSummary"),
             sourceLabel = safeText("sourceSpinner"),
             sourceDescription = sourceDescription,
+            eventDescription = eventDescription,
+            eventTimeQualified = eventTimeQualified,
             receiptClock = clock,
             receiptDescription = sourceDescription.substringAfter("Last completed refresh: ", "")
                 .take(600),
@@ -345,7 +359,8 @@ class TrainCampaignObservationTest {
                         autoEnabled = safeAutoChecked(),
                         trainNo = "", runDate = "", route = "", headline = "",
                         provenance = "", age = "", sourceSummary = "", sourceLabel = "",
-                        sourceDescription = "", receiptClock = null, receiptDescription = "",
+                        sourceDescription = "", eventDescription = "", eventTimeQualified = false,
+                        receiptClock = null, receiptDescription = "",
                         newReceiptSincePrevious = false, screenshot = null,
                     )
                     observations += gap
@@ -359,11 +374,14 @@ class TrainCampaignObservationTest {
             }
             val allScreenSamplesPresent = observations.size == 46 && observations.all { it.screenPresent }
             val autoOnAtEverySample = observations.size == 46 && observations.all { it.autoEnabled == true }
+            val eventTimeQualifiedAtEverySample = observations.size == 46 &&
+                observations.all { it.eventTimeQualified }
             val minuteReceiptCount = observations.count { it.minute in 1..45 && it.newReceiptSincePrevious }
             val missedReceiptSamples = 45 - minuteReceiptCount
             val passed = flowPassed && failure.isBlank() && durationMs >= 45L * 60_000L &&
                 observations.size == 46 && allScreenSamplesPresent && autoOnAtEverySample &&
-                minuteReceiptCount >= 43 && missedReceiptSamples <= 2 && autoOffAtEnd &&
+                eventTimeQualifiedAtEverySample && minuteReceiptCount >= 43 &&
+                missedReceiptSamples <= 2 && autoOffAtEnd &&
                 scheduleCheck?.eligible == true &&
                 sourceAtStart.contains("Selected NTES · official", true) &&
                 sourceAtEnd.contains("Selected NTES · official", true) && allScreensPresent
@@ -388,6 +406,7 @@ class TrainCampaignObservationTest {
                 .put("expectedObservationCount", 46)
                 .put("screenPresentSamples", observations.count { it.screenPresent })
                 .put("autoOnAtEverySample", autoOnAtEverySample)
+                .put("eventTimeQualifiedAtEverySample", eventTimeQualifiedAtEverySample)
                 .put("minuteRefreshReceipts", minuteReceiptCount)
                 .put("missedOrUnchangedReceiptSamples", missedReceiptSamples)
                 .put("flowPassed", flowPassed)

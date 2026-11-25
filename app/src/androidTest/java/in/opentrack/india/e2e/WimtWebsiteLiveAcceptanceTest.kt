@@ -150,6 +150,7 @@ class WimtWebsiteLiveAcceptanceTest {
             var provenanceDescription = ""
             var detachedDescription = ""
             var selectedWebsite = false
+            var eventTimeFresh = false
             var detachedClaim = false
             while (System.currentTimeMillis() < until) {
                 headline = E2E.text("headline", 250)
@@ -159,12 +160,15 @@ class WimtWebsiteLiveAcceptanceTest {
                 claimSummary = E2E.text("sourceSummary", 250)
                 provenanceDescription = E2E.find("provenance", 250)?.contentDescription?.toString().orEmpty()
                 detachedDescription = E2E.find("headline", 250)?.contentDescription?.toString().orEmpty()
-                selectedWebsite = E2E.find("sourceSpinner", 250)?.contentDescription?.toString()
-                    ?.contains("Selected Where Is My Train · website") == true
+                val selectedDescription = E2E.find("sourceSpinner", 250)?.contentDescription?.toString().orEmpty()
+                selectedWebsite = selectedDescription.contains("Selected Where Is My Train · website", true)
+                eventTimeFresh = SourceEventTimeQualification.websiteClaimFresh(
+                    selectedDescription, provenanceDescription, E2E.text("runDate", 250),
+                    System.currentTimeMillis())
                 val hasSiteEventTime = Regex("""[0-9]{1,2}:[0-9]{2}""").containsMatchIn(headline)
                 val conciseSummary = !claimSummary.contains('\n') &&
                     !claimSummary.contains(".org.in page returned", true)
-                val reported = selectedWebsite && headline.contains(" · site ", true) &&
+                val reported = selectedWebsite && eventTimeFresh && headline.contains(" · site ", true) &&
                     hasSiteEventTime && badge.contains("date matched", true) &&
                     !badge.contains("run inferred", true) &&
                     eventFreshness.startsWith("Page age ", true) && conciseSummary &&
@@ -200,8 +204,9 @@ class WimtWebsiteLiveAcceptanceTest {
                 "spinner='${E2E.find("sourceSpinner", 250)?.contentDescription}' " +
                 "warning='$warning'", selectedWebsite)
             assertTrue("No source-qualified .org.in website claim in the installed app; " +
-                "headline='$headline' badge='$badge' eventFreshness='$eventFreshness' " +
-                "summary='$claimSummary' description='$detachedDescription' warning='$warning' " +
+                "headline='$headline' badge='$badge' eventTimeFresh=$eventTimeFresh " +
+                "eventFreshness='$eventFreshness' summary='$claimSummary' " +
+                "description='$detachedDescription' warning='$warning' " +
                 "deviceTiming='$measuredTiming'. " +
                 "A route-conflicting detached claim is diagnostic only and cannot satisfy selected-run acceptance. " +
                 "HTTP 200 alone, NTES fallback and the .in web cache do not pass.", accepted)

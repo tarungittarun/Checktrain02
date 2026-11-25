@@ -14,8 +14,9 @@ import java.util.TimeZone
 
 /**
  * Source-strict acceptance for the installed APK's direct `.in/cache/live_status` provider.
- * A request selector, HTTP 200 by itself, stale stamp, route/date mismatch, cache comparison,
- * `.org.in` page, NTES fallback, or an empty schedule is not a WIMT live-data pass.
+ * HTTP success and a fresh feed-update stamp are separate from a fresh event clock. A pass also
+ * requires a recent source row clock on the matched run/route; cached/timetable/other-source clocks
+ * cannot satisfy it. This `.in` feed is not the `.org.in` page or NTES.
  */
 @RunWith(AndroidJUnit4::class)
 class WimtLiveApiAcceptanceTest {
@@ -125,20 +126,26 @@ class WimtLiveApiAcceptanceTest {
             val cellsAttributed = screenshotSourceCells > 0
             val selectedSourceVisible = selectedAtTableCapture.contains(
                 "Selected WIMT .in live-status feed", true)
+            // The source's event clock must itself be recent on the selected run. Neither the
+            // upstream update stamp nor the app's request receipt is an event-time substitute.
+            val eventTimeFresh = SourceEventTimeQualification.wimtLiveFeedFresh(
+                selectedAtTableCapture, details, E2E.text("runDate"), System.currentTimeMillis())
             val passed = selectedSourceVisible && http200 && runMatched && routeMatched && fresh &&
-                reportRows > 0 && cellsAttributed &&
+                eventTimeFresh && reportRows > 0 && cellsAttributed &&
                 summaryAtTableCapture.contains("source-reported stop row")
 
             // Safe, bounded diagnostics only: no response body, headers, cookies, URL identifiers,
             // route IDs, event clocks, or raw transport receipt is printed to the workflow log.
             Log.i("WimtLiveApiAcceptance", "WIMT_LIVE_DEVICE_RESULT http200=$http200 " +
                 "runDateMatched=$runMatched routeMatched=$routeMatched freshUpdate=$fresh " +
-                "evidenceRows=$reportRows visibleSourceCells=$screenshotSourceCells " +
-                "selected=$selectedSourceVisible detailsFresh=$detailsFresh summaryFresh=$summaryFresh")
+                "eventTimeFresh=$eventTimeFresh evidenceRows=$reportRows " +
+                "visibleSourceCells=$screenshotSourceCells selected=$selectedSourceVisible " +
+                "detailsFresh=$detailsFresh summaryFresh=$summaryFresh")
             assertTrue("The installed app did not show fresh, run/date/route-matched WIMT .in stop " +
                 "times in its table; HTTP 200, stale data, a station field, timetable, or fallback " +
                 "is not acceptance. selected=$selectedSourceVisible http200=$http200 " +
-                "runDate=$runMatched route=$routeMatched fresh=$fresh rows=$reportRows " +
+                "runDate=$runMatched route=$routeMatched freshUpdate=$fresh " +
+                "eventTimeFresh=$eventTimeFresh rows=$reportRows " +
                 "visibleSourceCells=$screenshotSourceCells", passed)
             Log.i("WimtLiveApiAcceptance", "WIMT_LIVE_DEVICE_VERDICT=PASS_FRESH_MATCHED_SOURCE_TIMES_IN_APP")
             E2E.assertNoSystemDialog("WIMT .in live-status source")

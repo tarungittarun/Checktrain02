@@ -10,7 +10,7 @@ import argparse
 import json
 import re
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from verify_wimt_live_comparison_screens import parse_attempts
@@ -58,6 +58,28 @@ def _parse_ist_millis(value: str) -> int | None:
     return None
 
 
+def _direct_event_freshness_consistent(attempt: dict) -> bool:
+    run_date = attempt.get("serviceDate")
+    clock = attempt.get("directEventClock")
+    checked = _parse_ist_millis(attempt.get("directEventCheckedAt"))
+    if not isinstance(run_date, str) or not isinstance(clock, str) or checked is None:
+        return False
+    match = re.fullmatch(r"(\d{1,2}):(\d{2})(?: \(\+(\d+)d\))?", clock.strip())
+    if match is None:
+        return False
+    try:
+        origin = datetime.strptime(run_date, "%d %b %Y").replace(tzinfo=ZoneInfo("Asia/Kolkata"))
+        hour, minute = int(match.group(1)), int(match.group(2))
+        if hour > 23 or minute > 59:
+            return False
+        event = origin + timedelta(
+            days=int(match.group(3) or 0), hours=hour, minutes=minute)
+        age = checked - int(event.timestamp() * 1_000)
+        return -120_000 <= age <= 7_200_000
+    except (ValueError, OverflowError):
+        return False
+
+
 def _web_freshness_consistent(attempt: dict) -> bool:
     updated = _parse_ist_millis(attempt.get("webFreshestRowUpdatedAt"))
     checked = _parse_ist_millis(attempt.get("webFreshnessCheckedAt"))
@@ -82,6 +104,8 @@ def _strict_attempt(attempt: dict) -> bool:
             attempt.get("directSelected") is True and
             attempt.get("directHttpStatus") == 200 and
             attempt.get("directFresh") is True and
+            attempt.get("directEventTimeFresh") is True and
+            _direct_event_freshness_consistent(attempt) and
             attempt.get("directDateMatched") is True and
             attempt.get("directRouteMatched") is True and
             attempt.get("directCurrentStationClaim") is True and
@@ -170,6 +194,9 @@ def make_report(instrumentation: str, device_log: str, return_code: int,
             "directSource": {
                 "status": f"HTTP {attempt.get('directHttpStatus')}",
                 "freshSourceUpdate": attempt.get("directFresh"),
+                "sourceEventTimeFresh": attempt.get("directEventTimeFresh"),
+                "sourceEventClock": attempt.get("directEventClock"),
+                "eventFreshnessCheckedAt": attempt.get("directEventCheckedAt"),
                 "responseRunDateMatched": attempt.get("directDateMatched"),
                 "bothRouteEndpointsMatched": attempt.get("directRouteMatched"),
                 "currentStationClaimVisible": attempt.get("directCurrentStationClaim"),
@@ -270,7 +297,9 @@ def _valid_attempt(train: str) -> dict:
         "appTrainNumberMatched": True, "webRequestTrainNumber": train,
         "webRequestTrainNumberMatchesApp": True,
         "verdict": "COMPARISON_COMPLETE", "directSelected": True, "directHttpStatus": 200,
-        "directFresh": True, "directDateMatched": True, "directRouteMatched": True,
+        "directFresh": True, "directEventTimeFresh": True,
+        "directEventClock": "10:20", "directEventCheckedAt": "12 Oct 2026 10:21:00 IST",
+        "directDateMatched": True, "directRouteMatched": True,
         "directCurrentStationClaim": True, "directSourceRows": 4, "directVisibleTimeCells": 3,
         "webSelected": True, "webHttpStatus": 200, "webSourceRows": 4, "webFresh": True,
         "webDateMatched": True, "webRouteMatched": True, "webTrainNumberEchoMatched": None,
@@ -314,6 +343,16 @@ def self_test() -> None:
     stale_log = "\n".join("WIMT_MULTI_ATTEMPT_JSON=" + json.dumps(a) for a in stale)
     stale_log += "\n" + PASS_LINE
     assert make_report("OK (1 test)", stale_log, 0, screens)["accepted"] is False
+    stale_event = json.loads(json.dumps(attempts))
+    stale_event[0]["directEventTimeFresh"] = False
+    stale_event_log = "\n".join("WIMT_MULTI_ATTEMPT_JSON=" + json.dumps(a) for a in stale_event)
+    stale_event_log += "\n" + PASS_LINE
+    assert make_report("OK (1 test)", stale_event_log, 0, screens)["accepted"] is False
+    stale_clock = json.loads(json.dumps(attempts))
+    stale_clock[0]["directEventClock"] = "05:00"
+    stale_clock_log = "\n".join("WIMT_MULTI_ATTEMPT_JSON=" + json.dumps(a) for a in stale_clock)
+    stale_clock_log += "\n" + PASS_LINE
+    assert make_report("OK (1 test)", stale_clock_log, 0, screens)["accepted"] is False
     no_screens = make_report("OK (1 test)", log, 0, "{}")
     assert no_screens["accepted"] is False
     assert no_screens["verdict"] == "GENUINE_COMPARISON_SCREENSHOTS_NOT_VERIFIED"

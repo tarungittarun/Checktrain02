@@ -38,6 +38,7 @@ on:
       - 'tools/ci/test_verify_wimt_cache_screens.py'
       - 'app/src/androidTest/java/in/opentrack/india/e2e/WimtCacheLiveAcceptanceTest.kt'
       - 'app/src/androidTest/java/in/opentrack/india/e2e/WimtLiveApiAcceptanceTest.kt'
+      - 'app/src/androidTest/java/in/opentrack/india/e2e/SourceEventTimeQualification.kt'
       - 'app/src/androidTest/java/in/opentrack/india/e2e/WimtLiveTrainWebComparisonAcceptanceTest.kt'
       - 'app/src/main/java/in/opentrack/india/remote/WimtLiveProvider.kt'
       - 'app/src/test/java/in/opentrack/india/remote/WimtLiveProviderTest.kt'

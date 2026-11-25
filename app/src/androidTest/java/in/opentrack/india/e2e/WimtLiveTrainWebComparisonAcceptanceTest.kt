@@ -41,6 +41,9 @@ class WimtLiveTrainWebComparisonAcceptanceTest {
         var directHttpStatus: Int? = null
         var directSelected: Boolean = false
         var directFresh: Boolean = false
+        var directEventTimeFresh: Boolean = false
+        var directEventClock: String? = null
+        var directEventCheckedAt: String? = null
         var directDateMatched: Boolean = false
         var directRouteMatched: Boolean = false
         var directCurrentStationClaim: Boolean = false
@@ -80,6 +83,9 @@ class WimtLiveTrainWebComparisonAcceptanceTest {
             putNullable("directHttpStatus", directHttpStatus)
             put("directSelected", directSelected)
             put("directFresh", directFresh)
+            put("directEventTimeFresh", directEventTimeFresh)
+            putNullable("directEventClock", directEventClock)
+            putNullable("directEventCheckedAt", directEventCheckedAt)
             put("directDateMatched", directDateMatched)
             put("directRouteMatched", directRouteMatched)
             put("directCurrentStationClaim", directCurrentStationClaim)
@@ -149,7 +155,8 @@ class WimtLiveTrainWebComparisonAcceptanceTest {
             attemptsFile.appendText(attempt.toJson().toString() + "\n", Charsets.UTF_8)
             Log.i(TAG, "WIMT_MULTI_ATTEMPT train=${attempt.trainNo} verdict=${attempt.verdict} " +
                 "directHTTP=${attempt.directHttpStatus} webHTTP=${attempt.webHttpStatus} " +
-                "directFresh=${attempt.directFresh} webFresh=${attempt.webFresh} " +
+                "directFresh=${attempt.directFresh} directEventTimeFresh=${attempt.directEventTimeFresh} " +
+                "webFresh=${attempt.webFresh} " +
                 "overlap=${attempt.overlappingEventFields} " +
                 "mismatchCount=${attempt.mismatchFields.size + attempt.appOnlyEventFields.size + attempt.webOnlyEventFields.size}")
             val selectedWimtSource = attempt.directSelected || attempt.webSelected
@@ -253,6 +260,11 @@ class WimtLiveTrainWebComparisonAcceptanceTest {
             "both route endpoints echoed and matched: true", true)
         result.directFresh = liveDetails.contains("fresh source stamp; not event time", true) &&
             liveSummary.contains("upstream update stamp is fresh", true)
+        val eventCheckedAtMillis = System.currentTimeMillis()
+        result.directEventClock = SourceEventTimeQualification.wimtLiveEventClock(
+            liveSelected, liveDetails, E2E.text("runDate"), eventCheckedAtMillis)
+        result.directEventCheckedAt = formatIstMillis(eventCheckedAtMillis)
+        result.directEventTimeFresh = result.directEventClock != null
         result.directCurrentStationClaim = liveDetails.contains("current-station field claims", true)
         result.directSourceRows = Regex(
             "Selected WIMT \\.in source-reported rows \\((\\d+)\\):")
@@ -260,7 +272,7 @@ class WimtLiveTrainWebComparisonAcceptanceTest {
         val liveSelectionStillVisible = liveSelected.contains(
             "Selected WIMT .in live-status feed", true)
         val directQualifies = liveSelectionStillVisible &&
-            result.directHttpStatus == 200 && result.directFresh &&
+            result.directHttpStatus == 200 && result.directFresh && result.directEventTimeFresh &&
             result.directDateMatched && result.directRouteMatched &&
             result.directCurrentStationClaim && result.directSourceRows > 0 &&
             result.directVisibleTimeCells > 0 && result.serviceDate != null
@@ -271,8 +283,8 @@ class WimtLiveTrainWebComparisonAcceptanceTest {
                 else -> if (result.directHttpStatus?.let { it in 500..599 } == true)
                     "DIRECT_HTTP_5XX" else "DIRECT_SOURCE_NOT_QUALIFIED"
             }
-            result.reason = "Direct source must be fresh, date/route matched, current-station attributed, " +
-                "and visibly contain source-reported event clocks; schedule/fallback is excluded."
+            result.reason = "Direct source must have a fresh source event clock, a separately fresh update stamp, " +
+                "matched run/route and current-station attribution; schedule/fallback is excluded."
             result.stopAfterHostFailure = result.directHttpStatus == null ||
                 result.directHttpStatus?.let { it in 400..599 } == true
             return result

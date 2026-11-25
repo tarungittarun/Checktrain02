@@ -42,6 +42,7 @@ class VerifyCampaignRunnerResultTests(unittest.TestCase):
             "expectedObservationCount": 46,
             "screenPresentSamples": 46,
             "autoOnAtEverySample": True,
+            "eventTimeQualifiedAtEverySample": True,
             "autoEnabledAtStart": True,
             "minuteRefreshReceipts": 45,
             "missedOrUnchangedReceiptSamples": 0,
@@ -64,6 +65,8 @@ class VerifyCampaignRunnerResultTests(unittest.TestCase):
                 "runDate": "17-11-2026",
                 "route": "SC → HYB",
                 "sourceDescription": "Selected NTES · official · last refresh checked",
+                "eventDescription": "Last NTES event at Test Station, 16:30; 30 min; present position unknown",
+                "eventTimeQualified": True,
                 "newReceiptSincePrevious": minute != 0,
             }
             for minute in EXPECTED_MINUTES
@@ -119,6 +122,20 @@ class VerifyCampaignRunnerResultTests(unittest.TestCase):
         observations[0] = dict(observations[0], minute="0")
         errors = self.run_verify(observations=observations)
         self.assertTrue(any("exactly one sample" in error for error in errors))
+
+    def test_rejects_ntes_receipt_or_update_stamp_without_fresh_event_clock(self):
+        observations = [dict(item) for item in self.observations]
+        observations[12]["eventDescription"] = "Last refresh checked 17:12; feed published at 17:12"
+        observations[12]["eventTimeQualified"] = False
+        result = dict(self.result, eventTimeQualifiedAtEverySample=False)
+        errors = self.run_verify(result=result, observations=observations)
+        self.assertTrue(any("event clock" in error.lower() for error in errors))
+        self.assertTrue(any("event-time description" in error for error in errors))
+
+        observations = [dict(item) for item in self.observations]
+        observations[12]["eventDescription"] = "Last NTES event at Test Station, 12:00; 5 h"
+        errors = self.run_verify(observations=observations)
+        self.assertTrue(any("within 2 hours" in error for error in errors))
 
     def test_rejects_wrong_assignment_source_or_ineligible_host_gate(self):
         result = dict(self.result, trainNo="17020")

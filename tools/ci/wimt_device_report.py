@@ -125,7 +125,7 @@ def verdict(instrumentation: str, diary: str, process_rc: int) -> dict:
         run_date is not None and site_claim is not None and published_at is not None and
         checked_at is not None and claim_time is not None and page_age is not None and
         0 <= page_age <= 300 and event_at is not None and event_age is not None and
-        event_age >= 0 and event_at <= published_at <= checked_at
+        0 <= event_age <= 7_200 and event_at <= published_at <= checked_at
     )
     mapped_site_report = (
         identity == "DATE_ROUTE_MATCHED" and parsed == "SITE_COMPARISON" and
@@ -174,6 +174,8 @@ def verdict(instrumentation: str, diary: str, process_rc: int) -> dict:
                   not site_date_matched else
               "SITE_RUN_DATE_UNVERIFIED" if site_answered and site_route == selected_route and
                   site_date_state in {"ABSENT", "INVALID_OR_AMBIGUOUS"} else
+              "SITE_EVENT_TIME_STALE_OR_FUTURE" if site_answered and event_age is not None and
+                  not 0 <= event_age <= 7_200 else
               "PASS_DATED_ROUTE_MATCHED_SITE_EVENT" if accepted else
               "SITE_REPLY_OR_SOURCE_QUALIFICATION_MISSING" if site_answered else
               "NO_WEBSITE_NETWORK_ANSWER")
@@ -221,6 +223,7 @@ def verdict(instrumentation: str, diary: str, process_rc: int) -> dict:
             "siteClaimTimeBasis": claim_time_basis or "selected_origin_timetable",
             "siteClaimTimeIst": claim_time,
             "siteClaimAgeSecondsAtCheck": event_age,
+            "siteEventTimeQualified": event_age is not None and 0 <= event_age <= 7_200,
             "pagePublishedAtIst": _ist_time(published_at),
             "pageAgeSecondsAtCheck": page_age,
             "checkedAtIst": _ist_time(checked_at),
@@ -276,6 +279,7 @@ def self_test() -> None:
     assert result["originRunDateIst"] == "2026-11-12"
     assert result["siteClaimTimeIst"] == "2026-11-12T20:17:00+05:30"
     assert result["siteClaimAgeSecondsAtCheck"] == 2_910
+    assert result["siteEventTimeQualified"] is True
     assert result["pageAgeSecondsAtCheck"] == 30
     assert result["siteDateMatched"] is True
     assert result["siteDateState"] == "MATCH"
@@ -370,6 +374,11 @@ def self_test() -> None:
     assert not verdict("OK (1 test)", stale, 0)["accepted"]
     later_claim = good.replace("siteClaim=RRB:1217", "siteClaim=RRB:1300")
     assert not verdict("OK (1 test)", later_claim, 0)["accepted"]
+    old_event_with_fresh_page = good.replace("siteClaim=RRB:1217", "siteClaim=RRB:0900")
+    old_event_result = verdict("OK (1 test)", old_event_with_fresh_page, 0)
+    assert not old_event_result["accepted"]
+    assert old_event_result["verdict"] == "SITE_EVENT_TIME_STALE_OR_FUTURE"
+    assert old_event_result["siteEventTimeQualified"] is False
     wrong_train = good.replace("train=16227", "train=20652")
     assert not verdict("OK (1 test)", wrong_train, 0)["accepted"]
     assert "0123456789abcdef" not in json.dumps(result)

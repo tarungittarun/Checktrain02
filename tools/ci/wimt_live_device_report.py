@@ -11,8 +11,8 @@ import sys
 PASS_LINE = "WIMT_LIVE_DEVICE_VERDICT=PASS_FRESH_MATCHED_SOURCE_TIMES_IN_APP"
 RESULT_RE = re.compile(
     r"WIMT_LIVE_DEVICE_RESULT http200=(true|false) runDateMatched=(true|false) "
-    r"routeMatched=(true|false) freshUpdate=(true|false) evidenceRows=(\d+) "
-    r"visibleSourceCells=(\d+) selected=(true|false)", re.IGNORECASE)
+    r"routeMatched=(true|false) freshUpdate=(true|false) eventTimeFresh=(true|false) "
+    r"evidenceRows=(\d+) visibleSourceCells=(\d+) selected=(true|false)", re.IGNORECASE)
 
 
 def make_report(instrumentation: str, return_code: int,
@@ -25,9 +25,10 @@ def make_report(instrumentation: str, return_code: int,
         "runDateMatched": match.group(2).lower() == "true" if match else None,
         "routeEndpointsMatched": match.group(3).lower() == "true" if match else None,
         "freshSourceStamp": match.group(4).lower() == "true" if match else None,
-        "sourceRowsInDetails": int(match.group(5)) if match else None,
-        "wimtAttributedVisibleTimeCells": int(match.group(6)) if match else None,
-        "selectedSourceVisible": match.group(7).lower() == "true" if match else None,
+        "sourceEventTimeFresh": match.group(5).lower() == "true" if match else None,
+        "sourceRowsInDetails": int(match.group(6)) if match else None,
+        "wimtAttributedVisibleTimeCells": int(match.group(7)) if match else None,
+        "selectedSourceVisible": match.group(8).lower() == "true" if match else None,
     }
     try:
         screen = json.loads(screen_verification)
@@ -102,7 +103,8 @@ def make_report(instrumentation: str, return_code: int,
     test_candidate = return_code == 0 and exactly_one and PASS_LINE in instrumentation and match is not None
     strict_data = parsed["http200"] is True and parsed["runDateMatched"] is True and \
         parsed["routeEndpointsMatched"] is True and parsed["freshSourceStamp"] is True and \
-        parsed["selectedSourceVisible"] is True and rows is not None and rows > 0 and \
+        parsed["sourceEventTimeFresh"] is True and parsed["selectedSourceVisible"] is True and \
+        rows is not None and rows > 0 and \
         cells is not None and cells > 0
     accepted = test_candidate and strict_data and screens_ok and status == "HTTP 200" and \
         screen.get("acceptedDataVerifiedInAppHierarchy") is True and not conflicts
@@ -115,7 +117,7 @@ def make_report(instrumentation: str, return_code: int,
         screen.get("routeEndpointsMatchedVisible") is True
     if accepted:
         verdict = "PASS_FRESH_MATCHED_SOURCE_TIMES_IN_APP"
-        reason = "The installed APK fetched fresh WIMT `.in` data for the selected run and route and showed source-attributed stop clocks in the app."
+        reason = "The installed APK showed a fresh event clock from the selected WIMT `.in` response for the matched run and route; feed-update freshness remained a separate check."
     elif status == "HTTP 403" or "http 403" in text:
         verdict = "HTTP_403_REFUSED"
         reason = "The selected `.in` request was refused; no WIMT data acceptance is claimed."
@@ -130,9 +132,12 @@ def make_report(instrumentation: str, return_code: int,
         verdict = "IN_APP_EVIDENCE_CONTRADICTION"
         reason = "The device assertion and captured app hierarchy disagree on: " + \
             ", ".join(conflicts) + ". Acceptance remains failed until the same rendered evidence agrees."
+    elif visible_matched_rows and parsed["sourceEventTimeFresh"] is not True:
+        verdict = "HTTP_200_MATCHED_ROWS_BUT_EVENT_TIME_UNPROVEN"
+        reason = "The selected source's own event clock is missing, stale, future-dated, or unparseable; update/page/receipt timestamps cannot substitute."
     elif visible_matched_rows and parsed["freshSourceStamp"] is not True:
         verdict = "HTTP_200_MATCHED_SOURCE_ROWS_BUT_FRESHNESS_UNPROVEN"
-        reason = "Verified in-app captures show run/route-matched source rows, but the source update stamp did not pass the freshness gate."
+        reason = "Verified in-app captures show run/route-matched source rows, but the source update stamp did not pass its separate freshness gate."
     elif visible_matched_rows and not test_candidate:
         verdict = "MATCHED_SOURCE_ROWS_VISIBLE_DEVICE_ASSERTION_FAILED"
         reason = "Verified in-app captures show run/route-matched source rows, but the installed-app assertion did not produce a passing one-test verdict; acceptance remains failed."
@@ -189,11 +194,12 @@ def self_test() -> None:
         ],
     }
     line = ("OK (1 test)\nWIMT_LIVE_DEVICE_RESULT http200=true runDateMatched=true "
-            "routeMatched=true freshUpdate=true evidenceRows=3 visibleSourceCells=2 selected=true\n" + PASS_LINE)
+            "routeMatched=true freshUpdate=true eventTimeFresh=true evidenceRows=3 "
+            "visibleSourceCells=2 selected=true\n" + PASS_LINE)
     assert make_report(line, 0, json.dumps(screens))["accepted"] is True
     screenshot_only = make_report("FAILURES!!!\nHTTP 200", 1, json.dumps(screens))
     assert screenshot_only["accepted"] is False
-    assert screenshot_only["verdict"] == "MATCHED_SOURCE_ROWS_VISIBLE_DEVICE_ASSERTION_FAILED"
+    assert screenshot_only["verdict"] == "HTTP_200_MATCHED_ROWS_BUT_EVENT_TIME_UNPROVEN"
     assert screenshot_only["liveEvidence"]["sourceRowsInDetails"] == 3
     assert screenshot_only["liveEvidence"]["wimtAttributedVisibleTimeCells"] == 2
     assert screenshot_only["deviceTestResultCaptured"] is False
@@ -208,6 +214,10 @@ def self_test() -> None:
         assert report["accepted"] is False and report["verdict"] == expected
     bad = line.replace("freshUpdate=true", "freshUpdate=false")
     assert not make_report(bad, 0, json.dumps(screens))["accepted"]
+    bad_event = line.replace("eventTimeFresh=true", "eventTimeFresh=false")
+    event_report = make_report(bad_event, 0, json.dumps(screens))
+    assert not event_report["accepted"]
+    assert event_report["verdict"] == "HTTP_200_MATCHED_ROWS_BUT_EVENT_TIME_UNPROVEN"
     conflict = make_report(bad, 0, json.dumps(screens))
     assert conflict["verdict"] == "IN_APP_EVIDENCE_CONTRADICTION"
     assert "freshSourceStamp" in conflict["evidenceConflicts"]

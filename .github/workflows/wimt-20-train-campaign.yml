@@ -9,6 +9,7 @@ on:
     paths:
       - .github/workflows/wimt-20-train-campaign.yml
       - app/src/androidTest/java/in/opentrack/india/e2e/TrainCampaignObservationTest.kt
+      - app/src/androidTest/java/in/opentrack/india/e2e/SourceEventTimeQualification.kt
       - tools/ci/select_wimt_campaign_roster.py
       - tools/ci/verify_campaign_assignment.py
       - tools/ci/prepare_campaign_slot.py

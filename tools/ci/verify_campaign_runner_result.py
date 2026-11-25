@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import argparse
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+import re
 from typing import Any
 
 EXPECTED_MINUTES = list(range(46))
@@ -71,6 +72,33 @@ def _is_count(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
 
 
+def _ntes_event_at(description: Any, run_date: Any) -> datetime | None:
+    if not isinstance(description, str) or not isinstance(run_date, str):
+        return None
+    match = re.search(r"Last NTES event at .+?,\s*(\d{1,2}):(\d{2})(?:\s*\(\+(\d+)d\))?", description)
+    if not match:
+        return None
+    try:
+        ist = timezone(timedelta(hours=5, minutes=30))
+        start = datetime.strptime(run_date, "%d-%m-%Y").replace(tzinfo=ist).astimezone(timezone.utc)
+        hour, minute = int(match.group(1)), int(match.group(2))
+        if hour > 23 or minute > 59:
+            return None
+        day_offset = int(match.group(3) or 0)
+        return start + timedelta(days=day_offset, hours=hour, minutes=minute)
+    except (ValueError, OverflowError):
+        return None
+
+
+def _ntes_event_is_fresh(description: Any, run_date: Any, sampled_at: Any) -> bool:
+    event_at = _ntes_event_at(description, run_date)
+    sample_at = _parse_instant(sampled_at)
+    if event_at is None or sample_at is None:
+        return False
+    age = (sample_at - event_at).total_seconds()
+    return -120 <= age <= 120 * 60
+
+
 def verify(
     result: dict[str, Any],
     observations: list[dict[str, Any]],
@@ -110,6 +138,8 @@ def verify(
         errors.append("not all 46 observations reported the app screen present")
     if result.get("autoOnAtEverySample") is not True or result.get("autoEnabledAtStart") is not True:
         errors.append("Auto was not confirmed enabled at the start and every sample")
+    if result.get("eventTimeQualifiedAtEverySample") is not True:
+        errors.append("a selected NTES event clock was not qualified fresh at every sample")
     if result.get("autoOffAtEnd") is not True:
         errors.append("Auto was not confirmed off at the end")
     if result.get("deviceStartEligible") is not True:
@@ -186,6 +216,13 @@ def verify(
             errors.append(f"minute {minute} run date does not match the roster assignment")
         if not str(item.get("route") or "").strip():
             errors.append(f"minute {minute} has no visible route")
+        if item.get("eventTimeQualified") is not True:
+            errors.append(f"minute {minute} NTES source event clock was missing, stale, future, or unqualified")
+        event_description = item.get("eventDescription")
+        if not isinstance(event_description, str) or "Last NTES event at " not in event_description:
+            errors.append(f"minute {minute} has no source-attributed NTES event-time description")
+        elif not _ntes_event_is_fresh(event_description, assigned_date, item.get("sampledAtIst")):
+            errors.append(f"minute {minute} NTES event clock is not within 2 hours of its capture time")
         source_description = item.get("sourceDescription") or item.get("sourceLabel")
         if not isinstance(source_description, str) or \
                 EXPECTED_SOURCE_FRAGMENT.casefold() not in source_description.casefold():
