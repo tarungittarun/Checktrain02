@@ -1332,9 +1332,10 @@ class InlineRouteRenderTest {
         assertTrue(holder.inlineLeg.showLabels)
         assertEquals(listOf("BLKR", "VNR", "BVR"),
             holder.inlineLeg.projection!!.points.map { it.code })
-        assertTrue(holder.inlineLeg.contentDescription.contains("BALLEKERE HALT (BLKR)"))
-        assertTrue(holder.inlineLeg.contentDescription.contains("DEVANUR (VNR)"))
-        assertTrue(holder.inlineLeg.contentDescription.contains("BANAVAR (BVR)"))
+        // The UI deliberately title-cases shouted archive names for readability.
+        assertTrue(holder.inlineLeg.contentDescription.contains("Ballekere Halt (BLKR)"))
+        assertTrue(holder.inlineLeg.contentDescription.contains("Devanur (VNR)"))
+        assertTrue(holder.inlineLeg.contentDescription.contains("Banavar (BVR)"))
         assertTrue("historical map points must not imply reported passage times",
             holder.inlineLeg.projection!!.points.all {
                 it.passageMinute == null && it.siteArrivalMin == null && it.siteDepartureMin == null

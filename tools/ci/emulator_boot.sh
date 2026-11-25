@@ -119,9 +119,13 @@ path_ok() {
     emulator) [ -x "$SDK/emulator/emulator" ] ;;
     platforms*) [ -d "$SDK/platforms/android-${API}" ] ;;
     system-images*)
-      # A directory is not an image: the runner's SDK can carry the path with no build.prop, and trusting the
-      # path is how "already present" ended the install step while the emulator then found nothing to boot.
-      [ -f "$SDK/system-images/android-${API}/${IMG}/${ABI}/build.prop" ] ;;
+      # A directory or build.prop alone is not a complete image: sdkmanager may time out after
+      # unpacking metadata, leaving AVD creation apparently successful but the emulator exits at 0s
+      # because kernel-ranchu is absent. Require the boot-critical payload before calling it installed.
+      local image_dir="$SDK/system-images/android-${API}/${IMG}/${ABI}"
+      [ -f "$image_dir/build.prop" ] && [ -s "$image_dir/kernel-ranchu" ] &&
+        [ -s "$image_dir/ramdisk.img" ] && [ -s "$image_dir/system.img" ] &&
+        [ -s "$image_dir/userdata.img" ] ;;
     *) false ;;
   esac
 }
@@ -143,9 +147,12 @@ install_pkg() {
   fi
   # The found tool, the chosen root, and sudo when the root demands it - the three things that were each
   # guessed at separately in the runs before 696591a.
-  # An old API image can stall in sdkmanager without a progress line. Bound each package
-  # so the row can post its real install failure instead of GitHub canceling the entire job.
-  yes 2>/dev/null | timeout 120 $SUDO "$SDKMGR" $SDK_ROOT_ARG --install "$pkg" > /tmp/sdkmanager.log 2>&1
+  # A cold API-34 Google APIs x86_64 image is substantially larger than the platform tools and can
+  # legitimately take longer than two minutes on a busy hosted runner. Still bound it, but give the
+  # image a five-minute window so an interrupted partial unpack is not mistaken for an installed image.
+  local install_timeout=120
+  [[ "$pkg" = system-images* ]] && install_timeout=300
+  yes 2>/dev/null | timeout "$install_timeout" $SUDO "$SDKMGR" $SDK_ROOT_ARG --install "$pkg" > /tmp/sdkmanager.log 2>&1
   rc=${PIPESTATUS[1]}
   if [ "$rc" != 0 ] && [[ "$pkg" = emulator || "$pkg" = system-images* ]] &&
      ! path_ok "$pkg" &&
@@ -156,6 +163,7 @@ install_pkg() {
     # fail visibly if it still fails.
     # This never retries the old unavailable default/x86_64 API 24 image.
     local retry_limit=120
+    [[ "$pkg" = system-images* ]] && retry_limit=300
     [ "$pkg" = emulator ] && [ "$rc" = 124 ] && retry_limit=60
     echo "::warning::$pkg fetch failed ($rc); clearing partial SDK download and retrying once for ${retry_limit}s"
     rm -rf "$SDK/.temp"
@@ -163,13 +171,19 @@ install_pkg() {
     rc=${PIPESTATUS[1]}
     cat /tmp/sdkmanager-retry.log >> /tmp/sdkmanager.log
   fi
-  [ "$rc" = 124 ] && echo "::warning::sdkmanager timed out after 120s installing $pkg; image/files present=$(path_ok "$pkg" && echo yes || echo no)"
+  [ "$rc" = 124 ] && echo "::warning::sdkmanager timed out after ${install_timeout}s installing $pkg; complete package present=$(path_ok "$pkg" && echo yes || echo no)"
   [ "$rc" = 127 ] && echo "::error::sdkmanager could not be executed ($SDKMGR, rc=127)" && return 1
-  # sdkmanager's own verdict first. Only if it *says* it failed do we look at the filesystem again, because
-  # a path guess that does not match the SDK's real layout must not be able to turn a successful install
-  # into "this api level has no image" - which is what cost run 38121167143 the release and density rows.
-  [ "$rc" = 0 ] && return 0
-  if path_ok "$pkg"; then echo "   $pkg installed (exit $rc, files present)"; return 0; fi
+  # A successful sdkmanager exit is necessary, but an image needs its boot-critical payload as well.
+  # This is stricter than the other SDK packages: an image unpack interrupted after build.prop must
+  # never proceed to AVD creation and fail later with the misleading "kernel-ranchu missing" error.
+  if [ "$rc" = 0 ]; then
+    if [[ "$pkg" = system-images* ]] && ! path_ok "$pkg"; then
+      echo "::error::sdkmanager reported success but $pkg is incomplete (missing boot-critical image files)"
+      return 1
+    fi
+    return 0
+  fi
+  if path_ok "$pkg"; then echo "   $pkg installed (exit $rc, complete files present)"; return 0; fi
   echo "sdkmanager ($SDKMGR ${SDK_ROOT_ARG:-root=default}) exit $rc for $pkg:"; sdkmanager_says
   return 1
 }
