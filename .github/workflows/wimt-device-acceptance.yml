@@ -1,7 +1,8 @@
 # Targeted, opt-in source acceptance: a real online emulator, installed APK and
 # endpoint-specific strict data gate. General E2E stays manual-only; no live request on normal pushes.
-# A push needs the explicit [wimt-device] marker to authorize this live request; use
-# workflow_dispatch otherwise, when the repository integration permits dispatch.
+# Website and `.in` live-feed checks are separate jobs: `[wimt-device]` runs the website path,
+# `[wimt-live-api-device]` runs the `.in` path. Neither borrows another source's event clock.
+# Use workflow_dispatch otherwise, when the repository integration permits dispatch.
 name: wimt-source-device-acceptance
 on:
   push:
