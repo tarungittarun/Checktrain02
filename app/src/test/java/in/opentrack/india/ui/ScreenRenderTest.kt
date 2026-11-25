@@ -743,6 +743,30 @@ Render.save("02-track-live", shot.bitmap)
     }
 
     @Test
+    fun positionOnlyScreenClearlyMarksAnOverdueScheduleClockAsNotAnArrival() {
+        val position = pos(8, StopStatus.DEPARTED, delay = null, live = true)
+        val model = TrackModel.build(
+            route = route,
+            pos = position,
+            perStop = mapOf("HKK" to LiveStopFields(actualDepartureMin = 585)),
+            nowRailMinute = 610,
+            boardSeq = 1,
+            alightSeq = 9,
+            runEpochDay = 19949L,
+            note = null,
+            positionOnly = true,
+        )
+        val shot = Render.render(R.layout.activity_train, widthDp = 393f,
+            heightDp = 780f) { root -> Render.text(root, R.id.next, model.nextLabel) }
+
+        assertEquals(
+            "Next scheduled: Shivamogga Town · 10:04 · schedule time passed; arrival unreported",
+            shot.text(R.id.next),
+        )
+        Render.assertNothingCut(shot.root.findViewById(R.id.next), "past schedule notice")
+    }
+
+    @Test
     fun conciseWebsiteGapAndReleasedDockReturnSpaceToTheTable() {
         val shot = Render.render(R.layout.activity_train, widthDp = 393f,
             heightDp = 780f, textScale = 1.15f) { root ->

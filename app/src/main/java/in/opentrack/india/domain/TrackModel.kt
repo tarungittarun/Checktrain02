@@ -317,9 +317,11 @@ object TrackModel {
             delayLabel = delayLabel(pos, live),
             nextLabel = if (positionOnly && next != null) {
                 val t = next.schedArr ?: next.schedDep
+                val timingCaution = if (t != null && t < nowRailMinute)
+                    " · schedule time passed; arrival unreported"
+                else " · arrival not confirmed"
                 "Next scheduled: ${TitleCase.of(next.name)}" +
-                    (t?.let { " · ${RailTime.formatRailMinute(it)}" } ?: "") +
-                    " · arrival not confirmed"
+                    (t?.let { " · ${RailTime.formatRailMinute(it)}" } ?: "") + timingCaution
             } else nextLabel(next, route, alightSeq, pos.provenance == SourceKind.CACHED),
             progressLabel = progressLabel,
             progressPct = progressPct,

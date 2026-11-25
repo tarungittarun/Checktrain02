@@ -46,6 +46,13 @@ object WimtLiveProvider {
     private const val MAX_RESPONSE_BYTES = 1_000_000
     const val FRESH_UPDATE_MAX_AGE_MS = 10 * 60_000L
     const val UPDATE_STAMP_FUTURE_TOLERANCE_MS = 120_000L
+    const val NEAR_FUTURE_FALLBACK_GRACE_MS = 2_000L
+    private const val FALLBACK_RECHECK_PADDING_MS = 150L
+
+    /** Brief local wait for a tiny positive clock offset; it never makes the stamp fresh early. */
+    fun fallbackWaitForNearFutureStamp(aheadByMillis: Long?): Long? =
+        aheadByMillis?.takeIf { it in 1..NEAR_FUTURE_FALLBACK_GRACE_MS }
+            ?.plus(FALLBACK_RECHECK_PADDING_MS)
 
     /** One direct GET for the selected train/run; not `.org.in` or the app's comparison-only parser. The endpoint may itself be cached. */
     internal fun requestUrl(trainNo: String, dayStr: String): String =

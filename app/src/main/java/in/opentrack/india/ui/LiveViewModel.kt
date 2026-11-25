@@ -1108,7 +1108,19 @@ class LiveViewModel(
                     }
                     Diary.get()?.log("SOURCE", "refresh first: $selected; official only if no other usable source")
                     probeSource(selected, select = true)?.join()
-                    val current = _ui.value ?: return@launch
+                    var current = _ui.value ?: return@launch
+                    if (selected == TrackingSources.WIMT) {
+                        val fallbackRecheckWait = WimtLiveProvider.fallbackWaitForNearFutureStamp(
+                            current.wimtLiveEvidence?.sourceUpdateAheadByMillis)
+                        if (fallbackRecheckWait != null) {
+                            // Do not fall back to an older source solely because its server clock is
+                            // a moment ahead. Keep it unqualified until the same response stamp has
+                            // had time to catch the device clock, then re-read the state; no extra
+                            // request is made and no freshness is granted early.
+                            delay(fallbackRecheckWait)
+                            current = _ui.value ?: return@launch
+                        }
+                    }
                     val state = current.sourceStates[selected]?.first
                     val now = System.currentTimeMillis()
                     val siteEvent = current.orgWebsiteReport?.let {

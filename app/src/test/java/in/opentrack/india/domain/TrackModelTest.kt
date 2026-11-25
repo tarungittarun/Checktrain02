@@ -106,6 +106,22 @@ class TrackModelTest {
     }
 
     @Test
+    fun positionOnlyMarksTheNextTimetableClockAsPastWhenItsScheduledMinuteHasPassed() {
+        val r = overnightRoute()
+        val report = mapOf("SRC" to LiveStopFields(actualDepartureMin = 1387,
+            delayDepartureMin = 7))
+        val m = TrackModel.build(
+            r, pos(1, 2, StopStatus.DEPARTED, delay = 7, kind = SourceKind.PROVIDER),
+            report, 1455, 1, 3, 19949L, null, positionOnly = true)
+
+        assertEquals(
+            "Next scheduled: MID Jn · 00:00 (+1d) · schedule time passed; arrival unreported",
+            m.nextLabel,
+        )
+        assertEquals(TrackModel.MinuteSource.SCHEDULE, m.rows[1].source)
+    }
+
+    @Test
     fun stationClaimCannotTurnTheScheduledMinuteIntoAReportedPassageTime() {
         val m = TrackModel.build(route(),
             pos(2, 3, StopStatus.DEPARTED, kind = SourceKind.PROVIDER_OVERRIDE).copy(

@@ -116,6 +116,14 @@ class WimtLiveProviderTest {
     }
 
     @Test
+    fun tinyFutureFeedStampWaitsBrieflyBeforeFallbackWithoutBecomingFreshEarly() {
+        // The attached 20652 diary had source stamps 378–405ms ahead of device time.
+        assertEquals(555L, WimtLiveProvider.fallbackWaitForNearFutureStamp(405L))
+        assertNull(WimtLiveProvider.fallbackWaitForNearFutureStamp(2_001L))
+        assertNull(WimtLiveProvider.fallbackWaitForNearFutureStamp(null))
+    }
+
+    @Test
     fun strictAlertQualificationRequiresExplicitRunRouteAndFreshSourceStamp() {
         val datedAndRouted = WimtLiveProvider.parse(
             sampleJson, "12089", route, 20766L, 1794243000000L)
